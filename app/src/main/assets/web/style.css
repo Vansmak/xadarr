@@ -1,0 +1,46 @@
+[x-cloak] { display: none !important; }
+
+body { background-color: #111827; }
+
+.input-field {
+  width: 100%;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: #e5e7eb;
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  outline: none;
+  border-color: #7c3aed;
+}
+
+.btn-primary {
+  background: #7c3aed;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s;
+}
+.btn-primary:hover { background: #6d28d9; }
+.btn-primary:active { background: #5b21b6; }
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+
+.media-card {
+  cursor: pointer;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }

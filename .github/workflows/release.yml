@@ -1,0 +1,76 @@
+name: Release APK
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build & release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Extract version
+        id: ver
+        run: |
+          VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -1 | grep -oP '"\K[^"]+')
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if release already exists
+        id: check
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" &>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup secrets
+        if: steps.check.outputs.skip == 'false'
+        run: cp secrets.defaults.properties secrets.properties
+
+      - name: Build APK
+        if: steps.check.outputs.skip == 'false'
+        run: ./gradlew :app:assembleSideloadDebug --no-daemon
+
+      - name: Locate and rename APK
+        if: steps.check.outputs.skip == 'false'
+        id: apk
+        run: |
+          SRC=$(find app/build/outputs/apk/sideload/debug -name "*.apk" | head -1)
+          DEST="app/build/outputs/apk/sideload/debug/arvio-${{ steps.ver.outputs.name }}.apk"
+          mv "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog notes
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          awk "/\[${{ steps.ver.outputs.name }}\]/{found=1; next} found && /^\[/{exit} found" \
+            CHANGELOG.md > release_notes.md
+
+      - name: Create release
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --title "Arvio ${{ steps.ver.outputs.name }}" \
+            --notes-file release_notes.md \
+            "${{ steps.apk.outputs.path }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

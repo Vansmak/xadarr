@@ -1,0 +1,96 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body { font-family: ui-sans-serif, system-ui, sans-serif; }
+
+.input-field {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  color: #f3f4f6;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-field:focus { border-color: #3b82f6; }
+.input-field::placeholder { color: #6b7280; }
+
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: none;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  background: #374151;
+  color: #e5e7eb;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: none;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn-secondary:hover { background: #4b5563; }
+
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  margin-bottom: 0.75rem;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+
+.media-card {
+  position: relative;
+  cursor: pointer;
+}
+.media-card:hover img { opacity: 0.85; }
+.media-card img { transition: opacity 0.15s; }
+
+.watchlist-btn {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  background: rgba(0,0,0,0.6);
+  border: none;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.media-card:hover .watchlist-btn { opacity: 1; }
+
+.line-clamp-4 {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }

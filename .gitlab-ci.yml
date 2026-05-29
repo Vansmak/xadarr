@@ -1,0 +1,38 @@
+image: mingc/android-build-box:latest
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
+  ANDROID_COMPILE_SDK: "35"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .gradle/
+    - app/.gradle/
+    - build/
+    - app/build/
+
+stages:
+  - build
+
+build:debug:
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    # Use CI variables if available, otherwise fall back to defaults (sufficient for a build check)
+    - cp secrets.defaults.properties secrets.properties
+    - chmod +x ./gradlew
+  script:
+    - ./gradlew assemblePlayDebug --stacktrace
+  artifacts:
+    when: on_success
+    expire_in: 3 days
+    paths:
+      - app/build/outputs/apk/play/debug/*.apk

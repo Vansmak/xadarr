@@ -1,0 +1,13 @@
+services:
+  xadarr-server:
+    build: .
+    container_name: xadarr-server
+    restart: unless-stopped
+    ports:
+      - "${PORT:-7979}:7979"
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=7979
+      # Optional: set TMDB_API_KEY here or configure it via the web dashboard
+      # - TMDB_API_KEY=your_key_here

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Xadarr TV Splash Theme - Shows immediately on app launch -->
+    <style name="Theme.ArflixTV.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/background_dark</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
+        <!-- Post-splash transitions to Mobile theme (no fullscreen).
+             TV overrides this in MainActivity.onCreate() before super. -->
+        <item name="postSplashScreenTheme">@style/Theme.ArflixTV.Mobile</item>
+        <item name="android:windowBackground">@color/background_dark</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
+    <!-- Xadarr TV Theme - Arctic Fuse 2 Inspired (TV devices only) -->
+    <style name="Theme.ArflixTV" parent="@style/Theme.Leanback">
+        <item name="android:windowBackground">@color/background_dark</item>
+        <item name="android:colorBackground">@color/background_dark</item>
+        <item name="android:colorPrimary">@color/arctic_white</item>
+        <item name="android:colorAccent">@color/accent_white</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
+    <!-- Xadarr Mobile Theme - Normal app bar behaviour (phones/tablets) -->
+    <style name="Theme.ArflixTV.Mobile" parent="@style/Theme.ArflixTV">
+        <!-- Override the TV fullscreen flag so status bar and nav bar are visible -->
+        <item name="android:windowFullscreen">false</item>
+        <!-- Transparent bars — the dark app background shows through naturally -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>
+

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xadarr Server</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+  <script src="/app.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="xadarr()" x-init="init()">
+
+  <!-- Header -->
+  <header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-4">
+    <span class="font-bold text-lg tracking-tight" x-text="serverName || 'Xadarr Server'"></span>
+    <div class="flex-1"></div>
+    <span class="text-xs px-2 py-1 rounded" :class="wsConnected ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-500'"
+          x-text="wsConnected ? 'Live' : 'Offline'"></span>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="bg-gray-900 border-b border-gray-800 px-6 flex gap-1">
+    <template x-for="tab in tabs" :key="tab.id">
+      <button
+        class="px-4 py-3 text-sm font-medium transition-colors border-b-2"
+        :class="activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-200'"
+        @click="activeTab = tab.id; if (tab.id === 'history') loadHistory()"
+        x-text="tab.label">
+      </button>
+    </template>
+  </nav>
+
+  <!-- ── Settings Tab ── -->
+  <div x-show="activeTab === 'settings'" class="max-w-2xl mx-auto p-6 space-y-8">
+
+    <!-- Server -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Server</h2>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Server Name</label>
+        <input class="input-field w-full" type="text" x-model="serverConfig.server_name" placeholder="Xadarr Server">
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <button class="btn-primary" @click="saveServerConfig()">Save</button>
+        <span class="text-sm" :class="serverSaveStatus === 'Saved!' ? 'text-green-400' : 'text-red-400'" x-text="serverSaveStatus" x-show="serverSaveStatus"></span>
+      </div>
+    </section>
+
+    <!-- Profile -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Profile</h2>
+      <p class="text-xs text-gray-500 mb-3">The profile name created on the TV app when it restores from this server.</p>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Profile Name</label>
+        <input class="input-field w-64" type="text" x-model="profileName" placeholder="e.g. Joe">
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <button class="btn-primary" @click="saveProfile()">Save</button>
+        <span class="text-sm" :class="profileSaveStatus === 'Saved!' ? 'text-green-400' : 'text-red-400'" x-text="profileSaveStatus" x-show="profileSaveStatus"></span>
+      </div>
+    </section>
+
+    <!-- API Keys -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">API Keys</h2>
+      <p class="text-xs text-gray-500 mb-3">These sync to the Xadarr TV app on first connection — no keys needed in the APK.</p>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">TMDB API Key</label>
+          <input class="input-field w-full" type="password" x-model="settings.tmdb_api_key" placeholder="Get one free at themoviedb.org">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Trakt Client ID</label>
+          <input class="input-field w-full" type="password" x-model="settings.trakt_client_id" placeholder="From trakt.tv → Settings → Your API Apps">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Trakt Client Secret</label>
+          <input class="input-field w-full" type="password" x-model="settings.trakt_client_secret" placeholder="From the same Trakt API app">
+        </div>
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <button class="btn-primary" @click="saveApiKeys()">Save API Keys</button>
+        <span class="text-sm text-green-400" x-show="saveStatus === 'Saved!'" x-text="saveStatus"></span>
+        <span class="text-sm text-red-400" x-show="saveStatus && saveStatus !== 'Saved!'" x-text="saveStatus"></span>
+      </div>
+    </section>
+
+    <!-- Home Servers -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Home Servers</h2>
+      <div class="space-y-2 mb-4">
+        <template x-for="srv in homeServers" :key="srv.connectionId">
+          <div class="bg-gray-900 rounded-lg p-3 flex items-center gap-3">
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium" x-text="srv.displayName || srv.serverUrl"></div>
+              <div class="text-xs text-gray-400" x-text="srv.serverKind + (srv.userName ? ' · ' + srv.userName : '')"></div>
+            </div>
+            <button class="text-xs text-red-400 hover:text-red-300" @click="deleteServer(srv.connectionId)">Remove</button>
+          </div>
+        </template>
+        <div x-show="homeServers.length === 0" class="text-sm text-gray-500">No servers added yet.</div>
+      </div>
+      <div class="bg-gray-900 rounded-lg p-4 space-y-3">
+        <div class="text-xs text-gray-400 font-medium uppercase tracking-wider">Add Server</div>
+        <div class="flex gap-2">
+          <select class="input-field" x-model="newServer.kind">
+            <option value="">Auto-detect</option>
+            <option value="JELLYFIN">Jellyfin</option>
+            <option value="EMBY">Emby</option>
+            <option value="PLEX">Plex</option>
+          </select>
+          <input class="input-field flex-1" type="text" x-model="newServer.url" placeholder="http://192.168.1.x:8096" @keydown.enter="connectServer()">
+        </div>
+        <div x-show="newServer.kind !== 'PLEX'" class="flex gap-2">
+          <input class="input-field flex-1" type="text" x-model="newServer.username" placeholder="Username">
+          <input class="input-field flex-1" type="password" x-model="newServer.password" placeholder="Password">
+        </div>
+        <div x-show="newServer.kind === 'PLEX'">
+          <input class="input-field w-full" type="password" x-model="newServer.token" placeholder="X-Plex-Token (from plex.tv → Account → Security)">
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="btn-primary" @click="connectServer()" :disabled="serverConnecting" x-text="serverConnecting ? 'Connecting…' : 'Connect'"></button>
+          <span class="text-sm text-red-400" x-show="serverError" x-text="serverError"></span>
+          <span class="text-sm text-green-400" x-show="serverSuccess" x-text="serverSuccess"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- IPTV -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">IPTV</h2>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">M3U Playlist URL</label>
+          <input class="input-field w-full" type="text" x-model="iptv.m3uUrl" placeholder="http://provider/playlist.m3u">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">EPG URL (optional)</label>
+          <input class="input-field w-full" type="text" x-model="iptv.epgUrl" placeholder="http://provider/epg.xml">
+        </div>
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <button class="btn-primary" @click="saveIptv()">Save</button>
+        <span class="text-sm text-green-400" x-show="iptvStatus === 'Saved!'" x-text="iptvStatus"></span>
+      </div>
+    </section>
+
+    <!-- Webhooks -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-1">Webhooks</h2>
+      <p class="text-xs text-gray-500 mb-4">POST playback events to any URL — Episeerr, Home Assistant, n8n, or any custom endpoint.</p>
+
+      <div class="flex items-center gap-3 mb-4">
+        <input type="checkbox" id="webhookEnabled" x-model="webhook.enabled" class="w-4 h-4 accent-blue-500">
+        <label for="webhookEnabled" class="text-sm">Enable webhook</label>
+      </div>
+
+      <div class="space-y-4" x-show="webhook.enabled">
+
+        <!-- Per-URL entries with individual event selection -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-2">Webhook URLs</label>
+          <div class="space-y-3 mb-2">
+            <template x-for="(entry, idx) in webhook.urls" :key="idx">
+              <div class="border border-gray-700 rounded-lg p-3 space-y-2">
+                <div class="flex gap-2 items-center">
+                  <input class="input-field flex-1" type="text" x-model="entry.url"
+                         placeholder="http://192.168.x.x:5002/api/integration/xadarr/webhook">
+                  <button class="btn-secondary text-xs px-2 shrink-0"
+                          @click="testWebhookUrl(idx, entry)"
+                          :disabled="!entry.url.trim()">Test</button>
+                  <span x-show="webhookUrlTestResults[idx]"
+                        :class="webhookUrlTestResults[idx]?.ok ? 'text-green-400' : (webhookUrlTestResults[idx]?.ok === false ? 'text-red-400' : 'text-gray-400')"
+                        class="text-xs shrink-0"
+                        x-text="webhookUrlTestResults[idx]?.text"></span>
+                  <button class="text-xs text-red-400 hover:text-red-300 px-2 shrink-0" @click="removeWebhookUrl(idx)">✕</button>
+                </div>
+                <div class="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                  <template x-for="ev in [['start','Start'],['pause','Pause'],['resume','Resume'],['stop','Stop'],['progress','Progress'],['watchlist.add','WL Add'],['watchlist.remove','WL Remove']]" :key="ev[0]">
+                    <label class="flex items-center gap-1 text-xs cursor-pointer select-none">
+                      <input type="checkbox" :value="ev[0]" x-model="entry.events" class="accent-blue-500 w-3 h-3">
+                      <span x-text="ev[1]"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div class="flex gap-2 items-center">
+              <input class="input-field flex-1" type="text" x-model="newWebhookUrl"
+                     placeholder="Add webhook URL…" @keydown.enter="addWebhookUrl()">
+              <button class="btn-secondary text-xs px-3" @click="addWebhookUrl()">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress interval — global, applies to all URLs with 'progress' event -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Progress interval (seconds)</label>
+          <input class="input-field w-28" type="number" min="5" x-model="webhook.intervalSeconds" placeholder="30">
+        </div>
+
+        <!-- Completion threshold -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Completion threshold (%)</label>
+          <input class="input-field w-28" type="number" min="50" max="99" x-model="webhook.completionPercent" placeholder="80">
+          <p class="text-xs text-gray-600 mt-1">Mark as watched after this % of runtime.</p>
+        </div>
+
+        <!-- Custom headers -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-2">Custom Headers</label>
+          <div class="space-y-2">
+            <template x-for="(header, idx) in webhook.headers" :key="idx">
+              <div class="flex gap-2 items-center">
+                <input class="input-field w-40" type="text" x-model="header.key" placeholder="Authorization">
+                <input class="input-field flex-1" type="text" x-model="header.value" placeholder="Bearer xxx">
+                <button class="text-xs text-red-400 hover:text-red-300 px-2" @click="removeWebhookHeader(idx)">✕</button>
+              </div>
+            </template>
+            <div class="flex gap-2 items-center">
+              <input class="input-field w-40" type="text" x-model="newHeaderKey" placeholder="Header name" @keydown.enter="addWebhookHeader()">
+              <input class="input-field flex-1" type="text" x-model="newHeaderValue" placeholder="Value" @keydown.enter="addWebhookHeader()">
+              <button class="btn-secondary text-xs px-3" @click="addWebhookHeader()">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Last fired -->
+        <div x-show="webhookLastFired" class="text-xs text-gray-500">
+          Last fired: <span x-text="formatDate(webhookLastFired?.timestamp)"></span>
+          <span x-show="webhookLastFired?.status_code" class="ml-2"
+                :class="webhookLastFired?.success ? 'text-green-400' : 'text-red-400'"
+                x-text="'HTTP ' + (webhookLastFired?.status_code ?? '—')"></span>
+          <span x-show="!webhookLastFired?.status_code && webhookLastFired?.error" class="ml-2 text-red-400" x-text="webhookLastFired?.error"></span>
+        </div>
+
+      </div><!-- /x-show webhook.enabled -->
+
+      <div class="mt-4 flex items-center gap-3">
+        <button class="btn-primary" @click="saveWebhookSettings()">Save</button>
+        <span class="text-sm" :class="webhookSaveStatus === 'Saved!' ? 'text-green-400' : 'text-red-400'" x-text="webhookSaveStatus" x-show="webhookSaveStatus"></span>
+      </div>
+
+    </section>
+
+    <!-- Watchlist API -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-1">Watchlist API</h2>
+      <p class="text-xs text-gray-500 mb-4">Serves <code class="text-gray-300">GET /watchlist</code> on your TV device so any tool on your LAN can poll it.</p>
+
+      <div class="flex items-center gap-3 mb-4">
+        <input type="checkbox" id="watchlistEnabled" x-model="watchlistApi.enabled" class="w-4 h-4 accent-blue-500">
+        <label for="watchlistEnabled" class="text-sm">Enable watchlist API on TV</label>
+      </div>
+
+      <div x-show="watchlistApi.enabled">
+        <label class="block text-xs text-gray-400 mb-1">Port</label>
+        <input class="input-field w-28" type="text" x-model="watchlistApi.port" placeholder="7979">
+      </div>
+
+      <div class="mt-4 flex items-center gap-3">
+        <button class="btn-primary" @click="saveWatchlistSettings()">Save</button>
+        <span class="text-sm" :class="watchlistSaveStatus === 'Saved!' ? 'text-green-400' : 'text-red-400'" x-text="watchlistSaveStatus" x-show="watchlistSaveStatus"></span>
+      </div>
+    </section>
+
+    <!-- Plugins & Addons -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Plugins &amp; Addons</h2>
+      <p class="text-xs text-gray-500 mb-3">Stremio-compatible addon sources for extra streaming catalogs and metadata.</p>
+
+      <div class="space-y-2 mb-4">
+        <template x-for="addon in addons" :key="addon.id">
+          <div class="bg-gray-900 rounded-lg p-3 flex items-center gap-3">
+            <img x-show="addon.logo" :src="addon.logo" class="w-8 h-8 rounded object-cover shrink-0" @error="$el.style.display='none'">
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium" x-text="addon.name"></div>
+              <div class="text-xs text-gray-400 truncate" x-text="addon.description"></div>
+            </div>
+            <button class="text-xs text-red-400 hover:text-red-300" @click="deleteAddon(addon.id)">Remove</button>
+          </div>
+        </template>
+        <div x-show="addons.length === 0" class="text-sm text-gray-500">No addons installed.</div>
+      </div>
+
+      <div class="flex gap-2">
+        <input class="input-field flex-1" type="text" x-model="newAddonUrl" placeholder="https://addon.example.com/manifest.json" @keydown.enter="addAddon()">
+        <button class="btn-primary" @click="addAddon()" :disabled="addonAdding" x-text="addonAdding ? 'Adding…' : 'Add'"></button>
+      </div>
+      <div class="mt-2 text-sm" x-show="addonStatus" :class="addonStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'" x-text="addonStatus"></div>
+    </section>
+
+    <!-- Backup / Restore -->
+    <section>
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Backup &amp; Restore</h2>
+      <div class="flex gap-3">
+        <a :href="origin + '/api/integration/xadarr/settings/backup'" class="btn-primary text-sm" download="xadarr_settings_backup.json">
+          Download Backup
+        </a>
+        <label class="btn-secondary text-sm cursor-pointer">
+          Restore from Backup
+          <input type="file" class="hidden" accept=".json" @change="restoreBackup($event)">
+        </label>
+      </div>
+      <p x-show="restoreStatus" class="mt-2 text-sm" :class="restoreStatus === 'Restored!' ? 'text-green-400' : 'text-red-400'" x-text="restoreStatus"></p>
+    </section>
+
+  </div>
+
+  <!-- ── Media Tab ── -->
+  <div x-show="activeTab === 'media'" class="p-6 space-y-8">
+
+    <!-- Search -->
+    <div class="max-w-lg">
+      <input
+        class="input-field w-full"
+        type="text"
+        placeholder="Search movies & TV shows…"
+        x-model="searchQuery"
+        @input.debounce.400ms="onSearchInput()">
+    </div>
+
+    <!-- Search results -->
+    <div x-show="searchResults.length > 0">
+      <h2 class="section-title">Search Results</h2>
+      <div class="media-grid">
+        <template x-for="item in searchResults" :key="item.id + item.mediaType">
+          <div class="media-card group" @click="openMediaDetail(item)">
+            <img :src="item.image" :alt="item.title" loading="lazy" class="w-full aspect-[2/3] object-cover rounded">
+            <div class="mt-1 text-xs truncate" x-text="item.title"></div>
+            <div class="text-xs text-gray-500" x-text="item.mediaType === 'show' ? 'TV' : 'Movie'"></div>
+            <button class="watchlist-btn" :class="item.inWatchlist ? 'text-blue-400' : 'text-gray-500'"
+                    @click.stop="toggleWatchlist(item)" :title="item.inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'">
+              <span x-text="item.inWatchlist ? '★' : '☆'"></span>
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Trending -->
+    <div x-show="!searchQuery">
+      <h2 class="section-title">Trending</h2>
+      <div x-show="trendingItems.length === 0 && !tmdbConfigured" class="text-sm text-gray-500">
+        Configure your TMDB API key in Settings to enable trending and search.
+      </div>
+      <div class="media-grid">
+        <template x-for="item in trendingItems" :key="item.id + item.mediaType">
+          <div class="media-card group" @click="openMediaDetail(item)">
+            <img :src="item.image" :alt="item.title" loading="lazy" class="w-full aspect-[2/3] object-cover rounded">
+            <div class="mt-1 text-xs truncate" x-text="item.title"></div>
+            <div class="text-xs text-gray-500" x-text="item.mediaType === 'show' ? 'TV' : 'Movie'"></div>
+            <button class="watchlist-btn" :class="item.inWatchlist ? 'text-blue-400' : 'text-gray-500'"
+                    @click.stop="toggleWatchlist(item)" :title="item.inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'">
+              <span x-text="item.inWatchlist ? '★' : '☆'"></span>
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Watchlist -->
+    <div>
+      <h2 class="section-title">Watchlist <span class="text-gray-500 text-sm font-normal" x-text="watchlistItems.length ? '(' + watchlistItems.length + ')' : ''"></span></h2>
+      <div x-show="watchlistItems.length === 0" class="text-sm text-gray-500">Your watchlist is empty.</div>
+      <div class="media-grid">
+        <template x-for="item in watchlistItems" :key="item.id + item.mediaType">
+          <div class="media-card group" @click="openMediaDetail(item)">
+            <img :src="item.image" :alt="item.title" loading="lazy" class="w-full aspect-[2/3] object-cover rounded">
+            <div class="mt-1 text-xs truncate" x-text="item.title"></div>
+            <div class="text-xs text-gray-500" x-text="item.mediaType === 'show' ? 'TV' : 'Movie'"></div>
+            <button class="watchlist-btn text-blue-400" @click.stop="removeFromWatchlist(item)" title="Remove from watchlist">★</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── History Tab ── -->
+  <div x-show="activeTab === 'history'" class="p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="section-title mb-0">Playback History</h2>
+      <button x-show="historyItems.length > 0" class="btn-secondary text-sm" @click="clearHistory()">Clear all</button>
+    </div>
+    <div x-show="historyItems.length === 0" class="text-sm text-gray-500">No playback history yet. Webhook events from the Xadarr app will appear here.</div>
+    <div class="space-y-2 max-w-3xl">
+      <template x-for="(entry, idx) in historyItems" :key="idx">
+        <div class="bg-gray-900 rounded p-3 flex items-start gap-4">
+          <span class="text-xs text-gray-500 w-28 shrink-0 pt-0.5" x-text="formatDate(entry.timestamp)"></span>
+          <span class="text-xs px-1.5 py-0.5 rounded shrink-0"
+                :class="{
+                  'bg-green-900 text-green-300': entry.event === 'start',
+                  'bg-yellow-900 text-yellow-300': entry.event === 'pause',
+                  'bg-gray-700 text-gray-300': entry.event === 'stop' || entry.event === 'finish',
+                  'bg-blue-900 text-blue-300': entry.event === 'progress',
+                }"
+                x-text="entry.event"></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium truncate" x-text="entry.title || '—'"></div>
+            <div x-show="entry.episodeTitle" class="text-xs text-gray-400 truncate" x-text="entry.episodeTitle"></div>
+          </div>
+          <div x-show="entry.positionMs > 0" class="text-xs text-gray-500 shrink-0" x-text="formatMs(entry.positionMs)"></div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ── Player Tab ── -->
+  <div x-show="activeTab === 'player'" class="p-6 max-w-4xl mx-auto space-y-4">
+
+    <!-- Now playing on TV -->
+    <div x-show="playerState.isPlaying || playerState.isPaused" class="bg-gray-900 rounded-lg p-4">
+      <div class="text-xs text-gray-400 uppercase tracking-wider mb-1">Playing on TV</div>
+      <div class="font-medium" x-text="playerState.title"></div>
+      <div x-show="playerState.episodeTitle" class="text-sm text-gray-400" x-text="playerState.episodeTitle"></div>
+      <div x-show="!playerState.isLive && playerState.durationMs > 0" class="mt-2">
+        <div class="flex justify-between text-xs text-gray-500 mb-1">
+          <span x-text="formatMs(playerState.positionMs)"></span>
+          <span x-text="formatMs(playerState.durationMs)"></span>
+        </div>
+        <div class="h-1 bg-gray-700 rounded">
+          <div class="h-1 bg-blue-500 rounded" :style="`width: ${playerState.durationMs > 0 ? Math.round(playerState.positionMs / playerState.durationMs * 100) : 0}%`"></div>
+        </div>
+      </div>
+      <div x-show="playerState.isLive" class="mt-2 text-xs text-red-400 font-medium">● LIVE</div>
+      <div x-show="playerState.isPaused" class="text-xs text-yellow-400 mt-1">Paused</div>
+    </div>
+
+    <div x-show="!playerState.isPlaying && !playerState.isPaused" class="text-sm text-gray-500">
+      Nothing playing. Player events from the Xadarr TV app appear here via webhook.
+    </div>
+
+    <!-- Manual stream player -->
+    <div class="bg-gray-900 rounded-lg p-4 space-y-3">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">Play a stream in browser</div>
+      <div class="flex gap-2">
+        <input class="input-field flex-1" type="text" x-model="manualStreamUrl" placeholder="https://example.com/stream.m3u8" @keydown.enter="playManualStream()">
+        <button class="btn-primary" @click="playManualStream()" :disabled="!manualStreamUrl">Play</button>
+      </div>
+      <div x-show="currentStreamUrl">
+        <video id="mainPlayer" class="w-full rounded bg-black" controls></video>
+        <div class="text-sm text-gray-400 mt-1 truncate" x-text="currentStreamTitle || currentStreamUrl"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Media Detail Modal ── -->
+  <div x-show="selectedItem" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" @click.self="selectedItem = null">
+    <div class="bg-gray-900 rounded-xl max-w-md w-full p-6 space-y-4" x-show="selectedItem">
+      <div class="flex gap-4">
+        <img x-show="selectedItem?.image" :src="selectedItem?.image" class="w-24 rounded shrink-0 aspect-[2/3] object-cover">
+        <div class="flex-1 min-w-0">
+          <h3 class="font-semibold text-lg leading-tight" x-text="selectedItem?.title"></h3>
+          <p class="text-xs text-gray-400 mt-1" x-text="(selectedItem?.mediaType === 'show' ? 'TV Show' : 'Movie') + (selectedItem?.year ? ' · ' + selectedItem?.year : '')"></p>
+          <p x-show="selectedItem?.rating" class="text-xs text-yellow-400 mt-1" x-text="'★ ' + (selectedItem?.rating?.toFixed(1) || '')"></p>
+        </div>
+      </div>
+      <p class="text-sm text-gray-300 line-clamp-4" x-text="selectedItem?.overview"></p>
+      <div class="flex gap-2 flex-wrap">
+        <button
+          class="btn-primary flex-1"
+          @click="toggleWatchlist(selectedItem); selectedItem = null"
+          x-text="selectedItem?.inWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist'">
+        </button>
+        <button class="btn-secondary" @click="selectedItem = null">Close</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,14 @@
+.gradle/
+app/build/
+build/
+local.properties
+secrets.properties
+keystore.properties
+*.keystore
+*.jks
+CLAUDE.md
+.claude/
+__pycache__/
+*.pyc
+xadarr-server/data/
+xadarr-server/__pycache__/
