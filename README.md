@@ -71,9 +71,7 @@ For full release history, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Availability
 
-Xadarr is available on Google Play:
-
-[<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" width="160">](https://play.google.com/store/apps/details?id=com.xadarr.tv)
+Xadarr is distributed as a sideload APK. Download the latest release from [Releases](https://github.com/Vansmak/xadarr/releases).
 
 ## Screenshots
 
