@@ -1,20 +1,13 @@
 package com.arflix.tv.ui.screens.home
 
 import android.graphics.drawable.Drawable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.arflix.tv.ui.skin.ArvioFocusableSurface
+import com.arflix.tv.ui.skin.ArvioSkin
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +33,7 @@ fun AppLauncherCard(
     label: String,
     isFocused: Boolean,
     onClick: () -> Unit,
+    onFocused: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -50,50 +46,47 @@ fun AppLauncherCard(
         icon = drawable?.toBitmap()?.asImageBitmap()
     }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1f,
-        animationSpec = tween(120),
-        label = "appCardScale"
-    )
+    val shape = RoundedCornerShape(12.dp)
 
     Column(
-        modifier = modifier
-            .width(90.dp)
-            .scale(scale),
+        modifier = modifier.width(90.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isFocused) Color(0xFF2A2A3E) else Color(0xFF1A1A2A)),
-            contentAlignment = Alignment.Center
-        ) {
+        ArvioFocusableSurface(
+            modifier = Modifier.size(80.dp),
+            shape = shape,
+            backgroundColor = ArvioSkin.colors.surface,
+            outlineColor = ArvioSkin.colors.focusOutline,
+            outlineWidth = ArvioSkin.focus.outlineWidth,
+            focusedScale = 1.08f,
+            pressedScale = 0.97f,
+            enableSystemFocus = false,
+            isFocusedOverride = isFocused,
+            onClick = onClick,
+            onFocusChanged = { focused -> if (focused) onFocused() },
+        ) { _ ->
             val bmp = icon
             if (bmp != null) {
                 Image(
                     bitmap = bmp,
                     contentDescription = label,
                     modifier = Modifier
-                        .size(64.dp)
+                        .fillMaxSize()
+                        .padding(8.dp)
                         .clip(RoundedCornerShape(8.dp))
                 )
             } else {
-                Text(
-                    text = label.take(1).uppercase(),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextSecondary
-                )
-            }
-
-            if (isFocused) {
                 Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x33FFFFFF))
-                )
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label.take(1).uppercase(),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                }
             }
         }
 

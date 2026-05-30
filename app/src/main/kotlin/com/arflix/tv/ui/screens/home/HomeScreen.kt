@@ -3522,6 +3522,7 @@ private fun ContentRow(
                         packageName = packageName,
                         label = item.title,
                         isFocused = itemIsFocused,
+                        onFocused = onCardFocused,
                         onClick = {
                             appContext.packageManager
                                 .getLaunchIntentForPackage(packageName)
