@@ -198,6 +198,7 @@ fun AppNavigation(
                     if (active) liveTvPlayerViewModel.dismiss()
                     active
                 },
+                onDismissMiniPlayer = { liveTvPlayerViewModel.dismiss() },
                 onPlayChannelInMiniPlayer = { streamUrl, channelId, channelName, programTitle ->
                     liveTvPlayerViewModel.playFromHome(
                         channelId = channelId,

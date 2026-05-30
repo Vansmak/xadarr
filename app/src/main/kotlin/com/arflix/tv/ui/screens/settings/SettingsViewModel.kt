@@ -204,6 +204,7 @@ data class SettingsUiState(
     val webhookCompletionPercent: Int = 90,
     // Arvio sync server URL — arvio-server instance for full settings sync
     val syncServerUrl: String = "",
+    val pinnedApps: List<String> = emptyList(),
 )
 
 @HiltViewModel
@@ -484,6 +485,9 @@ class SettingsViewModel @Inject constructor(
             val watchlistApiEnabled = prefs[watchlistApiEnabledKey] ?: false
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
+            val pinnedApps = prefs[com.arflix.tv.data.repository.PINNED_APPS_KEY]
+                ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+                ?: listOf("org.smarttube.stable", "org.smarttube.beta", "com.cxinventor.file.explorer", "com.android.tv.settings")
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -557,6 +561,7 @@ class SettingsViewModel @Inject constructor(
                 watchlistApiPort = watchlistApiPort,
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
+                pinnedApps = pinnedApps,
             )
         }
     }
@@ -1283,6 +1288,14 @@ class SettingsViewModel @Inject constructor(
             } else {
                 webAppServer.stop()
             }
+        }
+    }
+
+    fun setPinnedApps(packages: List<String>) {
+        viewModelScope.launch {
+            val value = packages.joinToString(",")
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.PINNED_APPS_KEY] = value }
+            _uiState.value = _uiState.value.copy(pinnedApps = packages)
         }
     }
 

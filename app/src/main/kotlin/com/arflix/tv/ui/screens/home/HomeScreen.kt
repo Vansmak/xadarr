@@ -339,8 +339,18 @@ private fun preferredHomeStartRowIndex(categories: List<Category>): Int {
     return 0
 }
 
+private fun launchApp(context: android.content.Context, packageName: String) {
+    val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+        ?: if (packageName == "com.android.tv.settings") {
+            android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+        } else null
+    intent?.let { context.startActivity(it) }
+}
+
 private fun isActionableHomeItem(item: MediaItem?): Boolean {
-    return item != null && item.id > 0 && !item.isPlaceholder
+    if (item == null || item.isPlaceholder) return false
+    if (item.status?.startsWith("app:") == true) return true
+    return item.id > 0
 }
 
 private data class HomeHeroPlaybackHandles(
@@ -548,6 +558,7 @@ fun HomeScreen(
     // Called when Back is pressed and the mini-player overlay is active; returns true to
     // signal that the back event was consumed (mini-player dismissed), false otherwise.
     onInterceptBack: (() -> Boolean)? = null,
+    onDismissMiniPlayer: (() -> Unit)? = null,
     // Called when user selects a channel from the On Now home row — plays in mini-player.
     onPlayChannelInMiniPlayer: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
 ) {
@@ -1161,6 +1172,7 @@ fun HomeScreen(
                 showLiveTvContextMenu = true
             },
             onInterceptBack = onInterceptBack,
+            onDismissMiniPlayer = onDismissMiniPlayer,
             liveChannelEpg = uiState.liveChannelEpg,
             onPlayChannelInMiniPlayer = onPlayChannelInMiniPlayer,
         )
@@ -2308,9 +2320,12 @@ private fun HomeInputLayer(
     onOpenContextMenu: (MediaItem, Boolean) -> Unit,
     onOpenLiveTvContextMenu: ((channelId: String, streamUrl: String, channelName: String) -> Unit)? = null,
     onInterceptBack: (() -> Boolean)? = null,
+    onDismissMiniPlayer: (() -> Unit)? = null,
     liveChannelEpg: Map<Int, com.arflix.tv.data.model.IptvNowNext> = emptyMap(),
     onPlayChannelInMiniPlayer: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
 ) {
+    val context = LocalContext.current
+    val latestDismissMiniPlayer = androidx.compose.runtime.rememberUpdatedState(onDismissMiniPlayer)
     val focusRequester = remember { FocusRequester() }
     var selectPressedInHome by remember { mutableStateOf(false) }
     var selectDownAtMs by remember { mutableLongStateOf(0L) }
@@ -2607,9 +2622,14 @@ private fun HomeInputLayer(
                                         // Must check collection: BEFORE falling through to Details — D-pad SELECT
                                         // on a service tile (Netflix, HBO, ...) was hitting DetailsScreen with the
                                         // synthetic hash id and spamming TMDB 404s instead of opening the catalog.
+                                        val appPackage = item.status?.removePrefix("app:")
+                                            ?.takeIf { item.status?.startsWith("app:") == true && it.isNotBlank() }
                                         val collectionId = item.status?.removePrefix("collection:")
                                             ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
-                                        if (isOnNowRow && iptvId != null) {
+                                        if (appPackage != null) {
+                                            latestDismissMiniPlayer.value?.invoke()
+                                            launchApp(context, appPackage)
+                                        } else if (isOnNowRow && iptvId != null) {
                                             val streamUrl = getIptvStreamUrl(item.id).orEmpty()
                                             if (streamUrl.isNotBlank() && onPlayChannelInMiniPlayer != null) {
                                                 val programTitle = liveChannelEpg[item.id]?.now?.title.orEmpty()
@@ -2697,6 +2717,7 @@ private fun HomeInputLayer(
             onItemLongClick = if (isMobile) { item, isContinue -> onOpenContextMenu(item, isContinue) } else null,
             getLiveChannelEpg = { id -> liveChannelEpg[id] },
             getLiveChannelStreamUrl = getIptvStreamUrl,
+            onBeforeAppLaunch = { latestDismissMiniPlayer.value?.invoke() },
             onLiveTvChannelClick = onPlayChannelInMiniPlayer?.let { play ->
                 { streamUrl, channelId, channelName, programTitle ->
                     play(streamUrl, channelId, channelName, programTitle)
@@ -2724,6 +2745,7 @@ private fun HomeRowsLayer(
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onItemClick: (MediaItem) -> Unit,
     onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null,
+    onBeforeAppLaunch: (() -> Unit)? = null,
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
@@ -2749,6 +2771,7 @@ private fun HomeRowsLayer(
             usePosterCards = usePosterCards,
             onItemFocusedPrefetch = onItemFocusedPrefetch,
             onItemClick = onItemClick,
+            onBeforeAppLaunch = onBeforeAppLaunch,
             getLiveChannelEpg = getLiveChannelEpg,
             getLiveChannelStreamUrl = getLiveChannelStreamUrl,
             onLiveTvChannelClick = onLiveTvChannelClick,
@@ -2899,6 +2922,7 @@ private fun TvHomeRowsLayer(
     usePosterCards: Boolean,
     onItemFocusedPrefetch: (MediaItem) -> Unit = {},
     onItemClick: (MediaItem) -> Unit,
+    onBeforeAppLaunch: (() -> Unit)? = null,
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
@@ -3073,6 +3097,7 @@ private fun TvHomeRowsLayer(
                                 focusState.isSidebarFocused = false
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             },
+                            onBeforeAppLaunch = onBeforeAppLaunch,
                             getLiveChannelEpg = getLiveChannelEpg,
                             getLiveChannelStreamUrl = getLiveChannelStreamUrl,
                             onLiveTvChannelClick = onLiveTvChannelClick,
@@ -3111,6 +3136,7 @@ private fun homeViewportFocusOverlayActive(
     usePosterCards: Boolean
 ): Boolean {
     if (focusedItemIndex < 0 || category.items.isEmpty()) return false
+    if (category.id == HomeViewModel.APPS_CATEGORY_ID) return false
     return category.items.size > 1 && focusedItemIndex <= category.items.lastIndex
 }
 
@@ -3343,6 +3369,7 @@ private fun ContentRow(
     useViewportFocusOverlay: Boolean = false,
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit,
+    onBeforeAppLaunch: (() -> Unit)? = null,
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
@@ -3363,7 +3390,11 @@ private fun ContentRow(
         usePosterCards
     }
     val cardAspectRatio = if (effectivePosterMode) 2f / 3f else 16f / 9f
-    val itemWidth = if (effectivePosterMode) 119.dp else 210.dp
+    val itemWidth = when {
+        isAppsRow -> 90.dp
+        effectivePosterMode -> 119.dp
+        else -> 210.dp
+    }
     val itemSpacing = 14.dp
     val totalItems = category.items.size
     val maxFirstIndex = remember(totalItems) {
@@ -3373,7 +3404,7 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val railFocusOverlayActive = !useViewportFocusOverlay &&
+    val railFocusOverlayActive = !isAppsRow && !useViewportFocusOverlay &&
         isCurrentRow && isScrollable && focusedItemIndex >= 0 && totalItems > 0 &&
         focusedItemIndex <= maxFirstIndex
     val focusedCardIndex = if (railFocusOverlayActive || useViewportFocusOverlay) {
@@ -3523,11 +3554,7 @@ private fun ContentRow(
                         label = item.title,
                         isFocused = itemIsFocused,
                         onFocused = onCardFocused,
-                        onClick = {
-                            appContext.packageManager
-                                .getLaunchIntentForPackage(packageName)
-                                ?.let { appContext.startActivity(it) }
-                        },
+                        onClick = { onBeforeAppLaunch?.invoke(); launchApp(appContext, packageName) },
                     )
                     return@itemsIndexed
                 }

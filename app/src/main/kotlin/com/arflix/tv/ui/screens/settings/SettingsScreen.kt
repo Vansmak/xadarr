@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
@@ -309,6 +310,7 @@ fun SettingsScreen(
     var showCatalogRename by remember { mutableStateOf(false) }
     var renameCatalogId by remember { mutableStateOf("") }
     var renameCatalogTitle by remember { mutableStateOf("") }
+    var showManageAppsDialog by remember { mutableStateOf(false) }
 
     // Input modal states
     var showCustomAddonInput by remember { mutableStateOf(false) }
@@ -703,8 +705,9 @@ fun SettingsScreen(
                                         addonActionIndex = 1
                                     } else if (currentSection == "iptv" && contentFocusIndex in 1..uiState.iptvPlaylists.size && iptvActionIndex < 4) {
                                         iptvActionIndex++
-} else if (currentSection == "catalogs" && contentFocusIndex > 0 && catalogActionIndex < 4) {
-                                        catalogActionIndex++
+} else if (currentSection == "catalogs" && contentFocusIndex > 0) {
+                                        val maxCatalogAction = if (uiState.catalogs.getOrNull(contentFocusIndex - 1)?.id == "installed_apps") 5 else 4
+                                        if (catalogActionIndex < maxCatalogAction) catalogActionIndex++
                                     }
                                 }
                             }
@@ -905,19 +908,31 @@ fun SettingsScreen(
                                             } else {
                                                 val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 1)
                                                 if (catalog != null) {
+                                                    val isAppsCatalog = catalog.id == "installed_apps"
                                                     when (catalogActionIndex) {
                                                         0 -> {
                                                             renameCatalogId = catalog.id
                                                             renameCatalogTitle = catalog.title
                                                             showCatalogRename = true
                                                         }
-                                                        1 -> viewModel.moveCatalogUp(catalog.id)
-                                                        2 -> viewModel.moveCatalogDown(catalog.id)
-                                                        3 -> scope.launch {
+                                                        1 -> if (isAppsCatalog) {
+                                                            showManageAppsDialog = true
+                                                        } else {
+                                                            viewModel.moveCatalogUp(catalog.id)
+                                                        }
+                                                        2 -> if (isAppsCatalog) viewModel.moveCatalogUp(catalog.id) else viewModel.moveCatalogDown(catalog.id)
+                                                        3 -> if (isAppsCatalog) {
+                                                            viewModel.moveCatalogDown(catalog.id)
+                                                        } else scope.launch {
                                                             if (catalog.kind != CatalogKind.COLLECTION_RAIL) {
                                                                 toggleCatalogueRowLayoutMode(context, catalogueLayoutRowKey(catalog))
                                                             }
                                                         }
+                                                        4 -> if (isAppsCatalog) scope.launch {
+                                                            if (catalog.kind != CatalogKind.COLLECTION_RAIL) {
+                                                                toggleCatalogueRowLayoutMode(context, catalogueLayoutRowKey(catalog))
+                                                            }
+                                                        } else viewModel.removeCatalog(catalog.id)
                                                         else -> viewModel.removeCatalog(catalog.id)
                                                     }
                                                 }
@@ -1348,7 +1363,8 @@ fun SettingsScreen(
                             },
                             onMoveCatalogUp = { catalog -> viewModel.moveCatalogUp(catalog.id) },
                             onMoveCatalogDown = { catalog -> viewModel.moveCatalogDown(catalog.id) },
-                            onDeleteCatalog = { catalog -> viewModel.removeCatalog(catalog.id) }
+                            onDeleteCatalog = { catalog -> viewModel.removeCatalog(catalog.id) },
+                            onManageApps = { showManageAppsDialog = true },
                         )
                         "stremio" -> StremioAddonsSettings(
                             addons = stremioAddons,
@@ -1653,6 +1669,17 @@ fun SettingsScreen(
                 onDismiss = {
                     showCatalogRename = false
                 }
+            )
+        }
+
+        if (showManageAppsDialog) {
+            ManageAppsModal(
+                pinnedApps = uiState.pinnedApps,
+                onSave = { packages ->
+                    viewModel.setPinnedApps(packages)
+                    showManageAppsDialog = false
+                },
+                onDismiss = { showManageAppsDialog = false }
             )
         }
 
@@ -6938,7 +6965,8 @@ private fun CatalogsSettings(
     onRenameCatalog: (CatalogConfig) -> Unit,
     onMoveCatalogUp: (CatalogConfig) -> Unit,
     onMoveCatalogDown: (CatalogConfig) -> Unit,
-    onDeleteCatalog: (CatalogConfig) -> Unit
+    onDeleteCatalog: (CatalogConfig) -> Unit,
+    onManageApps: () -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     var selectionMode by remember { mutableStateOf(false) }
@@ -7146,33 +7174,46 @@ private fun CatalogsSettings(
                         )
                     }
                 } else {
+                    val isApps = catalog.id == "installed_apps"
+                    val upIdx = if (isApps) 2 else 1
+                    val downIdx = if (isApps) 3 else 2
+                    val layoutIdx = if (isApps) 4 else 3
+                    val deleteIdx = if (isApps) 5 else 4
                     CatalogActionChip(
                         icon = Icons.Default.Edit,
                         isFocused = isRowFocused && focusedActionIndex == 0,
                         onClick = { onRenameCatalog(catalog) }
                     )
+                    if (isApps) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = Icons.Default.Apps,
+                            isFocused = isRowFocused && focusedActionIndex == 1,
+                            onClick = onManageApps
+                        )
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogActionChip(
                         icon = Icons.Default.ArrowUpward,
-                        isFocused = isRowFocused && focusedActionIndex == 1,
+                        isFocused = isRowFocused && focusedActionIndex == upIdx,
                         onClick = { onMoveCatalogUp(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogActionChip(
                         icon = Icons.Default.ArrowDownward,
-                        isFocused = isRowFocused && focusedActionIndex == 2,
+                        isFocused = isRowFocused && focusedActionIndex == downIdx,
                         onClick = { onMoveCatalogDown(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogueRowLayoutToggleButton(
                         rowKey = layoutRowKey,
                         enabled = layoutToggleEnabled,
-                        forceFocused = isRowFocused && focusedActionIndex == 3
+                        forceFocused = isRowFocused && focusedActionIndex == layoutIdx
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogActionChip(
                         icon = Icons.Default.Delete,
-                        isFocused = isRowFocused && focusedActionIndex == 4,
+                        isFocused = isRowFocused && focusedActionIndex == deleteIdx,
                         isDestructive = true,
                         enabled = true,
                         onClick = { onDeleteCatalog(catalog) }
@@ -7189,6 +7230,162 @@ private fun catalogueLayoutRowKey(catalog: CatalogConfig): String {
         "collection:${catalog.id}"
     } else {
         "home:${catalog.id}"
+    }
+}
+
+@Composable
+private fun ManageAppsModal(
+    pinnedApps: List<String>,
+    onSave: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val pm = context.packageManager
+    val installedApps = remember {
+        val leanback = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LEANBACK_LAUNCHER)
+        val launcher = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        (pm.queryIntentActivities(leanback, 0) + pm.queryIntentActivities(launcher, 0))
+            .distinctBy { it.activityInfo.packageName }
+            .filter { it.activityInfo.packageName != context.packageName }
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .sortedBy { it.second.lowercase() }
+    }
+    // Ordered list of pinned packages — order matters for the home row
+    var pinnedOrder by remember { mutableStateOf(pinnedApps.toMutableList()) }
+    var focusedIdx by remember { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(focusedIdx) {
+        if (focusedIdx < installedApps.size) listState.animateScrollToItem(focusedIdx)
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .fillMaxHeight(0.85f)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A2E))
+                .padding(24.dp)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> { if (focusedIdx > 0) focusedIdx--; true }
+                        Key.DirectionDown -> { if (focusedIdx < installedApps.size) focusedIdx++; true }
+                        Key.DirectionLeft -> {
+                            val pkg = installedApps.getOrNull(focusedIdx)?.first
+                            val pos = if (pkg != null) pinnedOrder.indexOf(pkg) else -1
+                            if (pos > 0) {
+                                val reordered = pinnedOrder.toMutableList()
+                                reordered.removeAt(pos)
+                                reordered.add(pos - 1, pkg!!)
+                                pinnedOrder = reordered
+                            }
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            val pkg = installedApps.getOrNull(focusedIdx)?.first
+                            val pos = if (pkg != null) pinnedOrder.indexOf(pkg) else -1
+                            if (pos in 0 until pinnedOrder.size - 1) {
+                                val reordered = pinnedOrder.toMutableList()
+                                reordered.removeAt(pos)
+                                reordered.add(pos + 1, pkg!!)
+                                pinnedOrder = reordered
+                            }
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            if (focusedIdx < installedApps.size) {
+                                val pkg = installedApps[focusedIdx].first
+                                pinnedOrder = if (pinnedOrder.contains(pkg)) {
+                                    (pinnedOrder - pkg).toMutableList()
+                                } else {
+                                    (pinnedOrder + pkg).toMutableList()
+                                }
+                            } else {
+                                onSave(pinnedOrder)
+                            }
+                            true
+                        }
+                        Key.Back -> { onDismiss(); true }
+                        else -> false
+                    }
+                }
+        ) {
+            Column {
+                Text("Manage Apps Row", style = ArflixTypography.sectionTitle, color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 4.dp))
+                Text("Enter to pin/unpin  ·  ◀ ▶ to reorder",
+                    style = ArflixTypography.caption, color = TextSecondary,
+                    modifier = Modifier.padding(bottom = 16.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).heightIn(min = 200.dp, max = 600.dp)
+                ) {
+                    itemsIndexed(installedApps) { idx, (pkg, label) ->
+                        val pinPos = pinnedOrder.indexOf(pkg)
+                        val isPinned = pinPos >= 0
+                        val isFocused = idx == focusedIdx
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                    androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Order badge or empty checkbox placeholder
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier.size(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isPinned) {
+                                    Text(
+                                        text = "${pinPos + 1}",
+                                        color = Color(0xFF7C6AF7),
+                                        style = ArflixTypography.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    )
+                                } else {
+                                    androidx.compose.material3.Checkbox(
+                                        checked = false,
+                                        onCheckedChange = null,
+                                        colors = androidx.compose.material3.CheckboxDefaults.colors(
+                                            uncheckedColor = TextSecondary.copy(alpha = 0.4f)
+                                        )
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(label,
+                                color = if (isPinned) TextPrimary else if (isFocused) TextPrimary else TextSecondary,
+                                style = ArflixTypography.body)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (focusedIdx == installedApps.size) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                        )
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text("Save",
+                        color = if (focusedIdx == installedApps.size) TextPrimary else TextSecondary,
+                        style = ArflixTypography.body)
+                }
+            }
+        }
     }
 }
 

@@ -499,25 +499,56 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    private val defaultPinnedApps = listOf(
+        "org.smarttube.stable",
+        "org.smarttube.beta",
+        "com.cxinventor.file.explorer",
+        "com.android.tv.settings",
+    )
+
     private fun buildInstalledAppsCategory(): Category {
         val pm = context.packageManager
-        val leanbackIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
-            .addCategory(android.content.Intent.CATEGORY_LEANBACK_LAUNCHER)
-        val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
-            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        val apps = (pm.queryIntentActivities(leanbackIntent, 0) + pm.queryIntentActivities(launcherIntent, 0))
-            .distinctBy { it.activityInfo.packageName }
-            .filter { it.activityInfo.packageName != context.packageName }
-            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-            .sortedWith(compareBy({ it.first != "com.spocky.projengmenu" }, { it.second.lowercase() }))
-            .map { (pkg, label) ->
+        val stored = runCatching {
+            kotlinx.coroutines.runBlocking {
+                context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PINNED_APPS_KEY]
+            }
+        }.getOrNull()
+        val pinned = if (!stored.isNullOrBlank()) {
+            stored.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        } else {
+            defaultPinnedApps
+        }
+        var apps = pinned.mapNotNull { pkg ->
+            runCatching {
+                val info = pm.getApplicationInfo(pkg, 0)
+                val label = pm.getApplicationLabel(info).toString()
                 com.arflix.tv.data.model.MediaItem(
                     id = pkg.hashCode(),
                     title = label,
                     status = "app:$pkg",
                     mediaType = com.arflix.tv.data.model.MediaType.MOVIE
                 )
-            }
+            }.getOrNull()
+        }
+        if (apps.isEmpty()) {
+            val leanbackIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_LEANBACK_LAUNCHER)
+            val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            apps = (pm.queryIntentActivities(leanbackIntent, 0) + pm.queryIntentActivities(launcherIntent, 0))
+                .distinctBy { it.activityInfo.packageName }
+                .filter { it.activityInfo.packageName != context.packageName }
+                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                .sortedBy { it.second.lowercase() }
+                .map { (pkg, label) ->
+                    com.arflix.tv.data.model.MediaItem(
+                        id = pkg.hashCode(),
+                        title = label,
+                        status = "app:$pkg",
+                        mediaType = com.arflix.tv.data.model.MediaType.MOVIE
+                    )
+                }
+        }
         return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps)
     }
 
@@ -2041,6 +2072,7 @@ class HomeViewModel @Inject constructor(
                         }
                         // If neither exists, omit — launchOnNowRowObserver() will insert
                         // it once the IPTV snapshot is populated.
+                        put(APPS_CATEGORY_ID, buildInstalledAppsCategory())
                     }
 
                     // Split preinstalled into TMDB-based and MDBList-based
@@ -2324,11 +2356,6 @@ class HomeViewModel @Inject constructor(
                         title = "My Watchlist",
                         items = cachedWatchlistItems
                     ))
-                }
-
-                // Apps row — always pinned at the bottom
-                if (categories.none { it.id == APPS_CATEGORY_ID }) {
-                    categories.add(buildInstalledAppsCategory())
                 }
 
                 // Launch the independent CW fetch
