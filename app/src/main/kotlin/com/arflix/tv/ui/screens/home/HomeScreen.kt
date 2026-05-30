@@ -767,8 +767,9 @@ fun HomeScreen(
                 if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
                 if (focusSnapshot.focusedItemKey.isBlank()) return@collectLatest
                 if (focusSnapshot.focusedItemKey == focusSnapshot.heroItemKey) return@collectLatest
-                // Don't update the hero backdrop when the user is browsing the On Now live TV row
-                if (categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)?.id == "favorite_tv") return@collectLatest
+                // Don't update the hero backdrop when the user is browsing the On Now or Apps rows
+                val focusedRowId = categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)?.id
+                if (focusedRowId == "favorite_tv" || focusedRowId == HomeViewModel.APPS_CATEGORY_ID) return@collectLatest
                 categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)
                     ?.items
                     ?.getOrNull(focusSnapshot.itemIndex)
@@ -3347,6 +3348,7 @@ private fun ContentRow(
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
 ) {
     val isLiveTvRow = category.id == HomeViewModel.FAVORITE_TV_CATEGORY_ID && onLiveTvChannelClick != null
+    val isAppsRow = category.id == HomeViewModel.APPS_CATEGORY_ID
     val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
     val density = LocalDensity.current
@@ -3513,6 +3515,21 @@ private fun ContentRow(
                     { latestOnItemClick.value(item) }
                 }
                 // ── Live TV / On Now row — dedicated card with EPG, progress, LIVE badge ──
+                if (isAppsRow) {
+                    val packageName = item.status?.removePrefix("app:").orEmpty()
+                    val appContext = androidx.compose.ui.platform.LocalContext.current
+                    AppLauncherCard(
+                        packageName = packageName,
+                        label = item.title,
+                        isFocused = itemIsFocused,
+                        onClick = {
+                            appContext.packageManager
+                                .getLaunchIntentForPackage(packageName)
+                                ?.let { appContext.startActivity(it) }
+                        },
+                    )
+                    return@itemsIndexed
+                }
                 if (isLiveTvRow) {
                     val epg = getLiveChannelEpg(item.id)
                     val channelId = item.status?.removePrefix("iptv:").orEmpty()

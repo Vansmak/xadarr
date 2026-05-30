@@ -60,7 +60,7 @@ $sharedCss
 <body>
 <div class="page">
   <div class="header">
-    <img src="/logo.png" alt="Arvio" class="header-logo">
+    <img src="/logo.png" alt="Xadarr" class="header-logo">
     <p>AI Subtitle Translation – API Key Setup</p>
   </div>
 
@@ -92,7 +92,7 @@ $sharedCss
 <body>
 <div class="page">
   <div class="header">
-    <img src="/logo.png" alt="Arvio" class="header-logo">
+    <img src="/logo.png" alt="Xadarr" class="header-logo">
     <p>Set your Groq API Key</p>
   </div>
 
@@ -156,7 +156,7 @@ $sharedCss
 <body>
 <div class="page">
   <div class="header">
-    <img src="/logo.png" alt="Arvio" class="header-logo">
+    <img src="/logo.png" alt="Xadarr" class="header-logo">
     <p>Set your Google Gemini API Key</p>
   </div>
 

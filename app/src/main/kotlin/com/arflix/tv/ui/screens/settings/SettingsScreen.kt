@@ -1126,7 +1126,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     
                     Text(
-                        text = "ARVIO V${BuildConfig.VERSION_NAME}",
+                        text = "XADARR V${BuildConfig.VERSION_NAME}",
                         style = ArflixTypography.caption,
                         color = TextSecondary.copy(alpha = 0.5f),
                         modifier = Modifier.padding(start = 8.dp)
@@ -3349,7 +3349,7 @@ private fun MobileSettingsMainPage(
                 MobileSettingsRow(
                     icon = Icons.Default.Cloud,
                     title = "Sync Server",
-                    subtitle = "Arvio setup server for settings sync",
+                    subtitle = "Xadarr setup server for settings sync",
                     value = if (uiState.syncServerUrl.isBlank()) "Not set" else "Set",
                     isFocused = false,
                     onClick = onShowSyncServerUrlDialog
@@ -7705,7 +7705,7 @@ private fun AccountsSettings(
         SettingsRow(
             icon = Icons.Default.Cloud,
             title = "Sync Server URL",
-            subtitle = "Arvio setup server — enter after installing to sync all settings",
+            subtitle = "Xadarr setup server — enter after installing to sync all settings",
             value = if (syncServerUrl.isBlank()) "Not set" else "Set",
             isFocused = focusedIndex == 3,
             onClick = onSyncServerUrlClick,
@@ -9487,7 +9487,7 @@ private fun SyncServerUrlDialog(
                 Text(text = "Sync Server URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Base URL of your Arvio sync server. Settings, home servers, IPTV, and add-ons will sync from here on first connection.",
+                    text = "Base URL of your Xadarr sync server. Settings, home servers, IPTV, and add-ons will sync from here on first connection.",
                     style = ArflixTypography.caption,
                     color = TextSecondary
                 )

@@ -375,7 +375,7 @@ class HomeServerRepository @Inject constructor(
                 ?.newBuilder()
                 ?.addQueryParameter("strong", "true")
                 ?.addQueryParameter("X-Plex-Client-Identifier", deviceId())
-                ?.addQueryParameter("X-Plex-Product", "ARVIO")
+                ?.addQueryParameter("X-Plex-Product", "Xadarr")
                 ?.build()
                 ?.toString()
                 ?: error("Invalid code sign-in URL")
@@ -830,15 +830,15 @@ class HomeServerRepository @Inject constructor(
     }
 
     private fun authHeader(token: String? = null): String {
-        val base = "MediaBrowser Client=\"ARVIO\", Device=\"Android\", DeviceId=\"${deviceId()}\", Version=\"${BuildConfig.VERSION_NAME}\""
+        val base = "MediaBrowser Client=\"XADARR\", Device=\"Android\", DeviceId=\"${deviceId()}\", Version=\"${BuildConfig.VERSION_NAME}\""
         return if (token.isNullOrBlank()) base else "$base, Token=\"$token\""
     }
 
     private fun plexPublicHeaders(): Headers = Headers.Builder()
         .add("Accept", "application/json")
-        .add("User-Agent", "ARVIO/${BuildConfig.VERSION_NAME}")
+        .add("User-Agent", "XADARR/${BuildConfig.VERSION_NAME}")
         .add("X-Plex-Client-Identifier", deviceId())
-        .add("X-Plex-Product", "ARVIO")
+        .add("X-Plex-Product", "Xadarr")
         .add("X-Plex-Version", BuildConfig.VERSION_NAME)
         .add("X-Plex-Device", "Android")
         .add("X-Plex-Platform", "Android")
@@ -846,9 +846,9 @@ class HomeServerRepository @Inject constructor(
 
     private fun plexHeaders(token: String? = null): Map<String, String> = buildMap {
         put("Accept", "application/json")
-        put("User-Agent", "ARVIO/${BuildConfig.VERSION_NAME}")
+        put("User-Agent", "XADARR/${BuildConfig.VERSION_NAME}")
         put("X-Plex-Client-Identifier", deviceId())
-        put("X-Plex-Product", "ARVIO")
+        put("X-Plex-Product", "Xadarr")
         put("X-Plex-Version", BuildConfig.VERSION_NAME)
         put("X-Plex-Device", "Android")
         put("X-Plex-Platform", "Android")
@@ -890,7 +890,7 @@ class HomeServerRepository @Inject constructor(
     private fun playbackHeaders(connection: HomeServerConnection): Map<String, String> {
         if (connection.serverKind == HomeServerKind.PLEX) return plexHeaders(connection.accessToken)
         return mapOf(
-            "User-Agent" to "ARVIO/${BuildConfig.VERSION_NAME}",
+            "User-Agent" to "XADARR/${BuildConfig.VERSION_NAME}",
             "X-Emby-Authorization" to authHeader(connection.accessToken),
             "X-Emby-Token" to connection.accessToken
         )

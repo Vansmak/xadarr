@@ -171,6 +171,7 @@ class HomeViewModel @Inject constructor(
     companion object {
         const val FAVORITE_TV_CATEGORY_ID = "favorite_tv"
         const val WATCHLIST_CATEGORY_ID = "my_watchlist"
+        const val APPS_CATEGORY_ID = "installed_apps"
         /** Prefix used in MediaItem.status to identify IPTV items. */
         const val IPTV_STATUS_PREFIX = "iptv:"
         private const val TOP_10_ITEM_LIMIT = 10
@@ -496,6 +497,28 @@ class HomeViewModel @Inject constructor(
             status = "$IPTV_STATUS_PREFIX${channel.id}",
             isOngoing = true
         )
+    }
+
+    private fun buildInstalledAppsCategory(): Category {
+        val pm = context.packageManager
+        val leanbackIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LEANBACK_LAUNCHER)
+        val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val apps = (pm.queryIntentActivities(leanbackIntent, 0) + pm.queryIntentActivities(launcherIntent, 0))
+            .distinctBy { it.activityInfo.packageName }
+            .filter { it.activityInfo.packageName != context.packageName }
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .sortedWith(compareBy({ it.first != "com.spocky.projengmenu" }, { it.second.lowercase() }))
+            .map { (pkg, label) ->
+                com.arflix.tv.data.model.MediaItem(
+                    id = pkg.hashCode(),
+                    title = label,
+                    status = "app:$pkg",
+                    mediaType = com.arflix.tv.data.model.MediaType.MOVIE
+                )
+            }
+        return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps)
     }
 
     private suspend fun buildFavoriteTvCategory(): Category? {
@@ -2301,6 +2324,11 @@ class HomeViewModel @Inject constructor(
                         title = "My Watchlist",
                         items = cachedWatchlistItems
                     ))
+                }
+
+                // Apps row — always pinned at the bottom
+                if (categories.none { it.id == APPS_CATEGORY_ID }) {
+                    categories.add(buildInstalledAppsCategory())
                 }
 
                 // Launch the independent CW fetch

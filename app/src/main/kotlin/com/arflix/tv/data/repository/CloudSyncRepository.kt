@@ -102,7 +102,7 @@ class CloudSyncRepository @Inject constructor(
         return withContext(Dispatchers.IO) {
             runCatching {
                 val body = payload.toRequestBody("application/json".toMediaType())
-                val req = Request.Builder().url("$base/api/integration/arvio/settings").put(body).build()
+                val req = Request.Builder().url("$base/api/integration/xadarr/settings").put(body).build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) throw IllegalStateException("Sync server PUT failed: ${resp.code}")
                 }
@@ -115,7 +115,7 @@ class CloudSyncRepository @Inject constructor(
         if (base.isBlank()) return Result.failure(IllegalStateException("Sync server URL not configured"))
         return withContext(Dispatchers.IO) {
             runCatching {
-                val req = Request.Builder().url("$base/api/integration/arvio/settings").get().build()
+                val req = Request.Builder().url("$base/api/integration/xadarr/settings").get().build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (resp.code == 404) return@runCatching null
                     if (!resp.isSuccessful) throw IllegalStateException("Sync server GET failed: ${resp.code}")
@@ -131,7 +131,7 @@ class CloudSyncRepository @Inject constructor(
 
     /**
      * Verifies [url] is a reachable Arvio-compatible sync server by calling
-     * /api/integration/arvio/status.
+     * /api/integration/xadarr/status.
      * Returns true if the server responds with HTTP 200.
      */
     suspend fun verifySyncServer(url: String): Boolean {
@@ -139,7 +139,7 @@ class CloudSyncRepository @Inject constructor(
         if (base.isBlank()) return false
         return withContext(Dispatchers.IO) {
             runCatching {
-                val req = Request.Builder().url("$base/api/integration/arvio/status").get().build()
+                val req = Request.Builder().url("$base/api/integration/xadarr/status").get().build()
                 okHttpClient.newCall(req).execute().use { resp -> resp.isSuccessful }
             }.getOrDefault(false)
         }
