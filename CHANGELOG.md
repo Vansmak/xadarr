@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1] - 2026-05-30
+
+### Added
+- **Apps home row** — installed apps appear as a browsable row on the home screen; row order is configurable
+
+## [1.0] - 2026-05-30
+
+### Added
+- Initial Xadarr release — full rebrand of Arvio self-hosted fork with Xadarr icons and identity
+
 ## [2.0.20] - 2026-05-29
 
 ### Changed
