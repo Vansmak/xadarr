@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2] - 2026-05-30
+
+### Added
+- **Last-channel return** — press D-pad Right while watching fullscreen to jump back to the previously playing channel; press again to toggle back. Tracks channel switches from guide taps, Up/Down zapping, and search overlay picks.
+
 ## [1.1] - 2026-05-30
 
 ### Added
