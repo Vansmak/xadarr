@@ -297,6 +297,7 @@ fun LiveTvScreen(
     // Playing channel — default to the one we were navigated to, else the first
     // channel of the first non-empty category.
     var playingChannelId by rememberSaveable { mutableStateOf<String?>(initialChannelId) }
+    var previousChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var focusedChannelId by rememberSaveable { mutableStateOf<String?>(initialChannelId) }
     var playingCatchupProgram by remember { mutableStateOf<IptvProgram?>(null) }
     val playingChannel = remember(playingChannelId, enrichedState.value, filteredChannels) {
@@ -425,10 +426,21 @@ fun LiveTvScreen(
         val start = if (currentIdx >= 0) currentIdx else 0
         val size = all.size
         val nextIdx = ((start + delta) % size + size) % size
+        previousChannelId = playingChannelId
         playingChannelId = all[nextIdx].id
         focusedChannelId = all[nextIdx].id
         rememberedChannelByCategory[selectedCategoryId] = all[nextIdx].id
         playingCatchupProgram = null
+    }
+
+    fun returnToPreviousChannel() {
+        val prev = previousChannelId?.takeIf { id -> enrichedState.value.all.any { it.id == id } } ?: return
+        previousChannelId = playingChannelId
+        playingChannelId = prev
+        focusedChannelId = prev
+        rememberedChannelByCategory[selectedCategoryId] = prev
+        playingCatchupProgram = null
+        hudPokeSignal++
     }
 
     fun focusPlaylistSearch() {
@@ -474,6 +486,7 @@ fun LiveTvScreen(
             isFullScreen = true
             hudPokeSignal++
         } else {
+            if (channel.id != playingChannelId) previousChannelId = playingChannelId
             playingChannelId = channel.id
             playingCatchupProgram = null
         }
@@ -902,7 +915,8 @@ fun LiveTvScreen(
                             Key.DirectionUp -> { zap(+1); hudPokeSignal++; true }
                             Key.DirectionDown -> { zap(-1); hudPokeSignal++; true }
                             Key.DirectionCenter, Key.Enter -> { hudPokeSignal++; true }
-                            Key.DirectionLeft, Key.DirectionRight -> { hudPokeSignal++; false }
+                            Key.DirectionRight -> { returnToPreviousChannel(); true }
+                            Key.DirectionLeft -> { hudPokeSignal++; false }
                             else -> false
                         }
                     }
@@ -966,6 +980,7 @@ fun LiveTvScreen(
                 channels = enrichedState.value.all,
                 onDismiss = { searchOpen = false },
                 onPick = { channel ->
+                    previousChannelId = playingChannelId
                     selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
                     playingChannelId = channel.id
                     focusedChannelId = channel.id
