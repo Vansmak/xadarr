@@ -145,6 +145,24 @@ class CloudSyncRepository @Inject constructor(
         }
     }
 
+    /**
+     * Returns the `updated_at` Unix timestamp from the server's IPTV refresh flag,
+     * or null if the server is not configured or unreachable.
+     * Episeerr bumps this flag after each Dispatcharr maintenance run.
+     */
+    suspend fun iptvRefreshTimestamp(): Long? = withContext(Dispatchers.IO) {
+        val base = syncServerBaseUrl()
+        if (base.isBlank()) return@withContext null
+        runCatching {
+            val req = Request.Builder().url("$base/api/iptv/refresh-flag").get().build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                JSONObject(body).optLong("updated_at", 0L).takeIf { it > 0L }
+            }
+        }.getOrNull()
+    }
+
     /** Saves [url] as the sync server URL in DataStore. */
     suspend fun saveSyncServerUrl(url: String) {
         context.settingsDataStore.edit { prefs ->

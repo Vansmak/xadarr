@@ -74,6 +74,8 @@ class TvViewModel @Inject constructor(
     private var lastCompleteEpgBackfillKey: String? = null
     private var preparedContentJob: Job? = null
     private var preparedContentRevision: Long = 0L
+    private var iptvRefreshPollJob: Job? = null
+    private var lastKnownIptvRefreshAt: Long = 0L
 
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
@@ -157,6 +159,7 @@ class TvViewModel @Inject constructor(
                 refresh(force = false, showLoading = false, forceEpg = false)
             }
             startPeriodicEpgRefresh()
+            startIptvRefreshFlagPoller()
         }
     }
 
@@ -436,6 +439,30 @@ class TvViewModel @Inject constructor(
                 if (state.isConfigured && state.snapshot.channels.isNotEmpty()) {
                     refreshGuideFromCache()
                 }
+            }
+        }
+    }
+
+    // Polls xadarr-server every 15 min for the IPTV refresh flag that Episeerr
+    // bumps after each Dispatcharr maintenance run. Forces a playlist reload when
+    // the flag timestamp is newer than the last one we saw.
+    private fun startIptvRefreshFlagPoller() {
+        if (iptvRefreshPollJob?.isActive == true) return
+        iptvRefreshPollJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(5 * 60_000L) // let startup settle before first check
+            while (true) {
+                val ts = runCatching { cloudSyncRepository.iptvRefreshTimestamp() }.getOrNull()
+                if (ts != null) {
+                    if (lastKnownIptvRefreshAt == 0L) {
+                        lastKnownIptvRefreshAt = ts // baseline — don't refresh on first poll
+                    } else if (ts > lastKnownIptvRefreshAt) {
+                        lastKnownIptvRefreshAt = ts
+                        withContext(Dispatchers.Main) {
+                            refresh(force = true, showLoading = false, forceEpg = false)
+                        }
+                    }
+                }
+                delay(15 * 60_000L)
             }
         }
     }
