@@ -199,7 +199,6 @@ private const val ACCOUNT_DELETION_URL = "https://auth.arvio.tv/delete"
 private val tvGeneralSectionIds = setOf(
     "language",
     "subtitles",
-    "ai_subtitles",
     "playback",
     "appearance",
     "profiles",
@@ -210,7 +209,6 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
-        "ai_subtitles" -> listOf(28, 29, 30, 31, 32, 33)
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 16, 15, 27)
         "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22)
         "profiles" -> listOf(19)
@@ -341,8 +339,6 @@ fun SettingsScreen(
     var showQualityFilterEditor by remember { mutableStateOf(false) }
     var editingQualityFilterId by remember { mutableStateOf<String?>(null) }
     var qualityFilterDeviceName by remember { mutableStateOf("") }
-    var showAiModelDialog by remember { mutableStateOf(false) }
-    var showAiApiKeyDialog by remember { mutableStateOf(false) }
     var showCustomUserAgentDialog by remember { mutableStateOf(false) }
     var webhookUrlDialogIndex by remember { mutableStateOf<Int?>(null) }
     var showWatchlistApiPortDialog by remember { mutableStateOf(false) }
@@ -368,7 +364,6 @@ fun SettingsScreen(
             add("playback")
             add("language")
             add("subtitles")
-            add("ai_subtitles")
             add("iptv")
             add("stremio")
             add("catalogs")
@@ -611,14 +606,11 @@ fun SettingsScreen(
         showDnsProviderPicker ||
         showContentLanguagePicker ||
         showUiModeWarningDialog ||
-        showAiModelDialog ||
-        showAiApiKeyDialog ||
         showCustomUserAgentDialog ||
         webhookUrlDialogIndex != null ||
         showWatchlistApiPortDialog ||
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
-        uiState.aiKeyServerState.isActive ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.traktCode != null ||
@@ -818,12 +810,6 @@ fun SettingsScreen(
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
                                                 27 -> viewModel.cycleVolumeBoost()
-                                                28 -> viewModel.setSubtitleAiEnabled(!uiState.subtitleAiEnabled)
-                                                29 -> showAiModelDialog = true
-                                                30 -> viewModel.setSubtitleAiAutoSelect(!uiState.subtitleAiAutoSelect)
-                                                31 -> viewModel.setSubtitleRemoveHearingImpaired(!uiState.subtitleRemoveHearingImpaired)
-                                                32 -> showAiApiKeyDialog = true
-                                                33 -> viewModel.startAiKeyServer()
                                                 34 -> viewModel.cycleTrailerDelay()
                                             }
                                         }
@@ -1017,9 +1003,6 @@ fun SettingsScreen(
                 openDnsProviderPicker = openDnsProviderPicker,
                 openUiModeWarningDialog = openUiModeWarningDialog,
                 openQualityFiltersModal = { showQualityFiltersModal = true },
-                onSubtitleAiModelClick = { showAiModelDialog = true },
-                onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
-                onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
                 onAddIptvClick = { editingIptvIndex = -1; showIptvInput = true },
                 onEditIptvClick = { idx -> editingIptvIndex = idx; showIptvInput = true },
                 onAddCatalogClick = { showCatalogInput = true },
@@ -1098,7 +1081,6 @@ fun SettingsScreen(
                                 icon = when (section) {
                                     "language" -> Icons.Default.Language
                                     "subtitles" -> Icons.Default.Subtitles
-                                    "ai_subtitles" -> Icons.Default.AutoAwesome
                                     "playback" -> Icons.Default.PlayArrow
                                     "appearance" -> Icons.Default.Palette
                                     "profiles" -> Icons.Default.SwitchAccount
@@ -1113,7 +1095,7 @@ fun SettingsScreen(
                                 title = when (section) {
                                     "language" -> stringResource(R.string.language_and_audio)
                                     "subtitles" -> stringResource(R.string.subtitles)
-                                    "ai_subtitles" -> stringResource(R.string.ai_subtitles_section)
+
                                     "playback" -> stringResource(R.string.playback)
                                     "appearance" -> stringResource(R.string.interface_label)
                                     "profiles" -> stringResource(R.string.profiles)
@@ -1226,41 +1208,9 @@ fun SettingsScreen(
                             onFilterSubtitlesByLanguageToggle = { viewModel.setFilterSubtitlesByLanguage(it) },
                             qualityFilterValue = uiState.qualityFilterPresetLabel,
                             onQualityFiltersClick = { showQualityFiltersModal = true },
-                            subtitleAiEnabled = uiState.subtitleAiEnabled,
-                            subtitleAiAutoSelect = uiState.subtitleAiAutoSelect,
-                            subtitleAiApiKey = uiState.subtitleAiApiKey,
-                            subtitleAiModel = uiState.subtitleAiModel,
-                            subtitleRemoveHearingImpaired = uiState.subtitleRemoveHearingImpaired,
-                            onSubtitleAiEnabledToggle = { viewModel.setSubtitleAiEnabled(it) },
-                            onSubtitleAiModelClick = { showAiModelDialog = true },
-                            onSubtitleAiAutoSelectToggle = { viewModel.setSubtitleAiAutoSelect(it) },
-                            onSubtitleRemoveHearingImpairedToggle = { viewModel.setSubtitleRemoveHearingImpaired(it) },
-                            onSubtitleAiApiKeyClick = { showAiApiKeyDialog = true },
-                            onSubtitleAiQrClick = { viewModel.startAiKeyServer() },
                             customUserAgent = uiState.customUserAgent,
                             onCustomUserAgentClick = { showCustomUserAgentDialog = true }
                         )
-                        if (showAiModelDialog) {
-                            AiModelDialog(
-                                currentModel = uiState.subtitleAiModel,
-                                onModelSelected = { model ->
-                                    viewModel.setSubtitleAiModel(model)
-                                    showAiModelDialog = false
-                                },
-                                onDismiss = { showAiModelDialog = false }
-                            )
-                        }
-                        if (showAiApiKeyDialog) {
-                            AiApiKeyDialog(
-                                currentKey = uiState.subtitleAiApiKey,
-                                model = uiState.subtitleAiModel,
-                                onSave = { key ->
-                                    viewModel.saveSubtitleAiApiKey(key)
-                                    showAiApiKeyDialog = false
-                                },
-                                onDismiss = { showAiApiKeyDialog = false }
-                            )
-                        }
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
                                 currentValue = uiState.customUserAgent,
@@ -1269,14 +1219,6 @@ fun SettingsScreen(
                                     showCustomUserAgentDialog = false
                                 },
                                 onDismiss = { showCustomUserAgentDialog = false }
-                            )
-                        }
-                        if (uiState.aiKeyServerState.isActive) {
-                            AiKeyQrOverlay(
-                                qrBitmap = uiState.aiKeyServerState.qrBitmap,
-                                serverUrl = uiState.aiKeyServerState.serverUrl,
-                                keyReceived = uiState.aiKeyServerState.keyReceived,
-                                onClose = { viewModel.stopAiKeyServer() }
                             )
                         }
                         } // end "general" block
@@ -1800,28 +1742,7 @@ fun SettingsScreen(
             )
         }
 
-        if (isTouchDevice && showAiModelDialog) {
-            AiModelDialog(
-                currentModel = uiState.subtitleAiModel,
-                onModelSelected = { model ->
-                    viewModel.setSubtitleAiModel(model)
-                    showAiModelDialog = false
-                },
-                onDismiss = { showAiModelDialog = false }
-            )
-        }
 
-        if (isTouchDevice && showAiApiKeyDialog) {
-            AiApiKeyDialog(
-                currentKey = uiState.subtitleAiApiKey,
-                model = uiState.subtitleAiModel,
-                onSave = { key ->
-                    viewModel.saveSubtitleAiApiKey(key)
-                    showAiApiKeyDialog = false
-                },
-                onDismiss = { showAiApiKeyDialog = false }
-            )
-        }
 
         if (isTouchDevice && showCustomUserAgentDialog) {
             CustomUserAgentDialog(
@@ -1882,15 +1803,6 @@ fun SettingsScreen(
                     showSyncServerUrlDialog = false
                 },
                 onDismiss = { showSyncServerUrlDialog = false }
-            )
-        }
-
-        if (isTouchDevice && uiState.aiKeyServerState.isActive) {
-            AiKeyQrOverlay(
-                qrBitmap = uiState.aiKeyServerState.qrBitmap,
-                serverUrl = uiState.aiKeyServerState.serverUrl,
-                keyReceived = uiState.aiKeyServerState.keyReceived,
-                onClose = { viewModel.stopAiKeyServer() }
             )
         }
 
@@ -3150,9 +3062,6 @@ private fun MobileSettingsLayout(
     openDnsProviderPicker: () -> Unit,
     openUiModeWarningDialog: () -> Unit,
     openQualityFiltersModal: () -> Unit,
-    onSubtitleAiModelClick: () -> Unit,
-    onSubtitleAiApiKeyClick: () -> Unit,
-    onSubtitleAiQrClick: () -> Unit,
     onAddIptvClick: () -> Unit,
     onEditIptvClick: (Int) -> Unit,
     onAddCatalogClick: () -> Unit,
@@ -3239,9 +3148,6 @@ private fun MobileSettingsLayout(
                 openDnsProviderPicker = openDnsProviderPicker,
                 openUiModeWarningDialog = openUiModeWarningDialog,
                 openQualityFiltersModal = openQualityFiltersModal,
-                onSubtitleAiModelClick = onSubtitleAiModelClick,
-                onSubtitleAiApiKeyClick = onSubtitleAiApiKeyClick,
-                onSubtitleAiQrClick = onSubtitleAiQrClick,
                 onAddIptvClick = onAddIptvClick,
                 onEditIptvClick = onEditIptvClick,
                 onAddCatalogClick = onAddCatalogClick,
@@ -3404,9 +3310,6 @@ private fun MobileSettingsSubPage(
     openDnsProviderPicker: () -> Unit,
     openUiModeWarningDialog: () -> Unit,
     openQualityFiltersModal: () -> Unit,
-    onSubtitleAiModelClick: () -> Unit,
-    onSubtitleAiApiKeyClick: () -> Unit,
-    onSubtitleAiQrClick: () -> Unit,
     onAddIptvClick: () -> Unit,
     onEditIptvClick: (Int) -> Unit,
     onAddCatalogClick: () -> Unit,
@@ -3560,73 +3463,6 @@ private fun MobileSettingsSubPage(
                         showDivider = false,
                         onClick = { viewModel.setFilterSubtitlesByLanguage(!uiState.filterSubtitlesByLanguage) }
                     )
-                }
-                MobileSettingsCategory(title = stringResource(R.string.ai_subtitles_section)) {
-                    MobileSettingsRow(
-                        icon = Icons.Default.AutoAwesome,
-                        title = stringResource(R.string.ai_subtitle_translation_title),
-                        subtitle = stringResource(R.string.ai_subtitle_translation_desc),
-                        value = if (uiState.subtitleAiEnabled) "On" else "Off",
-                        isFocused = false,
-                        onClick = { viewModel.setSubtitleAiEnabled(!uiState.subtitleAiEnabled) }
-                    )
-                    MobileSettingsRow(
-                        icon = Icons.Default.AutoAwesome,
-                        title = stringResource(R.string.ai_model_title),
-                        subtitle = stringResource(R.string.ai_model_desc),
-                        value = when (uiState.subtitleAiModel) {
-                            com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "Groq - Llama 3.3 70B"
-                            com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "Google - Gemini 2.5 Flash"
-                        },
-                        isFocused = false,
-                        onClick = onSubtitleAiModelClick
-                    )
-                    MobileSettingsRow(
-                        icon = Icons.Default.AutoAwesome,
-                        title = stringResource(R.string.ai_auto_select_title),
-                        subtitle = stringResource(R.string.ai_auto_select_desc),
-                        value = if (uiState.subtitleAiAutoSelect) "On" else "Off",
-                        isFocused = false,
-                        onClick = { viewModel.setSubtitleAiAutoSelect(!uiState.subtitleAiAutoSelect) }
-                    )
-                    MobileSettingsRow(
-                        icon = Icons.Default.Subtitles,
-                        title = stringResource(R.string.ai_remove_hi_title),
-                        subtitle = stringResource(R.string.ai_remove_hi_desc),
-                        value = if (uiState.subtitleRemoveHearingImpaired) "On" else "Off",
-                        isFocused = false,
-                        onClick = { viewModel.setSubtitleRemoveHearingImpaired(!uiState.subtitleRemoveHearingImpaired) }
-                    )
-                    MobileSettingsRow(
-                        icon = Icons.Default.VpnKey,
-                        title = stringResource(R.string.ai_api_key_title),
-                        subtitle = stringResource(R.string.ai_api_key_desc),
-                        value = maskAiApiKey(uiState.subtitleAiApiKey, stringResource(R.string.ai_key_not_set)),
-                        isFocused = false,
-                        onClick = onSubtitleAiApiKeyClick
-                    )
-                    MobileSettingsRow(
-                        icon = Icons.Default.QrCode,
-                        title = stringResource(R.string.ai_scan_qr_title),
-                        subtitle = stringResource(R.string.ai_scan_qr_desc),
-                        value = "",
-                        isFocused = false,
-                        showDivider = false,
-                        onClick = onSubtitleAiQrClick
-                    )
-                    if (uiState.subtitleAiEnabled) {
-                        Text(
-                            text = when (uiState.subtitleAiModel) {
-                                com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B ->
-                                    stringResource(R.string.ai_groq_disclaimer)
-                                com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 ->
-                                    stringResource(R.string.ai_gemini_disclaimer)
-                            },
-                            style = ArflixTypography.caption.copy(fontSize = 11.sp),
-                            color = TextSecondary.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                        )
-                    }
                 }
                 MobileSettingsCategory(title = "AUDIO") {
                     MobileSettingsRow(
@@ -4004,7 +3840,7 @@ private fun UpdateActionButton(
 private fun tvSettingsSidebarGroup(section: String): String {
     return when (section) {
         "accounts", "profiles" -> "Profile"
-        "playback", "language", "subtitles", "ai_subtitles" -> "Playback"
+        "playback", "language", "subtitles" -> "Playback"
         "iptv", "stremio", "catalogs", "home_server" -> "Sources"
         else -> "System"
     }
@@ -4277,7 +4113,7 @@ private fun tvSettingsSectionTitle(section: String): String {
     return when (section) {
         "language" -> stringResource(R.string.language_and_audio)
         "subtitles" -> stringResource(R.string.subtitles)
-        "ai_subtitles" -> stringResource(R.string.ai_subtitles_section)
+
         "playback" -> stringResource(R.string.playback)
         "appearance" -> stringResource(R.string.interface_label)
         "profiles" -> stringResource(R.string.profiles)
@@ -4295,7 +4131,7 @@ private fun tvSettingsSectionDescription(section: String): String {
     return when (section) {
         "language" -> "App text and preferred audio track."
         "subtitles" -> "Subtitle language defaults, display style and filtering."
-        "ai_subtitles" -> "AI subtitle translation and cleanup options."
+
         "playback" -> "Autoplay, trailers, source quality, frame-rate matching and audio boost."
         "appearance" -> "Layout, OLED mode, focus styling and hero metadata."
         "profiles" -> "Profile startup behavior for this device."
@@ -4323,10 +4159,7 @@ private fun tvSettingsSectionPills(
             "Default ${uiState.defaultSubtitle}",
             "Size ${uiState.subtitleSize}"
         )
-        "ai_subtitles" -> listOf(
-            if (uiState.subtitleAiEnabled) "AI on" else "AI off",
-            if (uiState.subtitleAiAutoSelect) "Auto-select on" else "Auto-select off"
-        )
+
         "playback" -> listOf(
             "Autoplay ${if (uiState.autoPlaySingleSource) "on" else "off"}",
             "Trailers ${if (uiState.trailerAutoPlay) "on" else "off"}",
@@ -4374,10 +4207,7 @@ private fun tvSettingsPanelFacts(
             "Secondary" to uiState.secondarySubtitle,
             "Style" to uiState.subtitleStyle
         )
-        "ai_subtitles" -> listOf(
-            "AI" to if (uiState.subtitleAiEnabled) "Enabled" else "Off",
-            "Auto-select" to if (uiState.subtitleAiAutoSelect) "On" else "Off"
-        )
+
         "playback" -> listOf(
             "Autoplay" to if (uiState.autoPlaySingleSource) "On" else "Off",
             "Trailers" to if (uiState.trailerAutoPlay) "On" else "Off",
@@ -4438,7 +4268,7 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             1 -> TvSettingsHelp("Secondary subtitle", "Optional second subtitle preference where available.")
             else -> TvSettingsHelp("Subtitle preference", "Adjust subtitle size, color, position, style and filtering.")
         }
-        "ai_subtitles" -> TvSettingsHelp("AI subtitles", "Configure optional AI subtitle translation and cleanup.")
+
         "playback" -> when (focusedIndex) {
             0 -> TvSettingsHelp("Next episode autoplay", "Controls whether episodes continue automatically.")
             1 -> TvSettingsHelp("Source autoplay", "Controls whether a single source starts immediately or opens the picker.")
@@ -4547,17 +4377,6 @@ private fun TvGeneralSettingsRows(
     onTrailerDelayClick: () -> Unit = {},
     qualityFilterValue: String = "OFF",
     onQualityFiltersClick: () -> Unit = {},
-    subtitleAiEnabled: Boolean = false,
-    subtitleAiAutoSelect: Boolean = false,
-    subtitleAiApiKey: String = "",
-    subtitleAiModel: com.arflix.tv.ui.screens.player.SubtitleAiModel = com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B,
-    subtitleRemoveHearingImpaired: Boolean = true,
-    onSubtitleAiEnabledToggle: (Boolean) -> Unit = {},
-    onSubtitleAiModelClick: () -> Unit = {},
-    onSubtitleAiAutoSelectToggle: (Boolean) -> Unit = {},
-    onSubtitleRemoveHearingImpairedToggle: (Boolean) -> Unit = {},
-    onSubtitleAiApiKeyClick: () -> Unit = {},
-    onSubtitleAiQrClick: () -> Unit = {},
     customUserAgent: String = "",
     onCustomUserAgentClick: () -> Unit = {}
 ) {
@@ -4646,23 +4465,6 @@ private fun TvGeneralSettingsRows(
                     onClick = onVolumeBoostClick,
                     modifier = Modifier.settingsFocusSlot(localIndex)
                 )
-                28 -> SettingsToggleRow(stringResource(R.string.ai_subtitle_translation_title), stringResource(R.string.ai_subtitle_translation_desc), subtitleAiEnabled, focusedIndex == localIndex, onSubtitleAiEnabledToggle, Modifier.settingsFocusSlot(localIndex))
-                29 -> SettingsRow(
-                    icon = Icons.Default.AutoAwesome,
-                    title = stringResource(R.string.ai_model_title),
-                    subtitle = stringResource(R.string.ai_model_desc),
-                    value = when (subtitleAiModel) {
-                        com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "Groq - Llama 3.3 70B"
-                        com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "Google - Gemini 2.5 Flash"
-                    },
-                    isFocused = focusedIndex == localIndex,
-                    onClick = onSubtitleAiModelClick,
-                    modifier = Modifier.settingsFocusSlot(localIndex).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-                )
-                30 -> SettingsToggleRow(stringResource(R.string.ai_auto_select_title), stringResource(R.string.ai_auto_select_desc), subtitleAiAutoSelect, focusedIndex == localIndex, onSubtitleAiAutoSelectToggle, Modifier.settingsFocusSlot(localIndex).alpha(if (subtitleAiEnabled) 1f else 0.4f))
-                31 -> SettingsToggleRow(stringResource(R.string.ai_remove_hi_title), stringResource(R.string.ai_remove_hi_desc), subtitleRemoveHearingImpaired, focusedIndex == localIndex, onSubtitleRemoveHearingImpairedToggle, Modifier.settingsFocusSlot(localIndex).alpha(if (subtitleAiEnabled) 1f else 0.4f))
-                32 -> SettingsRow(Icons.Default.VpnKey, stringResource(R.string.ai_api_key_title), stringResource(R.string.ai_api_key_desc), maskAiApiKey(subtitleAiApiKey, stringResource(R.string.ai_key_not_set)), focusedIndex == localIndex, onSubtitleAiApiKeyClick, Modifier.settingsFocusSlot(localIndex).alpha(if (subtitleAiEnabled) 1f else 0.4f))
-                33 -> SettingsRow(Icons.Default.QrCode, stringResource(R.string.ai_scan_qr_title), stringResource(R.string.ai_scan_qr_desc), "", focusedIndex == localIndex, onSubtitleAiQrClick, Modifier.settingsFocusSlot(localIndex).alpha(if (subtitleAiEnabled) 1f else 0.4f))
                 34 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.trailer_delay), stringResource(R.string.trailer_delay_desc), "${trailerDelaySeconds}s", focusedIndex == localIndex, onTrailerDelayClick, Modifier.settingsFocusSlot(localIndex))
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
             }
@@ -4730,17 +4532,6 @@ private fun GeneralSettings(
     onTrailerSoundEnabledToggle: (Boolean) -> Unit = {},
     qualityFilterValue: String = "OFF",
     onQualityFiltersClick: () -> Unit = {},
-    subtitleAiEnabled: Boolean = false,
-    subtitleAiAutoSelect: Boolean = false,
-    subtitleAiApiKey: String = "",
-    subtitleAiModel: com.arflix.tv.ui.screens.player.SubtitleAiModel = com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B,
-    subtitleRemoveHearingImpaired: Boolean = true,
-    onSubtitleAiEnabledToggle: (Boolean) -> Unit = {},
-    onSubtitleAiModelClick: () -> Unit = {},
-    onSubtitleAiAutoSelectToggle: (Boolean) -> Unit = {},
-    onSubtitleRemoveHearingImpairedToggle: (Boolean) -> Unit = {},
-    onSubtitleAiApiKeyClick: () -> Unit = {},
-    onSubtitleAiQrClick: () -> Unit = {},
     customUserAgent: String = "",
     onCustomUserAgentClick: () -> Unit = {}
 ) {
@@ -5078,270 +4869,6 @@ private fun GeneralSettings(
             modifier = Modifier.settingsFocusSlot(27)
         )
 
-        // ── AI Subtitles ──
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = stringResource(R.string.ai_subtitles_section),
-            style = ArflixTypography.caption.copy(fontSize = 11.sp, letterSpacing = 0.8.sp),
-            color = TextSecondary.copy(alpha = 0.5f),
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
-        )
-        SettingsToggleRow(
-            title = stringResource(R.string.ai_subtitle_translation_title),
-            subtitle = stringResource(R.string.ai_subtitle_translation_desc),
-            isEnabled = subtitleAiEnabled,
-            isFocused = focusedIndex == 28,
-            onToggle = onSubtitleAiEnabledToggle,
-            modifier = Modifier.settingsFocusSlot(28)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsRow(
-            icon = Icons.Default.AutoAwesome,
-            title = stringResource(R.string.ai_model_title),
-            subtitle = stringResource(R.string.ai_model_desc),
-            value = when (subtitleAiModel) {
-                com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "Groq – Llama 3.3 70B"
-                com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "Google – Gemini 2.5 Flash"
-            },
-            isFocused = focusedIndex == 29,
-            onClick = onSubtitleAiModelClick,
-            modifier = Modifier.settingsFocusSlot(29).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsToggleRow(
-            title = stringResource(R.string.ai_auto_select_title),
-            subtitle = stringResource(R.string.ai_auto_select_desc),
-            isEnabled = subtitleAiAutoSelect,
-            isFocused = focusedIndex == 30,
-            onToggle = onSubtitleAiAutoSelectToggle,
-            modifier = Modifier.settingsFocusSlot(30).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsToggleRow(
-            title = stringResource(R.string.ai_remove_hi_title),
-            subtitle = stringResource(R.string.ai_remove_hi_desc),
-            isEnabled = subtitleRemoveHearingImpaired,
-            isFocused = focusedIndex == 31,
-            onToggle = onSubtitleRemoveHearingImpairedToggle,
-            modifier = Modifier.settingsFocusSlot(31).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsRow(
-            icon = Icons.Default.VpnKey,
-            title = stringResource(R.string.ai_api_key_title),
-            subtitle = stringResource(R.string.ai_api_key_desc),
-            value = maskAiApiKey(subtitleAiApiKey, stringResource(R.string.ai_key_not_set)),
-            isFocused = focusedIndex == 32,
-            onClick = onSubtitleAiApiKeyClick,
-            modifier = Modifier.settingsFocusSlot(32).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        SettingsRow(
-            icon = Icons.Default.QrCode,
-            title = stringResource(R.string.ai_scan_qr_title),
-            subtitle = stringResource(R.string.ai_scan_qr_desc),
-            value = "",
-            isFocused = focusedIndex == 33,
-            onClick = onSubtitleAiQrClick,
-            modifier = Modifier.settingsFocusSlot(33).alpha(if (subtitleAiEnabled) 1f else 0.4f)
-        )
-        if (subtitleAiEnabled) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = when (subtitleAiModel) {
-                    com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B ->
-                        stringResource(R.string.ai_groq_disclaimer)
-                    com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 ->
-                        stringResource(R.string.ai_gemini_disclaimer)
-                },
-                style = ArflixTypography.caption.copy(fontSize = 11.sp),
-                color = TextSecondary.copy(alpha = 0.4f),
-                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp)
-            )
-        }
-    }
-}
-
-private fun maskAiApiKey(key: String, notSetLabel: String = "Not set"): String {
-    val trimmed = key.trim()
-    if (trimmed.isBlank()) return notSetLabel
-    val provider = when {
-        trimmed.startsWith("gsk_") -> "Groq · "
-        trimmed.startsWith("AIzaSy") -> "Gemini · "
-        else -> ""
-    }
-    val masked = if (trimmed.length <= 4) "••••" else "••••${trimmed.takeLast(4)}"
-    return "$provider$masked"
-}
-
-@Composable
-private fun AiModelDialog(
-    currentModel: com.arflix.tv.ui.screens.player.SubtitleAiModel,
-    onModelSelected: (com.arflix.tv.ui.screens.player.SubtitleAiModel) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val isMobile = LocalDeviceType.current.isTouchDevice()
-    val options = listOf(
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B, "Groq – Llama 3.3 70B", stringResource(R.string.ai_groq_model_note)),
-        Triple(com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25, "Google – Gemini 2.5 Flash", stringResource(R.string.ai_gemini_model_note))
-    )
-    BackHandler { onDismiss() }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .then(
-                    if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    else Modifier.width(480.dp)
-                )
-                .clip(RoundedCornerShape(16.dp))
-                .background(BackgroundElevated)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-                Text(
-                    text = stringResource(R.string.ai_model_title),
-                    style = ArflixTypography.sectionTitle,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.ai_model_dialog_subtitle),
-                    style = ArflixTypography.caption,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                options.forEach { (model, label, note) ->
-                    val focusRequester = remember { FocusRequester() }
-                    val isSelected = model == currentModel
-                    Surface(
-                        onClick = { onModelSelected(model) },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                            .focusRequester(focusRequester),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = if (isSelected) Pink.copy(alpha = 0.15f) else BackgroundElevated,
-                            focusedContainerColor = Pink.copy(alpha = 0.25f)
-                        ),
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp))
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(text = label, style = ArflixTypography.cardTitle, color = TextPrimary)
-                                Text(text = note, style = ArflixTypography.caption, color = TextSecondary)
-                            }
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Pink,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AiApiKeyDialog(
-    currentKey: String,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-    model: com.arflix.tv.ui.screens.player.SubtitleAiModel = com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B
-) {
-    val isMobile = LocalDeviceType.current.isTouchDevice()
-    var value by remember(currentKey) { mutableStateOf(currentKey) }
-    val inputFocusRequester = remember { FocusRequester() }
-    val placeholder = when (model) {
-        com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B -> "gsk_..."
-        com.arflix.tv.ui.screens.player.SubtitleAiModel.GEMINI_FLASH_25 -> "AIzaSy..."
-    }
-    BackHandler { onDismiss() }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(100)
-        inputFocusRequester.requestFocus()
-    }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .then(
-                    if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    else Modifier.width(520.dp)
-                )
-                .clip(RoundedCornerShape(16.dp))
-                .background(BackgroundElevated)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-                Text(text = stringResource(R.string.ai_api_key_title), style = ArflixTypography.sectionTitle, color = TextPrimary)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(if (model == com.arflix.tv.ui.screens.player.SubtitleAiModel.GROQ_LLAMA_70B) R.string.ai_api_key_dialog_subtitle_groq else R.string.ai_api_key_dialog_subtitle_gemini),
-                    style = ArflixTypography.caption,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                androidx.compose.material3.OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    placeholder = { Text(placeholder, color = TextSecondary.copy(alpha = 0.4f)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = Pink,
-                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f)
-                    )
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val cancelFocus = remember { FocusRequester() }
-                    val saveFocus = remember { FocusRequester() }
-                    Surface(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f).focusRequester(cancelFocus),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = BackgroundElevated,
-                            focusedContainerColor = BackgroundElevated.copy(alpha = 0.8f)
-                        ),
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                        border = ClickableSurfaceDefaults.border(
-                            border = androidx.tv.material3.Border(
-                                border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.3f))
-                            )
-                        )
-                    ) {
-                        Text(
-                            text = stringResource(R.string.cancel),
-                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            color = TextSecondary
-                        )
-                    }
-                    Surface(
-                        onClick = { onSave(value) },
-                        modifier = Modifier.weight(1f).focusRequester(saveFocus),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Pink.copy(alpha = 0.15f),
-                            focusedContainerColor = Pink.copy(alpha = 0.3f)
-                        ),
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = stringResource(R.string.save),
-                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            color = Pink
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -5445,76 +4972,6 @@ private fun CustomUserAgentDialog(
                         kotlinx.coroutines.delay(150)
                         inputFocusRequester.requestFocus()
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AiKeyQrOverlay(
-    qrBitmap: android.graphics.Bitmap?,
-    serverUrl: String?,
-    keyReceived: Boolean = false,
-    onClose: () -> Unit
-) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    BackHandler { onClose() }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.88f)),
-        contentAlignment = Alignment.Center
-    ) {
-        if (keyReceived) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Pink,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(text = stringResource(R.string.ai_key_saved_title), style = ArflixTypography.sectionTitle, color = TextPrimary)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(text = stringResource(R.string.ai_key_saved_subtitle), style = ArflixTypography.caption, color = TextSecondary)
-            }
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = stringResource(R.string.ai_qr_scan_hint),
-                    style = ArflixTypography.caption,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                if (qrBitmap != null) {
-                    androidx.compose.foundation.Image(
-                        bitmap = qrBitmap.asImageBitmap(),
-                        contentDescription = "QR Code",
-                        modifier = Modifier.size(220.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                if (serverUrl != null) {
-                    Text(text = serverUrl, style = ArflixTypography.caption, color = TextSecondary.copy(alpha = 0.5f))
-                }
-                Spacer(modifier = Modifier.height(24.dp))
-                Surface(
-                    onClick = onClose,
-                    modifier = Modifier.focusRequester(focusRequester),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = BackgroundElevated,
-                        focusedContainerColor = Pink
-                    ),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp))
-                ) {
-                    Text(
-                        text = stringResource(R.string.done),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-                        color = TextPrimary
-                    )
                 }
             }
         }

@@ -1,15 +1,12 @@
 package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
-import android.graphics.Bitmap
 import coil.Coil
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.arflix.tv.server.AiKeyConfigServer
-import com.arflix.tv.ui.screens.player.SubtitleAiModel
 import com.arflix.tv.util.DeviceIpAddress
 import com.arflix.tv.util.QrCodeGenerator
 import com.arflix.tv.data.api.TraktDeviceCode
@@ -79,13 +76,6 @@ import javax.inject.Inject
 enum class ToastType {
     SUCCESS, ERROR, INFO
 }
-
-data class AiKeyServerState(
-    val isActive: Boolean = false,
-    val serverUrl: String? = null,
-    val qrBitmap: Bitmap? = null,
-    val keyReceived: Boolean = false
-)
 
 data class SettingsUiState(
     val defaultSubtitle: String = "Off",
@@ -187,13 +177,6 @@ data class SettingsUiState(
     // Toast
     val toastMessage: String? = null,
     val toastType: ToastType = ToastType.INFO,
-    // AI Subtitles
-    val subtitleAiEnabled: Boolean = false,
-    val subtitleAiAutoSelect: Boolean = false,
-    val subtitleAiApiKey: String = "",
-    val subtitleAiModel: SubtitleAiModel = SubtitleAiModel.GROQ_LLAMA_70B,
-    val subtitleRemoveHearingImpaired: Boolean = true,
-    val aiKeyServerState: AiKeyServerState = AiKeyServerState(),
     // Progress webhook (device-global, not profile-scoped)
     val webhookEnabled: Boolean = false,
     val webhookUrls: List<com.arflix.tv.data.repository.WebhookUrlConfig> = emptyList(),
@@ -286,12 +269,6 @@ class SettingsViewModel @Inject constructor(
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("include_specials")
     private val qualityFiltersKey = stringPreferencesKey("quality_filters")
 
-    // Global (non-profile-scoped) AI subtitle settings — device-wide, not per-profile
-    private val subtitleAiEnabledKey = booleanPreferencesKey("subtitle_ai_enabled")
-    private val subtitleAiAutoSelectKey = booleanPreferencesKey("subtitle_ai_auto_select")
-    private val subtitleAiApiKeyKey = stringPreferencesKey("subtitle_ai_api_key")
-    private val subtitleAiModelKey = stringPreferencesKey("subtitle_ai_model")
-    private val subtitleRemoveHearingImpairedKey = booleanPreferencesKey("subtitle_remove_hearing_impaired")
     private val webhookEnabledKey = com.arflix.tv.data.repository.WEBHOOK_ENABLED_KEY
     private val webhookUrlKey = com.arflix.tv.data.repository.WEBHOOK_URL_KEY
     private val webhookIntervalKey = com.arflix.tv.data.repository.WEBHOOK_INTERVAL_KEY
@@ -309,7 +286,6 @@ class SettingsViewModel @Inject constructor(
     private var plexHomeServerDisplayName: String? = null
     private var iptvLoadJob: Job? = null
     private var catalogSearchJob: Job? = null
-    private var aiKeyServer: AiKeyConfigServer? = null
     private var lastCloudSyncedUserId: String? = null
     private var cloudDeviceCode: String? = null
     private var cloudUserCode: String? = null
@@ -464,13 +440,6 @@ class SettingsViewModel @Inject constructor(
                 }
             }.getOrDefault(emptyList())
 
-            val subtitleAiEnabled = prefs[subtitleAiEnabledKey] ?: false
-            val subtitleAiAutoSelect = prefs[subtitleAiAutoSelectKey] ?: false
-            val subtitleAiApiKey = prefs[subtitleAiApiKeyKey] ?: ""
-            val subtitleAiModel = runCatching {
-                SubtitleAiModel.valueOf(prefs[subtitleAiModelKey] ?: SubtitleAiModel.GROQ_LLAMA_70B.name)
-            }.getOrDefault(SubtitleAiModel.GROQ_LLAMA_70B)
-            val subtitleRemoveHearingImpaired = prefs[subtitleRemoveHearingImpairedKey] ?: true
             val webhookEnabled = prefs[webhookEnabledKey] ?: false
             val webhookUrlsJson = prefs[com.arflix.tv.data.repository.WEBHOOK_URLS_KEY].orEmpty()
             val webhookUrls = if (webhookUrlsJson.isNotBlank()) {
@@ -549,11 +518,6 @@ class SettingsViewModel @Inject constructor(
                 focusBorderColor = focusBorderColor,
                 qualityFilters = qualityFilters,
                 qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label,
-                subtitleAiEnabled = subtitleAiEnabled,
-                subtitleAiAutoSelect = subtitleAiAutoSelect,
-                subtitleAiApiKey = subtitleAiApiKey,
-                subtitleAiModel = subtitleAiModel,
-                subtitleRemoveHearingImpaired = subtitleRemoveHearingImpaired,
                 webhookEnabled = webhookEnabled,
                 webhookUrls = webhookUrls,
                 webhookIntervalSeconds = webhookIntervalSeconds,
@@ -1189,48 +1153,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    // ── AI Subtitles ──────────────────────────────────────────────────────────
-
-    fun setSubtitleAiEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[subtitleAiEnabledKey] = enabled }
-            _uiState.value = _uiState.value.copy(subtitleAiEnabled = enabled)
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun setSubtitleAiAutoSelect(enabled: Boolean) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[subtitleAiAutoSelectKey] = enabled }
-            _uiState.value = _uiState.value.copy(subtitleAiAutoSelect = enabled)
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun setSubtitleRemoveHearingImpaired(enabled: Boolean) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[subtitleRemoveHearingImpairedKey] = enabled }
-            _uiState.value = _uiState.value.copy(subtitleRemoveHearingImpaired = enabled)
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun saveSubtitleAiApiKey(key: String) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[subtitleAiApiKeyKey] = key.trim() }
-            _uiState.value = _uiState.value.copy(subtitleAiApiKey = key.trim())
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
-    fun setSubtitleAiModel(model: SubtitleAiModel) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[subtitleAiModelKey] = model.name }
-            _uiState.value = _uiState.value.copy(subtitleAiModel = model)
-            syncLocalStateToCloud(silent = true)
-        }
-    }
-
     fun setWebhookEnabled(enabled: Boolean) {
         viewModelScope.launch {
             context.settingsDataStore.edit { it[webhookEnabledKey] = enabled }
@@ -1316,42 +1238,6 @@ class SettingsViewModel @Inject constructor(
             context.settingsDataStore.edit { it[webhookCompletionPercentKey] = clamped.toString() }
             _uiState.value = _uiState.value.copy(webhookCompletionPercent = clamped)
         }
-    }
-
-    fun startAiKeyServer() {
-        viewModelScope.launch {
-            stopAiKeyServerInternal()
-            val server = AiKeyConfigServer.startOnAvailablePort(
-                onKeyReceived = { key ->
-                    viewModelScope.launch {
-                        saveSubtitleAiApiKey(key)
-                        _uiState.value = _uiState.value.copy(
-                            aiKeyServerState = _uiState.value.aiKeyServerState.copy(keyReceived = true)
-                        )
-                        kotlinx.coroutines.delay(2500)
-                        stopAiKeyServerInternal()
-                        _uiState.value = _uiState.value.copy(aiKeyServerState = AiKeyServerState())
-                    }
-                }
-            ) ?: return@launch
-            aiKeyServer = server
-            val ip = DeviceIpAddress.get(context) ?: "device-ip"
-            val url = "http://$ip:${server.listeningPort}"
-            val qr = runCatching { QrCodeGenerator.generate(url, 512) }.getOrNull()
-            _uiState.value = _uiState.value.copy(
-                aiKeyServerState = AiKeyServerState(isActive = true, serverUrl = url, qrBitmap = qr)
-            )
-        }
-    }
-
-    fun stopAiKeyServer() {
-        stopAiKeyServerInternal()
-        _uiState.value = _uiState.value.copy(aiKeyServerState = AiKeyServerState())
-    }
-
-    private fun stopAiKeyServerInternal() {
-        aiKeyServer?.stop()
-        aiKeyServer = null
     }
 
     private fun normalizeDnsProviderValue(raw: String?): String {
@@ -3011,7 +2897,6 @@ class SettingsViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         traktPollingJob?.cancel()
-        stopAiKeyServerInternal()
         plexHomeServerPollingJob?.cancel()
     }
 }

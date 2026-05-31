@@ -316,11 +316,11 @@ fun PlayerScreen(
     var subtitleLangIndex by remember { mutableIntStateOf(0) }
     var subtitleTrackIndex by remember { mutableIntStateOf(0) }
     var subtitlePanelFocus by remember { mutableIntStateOf(0) } // 0=lang panel, 1=track panel
-    val subtitleGroups = remember(uiState.subtitles, uiState.preferredSubtitleLang, uiState.secondarySubtitleLang, uiState.selectedStream, uiState.isAiAvailable, uiState.aiTargetLanguageName) {
+    val subtitleGroups = remember(uiState.subtitles, uiState.preferredSubtitleLang, uiState.secondarySubtitleLang, uiState.selectedStream) {
         val streamSource = uiState.selectedStream?.source ?: ""
         val primaryName = getFullLanguageName(uiState.preferredSubtitleLang)
         val secondaryName = getFullLanguageName(uiState.secondarySubtitleLang)
-        val groups = uiState.subtitles.mapIndexed { idx, sub -> Pair(idx, sub) }
+        uiState.subtitles.mapIndexed { idx, sub -> Pair(idx, sub) }
             .groupBy { (_, sub) -> getFullLanguageName(sub.lang).ifBlank { sub.lang.ifBlank { "Unknown" } } }
             .entries
             .sortedWith(compareBy(
@@ -341,14 +341,6 @@ fun PlayerScreen(
                         .thenBy { (_, sub) -> sub.trackIndex ?: Int.MAX_VALUE }
                 ))
             }
-            .toMutableList()
-        // When AI is available but no subtitles exist in the target language yet, inject a
-        // synthetic empty group so the AI option is reachable in the picker.
-        if (uiState.isAiAvailable && uiState.aiTargetLanguageName.isNotBlank() &&
-            groups.none { (name, _) -> name.equals(uiState.aiTargetLanguageName, ignoreCase = true) }) {
-            groups.add(0, Pair(uiState.aiTargetLanguageName, emptyList()))
-        }
-        groups.toList()
     }
     // Audio tracks from ExoPlayer
     var audioTracks by remember { mutableStateOf<List<AudioTrackInfo>>(emptyList()) }
@@ -556,11 +548,7 @@ fun PlayerScreen(
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .setRenderersFactory(
-                AiSubtitleRenderersFactory(
-                    context = context,
-                    translationManager = viewModel.translationManager,
-                    scope = coroutineScope
-                )
+                DefaultRenderersFactory(context)
                     // Use hardware decoders first; extension decoders only as fallback.
                     // On this SEI/Amlogic TV the C2 hardware decoder hangs during allocation,
                     // so prefer the bundled FFmpeg decoder while keeping the selected source.
@@ -1823,10 +1811,7 @@ fun PlayerScreen(
                                     }
                                     else -> {
                                         val group = subtitleGroups.getOrNull(subtitleLangIndex - 1)
-                                        val aiGroup = latestUiState.isAiAvailable &&
-                                            latestUiState.aiTargetLanguageName.isNotBlank() &&
-                                            group?.first?.equals(latestUiState.aiTargetLanguageName, ignoreCase = true) == true
-                                        val trackCount = (group?.second?.size ?: 0) + if (aiGroup) 1 else 0
+                                        val trackCount = group?.second?.size ?: 0
                                         if (subtitleTrackIndex < trackCount - 1) subtitleTrackIndex++
                                     }
                                 }
@@ -1890,16 +1875,8 @@ fun PlayerScreen(
                                     }
                                 } else {
                                     val group = subtitleGroups.getOrNull(subtitleLangIndex - 1)
-                                    val aiGroup = latestUiState.isAiAvailable &&
-                                        latestUiState.aiTargetLanguageName.isNotBlank() &&
-                                        group?.first?.equals(latestUiState.aiTargetLanguageName, ignoreCase = true) == true
-                                    val realIdx = if (aiGroup) subtitleTrackIndex - 1 else subtitleTrackIndex
-                                    if (aiGroup && subtitleTrackIndex == 0) {
-                                        if (!latestUiState.isAiTranslating) viewModel.activateAiSubtitle()
-                                    } else {
-                                        group?.second?.getOrNull(realIdx)?.second
-                                            ?.let { viewModel.selectSubtitle(it) }
-                                    }
+                                    group?.second?.getOrNull(subtitleTrackIndex)?.second
+                                        ?.let { viewModel.selectSubtitle(it) }
                                     showSubtitleMenu = false
                                     showControls = true
                                     coroutineScope.launch {
@@ -2155,52 +2132,6 @@ fun PlayerScreen(
             )
         }
 
-        // AI Translating badge — shown in top-right while subtitle translation is in progress
-        val isTranslatingLive by viewModel.isTranslatingLive.collectAsStateWithLifecycle()
-        AnimatedVisibility(
-            visible = hasPlaybackStarted && uiState.isAiTranslating && isTranslatingLive,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 12.dp, end = 16.dp)
-                .zIndex(6f)
-        ) {
-            androidx.compose.foundation.layout.Row(
-                modifier = Modifier
-                    .background(
-                        color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = androidx.compose.ui.graphics.Color(0xFF7EC8A0),
-                    modifier = Modifier.size(12.dp)
-                )
-                Text(
-                    text = "AI Translating",
-                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f)
-                )
-            }
-        }
-
-        // AI translation API error toast
-        uiState.aiErrorToast?.let { msg ->
-            Toast(
-                message = msg,
-                type = ToastType.ERROR,
-                isVisible = true,
-                durationMs = 5000,
-                onDismiss = { viewModel.dismissAiErrorToast() }
-            )
-        }
-
         // Netflix-style Controls Overlay
         AnimatedVisibility(
             visible = hasPlaybackStarted && showControls && !showSubtitleMenu && !showSourceMenu,
@@ -2358,14 +2289,6 @@ fun PlayerScreen(
                                 val selected = latestUiState.selectedSubtitle
                                 if (selected == null) {
                                     subtitleLangIndex = 0
-                                    subtitleTrackIndex = 0
-                                } else if (latestUiState.isAiAvailable && latestUiState.aiTargetLanguageName.isNotBlank() &&
-                                    (latestUiState.isAiTranslating || latestUiState.selectedSubtitle?.let { sub ->
-                                        subtitleGroups.none { (_, items) -> items.any { (_, s) -> s.id == sub.id } }
-                                    } == true)) {
-                                    val aiLangName = latestUiState.aiTargetLanguageName
-                                    val idx = subtitleGroups.indexOfFirst { (name, _) -> name.equals(aiLangName, ignoreCase = true) }
-                                    subtitleLangIndex = if (idx >= 0) idx + 1 else 0
                                     subtitleTrackIndex = 0
                                 } else {
                                     val langName = getFullLanguageName(selected.lang)
@@ -2557,9 +2480,6 @@ fun PlayerScreen(
             SubtitleMenu(
                 subtitles = uiState.subtitles,
                 selectedSubtitle = uiState.selectedSubtitle,
-                isAiTranslating = uiState.isAiTranslating,
-                isAiAvailable = uiState.isAiAvailable,
-                aiTargetLanguageName = uiState.aiTargetLanguageName,
                 audioTracks = audioTracks,
                 selectedAudioIndex = selectedAudioIndex,
                 activeTab = subtitleMenuTab,
@@ -2597,7 +2517,6 @@ fun PlayerScreen(
                         try { subtitleButtonFocusRequester.requestFocus() } catch (_: Exception) {}
                     }
                 },
-                onToggleAi = { viewModel.activateAiSubtitle() },
                 onClose = {
                     showSubtitleMenu = false
                     showControls = true
@@ -3347,9 +3266,7 @@ private fun handleSubtitleMenuKey(
 private fun SubtitleMenu(
     subtitles: List<Subtitle>,
     selectedSubtitle: Subtitle?,
-    isAiTranslating: Boolean = false,
-    isAiAvailable: Boolean = false,
-    aiTargetLanguageName: String = "",
+
     audioTracks: List<AudioTrackInfo>,
     selectedAudioIndex: Int,
     activeTab: Int,
@@ -3362,7 +3279,6 @@ private fun SubtitleMenu(
     onTabChanged: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onSelectAudio: (AudioTrackInfo) -> Unit,
-    onToggleAi: () -> Unit = {},
     onClose: () -> Unit
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
@@ -3461,13 +3377,8 @@ private fun SubtitleMenu(
                                         count = items.size,
                                         isFocused = subtitlePanelFocus == 0 && subtitleLangIndex == idx + 1,
                                         isActivePanel = subtitleLangIndex == idx + 1,
-                                        isSelected = if (isAiTranslating && aiTargetLanguageName.isNotBlank() &&
-                                            langName.equals(aiTargetLanguageName, ignoreCase = true)) {
-                                            true
-                                        } else {
-                                            selectedSubtitle != null &&
+                                        isSelected = selectedSubtitle != null &&
                                                 items.any { (_, sub) -> sub.id == selectedSubtitle.id }
-                                        }
                                     )
                                 }
                             }
@@ -3497,8 +3408,6 @@ private fun SubtitleMenu(
                                     )
                                 }
                             } else {
-                                val isAiGroup = isAiAvailable && aiTargetLanguageName.isNotBlank() &&
-                                    selectedGroup.first.equals(aiTargetLanguageName, ignoreCase = true)
                                 LazyColumn(
                                     state = trackListState,
                                     modifier = Modifier
@@ -3507,18 +3416,6 @@ private fun SubtitleMenu(
                                         .padding(start = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
-                                    if (isAiGroup) {
-                                        item {
-                                            TrackMenuItem(
-                                                label = aiTargetLanguageName,
-                                                subtitle = "AI",
-                                                subtitleDetail = null,
-                                                isSelected = isAiTranslating,
-                                                isFocused = subtitlePanelFocus == 1 && subtitleTrackIndex == 0,
-                                                onClick = { /* D-pad only */ }
-                                            )
-                                        }
-                                    }
                                     itemsIndexed(selectedGroup.second) { idx, (_, subtitle) ->
                                         val score = subtitleMatchScore(streamSource, subtitle)
                                         val langName = getFullLanguageName(subtitle.lang)
@@ -3535,13 +3432,12 @@ private fun SubtitleMenu(
                                                 .ifBlank { subtitle.id }
                                                 .ifBlank { null }
                                         }
-                                        val itemIdx = if (isAiGroup) idx + 1 else idx
                                         TrackMenuItem(
                                             label = mainLabel,
                                             subtitle = badge,
                                             subtitleDetail = detail,
-                                            isSelected = !isAiTranslating && selectedSubtitle?.id == subtitle.id,
-                                            isFocused = subtitlePanelFocus == 1 && subtitleTrackIndex == itemIdx,
+                                        isSelected = selectedSubtitle?.id == subtitle.id,
+                                        isFocused = subtitlePanelFocus == 1 && subtitleTrackIndex == idx,
                                             onClick = { /* D-pad only */ }
                                         )
                                     }
@@ -3745,8 +3641,6 @@ private fun SubtitleMenu(
 
                         // Grouped by language
                         subtitleGroups.forEach { (langName, indexedSubs) ->
-                            val isAiGroup = isAiAvailable && aiTargetLanguageName.isNotBlank() &&
-                                langName.equals(aiTargetLanguageName, ignoreCase = true)
                             item(key = "mobile_header_$langName") {
                                 Text(
                                     text = langName.uppercase(),
@@ -3759,23 +3653,6 @@ private fun SubtitleMenu(
                                         .fillMaxWidth()
                                         .padding(start = 16.dp, top = 8.dp, bottom = 2.dp)
                                 )
-                            }
-                            if (isAiGroup) {
-                                item(key = "mobile_ai_item") {
-                                    MobileTrackItem(
-                                        name = aiTargetLanguageName,
-                                        description = "AI",
-                                        isSelected = isAiTranslating,
-                                        onClick = { onToggleAi(); onClose() }
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 8.dp)
-                                            .height(1.dp)
-                                            .background(Color.White.copy(alpha = 0.06f))
-                                    )
-                                }
                             }
                             indexedSubs.forEach { (originalIndex, sub) ->
                                 item(key = "mobile_${sub.id}") {
@@ -3790,7 +3667,7 @@ private fun SubtitleMenu(
                                     MobileTrackItem(
                                         name = displayName,
                                         description = description,
-                                        isSelected = !isAiTranslating && selectedSubtitle?.id == sub.id,
+                                        isSelected = selectedSubtitle?.id == sub.id,
                                         onClick = { onSelectSubtitle(originalIndex + 1) }
                                     )
                                     Box(
