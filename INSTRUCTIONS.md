@@ -1,182 +1,145 @@
-# Xadarr — User Guide
+# Xadarr — Setup Guide
 
-## Installation
+## Install APK
 
-**Sideload (APK)**
-1. Enable "Install from unknown sources" in your device settings.
-2. Copy the APK to a USB drive or transfer it over your network.
+1. Enable **Install from unknown sources** in your device settings.
+2. Transfer the APK to your device — USB drive, network share, or the Downloader app on Fire TV.
 3. Open a file manager on your TV and tap the APK to install.
-4. On Fire TV: use "Downloader" or "ES File Explorer" to install.
 
-**In-app updates** (sideload build only): A banner appears on the home screen when a new version is available. Select it to download and install automatically.
+**ONN / Fire TV:** Downloader app is the easiest path. Point it at the GitHub release URL or a local address.
+
+**In-app updates** (sideload build only): a banner appears on the home screen when a newer version is available. Select it to download and install.
+
+---
+
+## Sync Server
+
+The sync server stores your settings and makes new device setup instant — connect and restore everything in one step.
+
+**Clone the repo and start the server:**
+
+```bash
+git clone https://github.com/Vansmak/xadarr
+cd xadarr/sync-server
+docker compose up -d
+```
+
+Or add it to an existing `docker-compose.yml`:
+
+```yaml
+services:
+  xadarr-server:
+    build: ./sync-server        # path to the sync-server directory
+    container_name: xadarr-server
+    restart: unless-stopped
+    ports:
+      - "7979:7979"
+    volumes:
+      - ./sync-server/data:/data
+    environment:
+      - PORT=7979
+      # - TMDB_API_KEY=your_key_here   # optional, can be set in the web UI
+```
+
+Web UI is at `http://your-server:7979`. Open it to verify the server is running and optionally set a TMDB API key.
 
 ---
 
 ## First-Time Setup
 
-The fastest path is to restore from a sync server (xadarr-server or Episeerr). This pulls all settings, sources, addons, and playlists in one step.
+### Restore from sync server (recommended)
 
-1. **Create a profile** — on the profiles screen, add a name and optionally a PIN.
-2. **Restore from server** (if you have one running):
-   - Go to Settings → User Info & Account → **Connect to Server**.
-   - Enter your server URL (e.g. `http://192.168.1.x:7979`) and select **Restore**.
-   - All settings, playlists, and catalog connections are pulled down immediately.
-3. **Add sources manually** if not restoring:
-   - **IPTV**: Settings → Plugins & Extensions → add your M3U or Xtream URL.
-   - **Home servers**: Settings → Sources → add Jellyfin, Emby, or Plex URL.
-   - **Addons**: Settings → Plugins & Extensions → paste an addon or plugin URL.
+1. Open Xadarr and create a profile.
+2. Go to **Settings → User Info & Account → Connect to Server**.
+3. Enter `http://your-server:7979` and tap **Restore**.
 
----
+All settings, playlists, and connections are pulled down immediately.
 
-## Home Screen
+### Manual setup
 
-| Remote key | Action |
-|------------|--------|
-| D-pad | Move between rows and cards |
-| OK / Enter | Open item |
-| Back | Go back / close panel |
+If you don't have a sync server, configure everything by hand in Settings:
 
-Rows shown (depending on your setup):
-- Continue Watching (Trakt-based)
-- Continue on *Server* (Jellyfin / Emby / Plex resume items)
-- Watchlist
-- Recent
-- Catalog rows (movies, shows, by genre)
-
-**Profiles**: select your avatar/icon at the top-right of the home screen to switch profiles.
+- **Home servers** → Sources
+- **IPTV** → Plugins & Extensions
+- **Webhooks** → Plugins & Extensions → Progress Webhook
 
 ---
 
-## Live TV
+## Home Server (Jellyfin / Emby / Plex)
 
-### Opening the guide
+1. Go to **Settings → Sources**.
+2. Tap **Add** and choose the server type.
+3. Enter the server URL and your API key (Jellyfin/Emby) or Plex token.
+4. Press **Test**, then **Save**.
 
-- Navigate to **TV** in the top bar and press OK.
-- The app opens with the guide visible, focused on your **Favorites** category.
-- The video starts playing when you rest on a channel for half a second.
-
-### Guide navigation
-
-| Remote key | Action |
-|------------|--------|
-| Up / Down | Move between channels (plays channel after ~0.5s) |
-| OK / Enter | Play selected channel immediately |
-| D-pad Left | Open the **category / group panel** |
-| Back | **Exit live TV** (return to home) |
-| Back (while watching, guide closed) | Re-open the guide |
-
-### Category panel
-
-- Press **D-pad Left** from the channel list to slide the categories panel in from the left.
-- Favorites, All, Recent, and any groups from your playlist are listed.
-- Highlight a category and press OK to filter the channel list.
-- Press **D-pad Right** to close the panel and return to the channel list.
-
-### Channel guide (EPG)
-
-- Press **D-pad Right** from a channel row to enter the program timeline.
-- Highlight a past program with catchup available and press OK to play it.
-- Press **Back** or **D-pad Left** from the timeline to return to the channel list.
-
-### Favorites
-
-- **Long-press OK** on any channel row to toggle it as a favorite.
-- Favorites are saved per-profile and sync to your server.
+A **Continue on *Name*** row appears on the home screen once connected. Playback progress is reported to the server in real time during playback.
 
 ---
 
-## Video Player
+## IPTV
 
-### TV remote controls
+### M3U playlist
 
-| Remote key | Action |
-|------------|--------|
-| OK / Enter | Play / Pause |
-| Back | Return to guide (live TV) or previous screen |
-| D-pad Left / Right | Seek backward / forward |
-| D-pad Up | Next audio track |
-| D-pad Down | Next subtitle track |
+1. **Settings → Plugins & Extensions → Add IPTV Source → M3U URL**.
+2. Paste your M3U URL and save.
 
-### Player options
+### Xtream Codes
 
-While something is playing, press **Menu** (☰) or long-press OK to open the options panel. From here you can:
-- Switch stream source or quality
-- Choose audio / subtitle track
-- Toggle subtitles on/off
+1. **Settings → Plugins & Extensions → Add IPTV Source → Xtream**.
+2. Enter your server URL, username, and password.
 
----
+### EPG (program guide)
 
-## Settings
+After adding a playlist, tap the entry and set the **EPG URL** field to an XMLTV URL from your IPTV provider.
 
-Access settings from the left sidebar on the home screen or TV screen.
+### Favorites and On Now row
 
-### Key sections
-
-**User Info & Account**
-- Connect to your sync server — enter its URL to restore all settings to a new device.
-- Trakt.tv login for watchlist and continue-watching sync.
-- Force sync — push local state to your server and pull the latest.
-
-**Plugins & Extensions**
-- Add / remove M3U and Xtream IPTV playlists.
-- Add / remove third-party addon sources by URL.
-- **Integration settings** (always visible at the bottom of this section):
-  - Progress Webhook — toggle on/off, manage webhook URLs, set fire interval
-  - Watchlist API — toggle the LAN JSON server on/off, set port
-  - Watched Threshold — percentage at which playback counts as "watched" (50–99%)
-
-**Sources**
-- Add Jellyfin, Emby, or Plex server connections.
-- Each connected server adds a "Continue on *Name*" row to your home screen.
-
-**Player**
-- Preferred audio language, subtitle language, decoder settings.
+Long-press **OK** on any channel in the guide to toggle it as a favorite. Favorited channels appear on the **On Now** home row showing the current program, progress bar, and time remaining. Short press opens the mini-player; long press shows full-screen or guide options.
 
 ---
 
 ## Webhooks
 
-Xadarr can POST playback and watchlist events to any HTTP endpoint. You can add multiple webhook URLs; each URL has its own event selection so different services receive only the events they need.
+Xadarr can POST playback and watchlist events to any HTTP endpoint. Each URL has its own event selection.
 
-### Adding a webhook URL
+### Add a webhook URL
 
-1. Go to **Settings → Plugins & Extensions**.
-2. Scroll to **Progress Webhook** and toggle it on.
-3. Press the webhook URL row (or the **+ Add URL** row) to open the URL editor.
-4. Enter the endpoint URL (e.g. `http://192.168.1.x:5002/api/integration/xadarr/webhook`).
-5. Check or uncheck the events this URL should receive:
-   - **Start / Pause / Resume / Stop** — playback lifecycle events
-   - **Progress** — periodic heartbeat (fires every N seconds while playing)
-   - **Watchlist Add / Watchlist Remove** — fires when items are added to or removed from the watchlist
-6. Press **Save**. Repeat to add more URLs.
+1. **Settings → Plugins & Extensions → Progress Webhook** — toggle on.
+2. Tap **+ Add URL**.
+3. Enter the endpoint URL.
+4. Select the events this URL should receive:
+   - **Start / Pause / Resume / Stop** — playback lifecycle
+   - **Progress** — periodic heartbeat while playing (configurable interval, default 30 s)
+   - **Watchlist Add / Watchlist Remove** — fires immediately on watchlist changes
+5. Tap **Save**. Repeat to add more URLs.
 
-### Event notes
+Different URLs can subscribe to different events — e.g. send playback events to Episeerr and watchlist events to a separate automation endpoint.
 
-- **Progress** fires at the interval set in the *Progress interval* row (default 30 s). It is throttled to that interval even if multiple URLs subscribe to it.
-- **Watchlist events** fire immediately when a watchlist change happens on any device — no polling needed.
-- To send watchlist events to a different endpoint than playback events, add a second URL and enable only `watchlist.add` / `watchlist.remove` for that entry.
-- Webhook delivery is best-effort. No retry on failure; check your endpoint logs if events are missing.
+### Common endpoints
 
-### Common endpoint examples
-
-| Service | URL pattern |
-|---------|-------------|
+| Service | URL |
+|---------|-----|
 | Episeerr | `http://your-episeerr:5002/api/integration/xadarr/webhook` |
-| Home Assistant webhook | `http://homeassistant.local:8123/api/webhook/your-webhook-id` |
-| n8n webhook | `http://your-n8n:5678/webhook/your-path` |
+| Home Assistant | `http://homeassistant.local:8123/api/webhook/your-id` |
+| n8n | `http://your-n8n:5678/webhook/your-path` |
+
+No retry on delivery failure — check your endpoint logs if events are missing.
 
 ---
 
 ## Troubleshooting
 
 **Live TV shows "CHANNELS 0" on Favorites**
-Your playlist hasn't finished loading yet, or you have no favorited channels. Long-press OK on any channel to add it to Favorites.
+No favorited channels yet. Long-press OK on any channel in the guide to add one.
 
-**Guide freezes or is slow to open**
-This can happen on lower-powered devices (ONN, some Fire TV sticks). The EPG grid defers rendering by one frame to avoid blocking the UI — if it's still slow, consider reducing your playlist size or disabling EPG loading for large categories.
+**Guide is slow on low-powered devices (ONN, Fire TV Stick)**
+Reduce playlist size or disable EPG loading for large categories.
 
-**Back button exits the app instead of going back a screen**
-On Android TV, the system Back button behavior depends on which screen has focus. If you're on the home screen with no panel open, Back will exit the app. This is standard Android TV behavior.
+**Settings not syncing to server**
+Open `http://your-server:7979` in a browser to confirm the server is reachable. Force a sync via Settings → User Info & Account → Force Sync.
 
-**Can't connect to ADB for sideloading**
-Enable ADB debugging in Developer Options on your TV. Some devices require you to confirm the connection on-screen the first time. On ONN TV: Settings → Device Preferences → About → Build (click 7 times) → Developer Options → USB Debugging / Network Debugging.
+**Can't connect via ADB for sideloading**
+Enable Network Debugging in Developer Options. On ONN TV: Settings → Device Preferences → About → Build number (tap 7×) → Developer Options → Network Debugging.
+
+**Back button exits the app**
+On the home screen with no panel open, Back exits — standard Android TV behavior.

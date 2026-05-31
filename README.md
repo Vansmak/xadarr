@@ -1,77 +1,70 @@
 # Xadarr
 
-Xadarr is an Android media hub for TV, phone, and tablet form factors. This repository is maintained as a source-code and development mirror for the Android application.
+Self-hosted Android TV media hub. Browse and stream from Jellyfin, Emby, Plex, and IPTV playlists with no cloud dependency.
 
-The app provides a media browser, player shell, profile support, optional cloud sync, IPTV playlist support, catalog configuration, home-server integrations, and integrations with user-configured sources. Xadarr does not host, store, sell, or distribute movies, series, live TV channels, playlists, streams, or other third-party media.
+Settings, profiles, and watchlist sync to a server you control. A lightweight sync server (port 7979) handles cross-device setup and sync. No cloud account required.
 
-## Fork additions (Vansmak/Xadarr)
-
-This fork replaces Xadarr Cloud (Supabase) with self-hosted settings sync, a generic webhook system, and home-server session reporting.
-
-**Self-hosted sync** — settings, profiles, addons, IPTV, home server connections, and watchlist sync to a server you control. No cloud account required. See [sync-server/](sync-server/) for a ready-to-run Docker container and web UI (port 7979).
-
-**New device setup:** tap **Connect to Server** on the profile screen, enter your server URL, and all settings restore in one step. Or configure everything from the xadarr-server web UI in a browser first.
-
-**Generic webhook system** — fire HTTP POST events to any URL on playback and watchlist changes. Add as many webhook endpoints as you need; each URL has its own event selection.
-
-Supported events: `start`, `pause`, `resume`, `stop`, `progress`, `watchlist.add`, `watchlist.remove`.
-
-Example uses:
-- **Episeerr** — point a webhook URL at `http://your-episeerr:5002/api/integration/xadarr/webhook` and select the events you want
-- **Home Assistant** — fire `start`/`stop` to trigger automations (dim lights, silence notifications)
-- **n8n / Zapier / Make** — route any event into your own automation workflows
-
-**Integration settings** (always in Plugins & Extensions):
-- Progress webhook — add/remove URLs, select events per URL, set fire interval
-- Watchlist API — toggle the LAN JSON server on/off, set port (default 7979)
-- Watched threshold — configurable 50–99%
-
-**Home-server session reporting** — playback progress is reported to connected Jellyfin, Emby, and Plex servers during playback (ticks for JF/Emby, timeline for Plex).
-
-**Direct API calls** — TMDB and Trakt are called directly with your own API keys. The Supabase Edge Function proxy is no longer used.
-
-**Live TV mini-player** — the IPTV stream keeps playing in a picture-in-picture tile (top-right corner) when you navigate away from the TV guide. Tap the tile to return to full screen; Back dismisses it. Opening a VOD player stops the stream entirely.
-
-**On Now home row** — favorited IPTV channels appear as a dedicated row on the home screen showing the current program, progress bar, and time remaining. The row is built reactively once the IPTV cache is warm and survives navigation and catalog reloads. Channels without logos show a colored initial tile instead of a blank card. Single press starts the channel in the mini-player; long press opens full-screen TV or TV guide.
-
----
-
-## Repository Purpose
-
-This GitHub repository is for:
-
-- Source code review and development
-- Issue investigation and technical discussion
-- Build documentation
-- License and privacy documentation
-- Contribution review
-
-It is not intended as an advertising page, download landing page, or content distribution repository.
+Xadarr does not host, store, sell, or distribute movies, series, live TV channels, playlists, or other third-party media.
 
 ## Features
 
-- Android TV, Fire TV, phone, and tablet UI
-- TMDB-powered movie, series, cast, collection, franchise, and metadata browsing
-- IPTV M3U/Xtream playlist support with provider categories, favorites, hidden categories, EPG, and mobile/tablet fullscreen playback
-- Optional Xadarr Cloud sync for profiles, settings, catalogs, IPTV state, watch state, and custom profile avatars
-- Optional per-profile Trakt.tv integration for watchlist, history, progress, and continue watching
-- Catalog management with manual URLs and public Trakt/MDBList list discovery
-- Home-server source and catalog support for user-owned Jellyfin, Emby, and Plex libraries
-- Third-party addon support for user-configured sources
-- Watchlist and continue-watching state with profile isolation
-- Subtitle and audio track selection, subtitle language filtering, and AI subtitle tools
-- Profile PINs and custom profile avatars
-- ExoPlayer/Media3 playback with TV remote, mobile, and tablet controls
+- **Android TV, Fire TV, phone, and tablet** UI
+- **Jellyfin, Emby, Plex** — library browsing, continue watching, real-time session progress reporting
+- **IPTV** — M3U and Xtream playlist support, per-channel favorites, EPG guide
+- **Live TV mini-player** — IPTV stream stays alive in a picture-in-picture tile when you navigate away from the guide
+- **On Now home row** — favorited IPTV channels on the home screen showing current program, progress bar, and time remaining
+- **TMDB** — movies, series, cast, collections, franchise browsing
+- **Trakt.tv** — watchlist and continue-watching sync per profile
+- **Self-hosted sync** — settings, profiles, addons, IPTV state, and watchlist stored on your server; restore a new device in one step
+- **Generic webhook system** — POST playback and watchlist events to any HTTP endpoint; multiple URLs, per-URL event selection
+- **Session reporting** — playback progress reported to Jellyfin/Emby (ticks) and Plex (timeline) in real time
+- **Bidirectional watchlist sync** — changes push to your sync server and are available on every device immediately
 
-## Recent Highlights
+## Quick Start
 
-Recent 2.0.13 work: generic multi-URL webhook system with per-URL event selection, self-hosted sync replacing Xadarr Cloud, home-server session reporting, and LAN watchlist API server.
+1. **Run the sync server** — see [Sync Server](#sync-server) below
+2. **Install the APK** — download from [Releases](https://github.com/Vansmak/xadarr/releases) and sideload to your TV
+3. **Connect** — Settings → User Info & Account → Connect to Server → enter `http://your-server:7979`
 
-For full release history, see [CHANGELOG.md](CHANGELOG.md).
+See [INSTRUCTIONS.md](INSTRUCTIONS.md) for full setup details.
 
-## Availability
+## Sync Server
 
-Xadarr is distributed as a sideload APK. Download the latest release from [Releases](https://github.com/Vansmak/xadarr/releases).
+A lightweight Python server stores your full settings blob and serves a browser-based web UI for configuration and watchlist management.
+
+- Default port: **7979**
+- Web UI: `http://your-server:7979`
+- Source: [sync-server/](sync-server/)
+
+```yaml
+services:
+  xadarr-server:
+    build: ./sync-server
+    container_name: xadarr-server
+    restart: unless-stopped
+    ports:
+      - "7979:7979"
+    volumes:
+      - ./sync-server/data:/data
+```
+
+On new device setup, tap **Connect to Server**, enter the URL, and all settings restore in one step.
+
+## Webhook System
+
+Xadarr can POST playback and watchlist events to any HTTP endpoint. Add as many URLs as you need; each URL has its own event selection.
+
+**Supported events:** `start` · `pause` · `resume` · `stop` · `progress` · `watchlist.add` · `watchlist.remove`
+
+Configure in **Settings → Plugins & Extensions → Progress Webhook**.
+
+| Service | URL pattern |
+|---------|-------------|
+| Episeerr | `http://your-episeerr:5002/api/integration/xadarr/webhook` |
+| Home Assistant | `http://homeassistant.local:8123/api/webhook/your-id` |
+| n8n | `http://your-n8n:5678/webhook/your-path` |
+
+`progress` fires at a configurable interval (default 30 s). Watchlist events fire immediately. No retry on failure.
 
 ## Screenshots
 
@@ -87,113 +80,41 @@ Xadarr is distributed as a sideload APK. Download the latest release from [Relea
 |--------|----------|
 | ![Mobile screen](screenshots/mobile_home.webp) | ![Profiles screen](screenshots/profiles_v1991.png) |
 
-## Content And Source Policy
+## Availability
 
-Xadarr is a media browser and player interface for user-configured sources. It works like a media player or browser: users provide their own services, playlists, addons, and URLs.
+Xadarr is distributed as a sideload APK. Download the latest release from [Releases](https://github.com/Vansmak/xadarr/releases).
 
-This repository does not include hosted media content, bundled playlists, IPTV credentials, debrid accounts, third-party streaming catalogs, or links intended to enable unauthorized access to content. No movies, series, live TV channels, playlists, or other third-party media are hosted by this repository or by Xadarr.
+## Build
 
-Users are solely responsible for their usage and must comply with applicable local laws. If you believe content accessed through an external source violates copyright law, contact the actual file host, service provider, or source maintainer. The Xadarr repository and developers cannot remove content hosted by third parties.
-
-Contributors should not submit copyrighted media, credentials, private keys, access tokens, or links intended to enable unauthorized access to content.
-
-## Cloud Sync
-
-**This fork uses self-hosted sync instead of Xadarr Cloud.** Settings, profiles, addons, IPTV, and watchlist sync to your own server via lightweight HTTP endpoints. See [sync-server/](sync-server/) for a ready-to-run Docker container with a browser-based setup UI.
-
-The original Xadarr Cloud (Supabase) backend is no longer required and has been removed from the UI.
-
-## Build And Run
-
-Requirements:
-
-- Android Studio or Android SDK command-line tools
-- JDK 17
-- Android SDK 35
-
-Use the tracked Gradle wrapper:
+Requirements: Android Studio or SDK command-line tools, JDK 17, Android SDK 35.
 
 ```bash
-./gradlew :app:assemblePlayDebug
 ./gradlew :app:assembleSideloadDebug
-```
-
-On Windows PowerShell or Command Prompt:
-
-```powershell
-.\gradlew.bat :app:assemblePlayDebug
-.\gradlew.bat :app:assembleSideloadDebug
-```
-
-Install a debug build on a connected Android TV, Fire TV, emulator, phone, or tablet:
-
-```bash
-./gradlew :app:installPlayDebug
 ./gradlew :app:installSideloadDebug
-```
 
-For network ADB devices:
-
-```bash
+# Network ADB install
 adb connect <device-ip>:5555
 adb install -r app/build/outputs/apk/sideload/debug/app-sideload-debug.apk
 ```
 
-Build variants:
+Build variants: `sideload` (APK with self-update), `play` (Play Store, self-update disabled). Append `Debug`, `Staging`, or `Release`.
 
-- `play`: Play Store build, self-update disabled.
-- `sideload`: Direct APK build, self-update enabled.
-- `debug`: development build.
-- `staging`: release-like build signed with the debug keystore for upgrade testing.
-- `release`: production build. Use a private release keystore for distribution.
+API keys (TMDB, Trakt) go in `secrets.properties` (copy from `secrets.defaults.properties`). For signed release builds, copy `keystore.properties.template` to `keystore.properties`. Neither file is committed.
 
-## Local Configuration
+## Content and Source Policy
 
-Cloud sync, Google sign-in, and Supabase-backed auth require local secrets. Copy the defaults file and fill in real values:
+Xadarr is a media browser and player for user-configured sources. It does not host, distribute, or link to third-party media. Users supply their own services, playlists, addons, and URLs and are solely responsible for complying with applicable laws.
 
-```bash
-cp secrets.defaults.properties secrets.properties
-```
-
-`secrets.properties` is ignored and must not be committed.
-
-TMDB and Trakt credentials are not committed to the repository. When a valid
-Supabase config is present, app requests are routed through the tracked
-`tmdb-proxy` and `trakt-proxy` Edge Functions, where those credentials should be
-stored as Supabase function secrets. Forks that do not use those proxy functions
-can still add their own local `TMDB_API_KEY`, `TRAKT_CLIENT_ID`, and
-`TRAKT_CLIENT_SECRET` values in `secrets.properties` for direct local testing.
-
-For signed release builds, copy the keystore template and fill in local signing values:
-
-```bash
-cp keystore.properties.template keystore.properties
-```
-
-`keystore.properties` and keystore files are ignored and must stay private.
-
-## Release Checks
-
-Before publishing a build, run:
-
-```bash
-./gradlew :app:compilePlayDebugKotlin
-./gradlew :app:assemblePlayRelease
-./gradlew :app:assembleSideloadRelease
-```
-
-Smoke-test startup, profile switching, playback, stream fallback, subtitle/audio switching, IPTV/EPG loading, addon add/remove, search, settings navigation, background sync, and repeated player open/close on the supported device classes.
+Contributors must not submit copyrighted media, credentials, private keys, or links intended to enable unauthorized access to content.
 
 ## Privacy
 
-See [PRIVACY.md](PRIVACY.md) for the privacy policy. Cloud account and synced data deletion is available at [auth.xadarr.tv/delete-account](https://auth.xadarr.tv/delete-account).
+See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE).
 
 ## AI Disclosure
 
 This application was developed with significant AI assistance. Contributions should still be reviewed, tested, and treated as normal source code changes.
-
-If you have concerns about using AI-generated software, please do not use this application.
