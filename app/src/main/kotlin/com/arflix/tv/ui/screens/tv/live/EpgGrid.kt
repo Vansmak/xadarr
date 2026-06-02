@@ -90,6 +90,7 @@ fun EpgGrid(
     compact: Boolean = false,
     gridFocused: Boolean = false,
     onMoveLeftFromChannels: () -> Unit = {},
+    onMoveUpFromTopOfChannels: () -> Unit = {},
     onEnterEpg: (EnrichedChannel) -> Unit = {},
     onExitEpg: (EnrichedChannel?) -> Unit = {},
     emptyMessage: String = "Loading channels…",
@@ -205,7 +206,12 @@ fun EpgGrid(
             if (delta > 0) 0 else channels.lastIndex
         } else anchorIdx
         if (safeIdx < 0) return true
-        return keepChannelFocus(safeIdx + delta)
+        val nextIdx = safeIdx + delta
+        if (nextIdx < 0 && delta < 0) {
+            onMoveUpFromTopOfChannels()
+            return true
+        }
+        return keepChannelFocus(nextIdx)
     }
 
     // Scroll the grid to the active channel whenever the selection changes

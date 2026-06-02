@@ -105,6 +105,7 @@ fun CategorySidebar(
     onTopBoundaryFocusChanged: (Boolean) -> Unit = {},
     focusSearchSignal: Int = 0,
     focusFirstCategorySignal: Int = 0,
+    focusActiveCategorySignal: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val targetWidth = if (expanded) LiveDims.SidebarExpanded else LiveDims.SidebarCollapsed
@@ -118,6 +119,17 @@ fun CategorySidebar(
     var menuForGroup by rememberSaveable { mutableStateOf<String?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
     val firstCategoryFocusRequester = remember { FocusRequester() }
+    val activeCategoryFocusRequester = remember(selectedId) { FocusRequester() }
+
+    LaunchedEffect(focusActiveCategorySignal) {
+        if (focusActiveCategorySignal > 0) {
+            delay(200L) // wait for the sidebar slide-in animation (180ms) to complete
+            repeat(3) {
+                runCatching { activeCategoryFocusRequester.requestFocus() }
+                delay(50L)
+            }
+        }
+    }
 
     LaunchedEffect(focusFirstCategorySignal) {
         if (focusFirstCategorySignal > 0) {
@@ -184,13 +196,14 @@ fun CategorySidebar(
         ) {
             items(tree.top, key = { it.id }) { cat ->
                 val isFirstItem = tree.top.firstOrNull()?.id == cat.id
+                val isActiveItem = selectedId == cat.id
                 val isAllGroup = cat.id == "all" && cat.children.isNotEmpty()
                 val isOpen = isAllGroup && expandedAll
                 SidebarRow(
                     label = cat.label,
                     count = cat.count,
                     icon = iconFor(cat),
-                    active = selectedId == cat.id,
+                    active = isActiveItem,
                     expanded = expanded,
                     hasChildren = isAllGroup,
                     isOpenGroup = isOpen,
@@ -201,7 +214,11 @@ fun CategorySidebar(
                         }
                         onSelect(cat.id)
                     },
-                    focusRequester = if (isFirstItem) firstCategoryFocusRequester else null,
+                    focusRequester = when {
+                        isActiveItem -> activeCategoryFocusRequester
+                        isFirstItem -> firstCategoryFocusRequester
+                        else -> null
+                    },
                 )
                 if (cat.id == "fav" && selectedId == "fav" && expanded) {
                     val sortLabel = when (favoriteSortMode) {

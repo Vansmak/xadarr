@@ -393,6 +393,7 @@ fun LiveTvScreen(
     var focusEpgSignal by remember { mutableIntStateOf(0) }
     var focusSearchCategorySignal by remember { mutableIntStateOf(1) }
     var focusCategorySignal by remember { mutableIntStateOf(0) }
+    var focusActiveCategorySignal by remember { mutableIntStateOf(0) }
     val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
@@ -467,8 +468,7 @@ fun LiveTvScreen(
     fun openSidebar() {
         guideGroupsVisible = true
         focusZone = LiveTvFocusZone.CATEGORY_LIST
-        focusCategorySignal += 1
-        runCatching { sidebarFocus.requestFocus() }
+        focusActiveCategorySignal += 1
     }
 
     fun focusPlaylistSearch() {
@@ -644,8 +644,12 @@ fun LiveTvScreen(
     }
 
     // Default focus to channel list on load (sidebar is hidden by default).
+    // Always snap back to Favorites on entry if the user has any.
     LaunchedEffect(enrichedState.value !== EnrichedChannels.Empty) {
         if (!isTouchDevice && enrichedState.value !== EnrichedChannels.Empty) {
+            if (state.snapshot.favoriteChannels.isNotEmpty()) {
+                selectedCategoryId = "fav"
+            }
             focusZone = LiveTvFocusZone.CHANNEL_LIST
             delay(80L)
             runCatching { epgFocus.requestFocus() }
@@ -669,12 +673,14 @@ fun LiveTvScreen(
             LiveTvFocusZone.EPG -> focusChannelList(focusedChannelId ?: playingChannelId)
             LiveTvFocusZone.CHANNEL_LIST -> {
                 if (isTouchDevice) onBack()
-                else focusPlaylistSearch()
+                else {
+                    guideGroupsVisible = false
+                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                        .coerceIn(0, maxTopBarIndex)
+                    focusZone = LiveTvFocusZone.TOPBAR
+                }
             }
-            LiveTvFocusZone.CATEGORY_LIST -> {
-                if (guideGroupsVisible) focusChannelList()
-                else onBack()
-            }
+            LiveTvFocusZone.CATEGORY_LIST -> onBack()
             LiveTvFocusZone.TOPBAR -> onBack()
         }
     }
@@ -705,7 +711,7 @@ fun LiveTvScreen(
                                         true
                                     }
                                     Key.DirectionDown -> {
-                                        focusPlaylistSearch()
+                                        focusChannelList()
                                         true
                                     }
                                     Key.DirectionCenter, Key.Enter -> {
@@ -858,6 +864,12 @@ fun LiveTvScreen(
                             onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
                             favorites = favSet,
                             onMoveLeftFromChannels = { openSidebar() },
+                            onMoveUpFromTopOfChannels = {
+                                guideGroupsVisible = false
+                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                                    .coerceIn(0, maxTopBarIndex)
+                                focusZone = LiveTvFocusZone.TOPBAR
+                            },
                             onEnterEpg = { channel -> focusEpg(channel.id) },
                             onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
                             modifier = Modifier
@@ -930,6 +942,7 @@ fun LiveTvScreen(
                         },
                         focusSearchSignal = focusSearchCategorySignal,
                         focusFirstCategorySignal = focusCategorySignal,
+                        focusActiveCategorySignal = focusActiveCategorySignal,
                         modifier = Modifier
                             .fillMaxHeight()
                             .focusRequester(sidebarFocus),

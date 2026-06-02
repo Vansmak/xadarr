@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.4] - 2026-06-02
+
+### Fixed
+- **TV guide: category focus on sidebar open** — D-pad Left from the channel list now focuses the currently selected category in the sidebar (not the Search field). Focus waits for the slide-in animation to complete before landing.
+- **TV guide: startup category** — entering the TV guide now always resets to Favorites if the user has any, instead of persisting the last-used category across sessions.
+- **TV guide: Back navigation** — Back from the channel list goes to the top bar (Home/Search/Watchlist) in one press; Back from the sidebar exits to the home screen. D-pad Up from the top channel also reaches the top bar directly.
+- **TV guide: top bar access** — D-pad Down from the top bar goes directly to the channel list; D-pad Up from the first channel jumps to the top bar.
+
 ## [1.3] - 2026-06-01
 
 ### Added
