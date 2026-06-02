@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -162,8 +164,9 @@ fun LiveTvScreen(
             value = System.currentTimeMillis()
         }
     }
-    var selectedCategoryId by rememberSaveable { mutableStateOf(if (!isTouchDevice) "favorites" else "all") }
+    var selectedCategoryId by rememberSaveable { mutableStateOf(if (!isTouchDevice) "fav" else "all") }
     var guideGroupsVisible by rememberSaveable { mutableStateOf(false) }
+    var miniPlayerHeightPx by remember { mutableIntStateOf(0) }
     val favoriteSortMode by viewModel.favoriteSortMode.collectAsStateWithLifecycle()
     val recents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
@@ -305,7 +308,7 @@ fun LiveTvScreen(
     // has zero favorites — not just because the async filter hasn't run yet.
     LaunchedEffect(state.iptvPreferencesLoaded, state.snapshot.favoriteChannels.size) {
         if (!isTouchDevice && state.iptvPreferencesLoaded
-            && selectedCategoryId == "favorites"
+            && (selectedCategoryId == "fav" || selectedCategoryId == "favorites")
             && state.snapshot.favoriteChannels.isEmpty()
         ) {
             selectedCategoryId = "all"
@@ -828,53 +831,59 @@ fun LiveTvScreen(
                         favoriteSet = favSet,
                         onFullscreenClick = openFullScreenPlayer,
                         compact = compactTouchLayout,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().onGloballyPositioned { coords ->
+                            miniPlayerHeightPx = coords.size.height
+                        },
                     )
                     EpgGrid(
-                        channels = filteredChannels,
-                        clockTickMillis = guideClockMillis,
-                        nowNext = state.snapshot.nowNext,
-                        selectedChannelId = focusedChannelId ?: playingChannelId,
-                        focusSelectedChannelSignal = focusSelectedChannelSignal,
-                        focusEpgSignal = focusEpgSignal,
-                        focusMode = if (focusZone == LiveTvFocusZone.EPG) {
-                            EpgGridFocusMode.Epg
-                        } else {
-                            EpgGridFocusMode.ChannelList
-                        },
-                        compact = compactTouchLayout,
-                        gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
-                        onChannelSelect = { channel, _ -> selectChannel(channel) },
-                        onProgramSelect = { channel, program -> playProgramInMini(channel, program) },
-                        onChannelFocused = { channel ->
-                            focusedChannelId = channel.id
-                            rememberedChannelByCategory[selectedCategoryId] = channel.id
-                        },
-                        onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
-                        favorites = favSet,
-                        onMoveLeftFromChannels = { openSidebar() },
-                        onEnterEpg = { channel -> focusEpg(channel.id) },
-                        onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onFocusChanged {
-                                if (it.hasFocus && focusZone == LiveTvFocusZone.CATEGORY_LIST) {
-                                    focusZone = LiveTvFocusZone.CHANNEL_LIST
+                            channels = filteredChannels,
+                            clockTickMillis = guideClockMillis,
+                            nowNext = state.snapshot.nowNext,
+                            selectedChannelId = focusedChannelId ?: playingChannelId,
+                            focusSelectedChannelSignal = focusSelectedChannelSignal,
+                            focusEpgSignal = focusEpgSignal,
+                            focusMode = if (focusZone == LiveTvFocusZone.EPG) {
+                                EpgGridFocusMode.Epg
+                            } else {
+                                EpgGridFocusMode.ChannelList
+                            },
+                            compact = compactTouchLayout,
+                            gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
+                            onChannelSelect = { channel, _ -> selectChannel(channel) },
+                            onProgramSelect = { channel, program -> playProgramInMini(channel, program) },
+                            onChannelFocused = { channel ->
+                                focusedChannelId = channel.id
+                                rememberedChannelByCategory[selectedCategoryId] = channel.id
+                            },
+                            onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
+                            favorites = favSet,
+                            onMoveLeftFromChannels = { openSidebar() },
+                            onEnterEpg = { channel -> focusEpg(channel.id) },
+                            onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onFocusChanged {
+                                    if (it.hasFocus && focusZone == LiveTvFocusZone.CATEGORY_LIST) {
+                                        focusZone = LiveTvFocusZone.CHANNEL_LIST
+                                    }
                                 }
-                            }
-                            .then(if (!isTouchDevice) Modifier.focusRequester(epgFocus) else Modifier),
-                    )
+                                .then(if (!isTouchDevice) Modifier.focusRequester(epgFocus) else Modifier),
+                        )
                 }
 
-                // Sidebar slides in from the left as an overlay (TiVimate-style).
-                // Hidden by default; D-pad left from channel list or Back opens it.
+                // Sidebar slides in from left as an overlay (TiVimate-style).
+                // Direct child of the outer Box so it has BoxScope and avoids
+                // ColumnScope.AnimatedVisibility resolution. Top offset measured
+                // from MiniPlayerRow so the sidebar starts below the player.
+                val density = LocalDensity.current
+                val miniPlayerOffsetDp = contentTopPadding + with(density) { miniPlayerHeightPx.toDp() }
                 AnimatedVisibility(
                     visible = guideGroupsVisible,
                     enter = fadeIn(tween(180)) + slideInHorizontally(tween(180)) { -it },
                     exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -it },
                     modifier = Modifier
                         .fillMaxHeight()
-                        .padding(top = contentTopPadding),
+                        .padding(top = miniPlayerOffsetDp),
                 ) {
                     CategorySidebar(
                         tree = enrichedState.value.tree,
