@@ -8,6 +8,7 @@ import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.IptvConfig
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.IptvTvSessionState
+import com.arflix.tv.ui.screens.tv.live.FavoriteSortMode
 import com.arflix.tv.util.AppLogger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +78,9 @@ class TvViewModel @Inject constructor(
     private var iptvRefreshPollJob: Job? = null
     private var lastKnownIptvRefreshAt: Long = 0L
 
+    private val _favoriteSortMode = MutableStateFlow(FavoriteSortMode.DateAdded)
+    val favoriteSortMode: StateFlow<FavoriteSortMode> = _favoriteSortMode.asStateFlow()
+
     /**
      * In-memory cache of the live-TV enriched channel list + category tree.
      * Persists across screen visits for the lifetime of the ViewModel (which
@@ -98,6 +102,7 @@ class TvViewModel @Inject constructor(
     init {
         observeConfigAndFavorites()
         observeTvSession()
+        observeFavoriteSortModeInternal()
         viewModelScope.launch {
             runCatching { iptvRepository.warmupFromCacheOnly() }
             // Try fast non-blocking in-memory read first; fall back to mutex-guarded disk read
@@ -175,6 +180,24 @@ class TvViewModel @Inject constructor(
                     maybeWarmStartupGuide()
                 }
         }
+    }
+
+    private fun observeFavoriteSortModeInternal() {
+        viewModelScope.launch {
+            iptvRepository.observeFavoriteSortMode()
+                .distinctUntilChanged()
+                .collect { raw ->
+                    _favoriteSortMode.value = runCatching { FavoriteSortMode.valueOf(raw) }
+                        .getOrDefault(FavoriteSortMode.DateAdded)
+                }
+        }
+    }
+
+    fun cycleFavoriteSortMode() {
+        val entries = FavoriteSortMode.entries
+        val next = entries[(favoriteSortMode.value.ordinal + 1) % entries.size]
+        _favoriteSortMode.value = next
+        viewModelScope.launch { iptvRepository.saveFavoriteSortMode(next.name) }
     }
 
     private fun observeConfigAndFavorites() {

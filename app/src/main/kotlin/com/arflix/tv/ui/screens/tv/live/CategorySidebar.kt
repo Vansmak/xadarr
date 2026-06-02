@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -89,6 +90,8 @@ fun CategorySidebar(
     tree: LiveCategoryTree,
     selectedId: String,
     expanded: Boolean,
+    favoriteSortMode: FavoriteSortMode = FavoriteSortMode.DateAdded,
+    onFavoriteSortToggle: () -> Unit = {},
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onHideCategory: (String) -> Unit = {},
@@ -200,6 +203,24 @@ fun CategorySidebar(
                     },
                     focusRequester = if (isFirstItem) firstCategoryFocusRequester else null,
                 )
+                if (cat.id == "fav" && selectedId == "fav" && expanded) {
+                    val sortLabel = when (favoriteSortMode) {
+                        FavoriteSortMode.DateAdded -> "Sort: Date Added"
+                        FavoriteSortMode.Alphabetical -> "Sort: A → Z"
+                        FavoriteSortMode.ByNumber -> "Sort: By #"
+                    }
+                    SidebarRow(
+                        label = sortLabel,
+                        count = 0,
+                        icon = Icons.Default.Sort,
+                        active = false,
+                        expanded = true,
+                        indent = 16.dp,
+                        labelSize = 10.sp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = onFavoriteSortToggle,
+                    )
+                }
                 if (isOpen && expanded) {
                     cat.children.forEach { child ->
                         SidebarRow(

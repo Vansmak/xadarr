@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3] - 2026-06-01
+
+### Added
+- **TV guide: auto-hide sidebar** — category panel is hidden by default; D-pad Left from the channel list slides it in (TiVimate-style), D-pad Right or Back dismisses it. Channel list and EPG now use the full width.
+- **TV guide: favorites sort** — when the Favorites category is selected and the sidebar is open, a Sort row appears below it; pressing OK cycles through Date Added → A→Z → By # and persists across sessions.
+- **TV guide: EPG prefetch on favorites load** — program data for favorited channels is fetched as soon as the favorites list is known, before channel enrichment completes, so the guide column is populated when the user first enters the channel list.
+
 ## [1.2] - 2026-05-30
 
 ### Added

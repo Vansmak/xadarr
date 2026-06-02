@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
@@ -20,6 +21,7 @@ import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
@@ -303,6 +305,13 @@ class IptvRepository @Inject constructor(
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
             decodeFavoriteChannels(prefs)
         }
+
+    fun observeFavoriteSortMode(): Flow<String> =
+        context.settingsDataStore.data.map { prefs -> prefs[favoriteSortModeKey].orEmpty() }
+
+    suspend fun saveFavoriteSortMode(mode: String) {
+        context.settingsDataStore.edit { prefs -> prefs[favoriteSortModeKey] = mode }
+    }
 
     fun observeHiddenGroups(): Flow<List<String>> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
@@ -1696,6 +1705,7 @@ class IptvRepository @Inject constructor(
     private fun favoriteChannelsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_favorite_channels")
     private fun favoriteChannelsKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_favorite_channels")
+    private val favoriteSortModeKey = stringPreferencesKey("iptv_favorite_sort_mode")
 
     private fun decodeFavoriteGroups(prefs: Preferences): List<String> {
         val raw = prefs[favoriteGroupsKey()].orEmpty()

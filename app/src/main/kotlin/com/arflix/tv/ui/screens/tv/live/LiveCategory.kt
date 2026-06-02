@@ -37,6 +37,8 @@ data class EnrichedChannel(
     val catchupDays: Int get() = source.catchupDays
 }
 
+enum class FavoriteSortMode { DateAdded, Alphabetical, ByNumber }
+
 data class LiveCategoryIndex(
     val byCategory: Map<String, List<EnrichedChannel>>,
     val byId: Map<String, EnrichedChannel>,
@@ -45,9 +47,16 @@ data class LiveCategoryIndex(
         categoryId: String,
         favorites: Collection<String>,
         recents: Collection<String>,
+        sortMode: FavoriteSortMode = FavoriteSortMode.DateAdded,
     ): List<EnrichedChannel> {
         return when (categoryId) {
-            "fav" -> favorites.mapNotNull(byId::get).filterNot { it.isAdult }
+            "fav" -> favorites.mapNotNull(byId::get).filterNot { it.isAdult }.let { list ->
+                when (sortMode) {
+                    FavoriteSortMode.DateAdded -> list
+                    FavoriteSortMode.Alphabetical -> list.sortedBy { it.name.lowercase() }
+                    FavoriteSortMode.ByNumber -> list.sortedBy { it.number }
+                }
+            }
             "recent" -> recents.toList().asReversed().mapNotNull(byId::get).filterNot { it.isAdult }
             else -> byCategory[categoryId].orEmpty()
         }
