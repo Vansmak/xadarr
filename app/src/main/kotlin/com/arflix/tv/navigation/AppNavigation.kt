@@ -20,6 +20,8 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.AuthState
+import com.arflix.tv.ui.screens.cameras.CameraPlayerScreen
+import com.arflix.tv.ui.screens.cameras.CamerasScreen
 import com.arflix.tv.ui.screens.details.DetailsScreen
 import com.arflix.tv.ui.screens.home.HomeScreen
 import com.arflix.tv.ui.screens.login.LoginScreen
@@ -55,6 +57,14 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
+    object Cameras : Screen("cameras")
+    object CameraPlayer : Screen("camera_player?streamUrl={streamUrl}&cameraName={cameraName}") {
+        fun createRoute(streamUrl: String, cameraName: String): String {
+            val encUrl = java.net.URLEncoder.encode(streamUrl, "UTF-8")
+            val encName = java.net.URLEncoder.encode(cameraName, "UTF-8")
+            return "camera_player?streamUrl=$encUrl&cameraName=$encName"
+        }
+    }
     object ProfileSelection : Screen("profile_selection")
     
     object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}") {
@@ -183,6 +193,12 @@ fun AppNavigation(
                 onNavigateToTv = { channelId, streamUrl ->
                     navigateTopLevel(Screen.Tv.createRoute(channelId, streamUrl))
                 },
+                onNavigateToCameras = {
+                    navigateTopLevel(Screen.Cameras.route)
+                },
+                onNavigateToCameraPlayer = { streamUrl, cameraName ->
+                    navController.navigate(Screen.CameraPlayer.createRoute(streamUrl, cameraName))
+                },
                 onNavigateToSettings = {
                     navigateTopLevel(Screen.Settings.route)
                 },
@@ -220,6 +236,7 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -241,6 +258,7 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -271,6 +289,7 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -300,6 +319,7 @@ fun AppNavigation(
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {
@@ -412,6 +432,9 @@ fun AppNavigation(
                 onNavigateToWatchlist = {
                     navigateTopLevel(Screen.Watchlist.route)
                 },
+                onNavigateToCameras = {
+                    navigateTopLevel(Screen.Cameras.route)
+                },
                 onNavigateToSettings = {
                     navigateTopLevel(Screen.Settings.route)
                 },
@@ -505,6 +528,42 @@ fun AppNavigation(
                         popUpTo(Screen.Player.route) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        // Cameras screen
+        composable(Screen.Cameras.route) {
+            CamerasScreen(
+                currentProfile = currentProfile,
+                onNavigateToHome = { navigateHome() },
+                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onSwitchProfile = {
+                    onSwitchProfile()
+                    navController.navigate(Screen.ProfileSelection.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // Camera fullscreen player
+        composable(
+            route = Screen.CameraPlayer.route,
+            arguments = listOf(
+                navArgument("streamUrl") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("cameraName") { type = NavType.StringType; nullable = true; defaultValue = null },
+            )
+        ) { backStackEntry ->
+            val streamUrl = backStackEntry.arguments?.getString("streamUrl").orEmpty()
+            val cameraName = backStackEntry.arguments?.getString("cameraName").orEmpty()
+            CameraPlayerScreen(
+                streamUrl = streamUrl,
+                cameraName = cameraName,
+                onBack = { navController.popBackStack() },
             )
         }
     }

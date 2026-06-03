@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,6 +51,8 @@ import com.arflix.tv.ui.theme.AnimationConstants
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+import com.arflix.tv.ui.components.navItems
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.theme.TextSecondary
 
 /**
@@ -61,6 +64,7 @@ enum class SidebarItem(val icon: ImageVector, @StringRes val labelRes: Int) {
     HOME(Icons.Outlined.Home, R.string.home),
     WATCHLIST(Icons.Outlined.Bookmark, R.string.watchlist),
     TV(Icons.Outlined.LiveTv, R.string.tv_shows),
+    CAMERAS(Icons.Outlined.Videocam, R.string.cameras),
     SETTINGS(Icons.Outlined.Settings, R.string.settings)
 }
 
@@ -76,12 +80,12 @@ fun Sidebar(
     onItemSelected: (SidebarItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val centerItems = listOf(SidebarItem.SEARCH, SidebarItem.HOME, SidebarItem.WATCHLIST, SidebarItem.TV)
+    val frigateConfigured = LocalFrigateConfigured.current
+    val centerItems = navItems(frigateConfigured).filter { it != SidebarItem.SETTINGS }
     val bottomItem = SidebarItem.SETTINGS
     val hasProfile = profile != null
-    // With profile: index 0 = profile, 1-4 = center items, 5 = settings. Without: 0-3 = center, 4 = settings.
     val centerFocusedIndex = if (hasProfile) focusedIndex - 1 else focusedIndex
-    val settingsFocused = if (hasProfile) focusedIndex == 5 else focusedIndex == 4
+    val settingsFocused = if (hasProfile) focusedIndex == centerItems.size + 1 else focusedIndex == centerItems.size
 
     // Sidebar: subtle transparent gradient so backdrop shows through
     Box(

@@ -187,6 +187,7 @@ data class SettingsUiState(
     val webhookCompletionPercent: Int = 90,
     // Arvio sync server URL — arvio-server instance for full settings sync
     val syncServerUrl: String = "",
+    val frigateUrl: String = "",
     val pinnedApps: List<String> = emptyList(),
 )
 
@@ -451,6 +452,7 @@ class SettingsViewModel @Inject constructor(
             }
             val webhookIntervalSeconds = prefs[webhookIntervalKey]?.toIntOrNull() ?: 30
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
+            val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
             val watchlistApiEnabled = prefs[watchlistApiEnabledKey] ?: false
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
@@ -525,6 +527,7 @@ class SettingsViewModel @Inject constructor(
                 watchlistApiPort = watchlistApiPort,
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
+                frigateUrl = frigateUrl,
                 pinnedApps = pinnedApps,
             )
         }
@@ -1198,6 +1201,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             cloudSyncRepository.saveSyncServerUrl(url.trim())
             _uiState.value = _uiState.value.copy(syncServerUrl = url.trim())
+        }
+    }
+
+    fun saveFrigateUrl(url: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.FRIGATE_URL_KEY] = url.trim() }
+            _uiState.value = _uiState.value.copy(frigateUrl = url.trim())
         }
     }
 

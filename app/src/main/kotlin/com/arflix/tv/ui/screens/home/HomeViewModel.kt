@@ -27,6 +27,7 @@ import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.data.repository.FrigateRepository
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.CloudSyncStatus
@@ -126,6 +127,7 @@ class HomeViewModel @Inject constructor(
     private val streamRepository: StreamRepository,
     private val traktRepository: TraktRepository,
     private val traktSyncService: TraktSyncService,
+    private val frigateRepository: FrigateRepository,
     private val iptvRepository: IptvRepository,
     private val homeServerRepository: HomeServerRepository,
     private val watchHistoryRepository: WatchHistoryRepository,
@@ -164,6 +166,8 @@ class HomeViewModel @Inject constructor(
     // IPTV favorite channels — maps MediaItem.id (Int hash) to channel / EPG data
     private val iptvChannelMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvChannel>()
     private val iptvNowNextMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvNowNext>()
+    // Frigate cameras — maps MediaItem.id (camera name hash) to FrigateCamera
+    private val cameraMap = mutableMapOf<Int, FrigateRepository.FrigateCamera>()
     // Last successfully built On Now category — used as fallback when loadHomeData()
     // races with a snapshot refresh and buildFavoriteTvCategory() transiently returns null.
     @Volatile private var lastFavoriteTvCategory: Category? = null
@@ -172,8 +176,10 @@ class HomeViewModel @Inject constructor(
         const val FAVORITE_TV_CATEGORY_ID = "favorite_tv"
         const val WATCHLIST_CATEGORY_ID = "my_watchlist"
         const val APPS_CATEGORY_ID = "installed_apps"
+        const val CAMERAS_CATEGORY_ID = "cameras"
         /** Prefix used in MediaItem.status to identify IPTV items. */
         const val IPTV_STATUS_PREFIX = "iptv:"
+        const val CAMERA_STATUS_PREFIX = "camera:"
         private const val TOP_10_ITEM_LIMIT = 10
         private val HARD_CAPPED_TOP_10_CATALOG_IDS = setOf(
             "top10_movies_today",
@@ -185,6 +191,13 @@ class HomeViewModel @Inject constructor(
     fun isIptvItem(item: MediaItem): Boolean = item.status?.startsWith(IPTV_STATUS_PREFIX) == true
 
     fun isCollectionItem(item: MediaItem): Boolean = item.status?.startsWith("collection:") == true
+
+    fun isCameraItem(item: MediaItem): Boolean = item.status?.startsWith(CAMERA_STATUS_PREFIX) == true
+
+    fun getCameraStreamUrl(itemId: Int): String? = cameraMap[itemId]?.streamUrl
+    fun getCameraName(item: MediaItem): String? =
+        item.status?.removePrefix(CAMERA_STATUS_PREFIX)
+            ?.takeIf { item.status?.startsWith(CAMERA_STATUS_PREFIX) == true && it.isNotBlank() }
 
     /** Returns the service / franchise hero-video URL for a focused collection tile, or null. */
     fun getCollectionHeroVideoUrl(item: MediaItem): String? {
@@ -550,6 +563,25 @@ class HomeViewModel @Inject constructor(
                 }
         }
         return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps)
+    }
+
+    private suspend fun buildCamerasCategory(): Category? {
+        val cameras = frigateRepository.getCameras()
+        if (cameras.isEmpty()) return null
+        val items = cameras.map { camera ->
+            val stableId = camera.name.hashCode()
+            cameraMap[stableId] = camera
+            com.arflix.tv.data.model.MediaItem(
+                id = stableId,
+                title = camera.displayName,
+                subtitle = "Camera",
+                status = "$CAMERA_STATUS_PREFIX${camera.name}",
+                image = camera.snapshotUrl,
+                mediaType = com.arflix.tv.data.model.MediaType.MOVIE,
+                isOngoing = true,
+            )
+        }
+        return Category(id = CAMERAS_CATEGORY_ID, title = "Cameras", items = items)
     }
 
     private suspend fun buildFavoriteTvCategory(): Category? {
@@ -1179,9 +1211,10 @@ class HomeViewModel @Inject constructor(
         }
 
         // Reactive On Now row builder — runs independently of loadHomeData().
-        // Warmup IPTV from disk cache first so the snapshot is ready, then react
-        // to favorite channel changes and insert/update the row when data is available.
         launchOnNowRowObserver()
+
+        // Load Frigate cameras and insert the row independently of main catalog load.
+        launchCamerasRow()
 
         // Reactively inject the watchlist row whenever watchlist items change.
         viewModelScope.launch {
@@ -1804,6 +1837,30 @@ class HomeViewModel @Inject constructor(
      *
      * loadHomeData() only *preserves* the row, never builds or removes it.
      */
+    private fun launchCamerasRow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Small delay so the main home data appears first
+            delay(1_000L)
+            val category = runCatching { buildCamerasCategory() }.getOrNull() ?: return@launch
+            withContext(Dispatchers.Main) {
+                val current = _uiState.value.categories.toMutableList()
+                val existing = current.indexOfFirst { it.id == CAMERAS_CATEGORY_ID }
+                if (existing >= 0) {
+                    current[existing] = category
+                } else {
+                    // Insert after On Now row if present, then after Watchlist, then after CW
+                    val afterIdx = listOf(
+                        current.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID },
+                        current.indexOfFirst { it.id == WATCHLIST_CATEGORY_ID },
+                        current.indexOfFirst { it.id == "continue_watching" },
+                    ).filter { it >= 0 }.maxOrNull() ?: -1
+                    current.add(if (afterIdx >= 0) afterIdx + 1 else 0, category)
+                }
+                _uiState.value = _uiState.value.copy(categories = current)
+            }
+        }
+    }
+
     private fun launchOnNowRowObserver() {
         // Primary: react to favorites changes (covers disk-warm starts and favorite toggles).
         viewModelScope.launch(Dispatchers.IO) {
@@ -2058,6 +2115,10 @@ class HomeViewModel @Inject constructor(
                     .firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
                     ?.takeIf { it.items.isNotEmpty() }
                     ?: lastFavoriteTvCategory
+                // Cameras row is managed by launchCamerasRow() — preserve existing data.
+                val preservedCameras = currentBaseCategories
+                    .firstOrNull { it.id == CAMERAS_CATEGORY_ID }
+                    ?.takeIf { it.items.isNotEmpty() }
 
                 var categories = withContext(networkDispatcher) {
                     val baseCategories = runCatching {
@@ -2073,6 +2134,7 @@ class HomeViewModel @Inject constructor(
                         // If neither exists, omit — launchOnNowRowObserver() will insert
                         // it once the IPTV snapshot is populated.
                         put(APPS_CATEGORY_ID, buildInstalledAppsCategory())
+                        preservedCameras?.let { put(CAMERAS_CATEGORY_ID, it) }
                     }
 
                     // Split preinstalled into TMDB-based and MDBList-based

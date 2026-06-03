@@ -18,6 +18,7 @@ import com.arflix.tv.data.repository.WEBHOOK_INTERVAL_KEY
 import com.arflix.tv.data.repository.WEBHOOK_COMPLETION_PERCENT_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
+import com.arflix.tv.data.repository.FRIGATE_URL_KEY
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
 import com.arflix.tv.ui.components.catalogueRowLayoutKeyFromPreferenceName
@@ -502,6 +503,7 @@ class CloudSyncRepository @Inject constructor(
         root.put("webhook_enabled", prefs[WEBHOOK_ENABLED_KEY] ?: false)
         root.put("watchlist_api_enabled", prefs[WATCHLIST_API_ENABLED_KEY] ?: false)
         prefs[WATCHLIST_API_PORT_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("watchlist_api_port", it) }
+        prefs[FRIGATE_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("frigate_url", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
         val existingAvatarImagesById = syncServerLoadPayload()
@@ -1040,8 +1042,9 @@ class CloudSyncRepository @Inject constructor(
         val webhookInterval = root.optString("webhook_interval_seconds", "")
         val watchlistEnabled = root.opt("watchlist_api_enabled")
         val watchlistPort   = root.optString("watchlist_api_port", "")
+        val frigateUrl      = root.optString("frigate_url", "")
         if (webhookUrl.isNotBlank() || webhookEnabled != null || webhookInterval.isNotBlank() ||
-            watchlistEnabled != null || watchlistPort.isNotBlank()) {
+            watchlistEnabled != null || watchlistPort.isNotBlank() || frigateUrl.isNotBlank()) {
             context.settingsDataStore.edit { prefs ->
                 if (webhookUrl.isNotBlank())      prefs[WEBHOOK_URL_KEY]           = webhookUrl
                 val webhookUrls = root.optJSONArray("webhook_urls")?.toString()?.takeIf { it != "null" }
@@ -1052,6 +1055,7 @@ class CloudSyncRepository @Inject constructor(
                 if (completionPct.isNotBlank()) prefs[WEBHOOK_COMPLETION_PERCENT_KEY] = completionPct
                 if (watchlistEnabled != null)     prefs[WATCHLIST_API_ENABLED_KEY] = watchlistEnabled as? Boolean ?: (watchlistEnabled.toString() == "true")
                 if (watchlistPort.isNotBlank())   prefs[WATCHLIST_API_PORT_KEY]    = watchlistPort
+                if (frigateUrl.isNotBlank())      prefs[FRIGATE_URL_KEY]           = frigateUrl
             }
         }
 

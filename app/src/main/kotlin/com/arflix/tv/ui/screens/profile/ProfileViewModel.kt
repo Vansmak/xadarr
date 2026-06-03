@@ -129,12 +129,16 @@ class ProfileViewModel @Inject constructor(
             }
             cloudSyncRepository.saveSyncServerUrl(url)
             runCatching { cloudSyncRepository.pullFromCloud() }
+            val restoredProfiles = profileRepository.getProfiles()
+            val restoredActiveProfile = profileRepository.getActiveProfile()
             _uiState.value = _uiState.value.copy(
                 isConnectingToServer = false,
                 showConnectServerDialog = false,
                 isSyncServerConnected = true,
                 connectServerUrl = "",
-                connectServerError = null
+                connectServerError = null,
+                profiles = restoredProfiles,
+                activeProfile = restoredActiveProfile
             )
             showToast("Settings restored from server", ToastType.SUCCESS)
         }

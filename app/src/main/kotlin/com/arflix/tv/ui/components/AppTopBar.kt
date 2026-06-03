@@ -45,6 +45,7 @@ import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.util.settingsDataStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,32 +60,31 @@ val AppTopBarContentTopInset = 98.dp
 val MobileContentTopInset = 16.dp
 val AppTopBarHorizontalPadding = 28.dp
 
-// Navigation items that appear CENTERED in the top bar (Search, Home, Watchlist, TV).
+// Navigation items that appear CENTERED in the top bar.
+// CAMERAS is included only when a Frigate URL is configured.
 // Settings is NOT in this list — it's rendered as a standalone gear icon on the right.
-private val NAV_ITEMS = SidebarItem.entries.filter { it != SidebarItem.SETTINGS }
+fun navItems(frigateConfigured: Boolean = true): List<SidebarItem> =
+    SidebarItem.entries.filter { it != SidebarItem.SETTINGS && (it != SidebarItem.CAMERAS || frigateConfigured) }
 
-fun topBarMaxIndex(hasProfile: Boolean): Int {
-    // Profile (0 if shown) + nav items + settings gear (last index)
-    val navCount = NAV_ITEMS.size
-    return if (hasProfile) navCount + 1 else navCount // +1 for settings gear at the end
+fun topBarMaxIndex(hasProfile: Boolean, frigateConfigured: Boolean = true): Int {
+    val navCount = navItems(frigateConfigured).size
+    return if (hasProfile) navCount + 1 else navCount
 }
 
-fun topBarSelectedIndex(selectedItem: SidebarItem, hasProfile: Boolean): Int {
-    if (selectedItem == SidebarItem.SETTINGS) {
-        // Settings is the last focusable item
-        return topBarMaxIndex(hasProfile)
-    }
-    val base = NAV_ITEMS.indexOf(selectedItem)
+fun topBarSelectedIndex(selectedItem: SidebarItem, hasProfile: Boolean, frigateConfigured: Boolean = true): Int {
+    val items = navItems(frigateConfigured)
+    if (selectedItem == SidebarItem.SETTINGS) return topBarMaxIndex(hasProfile, frigateConfigured)
+    val base = items.indexOf(selectedItem)
     if (base < 0) return -1
     return if (hasProfile) base + 1 else base
 }
 
-fun topBarFocusedItem(focusedIndex: Int, hasProfile: Boolean): SidebarItem? {
+fun topBarFocusedItem(focusedIndex: Int, hasProfile: Boolean, frigateConfigured: Boolean = true): SidebarItem? {
+    val items = navItems(frigateConfigured)
     if (hasProfile && focusedIndex == 0) return null // profile avatar focused
     val itemIndex = if (hasProfile) focusedIndex - 1 else focusedIndex
-    // If it's the settings gear (last index after nav items)
-    if (itemIndex == NAV_ITEMS.size) return SidebarItem.SETTINGS
-    return NAV_ITEMS.getOrNull(itemIndex)
+    if (itemIndex == items.size) return SidebarItem.SETTINGS
+    return items.getOrNull(itemIndex)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -105,10 +105,12 @@ fun AppTopBar(
     // (avatar-only, no label).
     val showProfile = profile != null
     val hasProfile = showProfile
+    val frigateConfigured = LocalFrigateConfigured.current
     val currentTime = rememberTopBarTime(clockFormat)
-    val selectedIndex = remember(selectedItem, hasProfile) { topBarSelectedIndex(selectedItem, hasProfile) }
-    // Settings gear is always the last focusable index
-    val settingsIndex = topBarMaxIndex(hasProfile)
+    val selectedIndex = remember(selectedItem, hasProfile, frigateConfigured) {
+        topBarSelectedIndex(selectedItem, hasProfile, frigateConfigured)
+    }
+    val settingsIndex = topBarMaxIndex(hasProfile, frigateConfigured)
     val settingsFocused = isFocused && focusedIndex == settingsIndex
     val settingsSelected = selectedItem == SidebarItem.SETTINGS
 
@@ -152,7 +154,7 @@ fun AppTopBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    NAV_ITEMS.forEachIndexed { index, item ->
+                    navItems(frigateConfigured).forEachIndexed { index, item ->
                         val itemFocusIndex = if (hasProfile) index + 1 else index
                         TopBarNavChip(
                             item = item,

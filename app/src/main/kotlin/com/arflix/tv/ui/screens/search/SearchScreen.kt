@@ -85,6 +85,7 @@ import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.skin.ArvioFocusableSurface
@@ -109,6 +110,7 @@ fun SearchScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
+    onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -147,7 +149,8 @@ fun SearchScreen(
 
     var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
     val hasProfile = currentProfile != null
-    val maxSidebarIndex = topBarMaxIndex(hasProfile)
+    val frigateConfigured = LocalFrigateConfigured.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 1 else 0) }
     var isSearchInputFocused by remember { mutableStateOf(false) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
@@ -436,7 +439,7 @@ fun SearchScreen(
                     when (focusZone) {
                         FocusZone.SIDEBAR -> {
                             if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
-                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.WATCHLIST -> onNavigateToWatchlist(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
+                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.WATCHLIST -> onNavigateToWatchlist(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
                             true
                         }
                         FocusZone.SEARCH_INPUT -> {

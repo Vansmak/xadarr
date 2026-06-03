@@ -80,6 +80,7 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -140,6 +141,7 @@ fun LiveTvScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
@@ -269,10 +271,11 @@ fun LiveTvScreen(
 
     // Selected category (persist across nav). Defaults to "all".
     val hasProfile = currentProfile != null
-    val maxTopBarIndex = topBarMaxIndex(hasProfile)
+    val frigateConfigured = LocalFrigateConfigured.current
+    val maxTopBarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
     var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.CATEGORY_LIST) }
     var topBarFocusIndex by rememberSaveable {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile).coerceIn(0, maxTopBarIndex))
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured).coerceIn(0, maxTopBarIndex))
     }
 
     // Category switches are served from prebuilt buckets. Favorites and
@@ -675,7 +678,7 @@ fun LiveTvScreen(
                 if (isTouchDevice) onBack()
                 else {
                     guideGroupsVisible = false
-                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
                         .coerceIn(0, maxTopBarIndex)
                     focusZone = LiveTvFocusZone.TOPBAR
                 }
@@ -718,11 +721,12 @@ fun LiveTvScreen(
                                         if (hasProfile && topBarFocusIndex == 0) {
                                             onSwitchProfile()
                                         } else {
-                                            when (topBarFocusedItem(topBarFocusIndex, hasProfile)) {
+                                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
                                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                                 SidebarItem.HOME -> onNavigateToHome()
                                                 SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                                 SidebarItem.TV -> Unit
+                                                SidebarItem.CAMERAS -> onNavigateToCameras()
                                                 SidebarItem.SETTINGS -> onNavigateToSettings()
                                                 null -> Unit
                                             }
@@ -866,7 +870,7 @@ fun LiveTvScreen(
                             onMoveLeftFromChannels = { openSidebar() },
                             onMoveUpFromTopOfChannels = {
                                 guideGroupsVisible = false
-                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
                                     .coerceIn(0, maxTopBarIndex)
                                 focusZone = LiveTvFocusZone.TOPBAR
                             },
@@ -936,7 +940,7 @@ fun LiveTvScreen(
                             focusChannelList(target)
                         },
                         onMoveUpFromSearch = {
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile)
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
                                 .coerceIn(0, maxTopBarIndex)
                             focusZone = LiveTvFocusZone.TOPBAR
                         },

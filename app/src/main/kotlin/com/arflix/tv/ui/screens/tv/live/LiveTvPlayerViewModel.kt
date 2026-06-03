@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.arflix.tv.network.OkHttpProvider
@@ -60,8 +61,15 @@ class LiveTvPlayerViewModel @Inject constructor(
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(context).setDataSourceFactory(
                 OkHttpDataSource.Factory(iptvHttpClient)
-                    .setUserAgent("ARVIO/1.2.0 (Android TV)")
+                    .setUserAgent("Xadarr/1.2.0 (Android TV)")
             )
+        )
+        .setRenderersFactory(
+            DefaultRenderersFactory(context)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                .forceDisableMediaCodecAsynchronousQueueing()
+                .experimentalSetEnableMediaCodecVideoRendererPrewarming(false)
+                .setEnableDecoderFallback(true)
         )
         .setLoadControl(
             DefaultLoadControl.Builder()
@@ -112,7 +120,10 @@ class LiveTvPlayerViewModel @Inject constructor(
         // Stop first so the player is in IDLE — prepare() is a no-op when already READY/PLAYING.
         player.stop()
         player.clearMediaItems()
-        player.setMediaItem(
+        // RTSP streams (cameras) don't use live configuration — HLS IPTV does.
+        val item = if (streamUrl.startsWith("rtsp://", ignoreCase = true)) {
+            MediaItem.fromUri(streamUrl)
+        } else {
             MediaItem.Builder()
                 .setUri(streamUrl)
                 .setLiveConfiguration(
@@ -121,7 +132,8 @@ class LiveTvPlayerViewModel @Inject constructor(
                         .setTargetOffsetMs(4_000).build()
                 )
                 .build()
-        )
+        }
+        player.setMediaItem(item)
         player.prepare()
         player.play()
     }

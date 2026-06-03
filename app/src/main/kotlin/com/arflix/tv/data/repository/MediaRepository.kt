@@ -357,6 +357,7 @@ class MediaRepository @Inject constructor(
                 CatalogConfig("new_kdramas", "New in K-Dramas", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/latest-kdrama-shows", sourceRef = "mdblist:https://mdblist.com/lists/snoak/latest-kdrama-shows"),
                 CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies"),
                 CatalogConfig("installed_apps", "Apps", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
+                CatalogConfig("cameras", "Cameras", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
             )
 
             fun addonCollectionSource(addonId: String?, type: String, id: String) = CollectionSourceConfig(

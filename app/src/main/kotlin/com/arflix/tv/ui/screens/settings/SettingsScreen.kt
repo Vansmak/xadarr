@@ -85,6 +85,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.ui.draw.alpha
@@ -161,6 +162,7 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.toggleCatalogueRowLayoutMode
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -269,6 +271,7 @@ fun SettingsScreen(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToCameras: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
@@ -290,8 +293,9 @@ fun SettingsScreen(
 
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
-    val maxSidebarIndex = topBarMaxIndex(hasProfile)
-    var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 5 else 4) } // SETTINGS
+    val frigateConfigured = LocalFrigateConfigured.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    var sidebarFocusIndex by remember { mutableIntStateOf(topBarMaxIndex(hasProfile, frigateConfigured)) } // SETTINGS
     var sectionIndex by remember { mutableIntStateOf(0) }
     var mobilePage by remember { mutableStateOf("MAIN") }
     var contentFocusIndex by remember { mutableIntStateOf(0) }
@@ -344,6 +348,7 @@ fun SettingsScreen(
     var showWatchlistApiPortDialog by remember { mutableStateOf(false) }
     var showWebhookCompletionDialog by remember { mutableStateOf(false) }
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
+    var showFrigateUrlDialog by remember { mutableStateOf(false) }
     var qualityFilterRegexPattern by remember { mutableStateOf("") }
     var showHomeServerInput by remember { mutableStateOf(false) }
     var showPlexHomeServerInput by remember { mutableStateOf(false) }
@@ -378,7 +383,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size // Add + rows
-            "stremio" -> stremioAddons.size + 6 + uiState.webhookUrls.size // addons + add button + URL rows + 5 integration settings + add-URL button
+            "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
             "accounts" -> 4
             else -> 0
         }
@@ -611,6 +616,7 @@ fun SettingsScreen(
         showWatchlistApiPortDialog ||
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
+        showFrigateUrlDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.traktCode != null ||
@@ -766,11 +772,12 @@ fun SettingsScreen(
                                     if (hasProfile && sidebarFocusIndex == 0) {
                                         onSwitchProfile()
                                     } else {
-                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile)) {
+                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                             SidebarItem.SEARCH -> onNavigateToSearch()
                                             SidebarItem.HOME -> onNavigateToHome()
                                             SidebarItem.TV -> onNavigateToTv()
                                             SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                            SidebarItem.CAMERAS -> onNavigateToCameras()
                                             SidebarItem.SETTINGS -> { /* Already here */ }
                                             null -> Unit
                                         }
@@ -950,6 +957,7 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled)
                                                 contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showWatchlistApiPortDialog = true
                                                 contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
+                                                contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1326,7 +1334,9 @@ fun SettingsScreen(
                             onCycleInterval = { viewModel.cycleWebhookInterval() },
                             onToggleWatchlistApi = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
                             onWatchlistPortClick = { showWatchlistApiPortDialog = true },
-                            onCompletionPercentClick = { showWebhookCompletionDialog = true }
+                            onCompletionPercentClick = { showWebhookCompletionDialog = true },
+                            frigateUrl = uiState.frigateUrl,
+                            onFrigateUrlClick = { showFrigateUrlDialog = true },
                         )
                         "accounts" -> AccountsSettings(
                             isTraktAuthenticated = uiState.isTraktAuthenticated,
@@ -1390,6 +1400,17 @@ fun SettingsScreen(
                     showSyncServerUrlDialog = false
                 },
                 onDismiss = { showSyncServerUrlDialog = false }
+            )
+        }
+
+        if (showFrigateUrlDialog) {
+            FrigateUrlDialog(
+                currentValue = uiState.frigateUrl,
+                onSave = { url ->
+                    viewModel.saveFrigateUrl(url)
+                    showFrigateUrlDialog = false
+                },
+                onDismiss = { showFrigateUrlDialog = false }
             )
         }
 
@@ -6911,7 +6932,9 @@ private fun StremioAddonsSettings(
     onCycleInterval: () -> Unit = {},
     onToggleWatchlistApi: () -> Unit = {},
     onWatchlistPortClick: () -> Unit = {},
-    onCompletionPercentClick: () -> Unit = {}
+    onCompletionPercentClick: () -> Unit = {},
+    frigateUrl: String = "",
+    onFrigateUrlClick: () -> Unit = {},
 ) {
     Column {
         Text(
@@ -7095,6 +7118,25 @@ private fun StremioAddonsSettings(
             isFocused = focusedIndex == addons.size + 6 + webhookUrls.size,
             onClick = onCompletionPercentClick,
             modifier = Modifier.settingsFocusSlot(addons.size + 6 + webhookUrls.size)
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "CAMERAS / NVR",
+            style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+            color = TextSecondary,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        SettingsRow(
+            icon = Icons.Default.Videocam,
+            title = "Frigate NVR URL",
+            subtitle = if (frigateUrl.isNotBlank()) frigateUrl else "Not configured — Cameras tab hidden",
+            value = if (frigateUrl.isNotBlank()) "Configured" else "—",
+            isFocused = focusedIndex == addons.size + 7 + webhookUrls.size,
+            onClick = onFrigateUrlClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 7 + webhookUrls.size)
         )
 
     }
@@ -9112,7 +9154,71 @@ private fun WebhookUrlDialog(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FrigateUrlDialog(
+    currentValue: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var value by remember(currentValue) { mutableStateOf(currentValue) }
+    val inputFocusRequester = remember { FocusRequester() }
+    BackHandler { onDismiss() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        inputFocusRequester.requestFocus()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .then(if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp) else Modifier.width(520.dp))
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text(text = "Frigate NVR URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Base URL of your Frigate instance. When set, a Cameras tab appears in the nav bar and a Cameras row on the home screen.",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    placeholder = { Text("http://192.168.1.x:5000", color = TextSecondary.copy(alpha = 0.4f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                    )
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+                    if (value.isNotBlank()) {
+                        androidx.compose.material3.TextButton(
+                            onClick = { onSave("") },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Clear", color = TextSecondary) }
+                    }
+                    androidx.compose.material3.Button(
+                        onClick = { onSave(value.trim()) },
+                        modifier = Modifier.weight(1f),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Pink)
+                    ) { Text("Save", color = Color.White) }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SyncServerUrlDialog(
     currentValue: String,

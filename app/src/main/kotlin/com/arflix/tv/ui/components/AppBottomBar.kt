@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,7 @@ val bottomBarItems = listOf(
     BottomBarItem(R.string.search, Icons.Default.Search, "search"),
     BottomBarItem(R.string.watchlist, Icons.Default.Bookmark, "watchlist"),
     BottomBarItem(R.string.topbar_tv, Icons.Default.LiveTv, "tv"),
+    BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )
 

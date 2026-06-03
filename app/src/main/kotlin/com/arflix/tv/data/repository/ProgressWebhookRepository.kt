@@ -27,6 +27,7 @@ val USER_TMDB_API_KEY = stringPreferencesKey("user_tmdb_api_key")
 val USER_TRAKT_CLIENT_ID = stringPreferencesKey("user_trakt_client_id")
 val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
+val FRIGATE_URL_KEY = stringPreferencesKey("frigate_url")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"

@@ -123,6 +123,7 @@ import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.AccentGreen
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -223,6 +224,7 @@ fun TvScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -233,7 +235,8 @@ fun TvScreen(
 
     var focusZone by rememberSaveable { mutableStateOf(if (uiState.isConfigured) TvFocusZone.GROUPS else TvFocusZone.SIDEBAR) }
     val hasProfile = currentProfile != null
-    val maxSidebarIndex = topBarMaxIndex(hasProfile)
+    val frigateConfigured = LocalFrigateConfigured.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
     var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(if (hasProfile) 4 else 3) }
     var groupIndex by rememberSaveable { mutableIntStateOf(0) }
     var channelIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -834,11 +837,12 @@ fun TvScreen(
                             if (hasProfile && sidebarFocusIndex == 0) {
                                 onSwitchProfile()
                             } else {
-                                when (topBarFocusedItem(sidebarFocusIndex, hasProfile)) {
+                                when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> onNavigateToHome()
                                     SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                     SidebarItem.TV -> Unit
+                                    SidebarItem.CAMERAS -> onNavigateToCameras()
                                     SidebarItem.SETTINGS -> onNavigateToSettings()
                                     null -> Unit
                                 }

@@ -22,6 +22,9 @@ val LocalDeviceType = compositionLocalOf { DeviceType.TV }
 /** True if the physical device has a touchscreen. Use this to decide navigation style. */
 val LocalHasTouchScreen = compositionLocalOf { true }
 
+/** True if a Frigate URL has been configured in settings. Controls CAMERAS nav visibility. */
+val LocalFrigateConfigured = compositionLocalOf { false }
+
 fun deviceHasTouchScreen(context: Context): Boolean {
     return context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
 }

@@ -141,6 +141,7 @@ import com.arflix.tv.ui.components.ToastType as ComponentToastType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.focus.isArvioDpadNavigationKey
@@ -350,6 +351,7 @@ private fun launchApp(context: android.content.Context, packageName: String) {
 private fun isActionableHomeItem(item: MediaItem?): Boolean {
     if (item == null || item.isPlaceholder) return false
     if (item.status?.startsWith("app:") == true) return true
+    if (item.status?.startsWith("camera:") == true) return true
     return item.id > 0
 }
 
@@ -552,6 +554,8 @@ fun HomeScreen(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
+    onNavigateToCameras: () -> Unit = {},
+    onNavigateToCameraPlayer: (streamUrl: String, cameraName: String) -> Unit = { _, _ -> },
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onExitApp: () -> Unit = {},
@@ -780,7 +784,7 @@ fun HomeScreen(
                 if (focusSnapshot.focusedItemKey == focusSnapshot.heroItemKey) return@collectLatest
                 // Don't update the hero backdrop when the user is browsing the On Now or Apps rows
                 val focusedRowId = categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)?.id
-                if (focusedRowId == "favorite_tv" || focusedRowId == HomeViewModel.APPS_CATEGORY_ID) return@collectLatest
+                if (focusedRowId == "favorite_tv" || focusedRowId == HomeViewModel.APPS_CATEGORY_ID || focusedRowId == HomeViewModel.CAMERAS_CATEGORY_ID) return@collectLatest
                 categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)
                     ?.items
                     ?.getOrNull(focusSnapshot.itemIndex)
@@ -1156,6 +1160,9 @@ fun HomeScreen(
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
             onNavigateToTv = onNavigateToTv,
+            onNavigateToCameras = onNavigateToCameras,
+            onNavigateToCameraPlayer = onNavigateToCameraPlayer,
+            getCameraStreamUrl = { itemId -> viewModel.getCameraStreamUrl(itemId) },
             getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) },
             onNavigateToSettings = onNavigateToSettings,
             onSwitchProfile = onSwitchProfile,
@@ -2313,6 +2320,9 @@ private fun HomeInputLayer(
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
+    onNavigateToCameras: () -> Unit = {},
+    onNavigateToCameraPlayer: (streamUrl: String, cameraName: String) -> Unit = { _, _ -> },
+    getCameraStreamUrl: (itemId: Int) -> String? = { null },
     getIptvStreamUrl: (itemId: Int) -> String?,
     onNavigateToSettings: () -> Unit,
     onSwitchProfile: () -> Unit,
@@ -2339,7 +2349,8 @@ private fun HomeInputLayer(
     // Profile avatar is always shown when a profile exists (clickable, opens
     // profile switcher). Focus navigation includes it as the first focusable item.
     val hasProfile = currentProfile != null
-    val maxSidebarIndex = topBarMaxIndex(hasProfile)
+    val frigateConfigured = LocalFrigateConfigured.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -2457,11 +2468,12 @@ private fun HomeInputLayer(
                             if (hasProfile && focusState.sidebarFocusIndex == 0) {
                                 onSwitchProfile()
                             } else {
-                                when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile)) {
+                                when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> Unit
                                     SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                     SidebarItem.TV -> onNavigateToTv(null, null)
+                                    SidebarItem.CAMERAS -> onNavigateToCameras()
                                     SidebarItem.SETTINGS -> onNavigateToSettings()
                                     null -> Unit
                                 }
@@ -2626,9 +2638,15 @@ private fun HomeInputLayer(
                                             ?.takeIf { item.status?.startsWith("app:") == true && it.isNotBlank() }
                                         val collectionId = item.status?.removePrefix("collection:")
                                             ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
+                                        val isCameraItem = item.status?.startsWith("camera:") == true
                                         if (appPackage != null) {
                                             latestDismissMiniPlayer.value?.invoke()
                                             launchApp(context, appPackage)
+                                        } else if (isCameraItem) {
+                                            val streamUrl = getCameraStreamUrl(item.id).orEmpty()
+                                            if (streamUrl.isNotBlank()) {
+                                                onNavigateToCameraPlayer(streamUrl, item.title)
+                                            }
                                         } else if (isOnNowRow && iptvId != null) {
                                             val streamUrl = getIptvStreamUrl(item.id).orEmpty()
                                             if (streamUrl.isNotBlank() && onPlayChannelInMiniPlayer != null) {
@@ -2706,7 +2724,11 @@ private fun HomeInputLayer(
                 }
                 val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
                 val collectionId = item.status?.removePrefix("collection:")?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
-                if (iptvId != null) {
+                val isCameraItem = item.status?.startsWith("camera:") == true
+                if (isCameraItem) {
+                    val streamUrl = getCameraStreamUrl(item.id).orEmpty()
+                    if (streamUrl.isNotBlank()) onNavigateToCameraPlayer(streamUrl, item.title)
+                } else if (iptvId != null) {
                     onNavigateToTv(iptvId, getIptvStreamUrl(item.id))
                 } else if (collectionId != null) {
                     onNavigateToCollection(collectionId)
@@ -2717,12 +2739,14 @@ private fun HomeInputLayer(
             onItemLongClick = if (isMobile) { item, isContinue -> onOpenContextMenu(item, isContinue) } else null,
             getLiveChannelEpg = { id -> liveChannelEpg[id] },
             getLiveChannelStreamUrl = getIptvStreamUrl,
+            getCameraStreamUrl = getCameraStreamUrl,
             onBeforeAppLaunch = { latestDismissMiniPlayer.value?.invoke() },
             onLiveTvChannelClick = onPlayChannelInMiniPlayer?.let { play ->
                 { streamUrl, channelId, channelName, programTitle ->
                     play(streamUrl, channelId, channelName, programTitle)
                 }
             },
+            onCameraClick = { streamUrl, name -> onNavigateToCameraPlayer(streamUrl, name) },
         )
     }
 }
@@ -2749,6 +2773,8 @@ private fun HomeRowsLayer(
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
+    getCameraStreamUrl: (Int) -> String? = { null },
+    onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
 ) {
     if (isMobile) {
         MobileHomeRowsLayer(
@@ -2775,6 +2801,8 @@ private fun HomeRowsLayer(
             getLiveChannelEpg = getLiveChannelEpg,
             getLiveChannelStreamUrl = getLiveChannelStreamUrl,
             onLiveTvChannelClick = onLiveTvChannelClick,
+            getCameraStreamUrl = getCameraStreamUrl,
+            onCameraClick = onCameraClick,
         )
     }
 }
@@ -2926,6 +2954,8 @@ private fun TvHomeRowsLayer(
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
+    getCameraStreamUrl: (Int) -> String? = { null },
+    onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
 ) {
     // ── Focus-row stabilizer ──
     // Track the focused row by its category ID (stable) rather than integer
@@ -3101,6 +3131,8 @@ private fun TvHomeRowsLayer(
                             getLiveChannelEpg = getLiveChannelEpg,
                             getLiveChannelStreamUrl = getLiveChannelStreamUrl,
                             onLiveTvChannelClick = onLiveTvChannelClick,
+                            getCameraStreamUrl = getCameraStreamUrl,
+                            onCameraClick = onCameraClick,
                         )
                     }
                 }
@@ -3373,8 +3405,11 @@ private fun ContentRow(
     getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
     getLiveChannelStreamUrl: (Int) -> String? = { null },
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
+    getCameraStreamUrl: (Int) -> String? = { null },
+    onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
 ) {
     val isLiveTvRow = category.id == HomeViewModel.FAVORITE_TV_CATEGORY_ID && onLiveTvChannelClick != null
+    val isCamerasRow = category.id == HomeViewModel.CAMERAS_CATEGORY_ID && onCameraClick != null
     val isAppsRow = category.id == HomeViewModel.APPS_CATEGORY_ID
     val isCollectionRow = category.id.startsWith("collection_row_")
     val rowState = rememberLazyListState()
@@ -3577,6 +3612,19 @@ private fun ContentRow(
                                     epg?.now?.title.orEmpty(),
                                 )
                             }
+                        },
+                    )
+                    return@itemsIndexed
+                }
+                if (isCamerasRow) {
+                    CameraCard(
+                        cameraName = item.title,
+                        snapshotUrl = item.image.orEmpty(),
+                        isFocused = itemIsFocused,
+                        onClick = {
+                            onCardFocused()
+                            val streamUrl = getCameraStreamUrl(item.id).orEmpty()
+                            if (streamUrl.isNotBlank()) onCameraClick!!(streamUrl, item.title)
                         },
                     )
                     return@itemsIndexed

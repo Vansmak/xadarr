@@ -71,6 +71,8 @@ import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
 import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.detectDeviceType
+import com.arflix.tv.data.repository.FRIGATE_URL_KEY
+import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.util.deviceHasTouchScreen
 import com.arflix.tv.util.settingsDataStore
 import androidx.datastore.preferences.core.Preferences
@@ -588,6 +590,11 @@ fun ArflixApp(
 
     val deviceType = LocalDeviceType.current
     val isMobile = deviceType.isTouchDevice()
+    val frigateConfigured by remember {
+        context.settingsDataStore.data.map { prefs ->
+            prefs[FRIGATE_URL_KEY]?.isNotBlank() == true
+        }
+    }.collectAsStateWithLifecycle(initialValue = false)
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     var iptvFullscreen by remember { mutableStateOf(false) }
@@ -606,6 +613,7 @@ fun ArflixApp(
         !currentRoute.contains("profile") &&
         !currentRoute.contains("login")
 
+    CompositionLocalProvider(LocalFrigateConfigured provides frigateConfigured) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -660,16 +668,20 @@ fun ArflixApp(
             val miniPlayerState by liveTvPlayerViewModel.state.collectAsStateWithLifecycle()
             val onTvScreen = currentRoute?.startsWith("tv") == true
             val onPlayerScreen = currentRoute?.startsWith("player") == true
+            val onCameraPlayerScreen = currentRoute?.startsWith("camera_player") == true
             val onSettingsScreen = currentRoute?.startsWith("settings") == true
             val showMiniPlayer = miniPlayerState.isActive
                 && !onTvScreen
                 && !onPlayerScreen
+                && !onCameraPlayerScreen
                 && !onSettingsScreen
 
-            // Fully dismiss the mini-player when a VOD player opens — no background stream,
-            // no auto-resume. User can restart the IPTV channel after the VOD finishes.
+            // Dismiss mini-player when a VOD or standalone camera player opens.
             LaunchedEffect(onPlayerScreen) {
                 if (onPlayerScreen) liveTvPlayerViewModel.dismiss()
+            }
+            LaunchedEffect(onCameraPlayerScreen) {
+                if (onCameraPlayerScreen) liveTvPlayerViewModel.dismiss()
             }
 
             // Extracted into a standalone composable to avoid ColumnScope.AnimatedVisibility
@@ -681,8 +693,12 @@ fun ArflixApp(
                 programTitle = miniPlayerState.programTitle,
                 onNavigateToTv = {
                     val channelId = miniPlayerState.channelId
-                    val route = if (channelId != null) Screen.Tv.createRoute(channelId)
-                                 else Screen.Tv.route
+                    // Camera streams use "camera:..." as the channelId — expand to Cameras screen
+                    val route = when {
+                        channelId?.startsWith("camera:") == true -> Screen.Cameras.route
+                        channelId != null -> Screen.Tv.createRoute(channelId)
+                        else -> Screen.Tv.route
+                    }
                     navController.navigate(route) {
                         popUpTo(Screen.Home.route) { saveState = true }
                         launchSingleTop = true
@@ -705,6 +721,7 @@ fun ArflixApp(
             )
         }
     }
+    } // end CompositionLocalProvider(LocalFrigateConfigured)
 
     LaunchedEffect(activeProfile?.id, pendingLauncherRequest) {
         val request = pendingLauncherRequest ?: return@LaunchedEffect
