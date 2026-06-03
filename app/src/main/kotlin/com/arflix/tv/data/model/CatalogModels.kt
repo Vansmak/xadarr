@@ -16,6 +16,8 @@ enum class CatalogKind {
     COLLECTION_RAIL
 }
 
+enum class CatalogPlacement { HOME, DISCOVER }
+
 enum class CollectionGroupKind {
     FEATURED,
     SERVICE,
@@ -100,7 +102,9 @@ data class CatalogConfig(
     val collectionTileShape: CollectionTileShape = CollectionTileShape.LANDSCAPE,
     val collectionHideTitle: Boolean = false,
     val collectionSources: List<CollectionSourceConfig> = emptyList(),
-    val requiredAddonUrls: List<String> = emptyList()
+    val requiredAddonUrls: List<String> = emptyList(),
+    val isVisible: Boolean = true,
+    val placement: CatalogPlacement = CatalogPlacement.HOME,
 ) : Serializable
 
 data class CatalogDiscoveryResult(

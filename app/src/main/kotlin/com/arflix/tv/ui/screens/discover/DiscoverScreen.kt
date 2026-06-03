@@ -1,0 +1,204 @@
+@file:Suppress("UnsafeOptInUsageError")
+
+package com.arflix.tv.ui.screens.discover
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Text
+import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.model.Profile
+import com.arflix.tv.ui.components.AppTopBar
+import com.arflix.tv.ui.components.AppTopBarContentTopInset
+import com.arflix.tv.ui.components.MediaCard
+import com.arflix.tv.ui.components.SidebarItem
+import com.arflix.tv.ui.components.topBarFocusedItem
+import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.ui.components.topBarSelectedIndex
+import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.util.LocalFrigateConfigured
+
+private enum class DiscoverFocusZone { TOPBAR, ROWS }
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun DiscoverScreen(
+    viewModel: DiscoverViewModel = hiltViewModel(),
+    currentProfile: Profile? = null,
+    onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
+    onNavigateToHome: () -> Unit = {},
+    onNavigateToSearch: () -> Unit = {},
+    onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToTv: () -> Unit = {},
+    onNavigateToCameras: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
+    onBack: () -> Unit = {},
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val isTouchDevice = LocalDeviceType.current.isTouchDevice()
+    val frigateConfigured = LocalFrigateConfigured.current
+    val hasProfile = currentProfile != null
+
+    var focusZone by remember { mutableStateOf(DiscoverFocusZone.ROWS) }
+    var topBarFocusIndex by remember {
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured))
+    }
+    val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
+    val rootFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
+    BackHandler { onBack() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF060609))
+            .focusRequester(rootFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Back, Key.Escape -> { onBack(); true }
+                    Key.DirectionUp -> {
+                        if (focusZone == DiscoverFocusZone.ROWS) {
+                            focusZone = DiscoverFocusZone.TOPBAR
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured)
+                            true
+                        } else false
+                    }
+                    Key.DirectionDown -> {
+                        if (focusZone == DiscoverFocusZone.TOPBAR) {
+                            focusZone = DiscoverFocusZone.ROWS
+                            true
+                        } else false
+                    }
+                    Key.DirectionLeft -> {
+                        if (focusZone == DiscoverFocusZone.TOPBAR && topBarFocusIndex > 0) {
+                            topBarFocusIndex--; true
+                        } else false
+                    }
+                    Key.DirectionRight -> {
+                        if (focusZone == DiscoverFocusZone.TOPBAR && topBarFocusIndex < maxTopBarIndex) {
+                            topBarFocusIndex++; true
+                        } else false
+                    }
+                    Key.Enter, Key.DirectionCenter -> {
+                        if (focusZone == DiscoverFocusZone.TOPBAR) {
+                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
+                                SidebarItem.HOME -> onNavigateToHome()
+                                SidebarItem.SEARCH -> onNavigateToSearch()
+                                SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                SidebarItem.DISCOVER -> Unit
+                                SidebarItem.TV -> onNavigateToTv()
+                                SidebarItem.CAMERAS -> onNavigateToCameras()
+                                SidebarItem.SETTINGS -> onNavigateToSettings()
+                                null -> onSwitchProfile()
+                            }
+                            true
+                        } else false
+                    }
+                    else -> false
+                }
+            }
+    ) {
+        when {
+            uiState.isLoading -> {
+                Box(
+                    Modifier.fillMaxSize().padding(top = AppTopBarContentTopInset),
+                    contentAlignment = Alignment.Center
+                ) { CircularProgressIndicator(color = Pink) }
+            }
+            uiState.error != null && uiState.categories.isEmpty() -> {
+                Box(
+                    Modifier.fillMaxSize().padding(top = AppTopBarContentTopInset + 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        uiState.error!!,
+                        color = Color.White.copy(0.5f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 48.dp)
+                    )
+                }
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = AppTopBarContentTopInset),
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                ) {
+                    items(uiState.categories, key = { it.id }) { category ->
+                        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                            Text(
+                                text = category.title,
+                                color = Color.White.copy(0.9f),
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(start = 48.dp, bottom = 10.dp, top = 16.dp)
+                            )
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                items(category.items, key = { it.id }) { item ->
+                                    MediaCard(
+                                        item = item,
+                                        width = 200.dp,
+                                        isLandscape = true,
+                                        onClick = { onNavigateToDetails(item.mediaType, item.id) },
+                                        modifier = Modifier.padding(end = 12.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!isTouchDevice) {
+            AppTopBar(
+                selectedItem = SidebarItem.DISCOVER,
+                isFocused = focusZone == DiscoverFocusZone.TOPBAR,
+                focusedIndex = if (focusZone == DiscoverFocusZone.TOPBAR) topBarFocusIndex else -1,
+                profile = currentProfile,
+            )
+        }
+    }
+}

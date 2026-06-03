@@ -61,6 +61,10 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Widgets
@@ -271,6 +275,7 @@ fun SettingsScreen(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -704,7 +709,7 @@ fun SettingsScreen(
                                     } else if (currentSection == "iptv" && contentFocusIndex in 1..uiState.iptvPlaylists.size && iptvActionIndex < 4) {
                                         iptvActionIndex++
 } else if (currentSection == "catalogs" && contentFocusIndex > 0) {
-                                        val maxCatalogAction = if (uiState.catalogs.getOrNull(contentFocusIndex - 1)?.id == "installed_apps") 5 else 4
+                                        val maxCatalogAction = if (uiState.catalogs.getOrNull(contentFocusIndex - 1)?.id == "installed_apps") 7 else 6
                                         if (catalogActionIndex < maxCatalogAction) catalogActionIndex++
                                     }
                                 }
@@ -777,6 +782,7 @@ fun SettingsScreen(
                                             SidebarItem.HOME -> onNavigateToHome()
                                             SidebarItem.TV -> onNavigateToTv()
                                             SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                            SidebarItem.DISCOVER -> onNavigateToDiscover()
                                             SidebarItem.CAMERAS -> onNavigateToCameras()
                                             SidebarItem.SETTINGS -> { /* Already here */ }
                                             null -> Unit
@@ -902,6 +908,9 @@ fun SettingsScreen(
                                                 val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 1)
                                                 if (catalog != null) {
                                                     val isAppsCatalog = catalog.id == "installed_apps"
+                                                    val eyeIdx = if (isAppsCatalog) 5 else 4
+                                                    val placementIdx = if (isAppsCatalog) 6 else 5
+                                                    val deleteIdx = if (isAppsCatalog) 7 else 6
                                                     when (catalogActionIndex) {
                                                         0 -> {
                                                             renameCatalogId = catalog.id
@@ -925,8 +934,18 @@ fun SettingsScreen(
                                                             if (catalog.kind != CatalogKind.COLLECTION_RAIL) {
                                                                 toggleCatalogueRowLayoutMode(context, catalogueLayoutRowKey(catalog))
                                                             }
-                                                        } else viewModel.removeCatalog(catalog.id)
-                                                        else -> viewModel.removeCatalog(catalog.id)
+                                                        } else viewModel.toggleCatalogVisibility(catalog.id)
+                                                        else -> when (catalogActionIndex) {
+                                                            eyeIdx -> viewModel.toggleCatalogVisibility(catalog.id)
+                                                            placementIdx -> {
+                                                                val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                                else com.arflix.tv.data.model.CatalogPlacement.HOME
+                                                                viewModel.setCatalogPlacement(catalog.id, next)
+                                                            }
+                                                            deleteIdx -> viewModel.removeCatalog(catalog.id)
+                                                            else -> viewModel.removeCatalog(catalog.id)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1314,6 +1333,10 @@ fun SettingsScreen(
                             onMoveCatalogUp = { catalog -> viewModel.moveCatalogUp(catalog.id) },
                             onMoveCatalogDown = { catalog -> viewModel.moveCatalogDown(catalog.id) },
                             onDeleteCatalog = { catalog -> viewModel.removeCatalog(catalog.id) },
+                            onToggleVisibility = { catalog -> viewModel.toggleCatalogVisibility(catalog.id) },
+                            onSetPlacement = { catalog, placement -> viewModel.setCatalogPlacement(catalog.id, placement) },
+                            watchlistPlacement = uiState.watchlistPlacement,
+                            onSetWatchlistPlacement = { placement -> viewModel.setWatchlistPlacement(placement) },
                             onManageApps = { showManageAppsDialog = true },
                         )
                         "stremio" -> StremioAddonsSettings(
@@ -3584,7 +3607,11 @@ private fun MobileSettingsSubPage(
                     onRenameCatalog = onRenameCatalogClick,
                     onMoveCatalogUp = { viewModel.moveCatalogUp(it.id) },
                     onMoveCatalogDown = { viewModel.moveCatalogDown(it.id) },
-                    onDeleteCatalog = { viewModel.removeCatalog(it.id) }
+                    onDeleteCatalog = { viewModel.removeCatalog(it.id) },
+                    onToggleVisibility = { viewModel.toggleCatalogVisibility(it.id) },
+                    onSetPlacement = { catalog, placement -> viewModel.setCatalogPlacement(catalog.id, placement) },
+                    watchlistPlacement = uiState.watchlistPlacement,
+                    onSetWatchlistPlacement = { placement -> viewModel.setWatchlistPlacement(placement) },
                 )
             }
             "IPTV" -> {
@@ -6444,6 +6471,10 @@ private fun CatalogsSettings(
     onMoveCatalogUp: (CatalogConfig) -> Unit,
     onMoveCatalogDown: (CatalogConfig) -> Unit,
     onDeleteCatalog: (CatalogConfig) -> Unit,
+    onToggleVisibility: (CatalogConfig) -> Unit = {},
+    onSetPlacement: (CatalogConfig, com.arflix.tv.data.model.CatalogPlacement) -> Unit = { _, _ -> },
+    watchlistPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
+    onSetWatchlistPlacement: (com.arflix.tv.data.model.CatalogPlacement) -> Unit = {},
     onManageApps: () -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
@@ -6656,7 +6687,9 @@ private fun CatalogsSettings(
                     val upIdx = if (isApps) 2 else 1
                     val downIdx = if (isApps) 3 else 2
                     val layoutIdx = if (isApps) 4 else 3
-                    val deleteIdx = if (isApps) 5 else 4
+                    val eyeIdx = if (isApps) 5 else 4
+                    val placementIdx = if (isApps) 6 else 5
+                    val deleteIdx = if (isApps) 7 else 6
                     CatalogActionChip(
                         icon = Icons.Default.Edit,
                         isFocused = isRowFocused && focusedActionIndex == 0,
@@ -6687,6 +6720,26 @@ private fun CatalogsSettings(
                         rowKey = layoutRowKey,
                         enabled = layoutToggleEnabled,
                         forceFocused = isRowFocused && focusedActionIndex == layoutIdx
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    // Eye toggle: hidden catalogs are preserved but not shown on any screen
+                    CatalogActionChip(
+                        icon = if (catalog.isVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        isFocused = isRowFocused && focusedActionIndex == eyeIdx,
+                        onClick = { onToggleVisibility(catalog) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    // Placement toggle: Home ↔ Discover
+                    CatalogActionChip(
+                        icon = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                            Icons.Outlined.Home else Icons.Outlined.Explore,
+                        isFocused = isRowFocused && focusedActionIndex == placementIdx,
+                        onClick = {
+                            val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                            else com.arflix.tv.data.model.CatalogPlacement.HOME
+                            onSetPlacement(catalog, next)
+                        }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogActionChip(

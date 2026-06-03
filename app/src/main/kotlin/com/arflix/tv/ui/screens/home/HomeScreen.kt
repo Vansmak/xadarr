@@ -553,6 +553,7 @@ fun HomeScreen(
     onNavigateToCollection: (String) -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
     onNavigateToCameras: () -> Unit = {},
     onNavigateToCameraPlayer: (streamUrl: String, cameraName: String) -> Unit = { _, _ -> },
@@ -1159,6 +1160,7 @@ fun HomeScreen(
             onNavigateToCollection = onNavigateToCollection,
             onNavigateToSearch = onNavigateToSearch,
             onNavigateToWatchlist = onNavigateToWatchlist,
+            onNavigateToDiscover = onNavigateToDiscover,
             onNavigateToTv = onNavigateToTv,
             onNavigateToCameras = onNavigateToCameras,
             onNavigateToCameraPlayer = onNavigateToCameraPlayer,
@@ -2319,6 +2321,7 @@ private fun HomeInputLayer(
     onNavigateToCollection: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit,
     onNavigateToCameras: () -> Unit = {},
     onNavigateToCameraPlayer: (streamUrl: String, cameraName: String) -> Unit = { _, _ -> },
@@ -2472,6 +2475,7 @@ private fun HomeInputLayer(
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> Unit
                                     SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                    SidebarItem.DISCOVER -> onNavigateToDiscover()
                                     SidebarItem.TV -> onNavigateToTv(null, null)
                                     SidebarItem.CAMERAS -> onNavigateToCameras()
                                     SidebarItem.SETTINGS -> onNavigateToSettings()

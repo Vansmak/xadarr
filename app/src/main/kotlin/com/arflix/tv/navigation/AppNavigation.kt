@@ -23,6 +23,7 @@ import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.ui.screens.cameras.CameraPlayerScreen
 import com.arflix.tv.ui.screens.cameras.CamerasScreen
 import com.arflix.tv.ui.screens.details.DetailsScreen
+import com.arflix.tv.ui.screens.discover.DiscoverScreen
 import com.arflix.tv.ui.screens.home.HomeScreen
 import com.arflix.tv.ui.screens.login.LoginScreen
 import com.arflix.tv.ui.screens.player.PlayerScreen
@@ -56,6 +57,7 @@ sealed class Screen(val route: String) {
             return if (streamEnc != null) "tv?channelId=$enc&streamUrl=$streamEnc" else "tv?channelId=$enc"
         }
     }
+    object Discover : Screen("discover")
     object Settings : Screen("settings")
     object Cameras : Screen("cameras")
     object CameraPlayer : Screen("camera_player?streamUrl={streamUrl}&cameraName={cameraName}") {
@@ -190,6 +192,9 @@ fun AppNavigation(
                 onNavigateToWatchlist = {
                     navigateTopLevel(Screen.Watchlist.route)
                 },
+                onNavigateToDiscover = {
+                    navigateTopLevel(Screen.Discover.route)
+                },
                 onNavigateToTv = { channelId, streamUrl ->
                     navigateTopLevel(Screen.Tv.createRoute(channelId, streamUrl))
                 },
@@ -235,6 +240,7 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
@@ -257,6 +263,30 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
+                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onSwitchProfile = {
+                    onSwitchProfile()
+                    navController.navigate(Screen.ProfileSelection.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // Discover screen
+        composable(Screen.Discover.route) {
+            DiscoverScreen(
+                currentProfile = currentProfile,
+                onNavigateToDetails = { mediaType, mediaId ->
+                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
+                },
+                onNavigateToHome = { navigateHome() },
+                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
@@ -289,6 +319,7 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {
@@ -319,6 +350,7 @@ fun AppNavigation(
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
@@ -432,6 +464,9 @@ fun AppNavigation(
                 onNavigateToWatchlist = {
                     navigateTopLevel(Screen.Watchlist.route)
                 },
+                onNavigateToDiscover = {
+                    navigateTopLevel(Screen.Discover.route)
+                },
                 onNavigateToCameras = {
                     navigateTopLevel(Screen.Cameras.route)
                 },
@@ -538,6 +573,7 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onSwitchProfile = {

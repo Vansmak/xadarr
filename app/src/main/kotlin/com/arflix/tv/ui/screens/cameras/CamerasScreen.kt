@@ -152,6 +152,7 @@ fun CamerasScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
@@ -321,6 +322,7 @@ fun CamerasScreen(
                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                 SidebarItem.HOME -> onNavigateToHome()
                                 SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                SidebarItem.DISCOVER -> onNavigateToDiscover()
                                 SidebarItem.TV -> onNavigateToTv()
                                 SidebarItem.CAMERAS -> Unit
                                 SidebarItem.SETTINGS -> onNavigateToSettings()

@@ -141,6 +141,7 @@ fun LiveTvScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
@@ -725,6 +726,7 @@ fun LiveTvScreen(
                                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                                 SidebarItem.HOME -> onNavigateToHome()
                                                 SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                                SidebarItem.DISCOVER -> onNavigateToDiscover()
                                                 SidebarItem.TV -> Unit
                                                 SidebarItem.CAMERAS -> onNavigateToCameras()
                                                 SidebarItem.SETTINGS -> onNavigateToSettings()

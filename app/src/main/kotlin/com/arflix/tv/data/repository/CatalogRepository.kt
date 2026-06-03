@@ -10,6 +10,7 @@ import com.arflix.tv.data.model.AddonCatalog
 import com.arflix.tv.data.model.AddonType
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CatalogPlacement
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.CollectionSourceConfig
 import com.arflix.tv.data.model.CollectionTileShape
@@ -886,6 +887,24 @@ class CatalogRepository @Inject constructor(
         return Result.success(Unit)
     }
 
+    suspend fun setCatalogVisibility(catalogId: String, visible: Boolean): Boolean {
+        val current = getCatalogs().toMutableList()
+        val index = current.indexOfFirst { it.id == catalogId }
+        if (index < 0) return false
+        current[index] = current[index].copy(isVisible = visible)
+        saveCatalogs(current)
+        return true
+    }
+
+    suspend fun setCatalogPlacement(catalogId: String, placement: CatalogPlacement): Boolean {
+        val current = getCatalogs().toMutableList()
+        val index = current.indexOfFirst { it.id == catalogId }
+        if (index < 0) return false
+        current[index] = current[index].copy(placement = placement)
+        saveCatalogs(current)
+        return true
+    }
+
     suspend fun renameCatalog(catalogId: String, newTitle: String): Boolean {
         val trimmed = newTitle.trim()
         if (trimmed.isBlank()) return false
@@ -1260,7 +1279,9 @@ class CatalogRepository @Inject constructor(
             collectionTileShape = normalizedCollectionTileShape,
             collectionHideTitle = config.collectionHideTitle,
             collectionSources = config.collectionSources,
-            requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
+            isVisible = config.isVisible,
+            placement = config.placement,
         )
     }
 

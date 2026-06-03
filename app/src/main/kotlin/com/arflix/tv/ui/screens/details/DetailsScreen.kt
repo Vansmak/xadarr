@@ -197,6 +197,7 @@ fun DetailsScreen(
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -554,6 +555,7 @@ fun DetailsScreen(
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
                                         SidebarItem.WATCHLIST -> onNavigateToWatchlist()
+                                        SidebarItem.DISCOVER -> onNavigateToDiscover()
                                         SidebarItem.TV -> onNavigateToTv()
                                         SidebarItem.CAMERAS -> onNavigateToCameras()
                                         SidebarItem.SETTINGS -> onNavigateToSettings()

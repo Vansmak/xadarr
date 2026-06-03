@@ -10,6 +10,7 @@
     <string name="settings">Settings</string>
     <string name="topbar_tv">TV</string>
     <string name="cameras">Cameras</string>
+    <string name="discover">Discover</string>
     <string name="my_watchlist">My Watchlist</string>
 
     <!-- Content types -->

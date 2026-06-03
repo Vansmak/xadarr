@@ -15,6 +15,7 @@ import coil.size.Precision
 import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CatalogPlacement
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
@@ -1221,9 +1222,13 @@ class HomeViewModel @Inject constructor(
             watchlistRepository.watchlistItems.collect { items ->
                 val current = _uiState.value.categories
                 if (current.isEmpty()) return@collect
+                val prefs = context.settingsDataStore.data.first()
+                val watchlistPlacement = prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY]
+                    ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                    ?: CatalogPlacement.HOME
                 val updated = current.toMutableList()
                 updated.removeAll { it.id == WATCHLIST_CATEGORY_ID }
-                if (items.isNotEmpty()) {
+                if (items.isNotEmpty() && watchlistPlacement == CatalogPlacement.HOME) {
                     val cat = Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = items)
                     val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
                     val insertIdx = if (cwIdx >= 0) cwIdx + 1 else 0
@@ -2140,7 +2145,8 @@ class HomeViewModel @Inject constructor(
                     // Split preinstalled into TMDB-based and MDBList-based
                     val tmdbPreinstalled = savedCatalogs
                         .filter {
-                            it.isPreinstalled &&
+                            it.isVisible && it.placement == CatalogPlacement.HOME &&
+                                it.isPreinstalled &&
                                 it.sourceUrl.isNullOrBlank() &&
                                 !isCollectionRailConfig(it) &&
                                 !isCollectionTileConfig(it)
@@ -2155,7 +2161,8 @@ class HomeViewModel @Inject constructor(
                         }
                     // Load MDBList preinstalled catalogs - first 8 immediately, rest lazily on scroll
                     val mdblistConfigs = savedCatalogs.filter {
-                        it.isPreinstalled &&
+                        it.isVisible && it.placement == CatalogPlacement.HOME &&
+                            it.isPreinstalled &&
                             !it.sourceUrl.isNullOrBlank() &&
                             !isCollectionRailConfig(it) &&
                             !isCollectionTileConfig(it)
@@ -2220,7 +2227,9 @@ class HomeViewModel @Inject constructor(
                                 !isCollectionTileConfig(it)
                         }
                         .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
-                    val customCatalogConfigs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
+                    val customCatalogConfigs = savedCatalogs.filter { cfg ->
+                        cfg.isVisible && cfg.placement == CatalogPlacement.HOME && isCustomCatalogConfig(cfg)
+                    }
 
                     // Fetch ALL custom catalogs (Trakt lists, user-added) in parallel
                     // right here in the bulk path, instead of deferring to
@@ -2312,11 +2321,13 @@ class HomeViewModel @Inject constructor(
                 }
                 val collectionRows = withContext(networkDispatcher) {
                     val collectionConfigs = savedCatalogs.filter { cfg ->
-                        isCollectionTileConfig(cfg) && CollectionTemplateManifest.isValidCollectionConfig(cfg)
+                        cfg.isVisible && cfg.placement == CatalogPlacement.HOME &&
+                            isCollectionTileConfig(cfg) && CollectionTemplateManifest.isValidCollectionConfig(cfg)
                     }
 
                     savedCatalogs.mapNotNull { cfg ->
-                        if (!isCollectionRailConfig(cfg) || !CollectionTemplateManifest.isValidCollectionConfig(cfg)) {
+                        if (!cfg.isVisible || cfg.placement != CatalogPlacement.HOME ||
+                            !isCollectionRailConfig(cfg) || !CollectionTemplateManifest.isValidCollectionConfig(cfg)) {
                             return@mapNotNull null
                         }
                         val group = cfg.collectionGroup ?: return@mapNotNull null
@@ -2336,6 +2347,7 @@ class HomeViewModel @Inject constructor(
                 val categoryById = categories.associateBy { it.id }
                 val collectionCategoryById = collectionRows.associateBy { it.id }
                 categories = savedCatalogs.mapNotNull { cfg ->
+                    if (!cfg.isVisible || cfg.placement != CatalogPlacement.HOME) return@mapNotNull null
                     when {
                         isCollectionTileConfig(cfg) -> null
                         isCollectionRailConfig(cfg) -> {
@@ -2693,7 +2705,9 @@ class HomeViewModel @Inject constructor(
         customCatalogsJob?.cancel()
         customCatalogsJob = viewModelScope.launch(networkDispatcher) {
             delay(if (isLowRamDevice) 700L else 350L)
-            val customCatalogs = savedCatalogs.filter { cfg -> isCustomCatalogConfig(cfg) }
+            val customCatalogs = savedCatalogs.filter { cfg ->
+                cfg.isVisible && cfg.placement == CatalogPlacement.HOME && isCustomCatalogConfig(cfg)
+            }
             if (customCatalogs.isEmpty()) return@launch
             val customIds = customCatalogs.map { it.id }.toSet()
             val existingCustomById = _uiState.value.categories

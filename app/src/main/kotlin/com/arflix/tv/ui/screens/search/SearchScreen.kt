@@ -109,6 +109,7 @@ fun SearchScreen(
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
     onNavigateToHome: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -439,7 +440,7 @@ fun SearchScreen(
                     when (focusZone) {
                         FocusZone.SIDEBAR -> {
                             if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
-                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.WATCHLIST -> onNavigateToWatchlist(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
+                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.WATCHLIST -> onNavigateToWatchlist(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
                             true
                         }
                         FocusZone.SEARCH_INPUT -> {

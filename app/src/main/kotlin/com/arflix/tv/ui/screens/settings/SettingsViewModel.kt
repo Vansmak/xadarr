@@ -147,6 +147,7 @@ data class SettingsUiState(
     val showUnknownSourcesDialog: Boolean = false,
     // Catalogs
     val catalogs: List<CatalogConfig> = emptyList(),
+    val watchlistPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
     val catalogSearchQuery: String = "",
     val catalogSearchResults: List<CatalogDiscoveryResult> = emptyList(),
     val isCatalogSearching: Boolean = false,
@@ -276,6 +277,7 @@ class SettingsViewModel @Inject constructor(
     private val webhookCompletionPercentKey = com.arflix.tv.data.repository.WEBHOOK_COMPLETION_PERCENT_KEY
     private val watchlistApiEnabledKey = com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
     private val watchlistApiPortKey = com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
+    private val watchlistPlacementKey = com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -453,6 +455,9 @@ class SettingsViewModel @Inject constructor(
             val webhookIntervalSeconds = prefs[webhookIntervalKey]?.toIntOrNull() ?: 30
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
+            val watchlistPlacement = prefs[watchlistPlacementKey]
+                ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
+                ?: com.arflix.tv.data.model.CatalogPlacement.HOME
             val watchlistApiEnabled = prefs[watchlistApiEnabledKey] ?: false
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
@@ -528,6 +533,7 @@ class SettingsViewModel @Inject constructor(
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
                 frigateUrl = frigateUrl,
+                watchlistPlacement = watchlistPlacement,
                 pinnedApps = pinnedApps,
             )
         }
@@ -1741,6 +1747,29 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             catalogRepository.moveCatalogDown(catalogId)
             syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleCatalogVisibility(catalogId: String) {
+        viewModelScope.launch {
+            val current = catalogRepository.getCatalogs().firstOrNull { it.id == catalogId } ?: return@launch
+            catalogRepository.setCatalogVisibility(catalogId, !current.isVisible)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setCatalogPlacement(catalogId: String, placement: com.arflix.tv.data.model.CatalogPlacement) {
+        viewModelScope.launch {
+            catalogRepository.setCatalogPlacement(catalogId, placement)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun setWatchlistPlacement(placement: com.arflix.tv.data.model.CatalogPlacement) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[watchlistPlacementKey] = placement.name
+            }
         }
     }
 

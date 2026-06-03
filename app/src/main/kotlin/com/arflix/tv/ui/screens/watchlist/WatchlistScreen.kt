@@ -87,6 +87,7 @@ fun WatchlistScreen(
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -267,6 +268,7 @@ fun WatchlistScreen(
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
                                         SidebarItem.WATCHLIST -> { }
+                                        SidebarItem.DISCOVER -> onNavigateToDiscover()
                                         SidebarItem.TV -> onNavigateToTv()
                                         SidebarItem.CAMERAS -> onNavigateToCameras()
                                         SidebarItem.SETTINGS -> onNavigateToSettings()
