@@ -73,8 +73,8 @@ class EpiseerrPollManager @Inject constructor(
                     _toastEvents.tryEmit(
                         EpiseerrToast(
                             event = evt.optString("event"),
-                            title = evt.optString("title"),
-                            rule = evt.optString("rule").ifBlank { null },
+                            title = evt.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: "Unknown",
+                            rule = evt.optString("rule").takeIf { it.isNotBlank() && it != "null" },
                             season = evt.optInt("season").takeIf { it != 0 },
                             episode = evt.optInt("episode").takeIf { it != 0 },
                         )
