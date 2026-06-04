@@ -93,6 +93,13 @@ fun RulePickerScreen(
         }
     }
 
+    // Keep focused item visible when navigating with D-pad
+    LaunchedEffect(focusedIndex) {
+        if (rules.isNotEmpty()) {
+            listState.animateScrollToItem(focusedIndex.coerceIn(0, rules.size))
+        }
+    }
+
     if (showWebview && syncServerUrl.isNotBlank()) {
         val deepUrl = "$syncServerUrl/xadarr"
         EpiseerrWebviewScreen(url = deepUrl, onBack = { showWebview = false })
@@ -102,7 +109,7 @@ fun RulePickerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF0111827))
+            .background(Color(0xFF0D1117))
             .onPreviewKeyEvent { evt ->
                 if (evt.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (evt.key) {

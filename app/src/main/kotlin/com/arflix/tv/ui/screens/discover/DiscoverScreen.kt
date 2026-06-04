@@ -86,6 +86,7 @@ fun DiscoverScreen(
     val rootFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
+    var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
 
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
 
@@ -173,7 +174,6 @@ fun DiscoverScreen(
             }
             else -> {
                 val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
-                var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
 
                 LazyColumn(
                     modifier = Modifier
@@ -221,26 +221,6 @@ fun DiscoverScreen(
                     }
                 }
 
-                rulePickerItem?.let { mediaItem ->
-                    val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
-                        androidx.hilt.navigation.compose.hiltViewModel()
-                    val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
-                    val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
-                        id       = mediaItem.id.toString(),
-                        seriesId = null,
-                        title    = mediaItem.title,
-                        tmdbId   = mediaItem.id.toString(),
-                        tvdbId   = null,
-                        poster   = mediaItem.image.takeIf { it.isNotBlank() },
-                    )
-                    com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
-                        pendingItem        = pendingItem,
-                        episeerrRepository = rulePickerVm.episeerrRepository,
-                        syncServerUrl      = syncServerUrl,
-                        onDismiss          = { rulePickerItem = null },
-                        onRuleAssigned     = { rulePickerItem = null },
-                    )
-                }
             }
         }
 
@@ -250,6 +230,28 @@ fun DiscoverScreen(
                 isFocused = focusZone == DiscoverFocusZone.TOPBAR,
                 focusedIndex = if (focusZone == DiscoverFocusZone.TOPBAR) topBarFocusIndex else -1,
                 profile = currentProfile,
+            )
+        }
+
+        // Rule picker rendered last so it covers the topbar
+        rulePickerItem?.let { mediaItem ->
+            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                androidx.hilt.navigation.compose.hiltViewModel()
+            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id       = mediaItem.id.toString(),
+                seriesId = null,
+                title    = mediaItem.title,
+                tmdbId   = mediaItem.id.toString(),
+                tvdbId   = null,
+                poster   = mediaItem.image.takeIf { it.isNotBlank() },
+            )
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem        = pendingItem,
+                episeerrRepository = rulePickerVm.episeerrRepository,
+                syncServerUrl      = syncServerUrl,
+                onDismiss          = { rulePickerItem = null },
+                onRuleAssigned     = { rulePickerItem = null },
             )
         }
     }
