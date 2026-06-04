@@ -1186,6 +1186,7 @@ fun HomeScreen(
             onDismissMiniPlayer = onDismissMiniPlayer,
             liveChannelEpg = uiState.liveChannelEpg,
             onPlayChannelInMiniPlayer = onPlayChannelInMiniPlayer,
+            onPendingItemClick = { item -> rulePickerItem = item },
         )
         } // end trailer-dim wrapper
 
@@ -1336,6 +1337,28 @@ fun HomeScreen(
                 onInstall = { viewModel.installAppUpdateOrRequestPermission() },
                 onDismiss = { viewModel.dismissAppUpdateDialog() },
                 onIgnore = { viewModel.ignoreAppUpdate() }
+            )
+        }
+
+        // Episeerr rule picker overlay
+        rulePickerItem?.let { mediaItem ->
+            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                androidx.hilt.navigation.compose.hiltViewModel()
+            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id = mediaItem.id.toString(),
+                seriesId = null,
+                title = mediaItem.title,
+                tmdbId = mediaItem.id.toString(),
+                tvdbId = null,
+                poster = mediaItem.image.takeIf { it.isNotBlank() },
+            )
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem = pendingItem,
+                episeerrRepository = rulePickerVm.episeerrRepository,
+                syncServerUrl = syncServerUrl,
+                onDismiss = { rulePickerItem = null },
+                onRuleAssigned = { rulePickerItem = null },
             )
         }
     }
@@ -2338,6 +2361,7 @@ private fun HomeInputLayer(
     onDismissMiniPlayer: (() -> Unit)? = null,
     liveChannelEpg: Map<Int, com.arflix.tv.data.model.IptvNowNext> = emptyMap(),
     onPlayChannelInMiniPlayer: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
+    onPendingItemClick: ((MediaItem) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val latestDismissMiniPlayer = androidx.compose.runtime.rememberUpdatedState(onDismissMiniPlayer)
@@ -2752,32 +2776,8 @@ private fun HomeInputLayer(
                 }
             },
             onCameraClick = { streamUrl, name -> onNavigateToCameraPlayer(streamUrl, name) },
-            onPendingItemClick = { item -> rulePickerItem = item },
+            onPendingItemClick = onPendingItemClick,
         )
-
-        // ── Episeerr Rule Picker overlay ─────────────────────────────────
-        rulePickerItem?.let { item ->
-            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-            val rules by rulePickerVm.rules.collectAsState()
-            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
-            // Map MediaItem to EpiseerrPendingItem using pending list from PollManager
-            val pendingList = com.arflix.tv.util.LocalEpiseerrPendingIds.current
-            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
-                id = item.id.toString(),
-                seriesId = null,
-                title = item.title,
-                tmdbId = item.id.toString(),
-                tvdbId = null,
-                poster = item.image.takeIf { it.isNotBlank() },
-            )
-            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
-                pendingItem = pendingItem,
-                episeerrRepository = rulePickerVm.episeerrRepository,
-                syncServerUrl = syncServerUrl,
-                onDismiss = { rulePickerItem = null },
-                onRuleAssigned = { rulePickerItem = null },
-            )
-        }
     }
 }
 
@@ -2834,6 +2834,7 @@ private fun HomeRowsLayer(
             onLiveTvChannelClick = onLiveTvChannelClick,
             getCameraStreamUrl = getCameraStreamUrl,
             onCameraClick = onCameraClick,
+            onPendingItemClick = onPendingItemClick,
         )
     }
 }
@@ -2987,6 +2988,7 @@ private fun TvHomeRowsLayer(
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
     getCameraStreamUrl: (Int) -> String? = { null },
     onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
+    onPendingItemClick: ((MediaItem) -> Unit)? = null,
 ) {
     // ── Focus-row stabilizer ──
     // Track the focused row by its category ID (stable) rather than integer
@@ -3614,10 +3616,10 @@ private fun ContentRow(
                 }
                 val itemIsPending = isWatchlistRow && episeerrPendingIds.contains(item.id.toString())
                 val latestOnPendingItemClick = rememberUpdatedState(onPendingItemClick)
-                val onCardClick = remember(item, itemIsPending) {
+                val onCardClick: () -> Unit = remember(item, itemIsPending) {
                     {
                         if (itemIsPending && latestOnPendingItemClick.value != null) {
-                            latestOnPendingItemClick.value?.invoke(item)
+                            latestOnPendingItemClick.value!!(item)
                         } else {
                             latestOnItemClick.value(item)
                         }

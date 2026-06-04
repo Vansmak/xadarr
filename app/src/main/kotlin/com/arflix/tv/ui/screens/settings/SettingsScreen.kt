@@ -1068,7 +1068,8 @@ fun SettingsScreen(
                 onShowWebhookUrlDialog = { idx -> webhookUrlDialogIndex = idx },
                 onShowWatchlistApiPortDialog = { showWatchlistApiPortDialog = true },
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
-                onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true }
+                onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
+                onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
             )
         } else {
             AppTopBar(
@@ -3153,7 +3154,8 @@ private fun MobileSettingsLayout(
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
-    onShowSyncServerUrlDialog: () -> Unit = {}
+    onShowSyncServerUrlDialog: () -> Unit = {},
+    onShowEpiseerrUrlDialog: () -> Unit = {},
 ) {
     BackHandler(enabled = page != "MAIN") {
         onNavigate("MAIN")
@@ -3195,7 +3197,8 @@ private fun MobileSettingsLayout(
                 openSecondarySubtitlePicker = openSecondarySubtitlePicker,
                 openAudioLanguagePicker = openAudioLanguagePicker,
                 onSwitchProfile = onSwitchProfile,
-                onShowSyncServerUrlDialog = onShowSyncServerUrlDialog
+                onShowSyncServerUrlDialog = onShowSyncServerUrlDialog,
+                onShowEpiseerrUrlDialog = onShowEpiseerrUrlDialog,
             )
         } else {
             Row(
@@ -3254,7 +3257,8 @@ private fun MobileSettingsMainPage(
     openSecondarySubtitlePicker: () -> Unit = {},
     openAudioLanguagePicker: () -> Unit,
     onSwitchProfile: () -> Unit,
-    onShowSyncServerUrlDialog: () -> Unit = {}
+    onShowSyncServerUrlDialog: () -> Unit = {},
+    onShowEpiseerrUrlDialog: () -> Unit = {},
 ) {
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -3373,7 +3377,7 @@ private fun MobileSettingsMainPage(
                     subtitle = "Rule picker, pending badges, activity toasts",
                     value = if (uiState.episeerrUrl.isBlank()) "Not set" else "Set",
                     isFocused = false,
-                    onClick = { showEpiseerrUrlDialog = true }
+                    onClick = onShowEpiseerrUrlDialog
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,

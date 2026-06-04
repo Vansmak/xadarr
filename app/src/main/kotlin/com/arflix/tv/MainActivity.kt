@@ -740,7 +740,7 @@ fun ArflixApp(
             )
 
             // ── Episeerr activity toast ──────────────────────────────────────────
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = activeEpiseerrToast != null,
                 enter = slideInVertically { -it } + fadeIn(),
                 exit = slideOutVertically { -it } + fadeOut(),
