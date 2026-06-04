@@ -127,6 +127,13 @@ import dagger.Lazy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.arflix.tv.data.repository.EpiseerrPollManager
+import com.arflix.tv.data.repository.EpiseerrToast
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.style.TextOverflow
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -174,6 +181,9 @@ class MainActivity : ComponentActivity() {
     // everything is already resident.
     @Inject
     lateinit var iptvRepository: Lazy<com.arflix.tv.data.repository.IptvRepository>
+
+    @Inject
+    lateinit var episeerrPollManager: EpiseerrPollManager
 
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
@@ -355,7 +365,8 @@ class MainActivity : ComponentActivity() {
                         preloadedHeroItem = startupState.heroItem,
                         preloadedHeroLogoUrl = startupState.heroLogoUrl,
                         preloadedLogoCache = startupState.logoCache,
-                        onExitApp = { finish() }
+                        onExitApp = { finish() },
+                        episeerrPollManager = episeerrPollManager,
                     )
                 }
             }
@@ -539,7 +550,8 @@ fun ArflixApp(
     preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
     preloadedHeroLogoUrl: String? = null,
     preloadedLogoCache: Map<String, String> = emptyMap(),
-    onExitApp: () -> Unit = {}
+    onExitApp: () -> Unit = {},
+    episeerrPollManager: EpiseerrPollManager? = null,
 ) {
     val context = LocalContext.current
     val authState by authRepository.authState.collectAsStateWithLifecycle()
@@ -566,6 +578,17 @@ fun ArflixApp(
     // Activity-scoped — survives all navigation changes. Created here (above NavHost)
     // so hiltViewModel() uses the Activity's ViewModelStoreOwner.
     val liveTvPlayerViewModel: LiveTvPlayerViewModel = hiltViewModel()
+
+    LaunchedEffect(episeerrPollManager) { episeerrPollManager?.startPolling() }
+
+    var activeEpiseerrToast by remember { mutableStateOf<EpiseerrToast?>(null) }
+    LaunchedEffect(episeerrPollManager) {
+        episeerrPollManager?.toastEvents?.collect { toast ->
+            activeEpiseerrToast = toast
+            delay(4_000L)
+            activeEpiseerrToast = null
+        }
+    }
 
     val navController = rememberNavController()
     val appCoroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -707,6 +730,18 @@ fun ArflixApp(
                 },
                 onDismiss = { liveTvPlayerViewModel.dismiss() },
             )
+
+            // ── Episeerr activity toast ──────────────────────────────────────────
+            AnimatedVisibility(
+                visible = activeEpiseerrToast != null,
+                enter = slideInVertically { -it } + fadeIn(),
+                exit = slideOutVertically { -it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp)
+            ) {
+                activeEpiseerrToast?.let { EpiseerrActivityToast(it) }
+            }
         }
         if (showBottomBar) {
             AppBottomBar(
@@ -783,6 +818,62 @@ private fun LiveTvMiniPlayerLayer(
         // Dismiss mini-player on Back before allowing underlying screens to handle it.
         // Registered here (deepest level) so it has priority over screens' back handlers.
         BackHandler(enabled = visible, onBack = onDismiss)
+    }
+}
+
+@Composable
+private fun EpiseerrActivityToast(toast: EpiseerrToast) {
+    val badgeColor = when (toast.event) {
+        "episode.grabbed"  -> Color(0xFFEA580C) // orange
+        "episode.ready"    -> Color(0xFF0D9488) // teal
+        "rule.assigned", "rule.triggered" -> Color(0xFF7C3AED) // purple
+        "watchlist.requested" -> Color(0xFF4F46E5) // indigo
+        else -> Color(0xFF374151)
+    }
+    val eventLabel = when (toast.event) {
+        "episode.grabbed"    -> "Grabbed"
+        "episode.ready"      -> "Ready"
+        "rule.assigned"      -> "Rule assigned"
+        "rule.triggered"     -> "Rule triggered"
+        "watchlist.requested" -> "Pending"
+        else -> toast.event
+    }
+    Box(
+        modifier = Modifier
+            .widthIn(max = 400.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xE6111827))
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(badgeColor)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(eventLabel, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+            Column {
+                Text(
+                    toast.title.ifBlank { "Unknown" },
+                    fontSize = 14.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (toast.rule != null) {
+                    Text(toast.rule, fontSize = 11.sp, color = Color(0xFFD1D5DB))
+                } else if (toast.season != null && toast.episode != null) {
+                    Text(
+                        "S${toast.season.toString().padStart(2, '0')}E${toast.episode.toString().padStart(2, '0')}",
+                        fontSize = 11.sp,
+                        color = Color(0xFFD1D5DB)
+                    )
+                }
+            }
+        }
     }
 }
 

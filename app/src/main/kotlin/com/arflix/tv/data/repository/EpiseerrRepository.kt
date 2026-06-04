@@ -1,0 +1,139 @@
+package com.arflix.tv.data.repository
+
+import android.content.Context
+import android.util.Log
+import com.arflix.tv.network.OkHttpProvider
+import com.arflix.tv.util.settingsDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import javax.inject.Inject
+import javax.inject.Singleton
+
+data class EpiseerrPendingItem(
+    val id: String,
+    val seriesId: Int?,
+    val title: String,
+    val tmdbId: String?,
+    val tvdbId: String?,
+    val poster: String?,
+)
+
+data class EpiseerrRule(
+    val name: String,
+    val displayName: String,
+    val seriesCount: Int,
+)
+
+@Singleton
+class EpiseerrRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    private val http get() = OkHttpProvider.client
+    private val tag = "EpiseerrRepository"
+
+    suspend fun baseUrl(): String {
+        val prefs = context.settingsDataStore.data.first()
+        return prefs[EPISEERR_URL_KEY]?.trimEnd('/').orEmpty()
+    }
+
+    suspend fun isConfigured(): Boolean = baseUrl().isNotBlank()
+
+    suspend fun getPendingItems(): List<EpiseerrPendingItem> = withContext(Dispatchers.IO) {
+        val base = baseUrl().ifBlank { return@withContext emptyList() }
+        try {
+            val req = Request.Builder().url("$base/api/integration/xadarr/pending").get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "[]" }
+            val arr = JSONArray(body)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                EpiseerrPendingItem(
+                    id = obj.optString("id"),
+                    seriesId = obj.optInt("seriesId").takeIf { it != 0 },
+                    title = obj.optString("title"),
+                    tmdbId = obj.optString("tmdbId").ifBlank { null },
+                    tvdbId = obj.optString("tvdbId").ifBlank { null },
+                    poster = obj.optString("poster").ifBlank { null },
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "getPendingItems failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun getRules(): List<EpiseerrRule> = withContext(Dispatchers.IO) {
+        val base = baseUrl().ifBlank { return@withContext emptyList() }
+        try {
+            val req = Request.Builder().url("$base/api/rules-list").get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            val obj = JSONObject(body)
+            val arr = obj.optJSONArray("rules") ?: return@withContext emptyList()
+            (0 until arr.length()).map { i ->
+                val r = arr.getJSONObject(i)
+                EpiseerrRule(
+                    name = r.optString("name"),
+                    displayName = r.optString("display_name").ifBlank { r.optString("name") },
+                    seriesCount = r.optInt("series_count", 0),
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "getRules failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun assignRule(tmdbId: String, ruleName: String): Boolean = withContext(Dispatchers.IO) {
+        val base = baseUrl().ifBlank { return@withContext false }
+        try {
+            val payload = JSONObject().apply {
+                put("tmdb_id", tmdbId)
+                put("rule_name", ruleName)
+            }.toString()
+            val body = payload.toRequestBody("application/json".toMediaType())
+            val req = Request.Builder()
+                .url("$base/api/assign-pending-rule")
+                .post(body)
+                .build()
+            val resp = http.newCall(req).execute()
+            val respBody = resp.use { it.body?.string() ?: "{}" }
+            JSONObject(respBody).optBoolean("success", false)
+        } catch (e: Exception) {
+            Log.d(tag, "assignRule failed: ${e.message}")
+            false
+        }
+    }
+
+    /** Returns recent history entries with source=episeerr, for toast notifications. */
+    suspend fun getRecentEpiseerrEvents(sinceTimestamp: String?): List<JSONObject> = withContext(Dispatchers.IO) {
+        val prefs = context.settingsDataStore.data.first()
+        val syncUrl = prefs[SYNC_SERVER_URL_KEY]?.trimEnd('/').orEmpty()
+        if (syncUrl.isBlank()) return@withContext emptyList()
+        try {
+            val req = Request.Builder()
+                .url("$syncUrl/api/media/history?limit=20")
+                .get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "[]" }
+            val arr = JSONArray(body)
+            val episeerrEvents = mutableListOf<JSONObject>()
+            for (i in 0 until arr.length()) {
+                val entry = arr.getJSONObject(i)
+                if (entry.optString("source") == "episeerr") {
+                    if (sinceTimestamp == null || entry.optString("timestamp") > sinceTimestamp) {
+                        episeerrEvents.add(entry)
+                    }
+                }
+            }
+            episeerrEvents
+        } catch (e: Exception) {
+            Log.d(tag, "getRecentEpiseerrEvents failed: ${e.message}")
+            emptyList()
+        }
+    }
+}
