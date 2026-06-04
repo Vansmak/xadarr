@@ -152,18 +152,24 @@ function xadarr() {
     },
 
     async loadEpiseerrRules() {
+      // Fetch rule names for the rule picker modal
       try {
         const res = await fetch('/api/episeerr/rules');
+        if (res.ok) {
+          const data = await res.json();
+          const rules = data.rules || data;
+          this.episeerrRules = Array.isArray(rules) ? rules : [];
+        }
+      } catch (e) { /* silent */ }
+
+      // Fetch managed series to build tmdbId → rule badge map
+      try {
+        const res = await fetch('/api/episeerr/managed-series');
         if (!res.ok) return;
-        const data = await res.json();
-        const rules = data.rules || data;
-        this.episeerrRules = Array.isArray(rules) ? rules : [];
-        // Build tmdbId → rule map from series_list in each rule
+        const items = await res.json();
         const map = {};
-        for (const rule of this.episeerrRules) {
-          for (const s of (rule.series_list || [])) {
-            if (s.tmdb_id) map[String(s.tmdb_id)] = rule.name;
-          }
+        for (const item of (Array.isArray(items) ? items : [])) {
+          if (item.tmdbId) map[String(item.tmdbId)] = item.rule;
         }
         this.episeerrManagedIds = map;
       } catch (e) { /* silent */ }

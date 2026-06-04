@@ -476,7 +476,7 @@ def webhook_log():
 
 # ── Episeerr proxy endpoints ───────────────────────────────────────────────────
 
-def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None):
+def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None, timeout: int = 15):
     """Helper: forward a request to the configured Episeerr instance."""
     base = _get_episeerr_url()
     if not base:
@@ -484,12 +484,41 @@ def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None):
     try:
         url = f"{base}{path}"
         if method == "GET":
-            r = requests.get(url, timeout=10)
+            r = requests.get(url, timeout=timeout)
         else:
-            r = requests.post(url, json=body, timeout=10)
+            r = requests.post(url, json=body, timeout=timeout)
         r.raise_for_status()
         return jsonify(r.json())
     except requests.RequestException as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+# Simple in-process cache for slow managed-series (Sonarr call)
+_managed_series_cache: list = []
+_managed_series_cache_ts: float = 0.0
+_MANAGED_SERIES_TTL = 300  # seconds
+
+
+@app.route("/api/episeerr/managed-series", methods=["GET"])
+def episeerr_managed_series():
+    """Proxy /api/managed-series with local cache (Sonarr lookup is slow)."""
+    global _managed_series_cache, _managed_series_cache_ts
+    now = time.time()
+    if now - _managed_series_cache_ts < _MANAGED_SERIES_TTL and _managed_series_cache:
+        return jsonify(_managed_series_cache)
+    base = _get_episeerr_url()
+    if not base:
+        return jsonify({"error": "Episeerr URL not configured"}), 503
+    try:
+        r = requests.get(f"{base}/api/managed-series", timeout=45)
+        r.raise_for_status()
+        data = r.json()
+        _managed_series_cache = data
+        _managed_series_cache_ts = now
+        return jsonify(data)
+    except requests.RequestException as exc:
+        if _managed_series_cache:
+            return jsonify(_managed_series_cache)
         return jsonify({"error": str(exc)}), 502
 
 
