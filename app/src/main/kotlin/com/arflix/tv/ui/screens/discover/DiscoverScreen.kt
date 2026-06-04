@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -49,9 +51,11 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
+import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalFrigateConfigured
+import kotlinx.coroutines.delay
 
 private enum class DiscoverFocusZone { TOPBAR, ROWS }
 
@@ -80,8 +84,20 @@ fun DiscoverScreen(
     }
     val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
     val rootFocusRequester = remember { FocusRequester() }
+    val contentFocusRequester = remember { FocusRequester() }
+    var focusedRowIndex by remember { mutableIntStateOf(0) }
 
+    // Initial focus on root box while loading
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
+
+    // Move focus into content once categories arrive
+    LaunchedEffect(uiState.isLoading) {
+        if (!uiState.isLoading && uiState.categories.isNotEmpty()) {
+            delay(80)
+            runCatching { contentFocusRequester.requestFocus() }
+        }
+    }
+
     BackHandler { onBack() }
 
     Box(
@@ -95,7 +111,8 @@ fun DiscoverScreen(
                 when (event.key) {
                     Key.Back, Key.Escape -> { onBack(); true }
                     Key.DirectionUp -> {
-                        if (focusZone == DiscoverFocusZone.ROWS) {
+                        if (focusZone == DiscoverFocusZone.ROWS && focusedRowIndex == 0) {
+                            // Only go to topbar from the first row
                             focusZone = DiscoverFocusZone.TOPBAR
                             topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured)
                             true
@@ -104,6 +121,9 @@ fun DiscoverScreen(
                     Key.DirectionDown -> {
                         if (focusZone == DiscoverFocusZone.TOPBAR) {
                             focusZone = DiscoverFocusZone.ROWS
+                            if (uiState.categories.isNotEmpty()) {
+                                runCatching { contentFocusRequester.requestFocus() }
+                            }
                             true
                         } else false
                     }
@@ -159,11 +179,18 @@ fun DiscoverScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = AppTopBarContentTopInset),
+                        .padding(top = AppTopBarContentTopInset)
+                        .focusRequester(contentFocusRequester)
+                        .arvioDpadFocusGroup(),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
-                    items(uiState.categories, key = { it.id }) { category ->
-                        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                                .onFocusChanged { if (it.hasFocus) focusedRowIndex = rowIdx }
+                        ) {
                             Text(
                                 text = category.title,
                                 color = Color.White.copy(0.9f),

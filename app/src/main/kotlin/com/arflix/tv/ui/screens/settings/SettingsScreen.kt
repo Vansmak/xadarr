@@ -6589,29 +6589,17 @@ private fun CatalogsSettings(
                         maxLines = 1,
                     )
                 }
-                if (!isMobile) {
-                    CatalogActionChip(
-                        icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                            Icons.Outlined.Explore else Icons.Outlined.Home,
-                        isFocused = isRowFocused && focusedActionIndex == 0,
-                        onClick = {
-                            val next = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                                com.arflix.tv.data.model.CatalogPlacement.HOME
-                            else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                            onSetWatchlistPlacement(next)
-                        }
-                    )
-                } else {
-                    // Mobile: tap the row to toggle placement
-                    val icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                        Icons.Outlined.Explore else Icons.Outlined.Home
-                    Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(20.dp).clickable {
+                CatalogActionChip(
+                    icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                        Icons.Outlined.Explore else Icons.Outlined.Home,
+                    isFocused = isRowFocused && focusedActionIndex == 0,
+                    onClick = {
                         val next = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
                             com.arflix.tv.data.model.CatalogPlacement.HOME
                         else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
                         onSetWatchlistPlacement(next)
-                    })
-                }
+                    }
+                )
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
