@@ -172,6 +172,9 @@ fun DiscoverScreen(
                 }
             }
             else -> {
+                val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
+                var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -181,6 +184,7 @@ fun DiscoverScreen(
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
+                        val isWatchlistRow = category.id == "my_watchlist"
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -198,17 +202,44 @@ fun DiscoverScreen(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 items(category.items, key = { it.id }) { item ->
+                                    val itemIsPending = isWatchlistRow &&
+                                        episeerrPendingIds.contains(item.id.toString())
                                     MediaCard(
                                         item = item,
                                         width = 200.dp,
                                         isLandscape = true,
-                                        onClick = { onNavigateToDetails(item.mediaType, item.id) },
+                                        isPending = itemIsPending,
+                                        onClick = {
+                                            if (itemIsPending) rulePickerItem = item
+                                            else onNavigateToDetails(item.mediaType, item.id)
+                                        },
                                         modifier = Modifier.padding(end = 12.dp),
                                     )
                                 }
                             }
                         }
                     }
+                }
+
+                rulePickerItem?.let { mediaItem ->
+                    val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                        androidx.hilt.navigation.compose.hiltViewModel()
+                    val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+                    val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                        id       = mediaItem.id.toString(),
+                        seriesId = null,
+                        title    = mediaItem.title,
+                        tmdbId   = mediaItem.id.toString(),
+                        tvdbId   = null,
+                        poster   = mediaItem.image.takeIf { it.isNotBlank() },
+                    )
+                    com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                        pendingItem        = pendingItem,
+                        episeerrRepository = rulePickerVm.episeerrRepository,
+                        syncServerUrl      = syncServerUrl,
+                        onDismiss          = { rulePickerItem = null },
+                        onRuleAssigned     = { rulePickerItem = null },
+                    )
                 }
             }
         }
