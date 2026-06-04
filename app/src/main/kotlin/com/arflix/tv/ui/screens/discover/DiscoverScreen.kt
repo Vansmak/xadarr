@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.lazy.itemsIndexed
+import kotlinx.coroutines.delay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,9 +84,18 @@ fun DiscoverScreen(
     }
     val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
     val rootFocusRequester = remember { FocusRequester() }
+    val contentFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
+
+    // Drive focus into the content once categories are ready
+    LaunchedEffect(uiState.categories.isNotEmpty()) {
+        if (uiState.categories.isNotEmpty() && focusZone == DiscoverFocusZone.ROWS) {
+            delay(80)
+            runCatching { contentFocusRequester.requestFocus() }
+        }
+    }
 
     BackHandler { onBack() }
 
@@ -108,6 +119,7 @@ fun DiscoverScreen(
                     Key.DirectionDown -> {
                         if (focusZone == DiscoverFocusZone.TOPBAR) {
                             focusZone = DiscoverFocusZone.ROWS
+                            runCatching { contentFocusRequester.requestFocus() }
                             true
                         } else false
                     }
@@ -163,7 +175,9 @@ fun DiscoverScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = AppTopBarContentTopInset),
+                        .padding(top = AppTopBarContentTopInset)
+                        .focusRequester(contentFocusRequester)
+                        .focusGroup(),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
