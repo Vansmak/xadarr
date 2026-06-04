@@ -51,11 +51,9 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalFrigateConfigured
-import kotlinx.coroutines.delay
 
 private enum class DiscoverFocusZone { TOPBAR, ROWS }
 
@@ -84,19 +82,9 @@ fun DiscoverScreen(
     }
     val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
     val rootFocusRequester = remember { FocusRequester() }
-    val contentFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
 
-    // Initial focus on root box while loading
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
-
-    // Move focus into content once categories arrive
-    LaunchedEffect(uiState.isLoading) {
-        if (!uiState.isLoading && uiState.categories.isNotEmpty()) {
-            delay(80)
-            runCatching { contentFocusRequester.requestFocus() }
-        }
-    }
 
     BackHandler { onBack() }
 
@@ -112,7 +100,6 @@ fun DiscoverScreen(
                     Key.Back, Key.Escape -> { onBack(); true }
                     Key.DirectionUp -> {
                         if (focusZone == DiscoverFocusZone.ROWS && focusedRowIndex == 0) {
-                            // Only go to topbar from the first row
                             focusZone = DiscoverFocusZone.TOPBAR
                             topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured)
                             true
@@ -121,9 +108,6 @@ fun DiscoverScreen(
                     Key.DirectionDown -> {
                         if (focusZone == DiscoverFocusZone.TOPBAR) {
                             focusZone = DiscoverFocusZone.ROWS
-                            if (uiState.categories.isNotEmpty()) {
-                                runCatching { contentFocusRequester.requestFocus() }
-                            }
                             true
                         } else false
                     }
@@ -179,9 +163,7 @@ fun DiscoverScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = AppTopBarContentTopInset)
-                        .focusRequester(contentFocusRequester)
-                        .arvioDpadFocusGroup(),
+                        .padding(top = AppTopBarContentTopInset),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
