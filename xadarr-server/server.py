@@ -364,6 +364,32 @@ def sync_webhook():
     if is_episeerr:
         _broadcast_episeerr_event(entry)
 
+    # Auto-add to watchlist when episeerr requests a pending series
+    if entry_event == "watchlist.requested":
+        tmdb_id = event.get("tmdb_id") or event.get("tmdbId")
+        title    = event.get("title", "")
+        if tmdb_id and title:
+            watchlist = _load_json(WATCHLIST_FILE, [])
+            already   = any(str(w.get("id")) == str(tmdb_id) for w in watchlist)
+            if not already:
+                new_item = {
+                    "id":        int(tmdb_id),
+                    "title":     title,
+                    "mediaType": "show",
+                    "inWatchlist": True,
+                    "addedAt":   entry["timestamp"],
+                    "pending":   True,
+                }
+                # Fetch poster from TMDB if available
+                tmdb_data = _tmdb_get(f"/tv/{tmdb_id}")
+                if tmdb_data and tmdb_data.get("poster_path"):
+                    new_item["posterPath"] = "https://image.tmdb.org/t/p/w342" + tmdb_data["poster_path"]
+                    new_item["image"]      = new_item["posterPath"]
+                if tmdb_data and not new_item.get("overview"):
+                    new_item["overview"] = tmdb_data.get("overview", "")
+                watchlist.insert(0, new_item)
+                _save_json(WATCHLIST_FILE, watchlist)
+
     # Append inbound event to webhook log
     _append_webhook_log({
         "timestamp": entry["timestamp"],
