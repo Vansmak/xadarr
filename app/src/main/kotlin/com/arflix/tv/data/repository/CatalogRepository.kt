@@ -891,12 +891,12 @@ class CatalogRepository @Inject constructor(
         val current = getCatalogs().toMutableList()
         val index = current.indexOfFirst { it.id == catalogId }
         if (index < 0) return false
-        current[index] = current[index].copy(isVisible = visible)
+        current[index] = current[index].copy(isHidden = !visible)
         saveCatalogs(current)
         return true
     }
 
-    suspend fun setCatalogPlacement(catalogId: String, placement: CatalogPlacement): Boolean {
+    suspend fun setCatalogPlacement(catalogId: String, placement: CatalogPlacement?): Boolean {
         val current = getCatalogs().toMutableList()
         val index = current.indexOfFirst { it.id == catalogId }
         if (index < 0) return false
@@ -1280,7 +1280,7 @@ class CatalogRepository @Inject constructor(
             collectionHideTitle = config.collectionHideTitle,
             collectionSources = config.collectionSources,
             requiredAddonUrls = config.requiredAddonUrls.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
-            isVisible = config.isVisible,
+            isHidden = config.isHidden,
             placement = config.placement,
         )
     }

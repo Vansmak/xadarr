@@ -1753,12 +1753,12 @@ class SettingsViewModel @Inject constructor(
     fun toggleCatalogVisibility(catalogId: String) {
         viewModelScope.launch {
             val current = catalogRepository.getCatalogs().firstOrNull { it.id == catalogId } ?: return@launch
-            catalogRepository.setCatalogVisibility(catalogId, !current.isVisible)
+            catalogRepository.setCatalogVisibility(catalogId, current.isHidden)
             syncLocalStateToCloud(silent = true)
         }
     }
 
-    fun setCatalogPlacement(catalogId: String, placement: com.arflix.tv.data.model.CatalogPlacement) {
+    fun setCatalogPlacement(catalogId: String, placement: com.arflix.tv.data.model.CatalogPlacement?) {
         viewModelScope.launch {
             catalogRepository.setCatalogPlacement(catalogId, placement)
             syncLocalStateToCloud(silent = true)

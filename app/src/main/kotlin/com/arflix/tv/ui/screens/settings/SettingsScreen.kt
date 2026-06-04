@@ -938,9 +938,9 @@ fun SettingsScreen(
                                                         else -> when (catalogActionIndex) {
                                                             eyeIdx -> viewModel.toggleCatalogVisibility(catalog.id)
                                                             placementIdx -> {
-                                                                val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
-                                                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                                                                else com.arflix.tv.data.model.CatalogPlacement.HOME
+                                                                val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                                                                    null
+                                                                else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
                                                                 viewModel.setCatalogPlacement(catalog.id, next)
                                                             }
                                                             deleteIdx -> viewModel.removeCatalog(catalog.id)
@@ -6472,7 +6472,7 @@ private fun CatalogsSettings(
     onMoveCatalogDown: (CatalogConfig) -> Unit,
     onDeleteCatalog: (CatalogConfig) -> Unit,
     onToggleVisibility: (CatalogConfig) -> Unit = {},
-    onSetPlacement: (CatalogConfig, com.arflix.tv.data.model.CatalogPlacement) -> Unit = { _, _ -> },
+    onSetPlacement: (CatalogConfig, com.arflix.tv.data.model.CatalogPlacement?) -> Unit = { _, _ -> },
     watchlistPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
     onSetWatchlistPlacement: (com.arflix.tv.data.model.CatalogPlacement) -> Unit = {},
     onManageApps: () -> Unit = {},
@@ -6724,20 +6724,20 @@ private fun CatalogsSettings(
                     Spacer(modifier = Modifier.width(6.dp))
                     // Eye toggle: hidden catalogs are preserved but not shown on any screen
                     CatalogActionChip(
-                        icon = if (catalog.isVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        icon = if (!catalog.isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                         isFocused = isRowFocused && focusedActionIndex == eyeIdx,
                         onClick = { onToggleVisibility(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    // Placement toggle: Home ↔ Discover
+                    // Placement toggle: Home ↔ Discover (null placement = HOME)
                     CatalogActionChip(
-                        icon = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
-                            Icons.Outlined.Home else Icons.Outlined.Explore,
+                        icon = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                            Icons.Outlined.Explore else Icons.Outlined.Home,
                         isFocused = isRowFocused && focusedActionIndex == placementIdx,
                         onClick = {
-                            val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.HOME)
-                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                            else com.arflix.tv.data.model.CatalogPlacement.HOME
+                            val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                                null
+                            else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
                             onSetPlacement(catalog, next)
                         }
                     )

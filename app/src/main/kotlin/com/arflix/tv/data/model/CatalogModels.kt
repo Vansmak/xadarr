@@ -103,8 +103,10 @@ data class CatalogConfig(
     val collectionHideTitle: Boolean = false,
     val collectionSources: List<CollectionSourceConfig> = emptyList(),
     val requiredAddonUrls: List<String> = emptyList(),
-    val isVisible: Boolean = true,
-    val placement: CatalogPlacement = CatalogPlacement.HOME,
+    // isHidden = false when absent from JSON (Gson JVM default) → catalog is visible by default
+    val isHidden: Boolean = false,
+    // null when absent from JSON (Gson JVM default for objects) → defaults to HOME
+    val placement: CatalogPlacement? = null,
 ) : Serializable
 
 data class CatalogDiscoveryResult(

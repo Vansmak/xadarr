@@ -70,7 +70,7 @@ class DiscoverViewModel @Inject constructor(
                 ?: CatalogPlacement.HOME
 
             val discoverCatalogs = catalogRepository.getCatalogs()
-                .filter { it.isVisible && it.placement == CatalogPlacement.DISCOVER }
+                .filter { !it.isHidden && it.placement == CatalogPlacement.DISCOVER }
 
             // Load preinstalled TMDB categories in bulk, then match by ID
             val allHomeCategories = withContext(Dispatchers.IO) {

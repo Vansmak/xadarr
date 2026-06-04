@@ -2145,7 +2145,7 @@ class HomeViewModel @Inject constructor(
                     // Split preinstalled into TMDB-based and MDBList-based
                     val tmdbPreinstalled = savedCatalogs
                         .filter {
-                            it.isVisible && it.placement == CatalogPlacement.HOME &&
+                            !it.isHidden && it.placement != CatalogPlacement.DISCOVER &&
                                 it.isPreinstalled &&
                                 it.sourceUrl.isNullOrBlank() &&
                                 !isCollectionRailConfig(it) &&
@@ -2161,7 +2161,7 @@ class HomeViewModel @Inject constructor(
                         }
                     // Load MDBList preinstalled catalogs - first 8 immediately, rest lazily on scroll
                     val mdblistConfigs = savedCatalogs.filter {
-                        it.isVisible && it.placement == CatalogPlacement.HOME &&
+                        !it.isHidden && it.placement != CatalogPlacement.DISCOVER &&
                             it.isPreinstalled &&
                             !it.sourceUrl.isNullOrBlank() &&
                             !isCollectionRailConfig(it) &&
@@ -2228,7 +2228,7 @@ class HomeViewModel @Inject constructor(
                         }
                         .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
                     val customCatalogConfigs = savedCatalogs.filter { cfg ->
-                        cfg.isVisible && cfg.placement == CatalogPlacement.HOME && isCustomCatalogConfig(cfg)
+                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && isCustomCatalogConfig(cfg)
                     }
 
                     // Fetch ALL custom catalogs (Trakt lists, user-added) in parallel
@@ -2321,12 +2321,12 @@ class HomeViewModel @Inject constructor(
                 }
                 val collectionRows = withContext(networkDispatcher) {
                     val collectionConfigs = savedCatalogs.filter { cfg ->
-                        cfg.isVisible && cfg.placement == CatalogPlacement.HOME &&
+                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER &&
                             isCollectionTileConfig(cfg) && CollectionTemplateManifest.isValidCollectionConfig(cfg)
                     }
 
                     savedCatalogs.mapNotNull { cfg ->
-                        if (!cfg.isVisible || cfg.placement != CatalogPlacement.HOME ||
+                        if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER ||
                             !isCollectionRailConfig(cfg) || !CollectionTemplateManifest.isValidCollectionConfig(cfg)) {
                             return@mapNotNull null
                         }
@@ -2347,7 +2347,7 @@ class HomeViewModel @Inject constructor(
                 val categoryById = categories.associateBy { it.id }
                 val collectionCategoryById = collectionRows.associateBy { it.id }
                 categories = savedCatalogs.mapNotNull { cfg ->
-                    if (!cfg.isVisible || cfg.placement != CatalogPlacement.HOME) return@mapNotNull null
+                    if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER) return@mapNotNull null
                     when {
                         isCollectionTileConfig(cfg) -> null
                         isCollectionRailConfig(cfg) -> {
@@ -2706,7 +2706,7 @@ class HomeViewModel @Inject constructor(
         customCatalogsJob = viewModelScope.launch(networkDispatcher) {
             delay(if (isLowRamDevice) 700L else 350L)
             val customCatalogs = savedCatalogs.filter { cfg ->
-                cfg.isVisible && cfg.placement == CatalogPlacement.HOME && isCustomCatalogConfig(cfg)
+                !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && isCustomCatalogConfig(cfg)
             }
             if (customCatalogs.isEmpty()) return@launch
             val customIds = customCatalogs.map { it.id }.toSet()
