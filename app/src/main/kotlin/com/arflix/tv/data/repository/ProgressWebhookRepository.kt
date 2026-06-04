@@ -29,6 +29,7 @@ val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
 val FRIGATE_URL_KEY = stringPreferencesKey("frigate_url")
 val WATCHLIST_PLACEMENT_KEY = stringPreferencesKey("watchlist_placement")
+val EPISEERR_URL_KEY = stringPreferencesKey("episeerr_url")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"

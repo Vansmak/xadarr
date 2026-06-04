@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Rule
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -354,6 +355,7 @@ fun SettingsScreen(
     var showWebhookCompletionDialog by remember { mutableStateOf(false) }
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showFrigateUrlDialog by remember { mutableStateOf(false) }
+    var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var qualityFilterRegexPattern by remember { mutableStateOf("") }
     var showHomeServerInput by remember { mutableStateOf(false) }
     var showPlexHomeServerInput by remember { mutableStateOf(false) }
@@ -389,7 +391,7 @@ fun SettingsScreen(
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 1 // Add + Watchlist + catalog rows
             "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
-            "accounts" -> 4
+            "accounts" -> 5
             else -> 0
         }
     }
@@ -622,6 +624,7 @@ fun SettingsScreen(
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
         showFrigateUrlDialog ||
+        showEpiseerrUrlDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.traktCode != null ||
@@ -1009,6 +1012,7 @@ fun SettingsScreen(
                                                     }
                                                 }
                                                 3 -> showSyncServerUrlDialog = true
+                                                4 -> showEpiseerrUrlDialog = true
                                             }
                                         }
                                         else -> Unit
@@ -1388,7 +1392,9 @@ fun SettingsScreen(
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() },
                             onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) },
                             syncServerUrl = uiState.syncServerUrl,
-                            onSyncServerUrlClick = { showSyncServerUrlDialog = true }
+                            onSyncServerUrlClick = { showSyncServerUrlDialog = true },
+                            episeerrUrl = uiState.episeerrUrl,
+                            onEpiseerrUrlClick = { showEpiseerrUrlDialog = true }
                         )
                     }
                   }
@@ -1442,6 +1448,17 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (showEpiseerrUrlDialog) {
+            EpiseerrUrlDialog(
+                currentValue = uiState.episeerrUrl,
+                onSave = { url ->
+                    viewModel.saveEpiseerrUrl(url)
+                    showEpiseerrUrlDialog = false
+                },
+                onDismiss = { showEpiseerrUrlDialog = false }
             )
         }
 
@@ -1855,6 +1872,17 @@ fun SettingsScreen(
                     showSyncServerUrlDialog = false
                 },
                 onDismiss = { showSyncServerUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showEpiseerrUrlDialog) {
+            EpiseerrUrlDialog(
+                currentValue = uiState.episeerrUrl,
+                onSave = { url ->
+                    viewModel.saveEpiseerrUrl(url)
+                    showEpiseerrUrlDialog = false
+                },
+                onDismiss = { showEpiseerrUrlDialog = false }
             )
         }
 
@@ -3338,6 +3366,14 @@ private fun MobileSettingsMainPage(
                     value = if (uiState.syncServerUrl.isBlank()) "Not set" else "Set",
                     isFocused = false,
                     onClick = onShowSyncServerUrlDialog
+                )
+                MobileSettingsRow(
+                    icon = Icons.Default.Rule,
+                    title = "Episeerr URL",
+                    subtitle = "Rule picker, pending badges, activity toasts",
+                    value = if (uiState.episeerrUrl.isBlank()) "Not set" else "Set",
+                    isFocused = false,
+                    onClick = { showEpiseerrUrlDialog = true }
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
@@ -7435,7 +7471,9 @@ private fun AccountsSettings(
     onInstallUpdate: () -> Unit,
     onOpenDataDeletion: () -> Unit,
     syncServerUrl: String = "",
-    onSyncServerUrlClick: () -> Unit = {}
+    onSyncServerUrlClick: () -> Unit = {},
+    episeerrUrl: String = "",
+    onEpiseerrUrlClick: () -> Unit = {}
 ) {
     Column {
         Text(
@@ -7515,13 +7553,25 @@ private fun AccountsSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        SettingsRow(
+            icon = Icons.Default.Rule,
+            title = "Episeerr URL",
+            subtitle = "Enables rule picker, pending badges, and activity toasts",
+            value = if (episeerrUrl.isBlank()) "Not set" else "Set",
+            isFocused = focusedIndex == 4,
+            onClick = onEpiseerrUrlClick,
+            modifier = Modifier.settingsFocusSlot(4)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         SettingsActionRow(
             title = "Privacy and data deletion",
             description = "Open privacy and account deletion instructions",
             actionLabel = "OPEN",
-            isFocused = focusedIndex == 4,
+            isFocused = focusedIndex == 5,
             onClick = onOpenDataDeletion,
-            modifier = Modifier.settingsFocusSlot(4)
+            modifier = Modifier.settingsFocusSlot(5)
         )
 
     }
@@ -9293,6 +9343,71 @@ private fun FrigateUrlDialog(
                     value = value,
                     onValueChange = { value = it },
                     placeholder = { Text("http://192.168.1.x:5000", color = TextSecondary.copy(alpha = 0.4f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                    )
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+                    if (value.isNotBlank()) {
+                        androidx.compose.material3.TextButton(
+                            onClick = { onSave("") },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Clear", color = TextSecondary) }
+                    }
+                    androidx.compose.material3.Button(
+                        onClick = { onSave(value.trim()) },
+                        modifier = Modifier.weight(1f),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Pink)
+                    ) { Text("Save", color = Color.White) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpiseerrUrlDialog(
+    currentValue: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var value by remember(currentValue) { mutableStateOf(currentValue) }
+    val inputFocusRequester = remember { FocusRequester() }
+    BackHandler { onDismiss() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        inputFocusRequester.requestFocus()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .then(if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp) else Modifier.width(520.dp))
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text(text = "Episeerr URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Base URL of your Episeerr instance. Enables rule picker, pending badges, and activity toast notifications. Leave empty to disable.",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    placeholder = { Text("http://192.168.x.x:5002", color = TextSecondary.copy(alpha = 0.4f)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
