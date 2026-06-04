@@ -1217,7 +1217,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-
     fun setWatchlistApiEnabled(enabled: Boolean) {
         viewModelScope.launch {
             context.settingsDataStore.edit { it[watchlistApiEnabledKey] = enabled }
