@@ -387,7 +387,7 @@ fun SettingsScreen(
             in tvGeneralSectionIds -> (tvGeneralRowsForSection(section).size - 1).coerceAtLeast(0)
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
-            "catalogs" -> uiState.catalogs.size // Add + rows
+            "catalogs" -> uiState.catalogs.size + 1 // Add + Watchlist + catalog rows
             "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
             "accounts" -> 4
             else -> 0
@@ -709,7 +709,11 @@ fun SettingsScreen(
                                     } else if (currentSection == "iptv" && contentFocusIndex in 1..uiState.iptvPlaylists.size && iptvActionIndex < 4) {
                                         iptvActionIndex++
 } else if (currentSection == "catalogs" && contentFocusIndex > 0) {
-                                        val maxCatalogAction = if (uiState.catalogs.getOrNull(contentFocusIndex - 1)?.id == "installed_apps") 7 else 6
+                                        val maxCatalogAction = when {
+                                            contentFocusIndex == 1 -> 0 // Watchlist row: one chip only
+                                            uiState.catalogs.getOrNull(contentFocusIndex - 2)?.id == "installed_apps" -> 7
+                                            else -> 6
+                                        }
                                         if (catalogActionIndex < maxCatalogAction) catalogActionIndex++
                                     }
                                 }
@@ -903,8 +907,13 @@ fun SettingsScreen(
                                         "catalogs" -> {
                                             if (contentFocusIndex == 0) {
                                                 showCatalogInput = true
+                                            } else if (contentFocusIndex == 1) {
+                                                val next = if (uiState.watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                                                    com.arflix.tv.data.model.CatalogPlacement.HOME
+                                                else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                viewModel.setWatchlistPlacement(next)
                                             } else {
-                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 1)
+                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 2)
                                                 if (catalog != null) {
                                                     val isAppsCatalog = catalog.id == "installed_apps"
                                                     val eyeIdx = if (isAppsCatalog) 5 else 4
@@ -6551,8 +6560,64 @@ private fun CatalogsSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // ── Watchlist row (built-in, placement only) ──────────────────────────
+        run {
+            val isRowFocused = focusedIndex == 1
+            Row(
+                modifier = Modifier
+                    .settingsFocusSlot(1)
+                    .fillMaxWidth()
+                    .background(
+                        if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "My Watchlist",
+                        style = ArflixTypography.body,
+                        color = if (isRowFocused) TextPrimary else TextSecondary,
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Built-in",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        maxLines = 1,
+                    )
+                }
+                if (!isMobile) {
+                    CatalogActionChip(
+                        icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                            Icons.Outlined.Explore else Icons.Outlined.Home,
+                        isFocused = isRowFocused && focusedActionIndex == 0,
+                        onClick = {
+                            val next = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                                com.arflix.tv.data.model.CatalogPlacement.HOME
+                            else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                            onSetWatchlistPlacement(next)
+                        }
+                    )
+                } else {
+                    // Mobile: tap the row to toggle placement
+                    val icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                        Icons.Outlined.Explore else Icons.Outlined.Home
+                    Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(20.dp).clickable {
+                        val next = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
+                            com.arflix.tv.data.model.CatalogPlacement.HOME
+                        else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                        onSetWatchlistPlacement(next)
+                    })
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
         catalogs.forEachIndexed { index, catalog ->
-            val rowFocusIndex = index + 1
+            val rowFocusIndex = index + 2   // +1 for Add row, +1 for Watchlist row
             val isRowFocused = focusedIndex == rowFocusIndex
             val title = if (catalog.isPreinstalled) {
                 when (catalog.kind) {

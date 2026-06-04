@@ -202,7 +202,7 @@ class CatalogRepository @Inject constructor(
             config.sourceType == CatalogSourceType.PREINSTALLED ||
             config.kind == CatalogKind.COLLECTION ||
             config.kind == CatalogKind.COLLECTION_RAIL
-        return if (shouldRefresh) bundled else config
+        return if (shouldRefresh) bundled.copy(isHidden = config.isHidden, placement = config.placement) else config
     }
 
     private fun sanitizeCollectionCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
@@ -438,11 +438,8 @@ class CatalogRepository @Inject constructor(
                     val isUserTitle = config.title.isNotBlank() &&
                         config.title != defaultCfg.title &&
                         config.title != config.id
-                    if (isUserTitle) {
-                        defaultCfg.copy(title = config.title)
-                    } else {
-                        defaultCfg
-                    }
+                    val base = if (isUserTitle) defaultCfg.copy(title = config.title) else defaultCfg
+                    base.copy(isHidden = config.isHidden, placement = config.placement)
                 } else {
                     config
                 }
