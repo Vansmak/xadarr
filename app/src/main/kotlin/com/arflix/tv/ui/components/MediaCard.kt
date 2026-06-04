@@ -88,6 +88,7 @@ fun MediaCard(
     onFocused: () -> Unit = {},
     onClick: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
+    isPending: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // If this is a placeholder card, show skeleton only
@@ -310,6 +311,35 @@ fun MediaCard(
                                 start = if (isLandscape) 10.dp else 0.dp,
                                 end = if (isLandscape) 0.dp else 8.dp,
                                 bottom = if (isLandscape) 18.dp else 12.dp
+                            )
+                    )
+                }
+
+                // Episeerr pending badge — amber stripe at bottom
+                if (isPending) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(androidx.compose.ui.graphics.Color(0xDDE97316))
+                            .padding(vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.tv.material3.Text(
+                            "⏳ Pending",
+                            fontSize = 9.sp,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        )
+                    }
+                    // Amber border ring
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(
+                                width = 2.dp,
+                                color = androidx.compose.ui.graphics.Color(0xFFE97316),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                             )
                     )
                 }

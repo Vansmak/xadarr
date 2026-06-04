@@ -25,6 +25,9 @@ val LocalHasTouchScreen = compositionLocalOf { true }
 /** True if a Frigate URL has been configured in settings. Controls CAMERAS nav visibility. */
 val LocalFrigateConfigured = compositionLocalOf { false }
 
+/** Set of TMDB IDs (as strings) currently pending Episeerr rule selection. */
+val LocalEpiseerrPendingIds = compositionLocalOf { emptySet<String>() }
+
 fun deviceHasTouchScreen(context: Context): Boolean {
     return context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
 }

@@ -129,6 +129,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.arflix.tv.data.repository.EpiseerrPollManager
 import com.arflix.tv.data.repository.EpiseerrToast
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Row
@@ -636,7 +637,14 @@ fun ArflixApp(
         !currentRoute.contains("profile") &&
         !currentRoute.contains("login")
 
-    CompositionLocalProvider(LocalFrigateConfigured provides frigateConfigured) {
+    val episeerrPendingIds by (episeerrPollManager?.pendingTmdbIds
+        ?: kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>()))
+        .collectAsState()
+
+    CompositionLocalProvider(
+        LocalFrigateConfigured provides frigateConfigured,
+        com.arflix.tv.util.LocalEpiseerrPendingIds provides episeerrPendingIds,
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -756,7 +764,7 @@ fun ArflixApp(
             )
         }
     }
-    } // end CompositionLocalProvider(LocalFrigateConfigured)
+    } // end CompositionLocalProvider
 
     LaunchedEffect(activeProfile?.id, pendingLauncherRequest) {
         val request = pendingLauncherRequest ?: return@LaunchedEffect

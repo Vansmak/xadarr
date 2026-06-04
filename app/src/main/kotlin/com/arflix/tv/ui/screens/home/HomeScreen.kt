@@ -708,6 +708,8 @@ fun HomeScreen(
     var contextMenuIsContinueWatching by remember { mutableStateOf(false) }
     var contextMenuIsInWatchlist by remember { mutableStateOf(false) }
 
+    var rulePickerItem by remember { mutableStateOf<MediaItem?>(null) }
+
     BackHandler(enabled = showContextMenu) {
         showContextMenu = false
         contextMenuItem = null
@@ -2750,7 +2752,32 @@ private fun HomeInputLayer(
                 }
             },
             onCameraClick = { streamUrl, name -> onNavigateToCameraPlayer(streamUrl, name) },
+            onPendingItemClick = { item -> rulePickerItem = item },
         )
+
+        // ── Episeerr Rule Picker overlay ─────────────────────────────────
+        rulePickerItem?.let { item ->
+            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+            val rules by rulePickerVm.rules.collectAsState()
+            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            // Map MediaItem to EpiseerrPendingItem using pending list from PollManager
+            val pendingList = com.arflix.tv.util.LocalEpiseerrPendingIds.current
+            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id = item.id.toString(),
+                seriesId = null,
+                title = item.title,
+                tmdbId = item.id.toString(),
+                tvdbId = null,
+                poster = item.image.takeIf { it.isNotBlank() },
+            )
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem = pendingItem,
+                episeerrRepository = rulePickerVm.episeerrRepository,
+                syncServerUrl = syncServerUrl,
+                onDismiss = { rulePickerItem = null },
+                onRuleAssigned = { rulePickerItem = null },
+            )
+        }
     }
 }
 
@@ -2778,6 +2805,7 @@ private fun HomeRowsLayer(
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
     getCameraStreamUrl: (Int) -> String? = { null },
     onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
+    onPendingItemClick: ((MediaItem) -> Unit)? = null,
 ) {
     if (isMobile) {
         MobileHomeRowsLayer(
@@ -3136,6 +3164,7 @@ private fun TvHomeRowsLayer(
                             onLiveTvChannelClick = onLiveTvChannelClick,
                             getCameraStreamUrl = getCameraStreamUrl,
                             onCameraClick = onCameraClick,
+                            onPendingItemClick = onPendingItemClick,
                         )
                     }
                 }
@@ -3410,6 +3439,7 @@ private fun ContentRow(
     onLiveTvChannelClick: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
     getCameraStreamUrl: (Int) -> String? = { null },
     onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
+    onPendingItemClick: ((MediaItem) -> Unit)? = null,
 ) {
     val isLiveTvRow = category.id == HomeViewModel.FAVORITE_TV_CATEGORY_ID && onLiveTvChannelClick != null
     val isCamerasRow = category.id == HomeViewModel.CAMERAS_CATEGORY_ID && onCameraClick != null
@@ -3418,6 +3448,8 @@ private fun ContentRow(
     val rowState = rememberLazyListState()
     val density = LocalDensity.current
     val isContinueWatching = category.id == "continue_watching"
+    val isWatchlistRow = category.id == "my_watchlist"
+    val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
     // Poster rows felt too tight vertically when focused. Instead of adding more
     // row spacing (which made the section layout feel loose), slightly reduce the
     // poster card width so the 1.05x focus zoom has more breathing room inside the
@@ -3580,8 +3612,16 @@ private fun ContentRow(
                 val onCardFocused = remember(item, index) {
                     { latestOnItemFocused.value(item, index) }
                 }
-                val onCardClick = remember(item) {
-                    { latestOnItemClick.value(item) }
+                val itemIsPending = isWatchlistRow && episeerrPendingIds.contains(item.id.toString())
+                val latestOnPendingItemClick = rememberUpdatedState(onPendingItemClick)
+                val onCardClick = remember(item, itemIsPending) {
+                    {
+                        if (itemIsPending && latestOnPendingItemClick.value != null) {
+                            latestOnPendingItemClick.value?.invoke(item)
+                        } else {
+                            latestOnItemClick.value(item)
+                        }
+                    }
                 }
                 // ── Live TV / On Now row — dedicated card with EPG, progress, LIVE badge ──
                 if (isAppsRow) {
@@ -3658,6 +3698,7 @@ private fun ContentRow(
                             enableSystemFocus = false,
                             onFocused = onCardFocused,
                             onClick = onCardClick,
+                            isPending = itemIsPending,
                         )
 
                         TopRankRibbon(
@@ -3689,6 +3730,7 @@ private fun ContentRow(
                         enableSystemFocus = false,
                         onFocused = onCardFocused,
                         onClick = onCardClick,
+                        isPending = itemIsPending,
                     )
                 }
                 }
