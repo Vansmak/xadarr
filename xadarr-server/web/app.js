@@ -70,6 +70,13 @@ function xadarr() {
     searchResults: [],
     selectedItem: null,
 
+    // Episeerr integration
+    episeerrPending: [],    // [{id, seriesId, title, tmdbId, poster}]
+    episeerrRules: [],      // [{name, display_name, series_count}]
+    episeerrManagedIds: {}, // tmdbId -> rule_name for rule badges
+    rulePickerItem: null,
+    ruleAssignStatus: null,
+
     // History
     historyItems: [],
 
@@ -95,6 +102,10 @@ function xadarr() {
       this.loadAddons();
       if (this.activeTab === 'history') this.loadHistory();
       this.connectSse();
+      if (this.serverConfig.episeerr_url) {
+        this.loadEpiseerrPending();
+        this.loadEpiseerrRules();
+      }
     },
 
     // ── Server config ──────────────────────────────────────────────────────────
@@ -119,9 +130,88 @@ function xadarr() {
         this.serverName = this.serverConfig.server_name || 'Xadarr Server';
         this.serverSaveStatus = 'Saved!';
         setTimeout(() => { this.serverSaveStatus = ''; }, 2000);
+        if (this.serverConfig.episeerr_url) {
+          this.loadEpiseerrPending();
+          this.loadEpiseerrRules();
+        }
       } catch (e) {
         this.serverSaveStatus = 'Error saving';
         setTimeout(() => { this.serverSaveStatus = ''; }, 3000);
+      }
+    },
+
+    // ── Episeerr ───────────────────────────────────────────────────────────────
+
+    async loadEpiseerrPending() {
+      try {
+        const res = await fetch('/api/episeerr/pending');
+        if (!res.ok) return;
+        const data = await res.json();
+        this.episeerrPending = Array.isArray(data) ? data : (data.requests || []);
+      } catch (e) { /* Episeerr not reachable — silent */ }
+    },
+
+    async loadEpiseerrRules() {
+      try {
+        const res = await fetch('/api/episeerr/rules');
+        if (!res.ok) return;
+        const data = await res.json();
+        const rules = data.rules || data;
+        this.episeerrRules = Array.isArray(rules) ? rules : [];
+        // Build tmdbId → rule map from series_list in each rule
+        const map = {};
+        for (const rule of this.episeerrRules) {
+          for (const s of (rule.series_list || [])) {
+            if (s.tmdb_id) map[String(s.tmdb_id)] = rule.name;
+          }
+        }
+        this.episeerrManagedIds = map;
+      } catch (e) { /* silent */ }
+    },
+
+    isPending(item) {
+      if (!item || !this.episeerrPending.length) return false;
+      const id = String(item.id || '');
+      return this.episeerrPending.some(p => String(p.tmdbId || '') === id);
+    },
+
+    getRule(item) {
+      if (!item) return null;
+      return this.episeerrManagedIds[String(item.id)] || null;
+    },
+
+    getPendingPoster(item) {
+      if (!item) return null;
+      const p = this.episeerrPending.find(p => String(p.tmdbId || '') === String(item?.id || ''));
+      return p?.poster || null;
+    },
+
+    openRulePicker(item) {
+      this.rulePickerItem = item;
+      this.ruleAssignStatus = null;
+      if (!this.episeerrRules.length) this.loadEpiseerrRules();
+    },
+
+    async assignRule(item, ruleName) {
+      if (!item) return;
+      try {
+        this.ruleAssignStatus = { ok: null, text: 'Assigning…' };
+        const res = await fetch('/api/episeerr/assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tmdb_id: String(item.id), rule_name: ruleName }),
+        });
+        const data = await res.json();
+        if (data.success || data.ok) {
+          this.ruleAssignStatus = { ok: true, text: `Assigned: ${ruleName}` };
+          this.episeerrPending = this.episeerrPending.filter(p => String(p.tmdbId) !== String(item.id));
+          this.episeerrManagedIds = { ...this.episeerrManagedIds, [String(item.id)]: ruleName };
+          setTimeout(() => { this.rulePickerItem = null; this.ruleAssignStatus = null; }, 1200);
+        } else {
+          this.ruleAssignStatus = { ok: false, text: data.error || 'Assignment failed' };
+        }
+      } catch (e) {
+        this.ruleAssignStatus = { ok: false, text: e.message || 'Error' };
       }
     },
 
@@ -558,6 +648,18 @@ function xadarr() {
         es.onmessage = (evt) => {
           try { this.playerState = JSON.parse(evt.data); } catch (_) {}
         };
+        es.addEventListener('episeerr', (evt) => {
+          try {
+            const entry = JSON.parse(evt.data);
+            // Prepend to history feed if visible
+            this.historyItems = [entry, ...this.historyItems].slice(0, 500);
+            // Refresh pending list on watchlist.requested or rule.assigned
+            if (entry.event === 'watchlist.requested' || entry.event === 'rule.assigned') {
+              this.loadEpiseerrPending();
+              if (entry.event === 'rule.assigned') this.loadEpiseerrRules();
+            }
+          } catch (_) {}
+        });
         es.onerror = () => { this.wsConnected = false; };
       } catch (e) {
         setTimeout(() => this.connectSse(), 5000);
@@ -565,6 +667,19 @@ function xadarr() {
     },
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    eventBadgeClass(event) {
+      if (!event) return 'bg-gray-700 text-gray-300';
+      if (event === 'start') return 'bg-green-900 text-green-300';
+      if (event === 'pause') return 'bg-yellow-900 text-yellow-300';
+      if (event === 'stop' || event === 'finish') return 'bg-gray-700 text-gray-300';
+      if (event === 'progress') return 'bg-blue-900 text-blue-300';
+      if (event === 'episode.grabbed') return 'bg-orange-900 text-orange-300';
+      if (event === 'episode.ready') return 'bg-teal-900 text-teal-300';
+      if (event === 'rule.assigned' || event === 'rule.triggered') return 'bg-purple-900 text-purple-300';
+      if (event.startsWith('watchlist.')) return 'bg-indigo-900 text-indigo-300';
+      return 'bg-gray-700 text-gray-300';
+    },
 
     formatMs(ms) {
       if (!ms || ms <= 0) return '0:00';

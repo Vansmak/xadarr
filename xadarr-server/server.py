@@ -56,9 +56,30 @@ _player_state: dict = {
     "isLive": False,
 }
 
+# Episeerr-sourced events to store in history and forward to SSE clients
+_EPISEERR_EVENTS = frozenset({
+    "episode.grabbed", "episode.ready",
+    "rule.triggered", "rule.assigned",
+    "watchlist.requested",
+})
+
 
 def _broadcast_player_state():
     payload = "data: " + json.dumps(_player_state) + "\n\n"
+    with _sse_lock:
+        dead = []
+        for q in _sse_queues:
+            try:
+                q.put_nowait(payload)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _sse_queues.remove(q)
+
+
+def _broadcast_episeerr_event(entry: dict):
+    """Push an episeerr activity event to all SSE subscribers as a named 'episeerr' event."""
+    payload = "event: episeerr\ndata: " + json.dumps(entry) + "\n\n"
     with _sse_lock:
         dead = []
         for q in _sse_queues:
@@ -87,9 +108,14 @@ def _load_server_config() -> dict:
     defaults = {
         "server_name": "Xadarr Server",
         "port": int(os.environ.get("PORT", 7979)),
+        "episeerr_url": "",
     }
     cfg = _load_json(SERVER_CONFIG_FILE, {})
     return {**defaults, **cfg}
+
+
+def _get_episeerr_url() -> str:
+    return _load_server_config().get("episeerr_url", "").rstrip("/")
 
 
 def _append_webhook_log(entry: dict, max_entries: int = 100):
@@ -311,23 +337,32 @@ def sync_webhook():
     event = request.get_json(force=True) or {}
     history = _load_json(HISTORY_FILE, [])
 
+    entry_event = event.get("event", "unknown")
+    is_episeerr = entry_event in _EPISEERR_EVENTS
     entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "event": event.get("event", "unknown"),
+        "event": entry_event,
         "title": event.get("title", ""),
-        "episodeTitle": event.get("episodeTitle", ""),
-        "mediaType": event.get("mediaType", ""),
-        "tmdbId": event.get("tmdbId"),
+        "episodeTitle": event.get("episodeTitle") or event.get("episode_title", ""),
+        "mediaType": event.get("mediaType") or event.get("media_type", ""),
+        "tmdbId": event.get("tmdbId") or event.get("tmdb_id"),
         "positionMs": event.get("positionMs", 0),
         "durationMs": event.get("durationMs", 0),
         "streamUrl": event.get("streamUrl", ""),
+        "season": event.get("season"),
+        "episode": event.get("episode"),
+        "rule": event.get("rule"),
+        "poster": event.get("poster"),
+        "source": "episeerr" if is_episeerr else "xadarr",
     }
     progress_pct = float(event.get("progress_percent") or 0)
-    is_watchlist = entry["event"].startswith("watchlist.")
-    if is_watchlist or progress_pct >= 50:
+    is_watchlist = entry_event.startswith("watchlist.")
+    if is_episeerr or is_watchlist or progress_pct >= 50:
         history.insert(0, entry)
         history = history[:500]
         _save_json(HISTORY_FILE, history)
+    if is_episeerr:
+        _broadcast_episeerr_event(entry)
 
     # Append inbound event to webhook log
     _append_webhook_log({
@@ -343,8 +378,7 @@ def sync_webhook():
 
     # Update live player state
     global _player_state
-    ev = event.get("event", "")
-    if ev in ("start", "progress"):
+    if entry_event in ("start", "progress"):
         _player_state = {
             "isPlaying": True,
             "isPaused": False,
@@ -356,10 +390,10 @@ def sync_webhook():
             "streamUrl": entry["streamUrl"],
             "isLive": event.get("isLive", False),
         }
-    elif ev == "pause":
+    elif entry_event == "pause":
         _player_state["isPaused"] = True
         _player_state["isPlaying"] = False
-    elif ev in ("stop", "finish"):
+    elif entry_event in ("stop", "finish"):
         _player_state = {**_player_state, "isPlaying": False, "isPaused": False}
 
     _broadcast_player_state()
@@ -438,6 +472,44 @@ def webhook_test():
 def webhook_log():
     log = _load_json(WEBHOOK_LOG_FILE, [])
     return jsonify(log[:20])
+
+
+# ── Episeerr proxy endpoints ───────────────────────────────────────────────────
+
+def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None):
+    """Helper: forward a request to the configured Episeerr instance."""
+    base = _get_episeerr_url()
+    if not base:
+        return jsonify({"error": "Episeerr URL not configured"}), 503
+    try:
+        url = f"{base}{path}"
+        if method == "GET":
+            r = requests.get(url, timeout=10)
+        else:
+            r = requests.post(url, json=body, timeout=10)
+        r.raise_for_status()
+        return jsonify(r.json())
+    except requests.RequestException as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/episeerr/pending", methods=["GET"])
+def episeerr_pending():
+    """Proxy to Episeerr's /api/integration/xadarr/pending endpoint."""
+    return _episeerr_proxy("/api/integration/xadarr/pending")
+
+
+@app.route("/api/episeerr/rules", methods=["GET"])
+def episeerr_rules():
+    """Proxy to Episeerr's /api/rules-list endpoint."""
+    return _episeerr_proxy("/api/rules-list")
+
+
+@app.route("/api/episeerr/assign", methods=["POST"])
+def episeerr_assign():
+    """Proxy rule assignment to Episeerr's /api/assign-pending-rule endpoint."""
+    body = request.get_json(force=True) or {}
+    return _episeerr_proxy("/api/assign-pending-rule", method="POST", body=body)
 
 
 # ── Setup: home servers ───────────────────────────────────────────────────────
