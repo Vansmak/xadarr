@@ -189,7 +189,6 @@ data class SettingsUiState(
     // Arvio sync server URL — arvio-server instance for full settings sync
     val syncServerUrl: String = "",
     val frigateUrl: String = "",
-    val episeerrUrl: String = "",
     val pinnedApps: List<String> = emptyList(),
 )
 
@@ -456,7 +455,6 @@ class SettingsViewModel @Inject constructor(
             val webhookIntervalSeconds = prefs[webhookIntervalKey]?.toIntOrNull() ?: 30
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
-            val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val watchlistPlacement = prefs[watchlistPlacementKey]
                 ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
                 ?: com.arflix.tv.data.model.CatalogPlacement.HOME
@@ -535,7 +533,6 @@ class SettingsViewModel @Inject constructor(
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
                 frigateUrl = frigateUrl,
-                episeerrUrl = episeerrUrl,
                 watchlistPlacement = watchlistPlacement,
                 pinnedApps = pinnedApps,
             )
@@ -1220,12 +1217,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun saveEpiseerrUrl(url: String) {
-        viewModelScope.launch {
-            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.EPISEERR_URL_KEY] = url.trim() }
-            _uiState.value = _uiState.value.copy(episeerrUrl = url.trim())
-        }
-    }
 
     fun setWatchlistApiEnabled(enabled: Boolean) {
         viewModelScope.launch {

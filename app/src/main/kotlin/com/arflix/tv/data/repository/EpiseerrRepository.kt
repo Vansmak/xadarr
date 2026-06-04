@@ -38,28 +38,30 @@ class EpiseerrRepository @Inject constructor(
     private val http get() = OkHttpProvider.client
     private val tag = "EpiseerrRepository"
 
-    suspend fun baseUrl(): String {
+    // All Episeerr calls go through xadarr-server's proxy endpoints.
+    // Only SYNC_SERVER_URL_KEY is needed — no separate Episeerr URL in the app.
+    private suspend fun syncBase(): String {
         val prefs = context.settingsDataStore.data.first()
-        return prefs[EPISEERR_URL_KEY]?.trimEnd('/').orEmpty()
+        return prefs[SYNC_SERVER_URL_KEY]?.trimEnd('/').orEmpty()
     }
 
-    suspend fun isConfigured(): Boolean = baseUrl().isNotBlank()
+    suspend fun isConfigured(): Boolean = syncBase().isNotBlank()
 
     suspend fun getPendingItems(): List<EpiseerrPendingItem> = withContext(Dispatchers.IO) {
-        val base = baseUrl().ifBlank { return@withContext emptyList() }
+        val base = syncBase().ifBlank { return@withContext emptyList() }
         try {
-            val req = Request.Builder().url("$base/api/integration/xadarr/pending").get().build()
+            val req = Request.Builder().url("$base/api/episeerr/pending").get().build()
             val body = http.newCall(req).execute().use { it.body?.string() ?: "[]" }
             val arr = JSONArray(body)
             (0 until arr.length()).map { i ->
                 val obj = arr.getJSONObject(i)
                 EpiseerrPendingItem(
-                    id = obj.optString("id"),
+                    id       = obj.optString("id"),
                     seriesId = obj.optInt("seriesId").takeIf { it != 0 },
-                    title = obj.optString("title"),
-                    tmdbId = obj.optString("tmdbId").ifBlank { null },
-                    tvdbId = obj.optString("tvdbId").ifBlank { null },
-                    poster = obj.optString("poster").ifBlank { null },
+                    title    = obj.optString("title"),
+                    tmdbId   = obj.optString("tmdbId").ifBlank { null },
+                    tvdbId   = obj.optString("tvdbId").ifBlank { null },
+                    poster   = obj.optString("poster").ifBlank { null },
                 )
             }
         } catch (e: Exception) {
@@ -69,16 +71,16 @@ class EpiseerrRepository @Inject constructor(
     }
 
     suspend fun getRules(): List<EpiseerrRule> = withContext(Dispatchers.IO) {
-        val base = baseUrl().ifBlank { return@withContext emptyList() }
+        val base = syncBase().ifBlank { return@withContext emptyList() }
         try {
-            val req = Request.Builder().url("$base/api/rules-list").get().build()
+            val req = Request.Builder().url("$base/api/episeerr/rules").get().build()
             val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
             val obj = JSONObject(body)
             val arr = obj.optJSONArray("rules") ?: return@withContext emptyList()
             (0 until arr.length()).map { i ->
                 val r = arr.getJSONObject(i)
                 EpiseerrRule(
-                    name = r.optString("name"),
+                    name        = r.optString("name"),
                     displayName = r.optString("display_name").ifBlank { r.optString("name") },
                     seriesCount = r.optInt("series_count", 0),
                 )
@@ -90,7 +92,7 @@ class EpiseerrRepository @Inject constructor(
     }
 
     suspend fun assignRule(tmdbId: String, ruleName: String): Boolean = withContext(Dispatchers.IO) {
-        val base = baseUrl().ifBlank { return@withContext false }
+        val base = syncBase().ifBlank { return@withContext false }
         try {
             val payload = JSONObject().apply {
                 put("tmdb_id", tmdbId)
@@ -98,7 +100,7 @@ class EpiseerrRepository @Inject constructor(
             }.toString()
             val body = payload.toRequestBody("application/json".toMediaType())
             val req = Request.Builder()
-                .url("$base/api/assign-pending-rule")
+                .url("$base/api/episeerr/assign")
                 .post(body)
                 .build()
             val resp = http.newCall(req).execute()
@@ -110,27 +112,25 @@ class EpiseerrRepository @Inject constructor(
         }
     }
 
-    /** Returns recent history entries with source=episeerr, for toast notifications. */
+    /** Returns recent episeerr activity events from xadarr-server history for toast notifications. */
     suspend fun getRecentEpiseerrEvents(sinceTimestamp: String?): List<JSONObject> = withContext(Dispatchers.IO) {
-        val prefs = context.settingsDataStore.data.first()
-        val syncUrl = prefs[SYNC_SERVER_URL_KEY]?.trimEnd('/').orEmpty()
-        if (syncUrl.isBlank()) return@withContext emptyList()
+        val base = syncBase().ifBlank { return@withContext emptyList() }
         try {
             val req = Request.Builder()
-                .url("$syncUrl/api/media/history?limit=20")
+                .url("$base/api/media/history?limit=20")
                 .get().build()
             val body = http.newCall(req).execute().use { it.body?.string() ?: "[]" }
             val arr = JSONArray(body)
-            val episeerrEvents = mutableListOf<JSONObject>()
+            val result = mutableListOf<JSONObject>()
             for (i in 0 until arr.length()) {
                 val entry = arr.getJSONObject(i)
                 if (entry.optString("source") == "episeerr") {
                     if (sinceTimestamp == null || entry.optString("timestamp") > sinceTimestamp) {
-                        episeerrEvents.add(entry)
+                        result.add(entry)
                     }
                 }
             }
-            episeerrEvents
+            result
         } catch (e: Exception) {
             Log.d(tag, "getRecentEpiseerrEvents failed: ${e.message}")
             emptyList()
