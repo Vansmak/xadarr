@@ -725,7 +725,6 @@ fun LiveTvScreen(
                                             when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
                                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                                 SidebarItem.HOME -> onNavigateToHome()
-                                                SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                                 SidebarItem.DISCOVER -> onNavigateToDiscover()
                                                 SidebarItem.TV -> Unit
                                                 SidebarItem.CAMERAS -> onNavigateToCameras()

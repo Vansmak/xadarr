@@ -841,7 +841,6 @@ fun TvScreen(
                                 when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> onNavigateToHome()
-                                    SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                     SidebarItem.DISCOVER -> onNavigateToDiscover()
                                     SidebarItem.TV -> Unit
                                     SidebarItem.CAMERAS -> onNavigateToCameras()

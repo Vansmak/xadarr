@@ -169,7 +169,7 @@ fun WatchlistScreen(
         if (!uiState.isLoading && uiState.items.isEmpty()) {
             // Empty screen must always have a deterministic focus target.
             isSidebarFocused = true
-            sidebarFocusIndex = if (hasProfile) 3 else SidebarItem.WATCHLIST.ordinal
+            sidebarFocusIndex = if (hasProfile) 3 else SidebarItem.DISCOVER.ordinal
         } else if (!uiState.isLoading && uiState.items.isNotEmpty() && !isSidebarFocused) {
             // Ensure first card can receive focus when content becomes available.
             delay(80)
@@ -267,8 +267,7 @@ fun WatchlistScreen(
                                     when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
-                                        SidebarItem.WATCHLIST -> { }
-                                        SidebarItem.DISCOVER -> onNavigateToDiscover()
+                                        SidebarItem.DISCOVER -> { }
                                         SidebarItem.TV -> onNavigateToTv()
                                         SidebarItem.CAMERAS -> onNavigateToCameras()
                                         SidebarItem.SETTINGS -> onNavigateToSettings()
@@ -285,7 +284,7 @@ fun WatchlistScreen(
     ) {
         if (!LocalDeviceType.current.isTouchDevice()) {
             AppTopBar(
-                selectedItem = SidebarItem.WATCHLIST,
+                selectedItem = SidebarItem.DISCOVER,
                 isFocused = isSidebarFocused,
                 focusedIndex = sidebarFocusIndex,
                 profile = currentProfile

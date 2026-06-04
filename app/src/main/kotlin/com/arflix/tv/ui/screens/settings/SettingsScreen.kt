@@ -781,7 +781,6 @@ fun SettingsScreen(
                                             SidebarItem.SEARCH -> onNavigateToSearch()
                                             SidebarItem.HOME -> onNavigateToHome()
                                             SidebarItem.TV -> onNavigateToTv()
-                                            SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                             SidebarItem.DISCOVER -> onNavigateToDiscover()
                                             SidebarItem.CAMERAS -> onNavigateToCameras()
                                             SidebarItem.SETTINGS -> { /* Already here */ }

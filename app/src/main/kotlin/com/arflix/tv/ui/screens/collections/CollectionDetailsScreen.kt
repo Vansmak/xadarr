@@ -380,7 +380,7 @@ fun CollectionDetailsScreen(
     onNavigateToDetails: (MediaType, Int) -> Unit,
     onNavigateToHome: () -> Unit,
     onNavigateToSearch: () -> Unit,
-    onNavigateToWatchlist: () -> Unit,
+    onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onSwitchProfile: () -> Unit = {},

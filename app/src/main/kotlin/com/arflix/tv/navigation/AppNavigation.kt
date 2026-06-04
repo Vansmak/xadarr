@@ -189,9 +189,6 @@ fun AppNavigation(
                 onNavigateToSearch = {
                     navigateTopLevel(Screen.Search.route)
                 },
-                onNavigateToWatchlist = {
-                    navigateTopLevel(Screen.Watchlist.route)
-                },
                 onNavigateToDiscover = {
                     navigateTopLevel(Screen.Discover.route)
                 },
@@ -239,7 +236,6 @@ fun AppNavigation(
                     navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
                 },
                 onNavigateToHome = { navigateHome() },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
@@ -254,27 +250,9 @@ fun AppNavigation(
             )
         }
 
-        // Watchlist screen
+        // Watchlist route redirects to Discover (watchlist is now a catalogue row, not a tab)
         composable(Screen.Watchlist.route) {
-            WatchlistScreen(
-                currentProfile = currentProfile,
-                onNavigateToDetails = { mediaType, mediaId ->
-                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
-                },
-                onNavigateToHome = { navigateHome() },
-                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
-                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
-                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
+            LaunchedEffect(Unit) { navigateTopLevel(Screen.Discover.route) }
         }
 
         // Discover screen
@@ -286,7 +264,6 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
@@ -318,7 +295,6 @@ fun AppNavigation(
                 onFullscreenChanged = onTvFullscreenChanged,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
@@ -349,7 +325,6 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onSwitchProfile = {
@@ -392,7 +367,6 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onBack = { navController.popBackStack() }
@@ -460,9 +434,6 @@ fun AppNavigation(
                 },
                 onNavigateToTv = {
                     navigateTopLevel(Screen.Tv.createRoute())
-                },
-                onNavigateToWatchlist = {
-                    navigateTopLevel(Screen.Watchlist.route)
                 },
                 onNavigateToDiscover = {
                     navigateTopLevel(Screen.Discover.route)
@@ -572,7 +543,6 @@ fun AppNavigation(
                 currentProfile = currentProfile,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },

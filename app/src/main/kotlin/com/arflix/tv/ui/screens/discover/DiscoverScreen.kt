@@ -63,7 +63,6 @@ fun DiscoverScreen(
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
-    onNavigateToWatchlist: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -123,7 +122,6 @@ fun DiscoverScreen(
                             when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
                                 SidebarItem.HOME -> onNavigateToHome()
                                 SidebarItem.SEARCH -> onNavigateToSearch()
-                                SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                 SidebarItem.DISCOVER -> Unit
                                 SidebarItem.TV -> onNavigateToTv()
                                 SidebarItem.CAMERAS -> onNavigateToCameras()

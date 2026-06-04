@@ -2474,7 +2474,6 @@ private fun HomeInputLayer(
                                 when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile, frigateConfigured)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> Unit
-                                    SidebarItem.WATCHLIST -> onNavigateToWatchlist()
                                     SidebarItem.DISCOVER -> onNavigateToDiscover()
                                     SidebarItem.TV -> onNavigateToTv(null, null)
                                     SidebarItem.CAMERAS -> onNavigateToCameras()
