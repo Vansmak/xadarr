@@ -74,12 +74,108 @@ val LocalArvioColors = staticCompositionLocalOf { ArvioColors() }
 val LocalOledBlackBackground = staticCompositionLocalOf { false }
 
 @Composable
-fun appBackgroundDark(): Color {
-    return if (LocalOledBlackBackground.current) Color.Black else BackgroundDark
-}
+fun appBackgroundDark(): Color = LocalArvioColors.current.backgroundDark
+
+@Composable
+fun appCardBackground(): Color = LocalArvioColors.current.backgroundCard
+
+@Composable
+fun appElevatedBackground(): Color = LocalArvioColors.current.backgroundElevated
+
+@Composable
+fun appTextPrimary(): Color = LocalArvioColors.current.textPrimary
+
+@Composable
+fun appTextSecondary(): Color = LocalArvioColors.current.textSecondary
 
 // Keep legacy aliases for compatibility
 val LocalArflixColors = LocalArvioColors
+
+private data class ThemePalette(
+    val background: Color,
+    val card: Color,
+    val elevated: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textTertiary: Color,
+    val accent: Color,
+    val borderLight: Color,
+)
+
+private fun paletteForTheme(name: String, oledBlack: Boolean): ThemePalette = when (name) {
+    "Owl" -> ThemePalette(
+        background = if (oledBlack) Color.Black else Color(0xFF1A1206),
+        card = Color(0xFF221809),
+        elevated = Color(0xFF2D2010),
+        textPrimary = Color(0xFFF5ECD8),
+        textSecondary = Color(0xFFF5ECD8).copy(alpha = 0.7f),
+        textTertiary = Color(0xFFF5ECD8).copy(alpha = 0.5f),
+        accent = Color(0xFFF0A500),
+        borderLight = Color(0xFFF0A500).copy(alpha = 0.18f),
+    )
+    "Black & Gold" -> ThemePalette(
+        background = Color.Black,
+        card = Color(0xFF0A0A0A),
+        elevated = Color(0xFF141414),
+        textPrimary = Color(0xFFF5F5F5),
+        textSecondary = Color(0xFFF5F5F5).copy(alpha = 0.7f),
+        textTertiary = Color(0xFFF5F5F5).copy(alpha = 0.5f),
+        accent = Color(0xFFD4AF37),
+        borderLight = Color(0xFFD4AF37).copy(alpha = 0.20f),
+    )
+    "Neon" -> ThemePalette(
+        background = if (oledBlack) Color.Black else Color(0xFF050505),
+        card = Color(0xFF0A0A10),
+        elevated = Color(0xFF12121A),
+        textPrimary = Color(0xFFE8E8F0),
+        textSecondary = Color(0xFFE8E8F0).copy(alpha = 0.7f),
+        textTertiary = Color(0xFFE8E8F0).copy(alpha = 0.5f),
+        accent = Color(0xFF00FF88),
+        borderLight = Color(0xFF00FF88).copy(alpha = 0.15f),
+    )
+    else -> ThemePalette( // "Midnight" — default
+        background = if (oledBlack) Color.Black else Color(0xFF0D1B2A),
+        card = Color(0xFF151E2B),
+        elevated = Color(0xFF1E2D3E),
+        textPrimary = Color(0xFFE8EEF5),
+        textSecondary = Color(0xFFE8EEF5).copy(alpha = 0.7f),
+        textTertiary = Color(0xFFE8EEF5).copy(alpha = 0.5f),
+        accent = Color(0xFF4A9EFF),
+        borderLight = Color(0xFF4A9EFF).copy(alpha = 0.18f),
+    )
+}
+
+private fun arvioColorsFromPalette(p: ThemePalette): ArvioColors = ArvioColors(
+    arcticWhite = p.textPrimary,
+    arcticWhite90 = p.textPrimary.copy(alpha = 0.9f),
+    arcticWhite70 = p.textSecondary,
+    arcticWhite50 = p.textTertiary,
+    arcticBlack = p.background,
+    arcticGray = p.elevated,
+    cyan = p.accent,
+    cyanDark = p.elevated,
+    cyanGlow = p.accent.copy(alpha = 0.2f),
+    purple = p.accent,
+    purpleDark = p.elevated,
+    purpleGlow = p.accent.copy(alpha = 0.2f),
+    pink = p.accent,
+    pinkDark = p.elevated,
+    pinkGlow = p.accent.copy(alpha = 0.2f),
+    backgroundDark = p.background,
+    backgroundCard = p.card,
+    backgroundElevated = p.elevated,
+    backgroundGlass = p.background.copy(alpha = 0.6f),
+    textPrimary = p.textPrimary,
+    textSecondary = p.textSecondary,
+    textTertiary = p.textTertiary,
+    borderLight = p.borderLight,
+    borderGradient = p.accent.copy(alpha = 0.5f),
+    focusRing = p.accent,
+    focusGlow = p.accent.copy(alpha = 0.2f),
+    particleCyan = p.accent.copy(alpha = 0.3f),
+    particlePurple = p.accent.copy(alpha = 0.12f),
+    particlePink = p.accent.copy(alpha = 0.3f),
+)
 
 /**
  * Main ARVIO TV theme - Arctic Fuse 2 inspired
@@ -90,35 +186,36 @@ val LocalArflixColors = LocalArvioColors
 fun ArvioTvTheme(
     oledBlackBackground: Boolean = false,
     focusBorderColorName: String? = null,
+    themeName: String = "Midnight",
     content: @Composable () -> Unit
 ) {
-    val backgroundDark = if (oledBlackBackground) Color.Black else BackgroundDark
-    val focusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) }
+    val palette = paletteForTheme(themeName, oledBlackBackground)
+    val focusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) } ?: palette.accent
     val colorScheme = darkColorScheme(
-        primary = ArcticWhite,
-        onPrimary = ArcticBlack,
-        primaryContainer = ArcticGray,
-        onPrimaryContainer = ArcticWhite,
-        secondary = ArcticWhite70,
-        onSecondary = ArcticBlack,
-        secondaryContainer = ArcticGray,
-        onSecondaryContainer = ArcticWhite,
-        tertiary = AccentWhite,
-        onTertiary = ArcticBlack,
-        tertiaryContainer = ArcticGray,
-        onTertiaryContainer = ArcticWhite,
-        background = backgroundDark,
-        onBackground = TextPrimary,
-        surface = BackgroundCard,
-        onSurface = TextPrimary,
-        surfaceVariant = SurfaceVariant,
-        onSurfaceVariant = TextSecondary,
+        primary = palette.accent,
+        onPrimary = palette.background,
+        primaryContainer = palette.elevated,
+        onPrimaryContainer = palette.textPrimary,
+        secondary = palette.textSecondary,
+        onSecondary = palette.background,
+        secondaryContainer = palette.elevated,
+        onSecondaryContainer = palette.textPrimary,
+        tertiary = palette.accent.copy(alpha = 0.7f),
+        onTertiary = palette.background,
+        tertiaryContainer = palette.elevated,
+        onTertiaryContainer = palette.textPrimary,
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.card,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.elevated,
+        onSurfaceVariant = palette.textSecondary,
         error = ErrorRed,
-        onError = ArcticWhite,
-        border = BorderLight
+        onError = palette.textPrimary,
+        border = palette.borderLight
     )
 
-    val arvioColors = ArvioColors(backgroundDark = backgroundDark)
+    val arvioColors = arvioColorsFromPalette(palette)
 
     CompositionLocalProvider(
         LocalArvioColors provides arvioColors,
@@ -140,10 +237,12 @@ fun ArvioTvTheme(
 fun ArflixTvTheme(
     oledBlackBackground: Boolean = false,
     focusBorderColorName: String? = null,
+    themeName: String = "Midnight",
     content: @Composable () -> Unit
 ) = ArvioTvTheme(
     oledBlackBackground = oledBlackBackground,
     focusBorderColorName = focusBorderColorName,
+    themeName = themeName,
     content = content
 )
 

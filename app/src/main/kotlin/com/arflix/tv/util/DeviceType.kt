@@ -44,6 +44,9 @@ val OLED_BLACK_BACKGROUND_KEY = booleanPreferencesKey("oled_black_background")
 /** Key for the user-selected focus border colour (e.g. "White", "Red", "Blue") */
 val FOCUS_BORDER_COLOR_KEY = stringPreferencesKey("focus_border_color")
 
+/** Key for the user-selected color theme (e.g. "Midnight", "Owl", "Black & Gold", "Neon") */
+val THEME_KEY = stringPreferencesKey("selected_theme")
+
 /**
  * Fast-path cache for the device-mode override. Read before onCreate() during
  * cold start, where the DataStore IO would otherwise block the main thread for

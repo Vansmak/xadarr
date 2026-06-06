@@ -137,6 +137,15 @@ fun AppNavigation(
         }
     }
 
+    // Dismiss mini-player first if active; otherwise allow normal back navigation.
+    val goBack: () -> Unit = {
+        if (liveTvPlayerViewModel.state.value.isActive) {
+            liveTvPlayerViewModel.dismiss()
+        } else {
+            navController.popBackStack()
+        }
+    }
+
     val navigateHome: () -> Unit = {
         // Navigate to Home clearing the entire back stack above it.
         // Uses navigate() instead of popBackStack() because popBackStack can
@@ -246,13 +255,22 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onNavigateToCollection = { catalogId ->
+                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
+                },
+                onBack = goBack
             )
         }
 
         // Watchlist route redirects to Discover (watchlist is now a catalogue row, not a tab)
         composable(Screen.Watchlist.route) {
-            LaunchedEffect(Unit) { navigateTopLevel(Screen.Discover.route) }
+            LaunchedEffect(Unit) {
+                navController.navigate(Screen.Discover.route) {
+                    popUpTo(Screen.Home.route) { saveState = false }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            }
         }
 
         // Discover screen
@@ -261,6 +279,9 @@ fun AppNavigation(
                 currentProfile = currentProfile,
                 onNavigateToDetails = { mediaType, mediaId ->
                     navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
+                },
+                onNavigateToCollection = { catalogId ->
+                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
@@ -273,7 +294,7 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = goBack
             )
         }
 
@@ -304,7 +325,7 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = goBack
             )
         }
 
@@ -333,7 +354,7 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = goBack
             )
         }
 
@@ -369,7 +390,7 @@ fun AppNavigation(
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onBack = { navController.popBackStack() }
+                onBack = goBack
             )
         }
 
@@ -450,7 +471,7 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = goBack
             )
         }
         
@@ -517,7 +538,7 @@ fun AppNavigation(
                 preferredSourceName = preferredSourceName,
                 preferredBingeGroup = preferredBingeGroup,
                 startPositionMs = startPositionMs,
-                onBack = { navController.popBackStack() },
+                onBack = goBack,
                 onPlayNext = { nextSeason, nextEpisode, nextPreferredAddonId, nextPreferredSourceName, nextPreferredBingeGroup ->
                     // Navigate to next episode
                     navController.navigate(
@@ -552,7 +573,7 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() },
+                onBack = goBack,
             )
         }
 
@@ -569,7 +590,7 @@ fun AppNavigation(
             CameraPlayerScreen(
                 streamUrl = streamUrl,
                 cameraName = cameraName,
-                onBack = { navController.popBackStack() },
+                onBack = goBack,
             )
         }
     }

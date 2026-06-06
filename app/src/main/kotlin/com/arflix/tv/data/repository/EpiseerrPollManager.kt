@@ -36,14 +36,16 @@ class EpiseerrPollManager @Inject constructor(
     private val _pendingTmdbIds = MutableStateFlow<Set<String>>(emptySet())
     val pendingTmdbIds: StateFlow<Set<String>> = _pendingTmdbIds.asStateFlow()
 
-    private val _toastEvents = MutableSharedFlow<EpiseerrToast>(extraBufferCapacity = 8)
+    private val _toastEvents = MutableSharedFlow<EpiseerrToast>(replay = 0, extraBufferCapacity = 1)
     val toastEvents: SharedFlow<EpiseerrToast> = _toastEvents.asSharedFlow()
 
     private var lastSeenTimestamp: String? = null
     private var pollJob: Job? = null
+    private var sessionStartedAtMs = 0L
 
     fun startPolling() {
         if (pollJob?.isActive == true) return
+        sessionStartedAtMs = System.currentTimeMillis()
         pollJob = scope.launch {
             while (true) {
                 refresh()
@@ -69,16 +71,19 @@ class EpiseerrPollManager @Inject constructor(
             val events = episeerrRepository.getRecentEpiseerrEvents(lastSeenTimestamp)
             if (events.isNotEmpty()) {
                 lastSeenTimestamp = events.first().optString("timestamp").ifBlank { null }
-                for (evt in events) {
-                    _toastEvents.tryEmit(
-                        EpiseerrToast(
-                            event = evt.optString("event"),
-                            title = evt.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: "Unknown",
-                            rule = evt.optString("rule").takeIf { it.isNotBlank() && it != "null" },
-                            season = evt.optInt("season").takeIf { it != 0 },
-                            episode = evt.optInt("episode").takeIf { it != 0 },
+                val sessionWarm = System.currentTimeMillis() - sessionStartedAtMs > 5_000L
+                if (sessionWarm) {
+                    for (evt in events) {
+                        _toastEvents.tryEmit(
+                            EpiseerrToast(
+                                event = evt.optString("event"),
+                                title = evt.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: "Unknown",
+                                rule = evt.optString("rule").takeIf { it.isNotBlank() && it != "null" },
+                                season = evt.optInt("season").takeIf { it != 0 },
+                                episode = evt.optInt("episode").takeIf { it != 0 },
+                            )
                         )
-                    )
+                    }
                 }
             }
         } catch (e: Exception) {

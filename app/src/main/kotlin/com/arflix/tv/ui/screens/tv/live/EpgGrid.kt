@@ -233,6 +233,7 @@ fun EpgGrid(
         val idx = channels.indexOfFirst { it.id == id }
         if (idx < 0) return@LaunchedEffect
         activeChannelFocusId = id
+        pendingChannelFocusId = id
         channelListState.scrollToItem(idx)
         delay(32L)
         runCatching { selectedChannelFocusRequester.requestFocus() }
@@ -491,7 +492,12 @@ fun EpgGrid(
                                         }
                                     },
                                     onMoveVertically = { targetRowIdx, anchorStartMin ->
-                                        requestNearestProgramFocus(targetRowIdx, anchorStartMin)
+                                        if (!requestNearestProgramFocus(targetRowIdx, anchorStartMin)) {
+                                            val clampedIdx = targetRowIdx.coerceIn(0, channels.lastIndex)
+                                            keepChannelFocus(clampedIdx)
+                                            onExitEpg(channels.getOrNull(clampedIdx))
+                                        }
+                                        true
                                     },
                                     onMoveLeftFromStart = {
                                         onExitEpg(ch)

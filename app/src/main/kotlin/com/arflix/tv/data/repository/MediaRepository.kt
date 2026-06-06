@@ -107,6 +107,11 @@ class MediaRepository @Inject constructor(
     @Volatile private var homeCategoriesFetchedAt = 0L
     private val HOME_CATEGORIES_CACHE_MS = 120_000L // 2 minutes
 
+    fun clearHomeCache() {
+        cachedHomeCategories = emptyList()
+        homeCategoriesFetchedAt = 0L
+    }
+
     private val detailsCache = mutableMapOf<String, CacheEntry<MediaItem>>()
     private val fullDetailsCacheKeys = mutableSetOf<String>()
     private val castCache = mutableMapOf<String, CacheEntry<List<CastMember>>>()

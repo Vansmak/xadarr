@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1] - 2026-06-05
+
+### Added
+- **Catalog placement system** — each catalog row can be independently assigned to Home, Discover, or Search tab via a chip in Settings → Catalogs. Rows only appear on their assigned screen.
+- **Discover tab** — new navigation destination that shows any catalog rows assigned to Discover placement, plus Continue Watching and Watchlist if routed there.
+- **Services picker** — COLLECTION_RAIL rows (Streaming Services, Genres, etc.) now have a manage button that opens a picker to show/hide individual service tiles (Netflix, Prime, Shudder, etc.).
+- **Continue Watching controls** — visibility toggle (eye chip) and Up/Down position arrows in Settings → Catalogs; position persists across sessions.
+- **Watchlist controls** — visibility toggle and placement chip in Settings → Catalogs; Watchlist can be moved to Home, Discover, or Search.
+- **Labeled placement chips** — placement chips in Settings → Catalogs show text ("Home" / "Discover" / "Search") alongside the icon for readability.
+- **Long-press D-pad Up** — holding Up from anywhere (content rows, search results, settings content, cameras grid) jumps directly to the top navigation bar in one gesture.
+- **Clear image cache** — new action in Settings → Accounts wipes Coil disk and memory cache and forces a fresh home data reload. Useful when artwork or catalog data appears stale.
+- **Show series status** — toggle in Settings → Interface displays "Returning Series", "Ended", or "Canceled" on the home hero banner for TV shows.
+- **Search: collection tile navigation** — pressing D-pad OK on a streaming service or genre tile in the Search browse section now navigates to that collection correctly (was always calling onNavigateToDetails regardless of tile type).
+
+### Changed
+- Home screen filters out catalogs assigned to Discover or Search placement.
+- Discover and Search screens each filter to only show their assigned catalogs (no cross-contamination).
+- Search quick filter chips: removed Japanese, Korean, and Hindi language options.
+
+### Fixed
+- Services picker eye icon now visually reflects toggle state immediately after changing a service's visibility.
+- Settings catalog observer now updates `allCatalogsForPicker` when COLLECTION items change, not just when the visible catalog list changes.
+
+### Removed
+- **Settings → Playback**: Quality Regex Filters row removed (device-specific stream exclusion patterns).
+- **Settings → Accounts**: Privacy and data deletion row replaced with Clear image cache.
+- **Settings → Interface**: Show Budget on Home replaced with Show Series Status.
+
 ## [1.4] - 2026-06-02
 
 ### Fixed

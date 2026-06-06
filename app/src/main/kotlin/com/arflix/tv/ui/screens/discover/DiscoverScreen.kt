@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.delay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.components.AppTopBar
@@ -53,6 +55,7 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
+import com.arflix.tv.ui.theme.ArvioTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalFrigateConfigured
@@ -65,6 +68,7 @@ fun DiscoverScreen(
     viewModel: DiscoverViewModel = hiltViewModel(),
     currentProfile: Profile? = null,
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
+    onNavigateToCollection: (String) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
@@ -87,6 +91,7 @@ fun DiscoverScreen(
     val contentFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
     var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
+    val lazyColumnState = rememberLazyListState()
 
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
 
@@ -103,7 +108,7 @@ fun DiscoverScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF060609))
+            .background(ArvioTheme.colors.backgroundDark)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -111,9 +116,12 @@ fun DiscoverScreen(
                 when (event.key) {
                     Key.Back, Key.Escape -> { onBack(); true }
                     Key.DirectionUp -> {
-                        if (focusZone == DiscoverFocusZone.ROWS && focusedRowIndex == 0) {
+                        if (focusZone == DiscoverFocusZone.ROWS &&
+                            (focusedRowIndex == 0 || event.nativeKeyEvent.repeatCount >= 1)
+                        ) {
                             focusZone = DiscoverFocusZone.TOPBAR
                             topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured)
+                            runCatching { rootFocusRequester.requestFocus() }
                             true
                         } else false
                     }
@@ -176,15 +184,17 @@ fun DiscoverScreen(
                 val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
 
                 LazyColumn(
+                    state = lazyColumnState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = AppTopBarContentTopInset)
                         .focusRequester(contentFocusRequester)
                         .focusGroup(),
-                    contentPadding = PaddingValues(bottom = 32.dp),
+                    contentPadding = PaddingValues(bottom = 200.dp),
                 ) {
                     itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
                         val isWatchlistRow = category.id == "my_watchlist"
+                        val isCollectionRow = category.id.startsWith("collection_row_")
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -204,14 +214,30 @@ fun DiscoverScreen(
                                 items(category.items, key = { it.id }) { item ->
                                     val itemIsPending = isWatchlistRow &&
                                         episeerrPendingIds.contains(item.id.toString())
+                                    val isCollectionTile = isCollectionRow &&
+                                        item.status?.startsWith("collection:") == true
+                                    val collectionIsLandscape = item.collectionTileShape != CollectionTileShape.POSTER
+                                    val cardIsLandscape = if (isCollectionRow) collectionIsLandscape else true
+                                    val cardWidth = when {
+                                        isCollectionRow && !collectionIsLandscape -> 119.dp
+                                        isCollectionRow -> 210.dp
+                                        else -> 200.dp
+                                    }
                                     MediaCard(
                                         item = item,
-                                        width = 200.dp,
-                                        isLandscape = true,
+                                        width = cardWidth,
+                                        isLandscape = cardIsLandscape,
                                         isPending = itemIsPending,
+                                        showTitle = if (isCollectionRow) !item.collectionHideTitle else true,
                                         onClick = {
-                                            if (itemIsPending) rulePickerItem = item
-                                            else onNavigateToDetails(item.mediaType, item.id)
+                                            when {
+                                                itemIsPending -> rulePickerItem = item
+                                                isCollectionTile -> {
+                                                    val catalogId = item.status!!.removePrefix("collection:")
+                                                    onNavigateToCollection(catalogId)
+                                                }
+                                                else -> onNavigateToDetails(item.mediaType, item.id)
+                                            }
                                         },
                                         modifier = Modifier.padding(end = 12.dp),
                                     )
@@ -238,6 +264,7 @@ fun DiscoverScreen(
             val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
                 androidx.hilt.navigation.compose.hiltViewModel()
             val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val episeerrUrl by rulePickerVm.episeerrUrl.collectAsState()
             val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
                 id       = mediaItem.id.toString(),
                 seriesId = null,
@@ -250,6 +277,7 @@ fun DiscoverScreen(
                 pendingItem        = pendingItem,
                 episeerrRepository = rulePickerVm.episeerrRepository,
                 syncServerUrl      = syncServerUrl,
+                episeerrUrl        = episeerrUrl,
                 onDismiss          = { rulePickerItem = null },
                 onRuleAssigned     = { rulePickerItem = null },
             )

@@ -93,6 +93,7 @@ import com.arflix.tv.ui.components.topBarSelectedIndex
 import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
+import com.arflix.tv.ui.theme.ArvioTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -256,7 +257,7 @@ fun CamerasScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF060609))
+            .background(ArvioTheme.colors.backgroundDark)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -268,8 +269,8 @@ fun CamerasScreen(
                     }
                     Key.DirectionUp -> when {
                         focusZone == FocusZone.PLAYER -> false
-                        focusZone == FocusZone.GRID && focusedCameraIndex < colCount -> {
-                            // First row → go to TopBar
+                        focusZone == FocusZone.GRID &&
+                            (focusedCameraIndex < colCount || event.nativeKeyEvent.repeatCount >= 1) -> {
                             focusZone = FocusZone.TOPBAR
                             topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured)
                             true

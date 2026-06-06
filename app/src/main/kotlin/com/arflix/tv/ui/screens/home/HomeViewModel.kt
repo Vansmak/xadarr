@@ -142,6 +142,7 @@ class HomeViewModel @Inject constructor(
     private val updatePreferences: com.arflix.tv.updater.UpdatePreferences,
     private val updateStatusManager: com.arflix.tv.updater.UpdateStatusManager,
     private val youTubeExtractor: com.arflix.tv.data.api.InAppYouTubeExtractor,
+    private val cwHolder: com.arflix.tv.data.repository.ContinueWatchingHolder,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
@@ -895,6 +896,11 @@ class HomeViewModel @Inject constructor(
     // Track if preloaded data was used to avoid duplicate loading
     private var usedPreloadedData = false
 
+    // Cached CW placement/hidden so non-suspend callers (setPreloadedData) can gate CW injection
+    private var cachedCwPlacement: com.arflix.tv.data.model.CatalogPlacement =
+        com.arflix.tv.data.model.CatalogPlacement.HOME
+    private var cachedCwHidden: Boolean = false
+
     private val maxLogoCacheEntries = if (isLowRamDevice) 220 else 420
     private val maxLogoCacheJsonChars = if (isLowRamDevice) 250_000 else 500_000
     private val maxCategoriesCacheBytes = if (isLowRamDevice) 500_000L else 1_000_000L
@@ -1226,12 +1232,15 @@ class HomeViewModel @Inject constructor(
                 val watchlistPlacement = prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY]
                     ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
                     ?: CatalogPlacement.HOME
+                val sortOrder = prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+                val isWatchlistHidden = prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false
                 val updated = current.toMutableList()
                 updated.removeAll { it.id == WATCHLIST_CATEGORY_ID }
-                if (items.isNotEmpty() && watchlistPlacement == CatalogPlacement.HOME) {
+                if (items.isNotEmpty() && !isWatchlistHidden && watchlistPlacement == CatalogPlacement.HOME) {
                     val cat = Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = items)
                     val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
-                    val insertIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                    val insertIdx = (baseIdx + sortOrder).coerceIn(0, updated.size)
                     updated.add(insertIdx, cat)
                 }
                 if (updated != current) {
@@ -1239,6 +1248,52 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+        // Re-inject/remove watchlist row when placement or sort order changes.
+        viewModelScope.launch {
+            context.settingsDataStore.data.drop(1).collect { prefs ->
+                val newPlacement = prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY]
+                    ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                    ?: CatalogPlacement.HOME
+                val sortOrder = prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+                val isWatchlistHidden = prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false
+                val items = watchlistRepository.watchlistItems.value
+                val current = _uiState.value.categories
+                if (current.isEmpty()) return@collect
+                val updated = current.toMutableList()
+                updated.removeAll { it.id == WATCHLIST_CATEGORY_ID }
+                if (items.isNotEmpty() && !isWatchlistHidden && newPlacement == CatalogPlacement.HOME) {
+                    val cat = Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = items)
+                    val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
+                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                    val insertIdx = (baseIdx + sortOrder).coerceIn(0, updated.size)
+                    updated.add(insertIdx, cat)
+                }
+                _uiState.value = _uiState.value.copy(categories = updated)
+            }
+        }
+        // React to CW placement/hidden changes: remove or restore CW row on Home.
+        viewModelScope.launch {
+            context.settingsDataStore.data
+                .map { Pair(it[com.arflix.tv.data.repository.CW_PLACEMENT_KEY], it[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false) }
+                .distinctUntilChanged()
+                .collect { (str, cwHidden) ->
+                    cachedCwPlacement = str
+                        ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
+                        ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+                    cachedCwHidden = cwHidden
+                    val current = _uiState.value.categories.toMutableList()
+                    val hasCW = current.any { it.id == "continue_watching" }
+                    val cwCat = cwHolder.cwCategory.value
+                    if (!cwHidden && cachedCwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                        if (!hasCW && cwCat != null) current.add(0, cwCat)
+                    } else {
+                        if (hasCW) current.removeAll { it.id == "continue_watching" }
+                    }
+                    if (current != _uiState.value.categories)
+                        _uiState.value = _uiState.value.copy(categories = current)
+                }
+        }
+
         // Pre-load watchlist items: sync from server first (server is source of truth),
         // then enrich with TMDB data so posters appear.
         viewModelScope.launch(Dispatchers.IO) {
@@ -1451,9 +1506,19 @@ class HomeViewModel @Inject constructor(
 
                         lastContinueWatchingItems = cwCategory.items
                         lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
+                        cwHolder.update(cwCategory)
+                        val cwPrefs = context.settingsDataStore.data.first()
+                        val cwPlacementPreload = cwPrefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY]
+                            ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
+                            ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+                        val cwHiddenPreload = cwPrefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false
                         val updated = _uiState.value.categories.toMutableList()
                         val idx = updated.indexOfFirst { it.id == "continue_watching" }
-                        if (idx >= 0) updated[idx] = cwCategory else updated.add(0, cwCategory)
+                        if (!cwHiddenPreload && cwPlacementPreload == com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                            if (idx >= 0) updated[idx] = cwCategory else updated.add(0, cwCategory)
+                        } else {
+                            if (idx >= 0) updated.removeAt(idx)
+                        }
                         _uiState.value = _uiState.value.copy(
                             categories = updated
                         )
@@ -1614,23 +1679,25 @@ class HomeViewModel @Inject constructor(
             it.id == "continue_watching" && it.items.isNotEmpty() &&
                 it.items.none { item -> item.isPlaceholder }
         }
-        if (existingCW != null) {
-            filteredCategories.add(0, existingCW)
-        } else {
-            val placeholderItems = (1..5).map { index ->
-                MediaItem(
-                    id = -index, // Negative IDs for placeholders
-                    title = "",
-                    mediaType = MediaType.MOVIE,
-                    isPlaceholder = true
+        if (!cachedCwHidden && cachedCwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME) {
+            if (existingCW != null) {
+                filteredCategories.add(0, existingCW)
+            } else {
+                val placeholderItems = (1..5).map { index ->
+                    MediaItem(
+                        id = -index, // Negative IDs for placeholders
+                        title = "",
+                        mediaType = MediaType.MOVIE,
+                        isPlaceholder = true
+                    )
+                }
+                val placeholderContinueWatching = Category(
+                    id = "continue_watching",
+                    title = "Continue Watching",
+                    items = placeholderItems
                 )
+                filteredCategories.add(0, placeholderContinueWatching)
             }
-            val placeholderContinueWatching = Category(
-                id = "continue_watching",
-                title = "Continue Watching",
-                items = placeholderItems
-            )
-            filteredCategories.add(0, placeholderContinueWatching)
         }
 
         // Adjust hero item if it was from continue watching
@@ -1804,13 +1871,20 @@ class HomeViewModel @Inject constructor(
         continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
         lastContinueWatchingItems = continueWatchingCategory.items
         lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
+        cwHolder.update(continueWatchingCategory)
+        val prefs = context.settingsDataStore.data.first()
+        val cwPlacement = prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY]
+            ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
+            ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+        val isCwHidden = prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false
         withContext(Dispatchers.Main) {
             val current = _uiState.value.categories.toMutableList()
             val cwIdx = current.indexOfFirst { it.id == "continue_watching" }
-            if (cwIdx >= 0) {
-                current[cwIdx] = continueWatchingCategory
+            if (!isCwHidden && cwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                if (cwIdx >= 0) current[cwIdx] = continueWatchingCategory
+                else current.add(0, continueWatchingCategory)
             } else {
-                current.add(0, continueWatchingCategory)
+                if (cwIdx >= 0) current.removeAt(cwIdx)
             }
             _uiState.value = _uiState.value.copy(categories = current)
         }
@@ -2145,7 +2219,7 @@ class HomeViewModel @Inject constructor(
                     // Split preinstalled into TMDB-based and MDBList-based
                     val tmdbPreinstalled = savedCatalogs
                         .filter {
-                            !it.isHidden && it.placement != CatalogPlacement.DISCOVER &&
+                            !it.isHidden && it.placement != CatalogPlacement.DISCOVER && it.placement != CatalogPlacement.SEARCH &&
                                 it.isPreinstalled &&
                                 it.sourceUrl.isNullOrBlank() &&
                                 !isCollectionRailConfig(it) &&
@@ -2161,7 +2235,7 @@ class HomeViewModel @Inject constructor(
                         }
                     // Load MDBList preinstalled catalogs - first 8 immediately, rest lazily on scroll
                     val mdblistConfigs = savedCatalogs.filter {
-                        !it.isHidden && it.placement != CatalogPlacement.DISCOVER &&
+                        !it.isHidden && it.placement != CatalogPlacement.DISCOVER && it.placement != CatalogPlacement.SEARCH &&
                             it.isPreinstalled &&
                             !it.sourceUrl.isNullOrBlank() &&
                             !isCollectionRailConfig(it) &&
@@ -2228,7 +2302,7 @@ class HomeViewModel @Inject constructor(
                         }
                         .mapNotNull { cfg -> allPreinstalledById[cfg.id] }
                     val customCatalogConfigs = savedCatalogs.filter { cfg ->
-                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && isCustomCatalogConfig(cfg)
+                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && cfg.placement != CatalogPlacement.SEARCH && isCustomCatalogConfig(cfg)
                     }
 
                     // Fetch ALL custom catalogs (Trakt lists, user-added) in parallel
@@ -2321,12 +2395,12 @@ class HomeViewModel @Inject constructor(
                 }
                 val collectionRows = withContext(networkDispatcher) {
                     val collectionConfigs = savedCatalogs.filter { cfg ->
-                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER &&
+                        !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && cfg.placement != CatalogPlacement.SEARCH &&
                             isCollectionTileConfig(cfg) && CollectionTemplateManifest.isValidCollectionConfig(cfg)
                     }
 
                     savedCatalogs.mapNotNull { cfg ->
-                        if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER ||
+                        if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER || cfg.placement == CatalogPlacement.SEARCH ||
                             !isCollectionRailConfig(cfg) || !CollectionTemplateManifest.isValidCollectionConfig(cfg)) {
                             return@mapNotNull null
                         }
@@ -2347,7 +2421,7 @@ class HomeViewModel @Inject constructor(
                 val categoryById = categories.associateBy { it.id }
                 val collectionCategoryById = collectionRows.associateBy { it.id }
                 categories = savedCatalogs.mapNotNull { cfg ->
-                    if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER) return@mapNotNull null
+                    if (cfg.isHidden || cfg.placement == CatalogPlacement.DISCOVER || cfg.placement == CatalogPlacement.SEARCH) return@mapNotNull null
                     when {
                         isCollectionTileConfig(cfg) -> null
                         isCollectionRailConfig(cfg) -> {
@@ -2379,29 +2453,24 @@ class HomeViewModel @Inject constructor(
                 // the 30-60s Trakt API fetch (97+ shows × progress call) was always
                 // getting cancelled before it could finish. Now it runs in its own
                 // independent coroutine that survives loadHomeData restarts.
-                val existingCW = _uiState.value.categories.firstOrNull {
-                    it.id == "continue_watching" && it.items.isNotEmpty() &&
-                        it.items.none { item -> item.isPlaceholder }
-                }
-                if (existingCW != null) {
-                    categories.add(0, existingCW)
-                } else if (cachedContinueWatching.isNotEmpty()) {
-                    // Show the persisted CW cache instantly regardless of
-                    // whether Trakt is connected. For Trakt users, the cache
-                    // holds the last-successful Trakt resolution, so there's
-                    // no reason to gate it behind auth — the slow fresh
-                    // Trakt fetch (launchContinueWatchingFetch below) will
-                    // still overwrite the row when it finishes. Previously
-                    // Trakt users saw the row disappear during loadHomeData
-                    // and only reappear 30-60s later when the fresh fetch
-                    // completed.
-                    val merged = mergeContinueWatchingResumeData(cachedContinueWatching)
-                    val cwCat = Category(
-                        id = "continue_watching",
-                        title = "Continue Watching",
-                        items = merged.map { it.toMediaItem() }
-                    )
-                    categories.add(0, cwCat)
+                // NOTE: cwPlacementInLoad / isCwHiddenInLoad read from prefs below (with watchlist prefs).
+                // We use cachedCwPlacement/cachedCwHidden here since prefs are read after this block.
+                if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                    val existingCW = _uiState.value.categories.firstOrNull {
+                        it.id == "continue_watching" && it.items.isNotEmpty() &&
+                            it.items.none { item -> item.isPlaceholder }
+                    }
+                    if (existingCW != null) {
+                        categories.add(0, existingCW)
+                    } else if (cachedContinueWatching.isNotEmpty()) {
+                        val merged = mergeContinueWatchingResumeData(cachedContinueWatching)
+                        val cwCat = Category(
+                            id = "continue_watching",
+                            title = "Continue Watching",
+                            items = merged.map { it.toMediaItem() }
+                        )
+                        categories.add(0, cwCat)
+                    }
                 }
                 // Re-inject "Continue on <Server>" rows — they're dynamically added
                 // by launchServerResumeFetch() and not part of savedCatalogs, so they
@@ -2420,15 +2489,30 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                // Inject watchlist row right after Continue Watching
-                val cachedWatchlistItems = watchlistRepository.getCachedItems()
-                if (cachedWatchlistItems.isNotEmpty()) {
+                // Inject watchlist row — only when placement is HOME
+                val watchlistPrefs = runCatching { context.settingsDataStore.data.first() }.getOrNull()
+                val watchlistPlacementInLoad = watchlistPrefs
+                    ?.get(com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY)
+                    ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                    ?: CatalogPlacement.HOME
+                val watchlistSortOrder = watchlistPrefs
+                    ?.get(com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY)
+                    ?.toIntOrNull() ?: 0
+                val isWatchlistHiddenInLoad = watchlistPrefs?.get(com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY) ?: false
+                val cwPlacementInLoad = watchlistPrefs
+                    ?.get(com.arflix.tv.data.repository.CW_PLACEMENT_KEY)
+                    ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                    ?: CatalogPlacement.HOME
+                val isCwHiddenInLoad = watchlistPrefs?.get(com.arflix.tv.data.repository.CW_HIDDEN_KEY) ?: false
+                val liveWatchlistItems = watchlistRepository.watchlistItems.value
+                if (liveWatchlistItems.isNotEmpty() && !isWatchlistHiddenInLoad && watchlistPlacementInLoad == CatalogPlacement.HOME) {
                     val cwIdx = categories.indexOfFirst { it.id == "continue_watching" }
-                    val insertIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                    val insertIdx = (baseIdx + watchlistSortOrder).coerceIn(0, categories.size)
                     categories.add(insertIdx, Category(
                         id = WATCHLIST_CATEGORY_ID,
                         title = "My Watchlist",
-                        items = cachedWatchlistItems
+                        items = liveWatchlistItems
                     ))
                 }
 
@@ -2660,14 +2744,17 @@ class HomeViewModel @Inject constructor(
                         continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
                         lastContinueWatchingItems = continueWatchingCategory.items
                         lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
-                        val updated = _uiState.value.categories.toMutableList()
-                        val index = updated.indexOfFirst { it.id == "continue_watching" }
-                        if (index >= 0) {
-                            updated[index] = continueWatchingCategory
-                        } else {
-                            updated.add(0, continueWatchingCategory)
+                        cwHolder.update(continueWatchingCategory)
+                        if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                            val updated = _uiState.value.categories.toMutableList()
+                            val index = updated.indexOfFirst { it.id == "continue_watching" }
+                            if (index >= 0) {
+                                updated[index] = continueWatchingCategory
+                            } else {
+                                updated.add(0, continueWatchingCategory)
+                            }
+                            _uiState.value = _uiState.value.copy(categories = updated)
                         }
-                        _uiState.value = _uiState.value.copy(categories = updated)
                     }
                 }
               } catch (e: Exception) {
@@ -2706,7 +2793,7 @@ class HomeViewModel @Inject constructor(
         customCatalogsJob = viewModelScope.launch(networkDispatcher) {
             delay(if (isLowRamDevice) 700L else 350L)
             val customCatalogs = savedCatalogs.filter { cfg ->
-                !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && isCustomCatalogConfig(cfg)
+                !cfg.isHidden && cfg.placement != CatalogPlacement.DISCOVER && cfg.placement != CatalogPlacement.SEARCH && isCustomCatalogConfig(cfg)
             }
             if (customCatalogs.isEmpty()) return@launch
             val customIds = customCatalogs.map { it.id }.toSet()
@@ -2951,22 +3038,24 @@ class HomeViewModel @Inject constructor(
         }
 
         val rows = mutableListOf<Category>()
-        if (cachedContinueWatching.isNotEmpty()) {
-            rows.add(
-                Category(
-                    id = "continue_watching",
-                    title = "Continue Watching",
-                    items = cachedContinueWatching.map { it.toMediaItem() }
+        if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+            if (cachedContinueWatching.isNotEmpty()) {
+                rows.add(
+                    Category(
+                        id = "continue_watching",
+                        title = "Continue Watching",
+                        items = cachedContinueWatching.map { it.toMediaItem() }
+                    )
                 )
-            )
-        } else {
-            rows.add(
-                Category(
-                    id = "continue_watching",
-                    title = "Continue Watching",
-                    items = placeholderItems
+            } else {
+                rows.add(
+                    Category(
+                        id = "continue_watching",
+                        title = "Continue Watching",
+                        items = placeholderItems
+                    )
                 )
-            )
+            }
         }
 
         savedCatalogs.forEach { cfg ->
@@ -3203,14 +3292,17 @@ class HomeViewModel @Inject constructor(
                     continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
                     lastContinueWatchingItems = continueWatchingCategory.items
                     lastContinueWatchingUpdateMs = now
-                    val latestCategories = _uiState.value.categories.toMutableList()
-                    val continueWatchingIndex = latestCategories.indexOfFirst { it.id == "continue_watching" }
-                    if (continueWatchingIndex >= 0) {
-                        latestCategories[continueWatchingIndex] = continueWatchingCategory
-                    } else {
-                        latestCategories.add(0, continueWatchingCategory)
+                    cwHolder.update(continueWatchingCategory)
+                    if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                        val latestCategories = _uiState.value.categories.toMutableList()
+                        val continueWatchingIndex = latestCategories.indexOfFirst { it.id == "continue_watching" }
+                        if (continueWatchingIndex >= 0) {
+                            latestCategories[continueWatchingIndex] = continueWatchingCategory
+                        } else {
+                            latestCategories.add(0, continueWatchingCategory)
+                        }
+                        _uiState.value = _uiState.value.copy(categories = latestCategories)
                     }
-                    _uiState.value = _uiState.value.copy(categories = latestCategories)
                     refreshWatchedBadges()
                 } else {
                     // No new data from any source

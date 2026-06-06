@@ -48,7 +48,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.theme.AnimationConstants
+import com.arflix.tv.ui.theme.ArvioTheme
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
@@ -184,7 +186,7 @@ private fun SidebarProfileAvatar(
                     .width(3.dp)
                     .height(22.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(ArvioSkin.colors.focusOutline.copy(alpha = indicatorAlpha))
+                    .background((LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
             )
         }
         Box(
@@ -216,12 +218,13 @@ private fun SidebarIcon(
     isFocused: Boolean,
     hasBadge: Boolean = false
 ) {
-    // Animated icon color - dark grey normally, pure white when focused
+    val accent = LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline
+    // Animated icon color - accent when focused, dark grey when not
     val iconColor by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White  // Pure white when focused
-            isSelected -> Color(0xFF666666)  // Dark grey when selected
-            else -> Color(0xFF444444)  // Darker grey when unfocused
+            isFocused -> accent
+            isSelected -> Color(0xFF666666)
+            else -> Color(0xFF444444)
         },
         animationSpec = tween(
             durationMillis = AnimationConstants.DURATION_FAST,
@@ -242,7 +245,7 @@ private fun SidebarIcon(
 
     val chipBackground by animateColorAsState(
         targetValue = when {
-            isFocused -> Color.White.copy(alpha = 0.16f)
+            isFocused -> accent.copy(alpha = 0.16f)
             isSelected -> Color.White.copy(alpha = 0.06f)
             else -> Color.Transparent
         },
@@ -276,7 +279,7 @@ private fun SidebarIcon(
                     .width(3.dp)
                     .height(22.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(ArvioSkin.colors.focusOutline.copy(alpha = indicatorAlpha))
+                    .background((LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
             )
         }
 

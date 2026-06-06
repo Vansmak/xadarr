@@ -127,11 +127,9 @@ import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.focus.arvioDpadFocusGroup
 import com.arflix.tv.ui.theme.AccentGreen
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.BackgroundCard
+import com.arflix.tv.ui.theme.ArvioTheme
 import com.arflix.tv.ui.theme.appBackgroundDark
 
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -2362,10 +2360,11 @@ private fun FocusableMenuItem(label: String, icon: ImageVector, iconTint: Color 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun NotConfiguredPanel() {
+    val colors = ArvioTheme.colors
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BackgroundCard, RoundedCornerShape(14.dp))
+            .background(colors.backgroundCard, RoundedCornerShape(14.dp))
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -2373,16 +2372,16 @@ private fun NotConfiguredPanel() {
             Icon(
                 imageVector = Icons.Default.LiveTv,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(40.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
-            Text(stringResource(R.string.iptv_not_configured), style = ArflixTypography.sectionTitle, color = TextPrimary)
+            Text(stringResource(R.string.iptv_not_configured), style = ArflixTypography.sectionTitle, color = colors.textPrimary)
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 "Open Settings and add your M3U URL.",
                 style = ArflixTypography.body,
-                color = TextSecondary
+                color = colors.textSecondary
             )
         }
     }

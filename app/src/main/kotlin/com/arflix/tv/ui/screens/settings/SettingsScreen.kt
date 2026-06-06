@@ -50,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
@@ -63,6 +64,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -215,8 +217,8 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
-        "playback" -> listOf(10, 11, 12, 13, 14, 34, 16, 15, 27)
-        "appearance" -> listOf(17, 18, 20, 21, 24, 23, 22)
+        "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
+        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22)
         "profiles" -> listOf(19)
         "network" -> listOf(25, 26, 35)
         else -> emptyList()
@@ -318,6 +320,7 @@ fun SettingsScreen(
     var renameCatalogId by remember { mutableStateOf("") }
     var renameCatalogTitle by remember { mutableStateOf("") }
     var showManageAppsDialog by remember { mutableStateOf(false) }
+    var showServicesPickerCatalog by remember { mutableStateOf<com.arflix.tv.data.model.CatalogConfig?>(null) }
 
     // Input modal states
     var showCustomAddonInput by remember { mutableStateOf(false) }
@@ -353,6 +356,7 @@ fun SettingsScreen(
     var showWatchlistApiPortDialog by remember { mutableStateOf(false) }
     var showWebhookCompletionDialog by remember { mutableStateOf(false) }
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
+    var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var showFrigateUrlDialog by remember { mutableStateOf(false) }
     var qualityFilterRegexPattern by remember { mutableStateOf("") }
     var showHomeServerInput by remember { mutableStateOf(false) }
@@ -387,9 +391,9 @@ fun SettingsScreen(
             in tvGeneralSectionIds -> (tvGeneralRowsForSection(section).size - 1).coerceAtLeast(0)
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
-            "catalogs" -> uiState.catalogs.size + 1 // Add + Watchlist + catalog rows
+            "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
             "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
-            "accounts" -> 4
+            "accounts" -> 5
             else -> 0
         }
     }
@@ -621,6 +625,7 @@ fun SettingsScreen(
         showWatchlistApiPortDialog ||
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
+        showEpiseerrUrlDialog ||
         showFrigateUrlDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
@@ -710,8 +715,11 @@ fun SettingsScreen(
                                         iptvActionIndex++
 } else if (currentSection == "catalogs" && contentFocusIndex > 0) {
                                         val maxCatalogAction = when {
-                                            contentFocusIndex == 1 -> 0 // Watchlist row: one chip only
-                                            uiState.catalogs.getOrNull(contentFocusIndex - 2)?.id == "installed_apps" -> 7
+                                            contentFocusIndex == 1 -> 3 // Watchlist: Up, Placement, Down, Eye
+                                            contentFocusIndex == 2 -> 3 // CW: Up, Placement, Down, Eye
+                                            uiState.catalogs.getOrNull(contentFocusIndex - 3)?.let {
+                                                it.id == "installed_apps" || it.kind == CatalogKind.COLLECTION_RAIL
+                                            } == true -> 7
                                             else -> 6
                                         }
                                         if (catalogActionIndex < maxCatalogAction) catalogActionIndex++
@@ -721,24 +729,28 @@ fun SettingsScreen(
                             true
                         }
                         Key.DirectionUp -> {
+                            val isLongPress = event.nativeKeyEvent.repeatCount >= 1
                             when (activeZone) {
                                 Zone.SIDEBAR -> Unit
                                 Zone.SECTION -> {
-                                    if (sectionIndex > 0) {
+                                    if (isLongPress || sectionIndex == 0) {
+                                        activeZone = Zone.SIDEBAR
+                                        isSidebarFocused = true
+                                    } else {
                                         sectionIndex--
-                                        contentFocusIndex = 0 // Reset content focus when changing section
+                                        contentFocusIndex = 0
                                         addonActionIndex = 0
                                         iptvActionIndex = 0
                                         catalogActionIndex = 0
-                                    } else {
-                                        activeZone = Zone.SIDEBAR
-                                        isSidebarFocused = true
                                     }
                                 }
                                 Zone.CONTENT -> {
-                                    if (contentFocusIndex > 0) {
+                                    if (isLongPress) {
+                                        activeZone = Zone.SIDEBAR
+                                        isSidebarFocused = true
+                                    } else if (contentFocusIndex > 0) {
                                         contentFocusIndex--
-                                        addonActionIndex = 0 // Reset to toggle when changing rows
+                                        addonActionIndex = 0
                                         iptvActionIndex = 0
                                         catalogActionIndex = 0
                                     } else {
@@ -822,6 +834,7 @@ fun SettingsScreen(
                                                 22 -> viewModel.setShowBudget(!uiState.showBudget)
                                                 23 -> viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled)
                                                 24 -> viewModel.cycleFocusBorderColor()
+                                                28 -> viewModel.cycleTheme()
                                                 25 -> openDnsProviderPicker()
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
@@ -908,37 +921,62 @@ fun SettingsScreen(
                                             if (contentFocusIndex == 0) {
                                                 showCatalogInput = true
                                             } else if (contentFocusIndex == 1) {
-                                                val next = if (uiState.watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                                                    com.arflix.tv.data.model.CatalogPlacement.HOME
-                                                else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                                                viewModel.setWatchlistPlacement(next)
+                                                when (catalogActionIndex) {
+                                                    0 -> viewModel.moveWatchlistUp()
+                                                    1 -> {
+                                                        val next = when (uiState.watchlistPlacement) {
+                                                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                                                        }
+                                                        viewModel.setWatchlistPlacement(next)
+                                                    }
+                                                    2 -> viewModel.moveWatchlistDown()
+                                                    3 -> viewModel.setWatchlistHidden(!uiState.isWatchlistHidden)
+                                                }
+                                            } else if (contentFocusIndex == 2) {
+                                                when (catalogActionIndex) {
+                                                    0 -> viewModel.moveCwUp()
+                                                    1 -> {
+                                                        val next = when (uiState.cwPlacement) {
+                                                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                                                        }
+                                                        viewModel.setCwPlacement(next)
+                                                    }
+                                                    2 -> viewModel.moveCwDown()
+                                                    3 -> viewModel.setCwHidden(!uiState.isCwHidden)
+                                                }
                                             } else {
-                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 2)
+                                                val catalog = uiState.catalogs.getOrNull(contentFocusIndex - 3)
                                                 if (catalog != null) {
                                                     val isAppsCatalog = catalog.id == "installed_apps"
-                                                    val eyeIdx = if (isAppsCatalog) 5 else 4
-                                                    val placementIdx = if (isAppsCatalog) 6 else 5
-                                                    val deleteIdx = if (isAppsCatalog) 7 else 6
+                                                    val isRailCatalog = catalog.kind == CatalogKind.COLLECTION_RAIL
+                                                    val hasExtraChip = isAppsCatalog || isRailCatalog
+                                                    val eyeIdx = if (hasExtraChip) 5 else 4
+                                                    val placementIdx = if (hasExtraChip) 6 else 5
+                                                    val deleteIdx = if (hasExtraChip) 7 else 6
                                                     when (catalogActionIndex) {
                                                         0 -> {
                                                             renameCatalogId = catalog.id
                                                             renameCatalogTitle = catalog.title
                                                             showCatalogRename = true
                                                         }
-                                                        1 -> if (isAppsCatalog) {
-                                                            showManageAppsDialog = true
-                                                        } else {
-                                                            viewModel.moveCatalogUp(catalog.id)
+                                                        1 -> when {
+                                                            isAppsCatalog -> showManageAppsDialog = true
+                                                            isRailCatalog -> showServicesPickerCatalog = catalog
+                                                            else -> viewModel.moveCatalogUp(catalog.id)
                                                         }
-                                                        2 -> if (isAppsCatalog) viewModel.moveCatalogUp(catalog.id) else viewModel.moveCatalogDown(catalog.id)
-                                                        3 -> if (isAppsCatalog) {
+                                                        2 -> if (hasExtraChip) viewModel.moveCatalogUp(catalog.id) else viewModel.moveCatalogDown(catalog.id)
+                                                        3 -> if (hasExtraChip) {
                                                             viewModel.moveCatalogDown(catalog.id)
                                                         } else scope.launch {
                                                             if (catalog.kind != CatalogKind.COLLECTION_RAIL) {
                                                                 toggleCatalogueRowLayoutMode(context, catalogueLayoutRowKey(catalog))
                                                             }
                                                         }
-                                                        4 -> if (isAppsCatalog) scope.launch {
+                                                        4 -> if (hasExtraChip) scope.launch {
                                                             if (catalog.kind != CatalogKind.COLLECTION_RAIL) {
                                                                 toggleCatalogueRowLayoutMode(context, catalogueLayoutRowKey(catalog))
                                                             }
@@ -946,9 +984,11 @@ fun SettingsScreen(
                                                         else -> when (catalogActionIndex) {
                                                             eyeIdx -> viewModel.toggleCatalogVisibility(catalog.id)
                                                             placementIdx -> {
-                                                                val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                                                                    null
-                                                                else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                                val next = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                                                                    com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
+                                                                }
                                                                 viewModel.setCatalogPlacement(catalog.id, next)
                                                             }
                                                             deleteIdx -> viewModel.removeCatalog(catalog.id)
@@ -1009,6 +1049,8 @@ fun SettingsScreen(
                                                     }
                                                 }
                                                 3 -> showSyncServerUrlDialog = true
+                                                4 -> showEpiseerrUrlDialog = true
+                                                5 -> viewModel.clearMediaCache()
                                             }
                                         }
                                         else -> Unit
@@ -1065,6 +1107,7 @@ fun SettingsScreen(
                 onShowWatchlistApiPortDialog = { showWatchlistApiPortDialog = true },
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
+                onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
             )
         } else {
             AppTopBar(
@@ -1231,6 +1274,8 @@ fun SettingsScreen(
                             onSpoilerBlurToggle = { viewModel.setSpoilerBlurEnabled(it) },
                             focusBorderColor = uiState.focusBorderColor,
                             onFocusBorderColorClick = { viewModel.cycleFocusBorderColor() },
+                            selectedTheme = uiState.selectedTheme,
+                            onThemeClick = { viewModel.cycleTheme() },
                             showLoadingStats = uiState.showLoadingStats,
                             onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
@@ -1345,7 +1390,20 @@ fun SettingsScreen(
                             onSetPlacement = { catalog, placement -> viewModel.setCatalogPlacement(catalog.id, placement) },
                             watchlistPlacement = uiState.watchlistPlacement,
                             onSetWatchlistPlacement = { placement -> viewModel.setWatchlistPlacement(placement) },
+                            watchlistSortOrder = uiState.watchlistSortOrder,
+                            onMoveWatchlistUp = { viewModel.moveWatchlistUp() },
+                            onMoveWatchlistDown = { viewModel.moveWatchlistDown() },
+                            cwPlacement = uiState.cwPlacement,
+                            onSetCwPlacement = { placement -> viewModel.setCwPlacement(placement) },
+                            cwSortOrder = uiState.cwSortOrder,
+                            onMoveCwUp = { viewModel.moveCwUp() },
+                            onMoveCwDown = { viewModel.moveCwDown() },
+                            isCwHidden = uiState.isCwHidden,
+                            onSetCwHidden = { viewModel.setCwHidden(it) },
+                            isWatchlistHidden = uiState.isWatchlistHidden,
+                            onSetWatchlistHidden = { viewModel.setWatchlistHidden(it) },
                             onManageApps = { showManageAppsDialog = true },
+                            onManageServices = { catalog -> showServicesPickerCatalog = catalog },
                         )
                         "stremio" -> StremioAddonsSettings(
                             addons = stremioAddons,
@@ -1386,9 +1444,11 @@ fun SettingsScreen(
                             onSwitchProfile = onSwitchProfile,
                             onCheckUpdates = { viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true) },
                             onInstallUpdate = { viewModel.installAppUpdateOrRequestPermission() },
-                            onOpenDataDeletion = { openExternalUrl(context, ACCOUNT_DELETION_URL) },
+                            onClearCache = { viewModel.clearMediaCache() },
                             syncServerUrl = uiState.syncServerUrl,
                             onSyncServerUrlClick = { showSyncServerUrlDialog = true },
+                            episeerrUrl = uiState.episeerrUrl,
+                            onEpiseerrUrlClick = { showEpiseerrUrlDialog = true },
                         )
                     }
                   }
@@ -1431,6 +1491,17 @@ fun SettingsScreen(
                     showSyncServerUrlDialog = false
                 },
                 onDismiss = { showSyncServerUrlDialog = false }
+            )
+        }
+
+        if (showEpiseerrUrlDialog) {
+            EpiseerrUrlDialog(
+                currentValue = uiState.episeerrUrl,
+                onSave = { url ->
+                    viewModel.saveEpiseerrUrl(url)
+                    showEpiseerrUrlDialog = false
+                },
+                onDismiss = { showEpiseerrUrlDialog = false }
             )
         }
 
@@ -1677,6 +1748,15 @@ fun SettingsScreen(
             )
         }
 
+        showServicesPickerCatalog?.let { railCatalog ->
+            ManageServicesModal(
+                railCatalog = railCatalog,
+                allCatalogs = uiState.allCatalogsForPicker,
+                onToggle = { catalogId -> viewModel.toggleCatalogVisibility(catalogId) },
+                onDismiss = { showServicesPickerCatalog = null }
+            )
+        }
+
         if (showQualityFiltersModal) {
             QualityFiltersModal(
                 filters = uiState.qualityFilters,
@@ -1855,6 +1935,17 @@ fun SettingsScreen(
                     showSyncServerUrlDialog = false
                 },
                 onDismiss = { showSyncServerUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showEpiseerrUrlDialog) {
+            EpiseerrUrlDialog(
+                currentValue = uiState.episeerrUrl,
+                onSave = { url ->
+                    viewModel.saveEpiseerrUrl(url)
+                    showEpiseerrUrlDialog = false
+                },
+                onDismiss = { showEpiseerrUrlDialog = false }
             )
         }
 
@@ -3126,6 +3217,7 @@ private fun MobileSettingsLayout(
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowSyncServerUrlDialog: () -> Unit = {},
+    onShowEpiseerrUrlDialog: () -> Unit = {},
 ) {
     BackHandler(enabled = page != "MAIN") {
         onNavigate("MAIN")
@@ -3168,6 +3260,7 @@ private fun MobileSettingsLayout(
                 openAudioLanguagePicker = openAudioLanguagePicker,
                 onSwitchProfile = onSwitchProfile,
                 onShowSyncServerUrlDialog = onShowSyncServerUrlDialog,
+                onShowEpiseerrUrlDialog = onShowEpiseerrUrlDialog,
             )
         } else {
             Row(
@@ -3227,6 +3320,7 @@ private fun MobileSettingsMainPage(
     openAudioLanguagePicker: () -> Unit,
     onSwitchProfile: () -> Unit,
     onShowSyncServerUrlDialog: () -> Unit = {},
+    onShowEpiseerrUrlDialog: () -> Unit = {},
 ) {
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -3338,6 +3432,14 @@ private fun MobileSettingsMainPage(
                     value = if (uiState.syncServerUrl.isBlank()) "Not set" else "Set",
                     isFocused = false,
                     onClick = onShowSyncServerUrlDialog
+                )
+                MobileSettingsRow(
+                    icon = Icons.Default.Cloud,
+                    title = "Episeerr URL",
+                    subtitle = "Direct URL to your Episeerr instance",
+                    value = if (uiState.episeerrUrl.isBlank()) "Not set" else "Set",
+                    isFocused = false,
+                    onClick = onShowEpiseerrUrlDialog
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
@@ -3579,8 +3681,15 @@ private fun MobileSettingsSubPage(
                         title = stringResource(R.string.focus_border_color),
                         value = uiState.focusBorderColor,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.cycleFocusBorderColor() }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Palette,
+                        title = stringResource(R.string.app_theme),
+                        value = uiState.selectedTheme,
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.cycleTheme() }
                     )
                 }
             }
@@ -3620,6 +3729,18 @@ private fun MobileSettingsSubPage(
                     onSetPlacement = { catalog, placement -> viewModel.setCatalogPlacement(catalog.id, placement) },
                     watchlistPlacement = uiState.watchlistPlacement,
                     onSetWatchlistPlacement = { placement -> viewModel.setWatchlistPlacement(placement) },
+                    watchlistSortOrder = uiState.watchlistSortOrder,
+                    onMoveWatchlistUp = { viewModel.moveWatchlistUp() },
+                    onMoveWatchlistDown = { viewModel.moveWatchlistDown() },
+                    cwPlacement = uiState.cwPlacement,
+                    onSetCwPlacement = { placement -> viewModel.setCwPlacement(placement) },
+                    cwSortOrder = uiState.cwSortOrder,
+                    onMoveCwUp = { viewModel.moveCwUp() },
+                    onMoveCwDown = { viewModel.moveCwDown() },
+                    isCwHidden = uiState.isCwHidden,
+                    onSetCwHidden = { viewModel.setCwHidden(it) },
+                    isWatchlistHidden = uiState.isWatchlistHidden,
+                    onSetWatchlistHidden = { viewModel.setWatchlistHidden(it) },
                 )
             }
             "IPTV" -> {
@@ -3923,8 +4044,9 @@ private fun SettingsSectionItem(
     isFocused: Boolean,
     onClick: () -> Unit = {}
 ) {
+    val accentColor = resolveFocusBorderColor(fallback = Pink)
     val bgColor = when {
-        isFocused -> Color.White.copy(alpha = 0.12f)
+        isFocused -> accentColor.copy(alpha = 0.10f)
         isSelected -> Color.White.copy(alpha = 0.07f)
         else -> Color.Transparent
     }
@@ -3933,7 +4055,6 @@ private fun SettingsSectionItem(
         isSelected -> TextPrimary
         else -> TextSecondary
     }
-    val accentColor = resolveFocusBorderColor(fallback = Pink)
     
     Row(
         modifier = Modifier
@@ -4270,6 +4391,7 @@ private fun tvSettingsPanelFacts(
             "Frame rate" to uiState.frameRateMatchingMode
         )
         "appearance" -> listOf(
+            "Theme" to uiState.selectedTheme,
             "OLED" to if (uiState.oledBlackBackground) "On" else "Off",
             "Focus border" to uiState.focusBorderColor
         )
@@ -4356,7 +4478,9 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             0 -> TvSettingsHelp("Trakt", "Connect or disconnect Trakt watch history and lists.")
             1 -> TvSettingsHelp("Force sync", "Push/pull the latest synced profile data with the sync server.")
             2 -> TvSettingsHelp("App updates", "Check for sideload app updates or install a downloaded update.")
-            4 -> TvSettingsHelp("Privacy & data", "Open privacy and account deletion information.")
+            3 -> TvSettingsHelp("Sync Server URL", "Base URL of your Xadarr sync server for settings backup and restore.")
+            4 -> TvSettingsHelp("Episeerr URL", "Direct URL to your Episeerr instance for the rule picker web UI.")
+            5 -> TvSettingsHelp("Clear cache", "Wipe cached artwork and category data so everything reloads fresh.")
             else -> TvSettingsHelp("Account data", "Cloud sync, Trakt, updates and account controls.")
         }
         else -> TvSettingsHelp("Setting", "Use OK to change this option.")
@@ -4395,6 +4519,7 @@ private fun TvGeneralSettingsRows(
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
     focusBorderColor: String = "White",
+    selectedTheme: String = "Midnight",
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,
@@ -4414,6 +4539,7 @@ private fun TvGeneralSettingsRows(
     onShowBudgetToggle: (Boolean) -> Unit = {},
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
     onFocusBorderColorClick: () -> Unit = {},
+    onThemeClick: () -> Unit = {},
     showLoadingStats: Boolean = true,
     onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
@@ -4510,6 +4636,7 @@ private fun TvGeneralSettingsRows(
                 22 -> SettingsToggleRow(stringResource(R.string.show_budget), stringResource(R.string.show_budget_desc), showBudget, focusedIndex == localIndex, onShowBudgetToggle, Modifier.settingsFocusSlot(localIndex))
                 23 -> SettingsToggleRow(stringResource(R.string.spoiler_blur), stringResource(R.string.spoiler_blur_desc), spoilerBlurEnabled, focusedIndex == localIndex, onSpoilerBlurToggle, Modifier.settingsFocusSlot(localIndex))
                 24 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.focus_border_color), stringResource(R.string.focus_border_color_desc), focusBorderColor, focusedIndex == localIndex, onFocusBorderColorClick, Modifier.settingsFocusSlot(localIndex))
+                28 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.app_theme), stringResource(R.string.app_theme_desc), selectedTheme, focusedIndex == localIndex, onThemeClick, Modifier.settingsFocusSlot(localIndex))
                 25 -> SettingsRow(Icons.Default.Language, stringResource(R.string.dns_provider), stringResource(R.string.dns_desc), dnsProvider, focusedIndex == localIndex, onDnsProviderClick, Modifier.settingsFocusSlot(localIndex))
                 26 -> SettingsToggleRow(stringResource(R.string.show_loading_stats), stringResource(R.string.show_loading_stats_desc), showLoadingStats, focusedIndex == localIndex, onShowLoadingStatsToggle, Modifier.settingsFocusSlot(localIndex))
                 27 -> SettingsRow(
@@ -5477,7 +5604,7 @@ private fun SettingsRow(
                 onClick = onClick
             )
             .background(
-                if (isFocused) Color.White.copy(alpha = 0.105f) else Color.White.copy(alpha = 0.055f),
+                if (isFocused) focusRingColor.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.055f),
                 RoundedCornerShape(10.dp)
             )
             .border(
@@ -5530,7 +5657,7 @@ private fun SettingsRow(
                 Text(
                     text = value.uppercase(),
                     style = ArflixTypography.label.copy(fontSize = 12.sp),
-                    color = Pink,
+                    color = focusRingColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -5560,7 +5687,7 @@ private fun SettingsToggleRow(
                 onClick = { onToggle(!isEnabled) }
             )
             .background(
-                if (isFocused) Color.White.copy(alpha = 0.105f) else Color.White.copy(alpha = 0.055f),
+                if (isFocused) focusRingColor.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.055f),
                 RoundedCornerShape(10.dp)
             )
             .border(
@@ -6483,7 +6610,20 @@ private fun CatalogsSettings(
     onSetPlacement: (CatalogConfig, com.arflix.tv.data.model.CatalogPlacement?) -> Unit = { _, _ -> },
     watchlistPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
     onSetWatchlistPlacement: (com.arflix.tv.data.model.CatalogPlacement) -> Unit = {},
+    watchlistSortOrder: Int = 0,
+    onMoveWatchlistUp: () -> Unit = {},
+    onMoveWatchlistDown: () -> Unit = {},
+    cwPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
+    onSetCwPlacement: (com.arflix.tv.data.model.CatalogPlacement) -> Unit = {},
+    cwSortOrder: Int = 0,
+    onMoveCwUp: () -> Unit = {},
+    onMoveCwDown: () -> Unit = {},
+    isCwHidden: Boolean = false,
+    onSetCwHidden: (Boolean) -> Unit = {},
+    isWatchlistHidden: Boolean = false,
+    onSetWatchlistHidden: (Boolean) -> Unit = {},
     onManageApps: () -> Unit = {},
+    onManageServices: (com.arflix.tv.data.model.CatalogConfig) -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     var selectionMode by remember { mutableStateOf(false) }
@@ -6583,29 +6723,123 @@ private fun CatalogsSettings(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Built-in",
+                        text = "Built-in · position $watchlistSortOrder",
                         style = ArflixTypography.caption,
                         color = TextSecondary.copy(alpha = 0.7f),
                         maxLines = 1,
                     )
                 }
                 CatalogActionChip(
-                    icon = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                        Icons.Outlined.Explore else Icons.Outlined.Home,
+                    icon = Icons.Default.ArrowUpward,
                     isFocused = isRowFocused && focusedActionIndex == 0,
+                    enabled = watchlistSortOrder > 0,
+                    onClick = onMoveWatchlistUp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = when (watchlistPlacement) {
+                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                        else -> Icons.Outlined.Home
+                    },
+                    label = watchlistPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                    isFocused = isRowFocused && focusedActionIndex == 1,
                     onClick = {
-                        val next = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                            com.arflix.tv.data.model.CatalogPlacement.HOME
-                        else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                        val next = when (watchlistPlacement) {
+                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                        }
                         onSetWatchlistPlacement(next)
                     }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowDownward,
+                    isFocused = isRowFocused && focusedActionIndex == 2,
+                    onClick = onMoveWatchlistDown
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = if (!isWatchlistHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    isFocused = isRowFocused && focusedActionIndex == 3,
+                    onClick = { onSetWatchlistHidden(!isWatchlistHidden) }
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        // ── Continue Watching row (built-in, position + placement + visibility) ──
+        run {
+            val isRowFocused = focusedIndex == 2
+            Row(
+                modifier = Modifier
+                    .settingsFocusSlot(2)
+                    .fillMaxWidth()
+                    .background(
+                        if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Continue Watching",
+                        style = ArflixTypography.body,
+                        color = if (isRowFocused) TextPrimary else TextSecondary,
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Built-in · position $cwSortOrder",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.7f),
+                        maxLines = 1,
+                    )
+                }
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowUpward,
+                    isFocused = isRowFocused && focusedActionIndex == 0,
+                    enabled = cwSortOrder > 0,
+                    onClick = onMoveCwUp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = when (cwPlacement) {
+                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                        else -> Icons.Outlined.Home
+                    },
+                    label = cwPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                    isFocused = isRowFocused && focusedActionIndex == 1,
+                    onClick = {
+                        val next = when (cwPlacement) {
+                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                        }
+                        onSetCwPlacement(next)
+                    }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = Icons.Default.ArrowDownward,
+                    isFocused = isRowFocused && focusedActionIndex == 2,
+                    onClick = onMoveCwDown
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                CatalogActionChip(
+                    icon = if (!isCwHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    isFocused = isRowFocused && focusedActionIndex == 3,
+                    onClick = { onSetCwHidden(!isCwHidden) }
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
 
         catalogs.forEachIndexed { index, catalog ->
-            val rowFocusIndex = index + 2   // +1 for Add row, +1 for Watchlist row
+            val rowFocusIndex = index + 3   // +1 for Add row, +1 for Watchlist row, +1 for CW row
             val isRowFocused = focusedIndex == rowFocusIndex
             val title = if (catalog.isPreinstalled) {
                 when (catalog.kind) {
@@ -6736,12 +6970,14 @@ private fun CatalogsSettings(
                     }
                 } else {
                     val isApps = catalog.id == "installed_apps"
-                    val upIdx = if (isApps) 2 else 1
-                    val downIdx = if (isApps) 3 else 2
-                    val layoutIdx = if (isApps) 4 else 3
-                    val eyeIdx = if (isApps) 5 else 4
-                    val placementIdx = if (isApps) 6 else 5
-                    val deleteIdx = if (isApps) 7 else 6
+                    val isRail = catalog.kind == com.arflix.tv.data.model.CatalogKind.COLLECTION_RAIL
+                    val hasExtraChip = isApps || isRail
+                    val upIdx = if (hasExtraChip) 2 else 1
+                    val downIdx = if (hasExtraChip) 3 else 2
+                    val layoutIdx = if (hasExtraChip) 4 else 3
+                    val eyeIdx = if (hasExtraChip) 5 else 4
+                    val placementIdx = if (hasExtraChip) 6 else 5
+                    val deleteIdx = if (hasExtraChip) 7 else 6
                     CatalogActionChip(
                         icon = Icons.Default.Edit,
                         isFocused = isRowFocused && focusedActionIndex == 0,
@@ -6753,6 +6989,13 @@ private fun CatalogsSettings(
                             icon = Icons.Default.Apps,
                             isFocused = isRowFocused && focusedActionIndex == 1,
                             onClick = onManageApps
+                        )
+                    } else if (isRail) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = Icons.Default.Tune,
+                            isFocused = isRowFocused && focusedActionIndex == 1,
+                            onClick = { onManageServices(catalog) }
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
@@ -6781,15 +7024,23 @@ private fun CatalogsSettings(
                         onClick = { onToggleVisibility(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    // Placement toggle: Home ↔ Discover (null placement = HOME)
+                    // Placement toggle: Home → Discover → Search → Home
+                    val placementLabel = (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME)
+                        .name.lowercase().replaceFirstChar { it.uppercase() }
                     CatalogActionChip(
-                        icon = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                            Icons.Outlined.Explore else Icons.Outlined.Home,
+                        icon = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                            else -> Icons.Outlined.Home
+                        },
+                        label = placementLabel,
                         isFocused = isRowFocused && focusedActionIndex == placementIdx,
                         onClick = {
-                            val next = if (catalog.placement == com.arflix.tv.data.model.CatalogPlacement.DISCOVER)
-                                null
-                            else com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                            val next = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
+                                com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
+                            }
                             onSetPlacement(catalog, next)
                         }
                     )
@@ -6972,6 +7223,110 @@ private fun ManageAppsModal(
     }
 }
 
+@Composable
+private fun ManageServicesModal(
+    railCatalog: com.arflix.tv.data.model.CatalogConfig,
+    allCatalogs: List<com.arflix.tv.data.model.CatalogConfig>,
+    onToggle: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val children = remember(railCatalog, allCatalogs) {
+        allCatalogs.filter {
+            it.kind == com.arflix.tv.data.model.CatalogKind.COLLECTION && it.collectionGroup == railCatalog.collectionGroup
+        }.sortedBy { it.title.lowercase() }
+    }
+    var focusedIdx by remember { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(focusedIdx) {
+        if (focusedIdx < children.size) listState.animateScrollToItem(focusedIdx)
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxWidth(0.65f)
+                .fillMaxHeight(0.8f)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A2E))
+                .padding(24.dp)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> { if (focusedIdx > 0) focusedIdx--; true }
+                        Key.DirectionDown -> { if (focusedIdx < children.size) focusedIdx++; true }
+                        Key.Enter, Key.DirectionCenter -> {
+                            if (focusedIdx < children.size) {
+                                onToggle(children[focusedIdx].id)
+                            } else {
+                                onDismiss()
+                            }
+                            true
+                        }
+                        Key.Back -> { onDismiss(); true }
+                        else -> false
+                    }
+                }
+        ) {
+            Column {
+                Text(railCatalog.title, style = ArflixTypography.sectionTitle, color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 4.dp))
+                Text("Enter to show/hide each service",
+                    style = ArflixTypography.caption, color = TextSecondary,
+                    modifier = Modifier.padding(bottom = 16.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).heightIn(min = 100.dp, max = 600.dp)
+                ) {
+                    itemsIndexed(children) { idx, svc ->
+                        val isVisible = !svc.isHidden
+                        val isFocused = idx == focusedIdx
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                    androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                contentDescription = null,
+                                tint = if (isVisible) Color(0xFF7C6AF7) else TextSecondary.copy(alpha = 0.5f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(svc.title,
+                                color = if (isVisible) TextPrimary else if (isFocused) TextPrimary else TextSecondary,
+                                style = ArflixTypography.body)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (focusedIdx == children.size) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                        )
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text("Done",
+                        color = if (focusedIdx == children.size) TextPrimary else TextSecondary,
+                        style = ArflixTypography.body)
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun CatalogActionChip(
@@ -6979,6 +7334,7 @@ private fun CatalogActionChip(
     isFocused: Boolean,
     isDestructive: Boolean = false,
     enabled: Boolean = true,
+    label: String? = null,
     onClick: () -> Unit = {}
 ) {
     // Support both D-pad focus AND touch pressed state
@@ -6996,24 +7352,40 @@ private fun CatalogActionChip(
         visualActive -> Color.Black
         else -> Color.White.copy(alpha = 0.7f)
     }
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clickable(enabled = enabled, onClick = onClick)
-            .background(bgColor, RoundedCornerShape(8.dp))
-            .border(
-                width = if (visualActive) 1.5.dp else 1.dp,
-                color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(8.dp)
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = fgColor,
-            modifier = Modifier.size(16.dp)
-        )
+    val shape = RoundedCornerShape(8.dp)
+    if (label != null) {
+        Row(
+            modifier = Modifier
+                .height(36.dp)
+                .clickable(enabled = enabled, onClick = onClick)
+                .background(bgColor, shape)
+                .border(
+                    width = if (visualActive) 1.5.dp else 1.dp,
+                    color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                    shape = shape
+                )
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = fgColor, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(text = label, color = fgColor, style = ArflixTypography.caption)
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clickable(enabled = enabled, onClick = onClick)
+                .background(bgColor, shape)
+                .border(
+                    width = if (visualActive) 1.5.dp else 1.dp,
+                    color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                    shape = shape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = fgColor, modifier = Modifier.size(16.dp))
+        }
     }
 }
 
@@ -7433,9 +7805,11 @@ private fun AccountsSettings(
     onSwitchProfile: () -> Unit,
     onCheckUpdates: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onOpenDataDeletion: () -> Unit,
+    onClearCache: () -> Unit,
     syncServerUrl: String = "",
-    onSyncServerUrlClick: () -> Unit = {}
+    onSyncServerUrlClick: () -> Unit = {},
+    episeerrUrl: String = "",
+    onEpiseerrUrlClick: () -> Unit = {},
 ) {
     Column {
         Text(
@@ -7515,13 +7889,27 @@ private fun AccountsSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        SettingsActionRow(
-            title = "Privacy and data deletion",
-            description = "Open privacy and account deletion instructions",
-            actionLabel = "OPEN",
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
+            icon = Icons.Default.Cloud,
+            title = "Episeerr URL",
+            subtitle = "Direct URL to your Episeerr instance for rule management",
+            value = if (episeerrUrl.isBlank()) "Not set" else "Set",
             isFocused = focusedIndex == 4,
-            onClick = onOpenDataDeletion,
+            onClick = onEpiseerrUrlClick,
             modifier = Modifier.settingsFocusSlot(4)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsActionRow(
+            title = "Clear image cache",
+            description = "Wipe cached posters, backdrops and category data so everything reloads fresh",
+            actionLabel = "CLEAR",
+            isFocused = focusedIndex == 5,
+            onClick = onClearCache,
+            modifier = Modifier.settingsFocusSlot(5)
         )
 
     }
@@ -9361,6 +9749,113 @@ private fun SyncServerUrlDialog(
                     value = value,
                     onValueChange = { value = it },
                     placeholder = { Text("http://192.168.1.x:7979", color = TextSecondary.copy(alpha = 0.4f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f)
+                    )
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val cancelFocus = remember { FocusRequester() }
+                    val saveFocus = remember { FocusRequester() }
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).focusRequester(cancelFocus).pointerInput(Unit) {
+                            detectTapGestures(onTap = { onDismiss() })
+                        },
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = BackgroundElevated,
+                            focusedContainerColor = BackgroundElevated.copy(alpha = 0.8f)
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                        border = ClickableSurfaceDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.3f))
+                            )
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.cancel),
+                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = TextSecondary
+                        )
+                    }
+                    Surface(
+                        onClick = { onSave(value) },
+                        modifier = Modifier.weight(1f).focusRequester(saveFocus).pointerInput(Unit) {
+                            detectTapGestures(onTap = { onSave(value) })
+                        },
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Pink.copy(alpha = 0.15f),
+                            focusedContainerColor = Pink.copy(alpha = 0.25f)
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                        border = ClickableSurfaceDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Pink.copy(alpha = 0.4f))
+                            )
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.save),
+                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = Pink
+                        )
+                    }
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(150)
+                        inputFocusRequester.requestFocus()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun EpiseerrUrlDialog(
+    currentValue: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var value by remember(currentValue) { mutableStateOf(currentValue) }
+    val inputFocusRequester = remember { FocusRequester() }
+    BackHandler { onDismiss() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        inputFocusRequester.requestFocus()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .then(
+                    if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    else Modifier.width(520.dp)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text(text = "Episeerr URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Base URL of your Episeerr instance. Used to open the Episeerr web UI from the rule picker.",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    placeholder = { Text("http://192.168.1.x:5002", color = TextSecondary.copy(alpha = 0.4f)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(

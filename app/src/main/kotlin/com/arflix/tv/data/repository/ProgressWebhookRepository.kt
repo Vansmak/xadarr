@@ -23,12 +23,18 @@ val WEBHOOK_COMPLETION_PERCENT_KEY = stringPreferencesKey("webhook_completion_pe
 val WATCHLIST_API_ENABLED_KEY = booleanPreferencesKey("watchlist_api_enabled")
 val WATCHLIST_API_PORT_KEY = stringPreferencesKey("watchlist_api_port")
 val SYNC_SERVER_URL_KEY = stringPreferencesKey("sync_server_url")
+val EPISEERR_URL_KEY = stringPreferencesKey("episeerr_url")
 val USER_TMDB_API_KEY = stringPreferencesKey("user_tmdb_api_key")
 val USER_TRAKT_CLIENT_ID = stringPreferencesKey("user_trakt_client_id")
 val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
 val FRIGATE_URL_KEY = stringPreferencesKey("frigate_url")
 val WATCHLIST_PLACEMENT_KEY = stringPreferencesKey("watchlist_placement")
+val WATCHLIST_SORT_ORDER_KEY = stringPreferencesKey("watchlist_sort_order")
+val WATCHLIST_HIDDEN_KEY = booleanPreferencesKey("watchlist_hidden")
+val CW_PLACEMENT_KEY = stringPreferencesKey("cw_placement")
+val CW_SORT_ORDER_KEY = stringPreferencesKey("cw_sort_order")
+val CW_HIDDEN_KEY = booleanPreferencesKey("cw_hidden")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"

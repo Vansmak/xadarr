@@ -16,7 +16,7 @@ enum class CatalogKind {
     COLLECTION_RAIL
 }
 
-enum class CatalogPlacement { HOME, DISCOVER }
+enum class CatalogPlacement { HOME, DISCOVER, SEARCH }
 
 enum class CollectionGroupKind {
     FEATURED,

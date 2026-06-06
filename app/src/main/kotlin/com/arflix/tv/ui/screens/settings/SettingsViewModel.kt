@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.settings
 
 import android.content.Context
 import coil.Coil
+import coil.imageLoader
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -147,7 +148,13 @@ data class SettingsUiState(
     val showUnknownSourcesDialog: Boolean = false,
     // Catalogs
     val catalogs: List<CatalogConfig> = emptyList(),
+    val allCatalogsForPicker: List<CatalogConfig> = emptyList(), // includes COLLECTION items for services picker
     val watchlistPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
+    val watchlistSortOrder: Int = 0,
+    val isWatchlistHidden: Boolean = false,
+    val cwPlacement: com.arflix.tv.data.model.CatalogPlacement = com.arflix.tv.data.model.CatalogPlacement.HOME,
+    val cwSortOrder: Int = 0,
+    val isCwHidden: Boolean = false,
     val catalogSearchQuery: String = "",
     val catalogSearchResults: List<CatalogDiscoveryResult> = emptyList(),
     val isCatalogSearching: Boolean = false,
@@ -174,6 +181,8 @@ data class SettingsUiState(
     val spoilerBlurEnabled: Boolean = false,
     // Focus border color — user-selectable theme colour for the D-pad focus ring
     val focusBorderColor: String = "White",
+    // Color theme — full palette preset
+    val selectedTheme: String = "Midnight",
     val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
@@ -188,6 +197,7 @@ data class SettingsUiState(
     val webhookCompletionPercent: Int = 90,
     // Arvio sync server URL — arvio-server instance for full settings sync
     val syncServerUrl: String = "",
+    val episeerrUrl: String = "",
     val frigateUrl: String = "",
     val pinnedApps: List<String> = emptyList(),
 )
@@ -417,6 +427,7 @@ class SettingsViewModel @Inject constructor(
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
             val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "White"
+            val selectedTheme = prefs[com.arflix.tv.util.THEME_KEY] ?: "Midnight"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
 
@@ -454,10 +465,18 @@ class SettingsViewModel @Inject constructor(
             }
             val webhookIntervalSeconds = prefs[webhookIntervalKey]?.toIntOrNull() ?: 30
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
+            val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
             val watchlistPlacement = prefs[watchlistPlacementKey]
                 ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
                 ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+            val watchlistSortOrder = prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+            val isWatchlistHidden = prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false
+            val cwPlacement = prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY]
+                ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
+                ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+            val cwSortOrder = prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+            val isCwHidden = prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false
             val watchlistApiEnabled = prefs[watchlistApiEnabledKey] ?: false
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
@@ -523,6 +542,7 @@ class SettingsViewModel @Inject constructor(
                 oledBlackBackground = oledBlackBackground,
                 clockFormat = clockFormat,
                 focusBorderColor = focusBorderColor,
+                selectedTheme = selectedTheme,
                 qualityFilters = qualityFilters,
                 qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label,
                 webhookEnabled = webhookEnabled,
@@ -532,8 +552,14 @@ class SettingsViewModel @Inject constructor(
                 watchlistApiPort = watchlistApiPort,
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
+                episeerrUrl = episeerrUrl,
                 frigateUrl = frigateUrl,
                 watchlistPlacement = watchlistPlacement,
+                watchlistSortOrder = watchlistSortOrder,
+                isWatchlistHidden = isWatchlistHidden,
+                cwPlacement = cwPlacement,
+                cwSortOrder = cwSortOrder,
+                isCwHidden = isCwHidden,
                 pinnedApps = pinnedApps,
             )
         }
@@ -1077,6 +1103,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun clearMediaCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val loader = context.imageLoader
+                loader.diskCache?.clear()
+                loader.memoryCache?.clear()
+                mediaRepository.clearHomeCache()
+            }
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(toastMessage = "Cache cleared")
+        }
+    }
+
     fun setShowLoadingStats(enabled: Boolean) {
         viewModelScope.launch {
             context.settingsDataStore.edit { it[showLoadingStatsKey()] = enabled }
@@ -1106,6 +1146,17 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] = next }
             _uiState.value = _uiState.value.copy(focusBorderColor = next)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun cycleTheme() {
+        val themes = listOf("Midnight", "Owl", "Black & Gold", "Neon")
+        val current = _uiState.value.selectedTheme
+        val next = themes[(themes.indexOf(current) + 1) % themes.size]
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.util.THEME_KEY] = next }
+            _uiState.value = _uiState.value.copy(selectedTheme = next)
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -1207,6 +1258,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             cloudSyncRepository.saveSyncServerUrl(url.trim())
             _uiState.value = _uiState.value.copy(syncServerUrl = url.trim())
+        }
+    }
+
+    fun saveEpiseerrUrl(url: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.EPISEERR_URL_KEY] = url.trim() }
+            _uiState.value = _uiState.value.copy(episeerrUrl = url.trim())
         }
     }
 
@@ -1585,8 +1643,12 @@ class SettingsViewModel @Inject constructor(
                     catalogs
                 }
                 val visible = visibleCatalogs(effectiveCatalogs)
-                if (_uiState.value.catalogs != visible) {
-                    _uiState.value = _uiState.value.copy(catalogs = visible)
+                val cur = _uiState.value
+                if (cur.catalogs != visible || cur.allCatalogsForPicker != effectiveCatalogs) {
+                    _uiState.value = cur.copy(
+                        catalogs = visible,
+                        allCatalogsForPicker = effectiveCatalogs,
+                    )
                 }
             }
         }
@@ -1711,9 +1773,11 @@ class SettingsViewModel @Inject constructor(
             val result = catalogRepository.removeCustomCatalog(catalogId)
             result.onSuccess {
                 // Refresh the catalog list in UI state after removal
-                val updatedCatalogs = visibleCatalogs(catalogRepository.getCatalogs())
+                val allCatalogs = catalogRepository.getCatalogs()
+                val updatedCatalogs = visibleCatalogs(allCatalogs)
                 _uiState.value = _uiState.value.copy(
                     catalogs = updatedCatalogs,
+                    allCatalogsForPicker = allCatalogs,
                     toastMessage = "Catalog removed",
                     toastType = ToastType.SUCCESS
                 )
@@ -1770,6 +1834,74 @@ class SettingsViewModel @Inject constructor(
             context.settingsDataStore.edit { prefs ->
                 prefs[watchlistPlacementKey] = placement.name
             }
+            _uiState.value = _uiState.value.copy(watchlistPlacement = placement)
+        }
+    }
+
+    fun setCwPlacement(placement: com.arflix.tv.data.model.CatalogPlacement) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY] = placement.name
+            }
+            _uiState.value = _uiState.value.copy(cwPlacement = placement)
+        }
+    }
+
+    fun setWatchlistHidden(hidden: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] = hidden
+            }
+            _uiState.value = _uiState.value.copy(isWatchlistHidden = hidden)
+        }
+    }
+
+    fun setCwHidden(hidden: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] = hidden
+            }
+            _uiState.value = _uiState.value.copy(isCwHidden = hidden)
+        }
+    }
+
+    fun moveCwUp() {
+        val newOrder = (_uiState.value.cwSortOrder - 1).coerceAtLeast(0)
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY] = newOrder.toString()
+            }
+            _uiState.value = _uiState.value.copy(cwSortOrder = newOrder)
+        }
+    }
+
+    fun moveCwDown() {
+        val newOrder = _uiState.value.cwSortOrder + 1
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY] = newOrder.toString()
+            }
+            _uiState.value = _uiState.value.copy(cwSortOrder = newOrder)
+        }
+    }
+
+    fun moveWatchlistUp() {
+        val newOrder = (_uiState.value.watchlistSortOrder - 1).coerceAtLeast(0)
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY] = newOrder.toString()
+            }
+            _uiState.value = _uiState.value.copy(watchlistSortOrder = newOrder)
+        }
+    }
+
+    fun moveWatchlistDown() {
+        val newOrder = _uiState.value.watchlistSortOrder + 1
+        viewModelScope.launch {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY] = newOrder.toString()
+            }
+            _uiState.value = _uiState.value.copy(watchlistSortOrder = newOrder)
         }
     }
 

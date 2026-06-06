@@ -107,6 +107,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
+    onNavigateToCollection: (String) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToDiscover: () -> Unit = {},
@@ -140,7 +141,7 @@ fun SearchScreen(
             if (uiState.tvResults.isNotEmpty()) list.add(Category("s_t", "${stringResource(R.string.tv_shows)} (${uiState.tvResults.size})", uiState.tvResults))
             list
         }
-        uiState.query.isEmpty() -> uiState.discoverCategories.filter { it.items.isNotEmpty() }
+        uiState.query.isEmpty() -> (uiState.browseCategories + uiState.discoverCategories).filter { it.items.isNotEmpty() }
         else -> emptyList()
     }
     val activeLogoUrls: Map<String, String> = when {
@@ -173,9 +174,6 @@ fun SearchScreen(
     val comedyGenre = remember { ALL_GENRES.firstOrNull { it.id == 35 } }
     val horrorGenre = remember { ALL_GENRES.firstOrNull { it.id == 27 } }
     val sciFiGenre = remember { ALL_GENRES.firstOrNull { it.id == 878 } }
-    val japaneseCountry = remember { COUNTRIES.firstOrNull { it.code == "ja" } }
-    val koreanCountry = remember { COUNTRIES.firstOrNull { it.code == "ko" } }
-    val hindiCountry = remember { COUNTRIES.firstOrNull { it.code == "hi" } }
     val quickFilters = listOfNotNull(
         DiscoverQuickFilter(
             key = "all",
@@ -233,30 +231,6 @@ fun SearchScreen(
                 onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, genre, uiState.selectedCountry) }
             )
         },
-        japaneseCountry?.let { country ->
-            DiscoverQuickFilter(
-                key = "country_${country.code}",
-                label = country.name,
-                isSelected = uiState.selectedCountry?.code == country.code,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, uiState.selectedGenre, country) }
-            )
-        },
-        koreanCountry?.let { country ->
-            DiscoverQuickFilter(
-                key = "country_${country.code}",
-                label = country.name,
-                isSelected = uiState.selectedCountry?.code == country.code,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, uiState.selectedGenre, country) }
-            )
-        },
-        hindiCountry?.let { country ->
-            DiscoverQuickFilter(
-                key = "country_${country.code}",
-                label = country.name,
-                isSelected = uiState.selectedCountry?.code == country.code,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, uiState.selectedGenre, country) }
-            )
-        }
     )
     LaunchedEffect(quickFilters.size) {
         focusedFilterIndex = focusedFilterIndex.coerceIn(0, (quickFilters.size - 1).coerceAtLeast(0))
@@ -336,9 +310,16 @@ fun SearchScreen(
                         focusZone = FocusZone.SIDEBAR
                         true
                     }
-                    FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
+                    FocusZone.FILTERS -> {
+                        if (event.nativeKeyEvent.repeatCount >= 1) { focusZone = FocusZone.SIDEBAR; true }
+                        else { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
+                    }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false // AI grid: let native focus handle navigation
+                        else if (event.nativeKeyEvent.repeatCount >= 1) {
+                            focusZone = FocusZone.SIDEBAR
+                            true
+                        }
                         else if (currentRowIndex > 0) {
                             resultsLastNavEventTime = SystemClock.elapsedRealtime()
                             currentRowIndex--
@@ -459,7 +440,11 @@ fun SearchScreen(
                                 // Use stable category lookup to avoid race condition with dynamic list updates
                                 val cats = activeCategories.filter { it.items.isNotEmpty() }
                                 val item = cats.getOrNull(currentRowIndex)?.items?.getOrNull(currentItemIndex)
-                                if (item != null) onNavigateToDetails(item.mediaType, item.id)
+                                if (item != null) {
+                                    val collectionId = item.status?.takeIf { it.startsWith("collection:") }?.removePrefix("collection:")
+                                    if (collectionId != null) onNavigateToCollection(collectionId)
+                                    else onNavigateToDetails(item.mediaType, item.id)
+                                }
                                 true
                             }
                         }
@@ -600,7 +585,12 @@ fun SearchScreen(
                         fastScrollThresholdMs = fastScrollThresholdMs,
                         isFocused = focusZone == FocusZone.RESULTS,
                         isTouchDevice = isTouchDevice,
-                        onItemClick = { onNavigateToDetails(it.mediaType, it.id) }
+                        onItemClick = { item ->
+                            val collectionId = item.status?.takeIf { it.startsWith("collection:") }
+                                ?.removePrefix("collection:")
+                            if (collectionId != null) onNavigateToCollection(collectionId)
+                            else onNavigateToDetails(item.mediaType, item.id)
+                        }
                     )
                 }
             }

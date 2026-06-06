@@ -1,12 +1,23 @@
 package com.arflix.tv.ui.screens.search
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arflix.tv.data.model.CatalogKind
+import com.arflix.tv.data.model.CatalogPlacement
+import com.arflix.tv.data.model.Category
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
-import com.arflix.tv.data.model.Category
+import com.arflix.tv.data.repository.CatalogRepository
+import com.arflix.tv.data.repository.ContinueWatchingHolder
+import com.arflix.tv.data.repository.CW_PLACEMENT_KEY
 import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY
+import com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY
+import com.arflix.tv.data.repository.WatchlistRepository
+import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -16,6 +27,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -77,6 +92,8 @@ data class SearchUiState(
     val personResults: List<Category> = EMPTY_CATEGORIES,
     val cardLogoUrls: Map<String, String> = EMPTY_LOGO_URLS,
     val error: String? = null,
+    // Browse rows: SEARCH-placed collection tiles + CW/watchlist if placed here
+    val browseCategories: List<Category> = EMPTY_CATEGORIES,
     // Discover rows - always 5 rows, dynamically built from active filters
     val discoverCategories: List<Category> = EMPTY_CATEGORIES,
     val discoverLogoUrls: Map<String, String> = EMPTY_LOGO_URLS,
@@ -93,7 +110,11 @@ data class SearchUiState(
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val mediaRepository: MediaRepository
+    private val mediaRepository: MediaRepository,
+    private val catalogRepository: CatalogRepository,
+    private val watchlistRepository: WatchlistRepository,
+    private val cwHolder: ContinueWatchingHolder,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -101,12 +122,120 @@ class SearchViewModel @Inject constructor(
 
     private var searchJob: Job? = null
     private var discoverJob: Job? = null
+    private var browseJob: Job? = null
     private var cachedSuggestionQuery = ""
     private var cachedSuggestionResults: List<MediaItem> = EMPTY_MEDIA_ITEMS
     private var cachedPeopleQuery = ""
     private var cachedPeopleResults: List<Category> = EMPTY_CATEGORIES
 
-    init { loadDiscoverRows() }
+    init {
+        loadDiscoverRows()
+        loadBrowseCategories()
+        viewModelScope.launch {
+            context.settingsDataStore.data
+                .map { Triple(it[WATCHLIST_PLACEMENT_KEY], it[CW_PLACEMENT_KEY], it[WATCHLIST_SORT_ORDER_KEY]) }
+                .drop(1).distinctUntilChanged()
+                .collect { loadBrowseCategories() }
+        }
+        viewModelScope.launch {
+            catalogRepository.observeCatalogs().drop(1).collect { loadBrowseCategories() }
+        }
+        viewModelScope.launch {
+            watchlistRepository.watchlistItems.drop(1).collect { loadBrowseCategories() }
+        }
+        viewModelScope.launch {
+            cwHolder.cwCategory.drop(1).collect { loadBrowseCategories() }
+        }
+    }
+
+    // ── Browse Categories (SEARCH-placed collection tiles + CW/watchlist) ──
+
+    private fun loadBrowseCategories() {
+        browseJob?.cancel()
+        browseJob = viewModelScope.launch {
+            val prefs = context.settingsDataStore.data.first()
+            val cwPlacement = prefs[CW_PLACEMENT_KEY]
+                ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                ?: CatalogPlacement.HOME
+            val cwSortOrder = prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+            val isCwHidden = prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false
+            val wlPlacement = prefs[WATCHLIST_PLACEMENT_KEY]
+                ?.let { runCatching { CatalogPlacement.valueOf(it) }.getOrNull() }
+                ?: CatalogPlacement.HOME
+            val wlSortOrder = prefs[WATCHLIST_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
+            val isWlHidden = prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false
+
+            val allCatalogs = catalogRepository.getCatalogs()
+            val searchCatalogs = allCatalogs
+                .filter { !it.isHidden && it.placement == CatalogPlacement.SEARCH && it.kind != CatalogKind.COLLECTION }
+
+            val categories = mutableListOf<Category>()
+
+            // CW row
+            if (!isCwHidden && cwPlacement == CatalogPlacement.SEARCH) {
+                cwHolder.cwCategory.value?.takeIf { it.items.isNotEmpty() }?.let {
+                    val insertIdx = cwSortOrder.coerceIn(0, categories.size)
+                    categories.add(insertIdx, it)
+                }
+            }
+
+            // Watchlist row
+            if (!isWlHidden && wlPlacement == CatalogPlacement.SEARCH) {
+                val wlItems = watchlistRepository.watchlistItems.value
+                if (wlItems.isNotEmpty()) {
+                    val insertIdx = wlSortOrder.coerceIn(0, categories.size)
+                    categories.add(insertIdx,
+                        Category(id = "my_watchlist", title = "My Watchlist", items = wlItems))
+                }
+            }
+
+            // Collection tile rows and content catalogs
+            withContext(Dispatchers.IO) {
+                searchCatalogs.forEach { catalog ->
+                    if (catalog.kind == CatalogKind.COLLECTION_RAIL) {
+                        buildCollectionTileRow(catalog, allCatalogs)?.let { categories.add(it) }
+                    } else {
+                        runCatching { mediaRepository.loadCustomCatalog(catalog, maxItems = 40) }
+                            .getOrNull()?.let { categories.add(it) }
+                    }
+                }
+            }
+
+            _uiState.value = _uiState.value.copy(browseCategories = categories)
+        }
+    }
+
+    private fun buildCollectionTileRow(
+        catalog: com.arflix.tv.data.model.CatalogConfig,
+        allCatalogs: List<com.arflix.tv.data.model.CatalogConfig>
+    ): Category? {
+        val group = catalog.collectionGroup ?: return null
+        val children = allCatalogs.filter {
+            it.kind == CatalogKind.COLLECTION && it.collectionGroup == group && !it.isHidden
+        }
+        val fakeItems = children.mapIndexed { index, config ->
+            val fakeId = (config.id.hashCode() and Int.MAX_VALUE).let { if (it == 0) index + 1 else it }
+            MediaItem(
+                id = fakeId,
+                title = config.title,
+                overview = "",
+                mediaType = MediaType.MOVIE,
+                image = config.collectionCoverImageUrl.orEmpty(),
+                backdrop = config.collectionFocusGifUrl
+                    ?: config.collectionHeroImageUrl
+                    ?: config.collectionCoverImageUrl,
+                status = "collection:${config.id}",
+                collectionGroup = config.collectionGroup,
+                collectionTileShape = config.collectionTileShape,
+                collectionHideTitle = config.collectionHideTitle
+            )
+        }
+        return if (fakeItems.isEmpty()) null else Category(
+            id = "collection_row_${group.name.lowercase()}",
+            title = catalog.title,
+            items = fakeItems
+        )
+    }
 
     // ── Discover Rows (5 dynamic rows based on filters) ─────────────────
 

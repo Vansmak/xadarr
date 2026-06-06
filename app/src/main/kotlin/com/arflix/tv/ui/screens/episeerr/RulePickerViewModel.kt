@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.repository.EpiseerrPendingItem
 import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.EpiseerrRule
+import com.arflix.tv.data.repository.EPISEERR_URL_KEY
 import com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,11 +30,15 @@ class RulePickerViewModel @Inject constructor(
     private val _syncServerUrl = MutableStateFlow("")
     val syncServerUrl: StateFlow<String> = _syncServerUrl.asStateFlow()
 
+    private val _episeerrUrl = MutableStateFlow("")
+    val episeerrUrl: StateFlow<String> = _episeerrUrl.asStateFlow()
+
     init {
         viewModelScope.launch {
             _rules.value = episeerrRepository.getRules()
             val prefs = context.settingsDataStore.data.first()
             _syncServerUrl.value = prefs[SYNC_SERVER_URL_KEY]?.trimEnd('/').orEmpty()
+            _episeerrUrl.value = prefs[EPISEERR_URL_KEY]?.trimEnd('/').orEmpty()
         }
     }
 

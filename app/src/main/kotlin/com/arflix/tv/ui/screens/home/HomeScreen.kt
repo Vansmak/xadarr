@@ -1345,6 +1345,7 @@ fun HomeScreen(
             val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
                 androidx.hilt.navigation.compose.hiltViewModel()
             val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val episeerrUrl by rulePickerVm.episeerrUrl.collectAsState()
             val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
                 id = mediaItem.id.toString(),
                 seriesId = null,
@@ -1357,6 +1358,7 @@ fun HomeScreen(
                 pendingItem = pendingItem,
                 episeerrRepository = rulePickerVm.episeerrRepository,
                 syncServerUrl = syncServerUrl,
+                episeerrUrl = episeerrUrl,
                 onDismiss = { rulePickerItem = null },
                 onRuleAssigned = { rulePickerItem = null },
             )
@@ -1531,21 +1533,17 @@ private fun HeroSection(
                     val hasDuration = currentItem.duration.isNotEmpty() && currentItem.duration != "0m"
                     val hasGenre = genreText.isNotEmpty()
                     val primaryNetworkLogo = currentItem.primaryNetworkLogo?.takeIf { it.isNotBlank() }
-                    val budgetText = remember(currentItem.mediaType, currentItem.budget) {
-                        val budgetValue = currentItem.budget
-                        if (currentItem.mediaType == MediaType.MOVIE && budgetValue != null && budgetValue > 0L) {
-                            formatBudgetCompact(budgetValue)
-                        } else {
-                            null
-                        }
+                    val seriesStatusText = remember(currentItem.mediaType, currentItem.status) {
+                        if (currentItem.mediaType == MediaType.TV) currentItem.status?.takeIf { it.isNotBlank() }
+                        else null
                     }
                     val rating = currentItem.imdbRating.ifEmpty { currentItem.tmdbRating }
                     val ratingValue = parseRatingValue(rating)
                     val hasRatingMetadata = ratingValue > 0f
-                    val hasBudgetMetadata = showBudget && !budgetText.isNullOrBlank()
+                    val hasStatusMetadata = showBudget && !seriesStatusText.isNullOrBlank()
                     val hasSecondaryMetadata = primaryNetworkLogo != null ||
                         hasRatingMetadata ||
-                        hasBudgetMetadata
+                        hasStatusMetadata
 
                     Column(
                         modifier = Modifier.width(heroTextWidth),
@@ -1636,7 +1634,7 @@ private fun HeroSection(
                                             .width(58.dp)
                                     )
 
-                                    if (hasRatingMetadata || hasBudgetMetadata) {
+                                    if (hasRatingMetadata || hasStatusMetadata) {
                                         Text(
                                             text = "|",
                                             style = ArflixTypography.caption.copy(
@@ -1658,7 +1656,7 @@ private fun HeroSection(
                                         textShadow = textShadow
                                     )
 
-                                    if (hasBudgetMetadata) {
+                                    if (hasStatusMetadata) {
                                         Text(
                                             text = "|",
                                             style = ArflixTypography.caption.copy(
@@ -1670,9 +1668,9 @@ private fun HeroSection(
                                     }
                                 }
 
-                                if (hasBudgetMetadata) {
+                                if (hasStatusMetadata) {
                                     Text(
-                                        text = "Budget $budgetText",
+                                        text = seriesStatusText!!,
                                         style = ArflixTypography.caption.copy(
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
@@ -2558,7 +2556,11 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
-                        if (focusState.isSidebarFocused) {
+                        if (event.nativeKeyEvent.repeatCount >= 1 && !focusState.isSidebarFocused) {
+                            focusState.isSidebarFocused = true
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
+                        } else if (focusState.isSidebarFocused) {
                             true
                         } else if (focusState.currentRowIndex > 0) {
                             // Save current item position before leaving this row

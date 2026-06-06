@@ -55,10 +55,7 @@ import coil.compose.AsyncImage
 import com.arflix.tv.data.repository.EpiseerrPendingItem
 import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.EpiseerrRule
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.ArvioTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -66,10 +63,18 @@ fun RulePickerScreen(
     pendingItem: EpiseerrPendingItem,
     episeerrRepository: EpiseerrRepository,
     syncServerUrl: String,
+    episeerrUrl: String = "",
     onDismiss: () -> Unit,
     onRuleAssigned: () -> Unit,
 ) {
     BackHandler { onDismiss() }
+
+    val themeColors = ArvioTheme.colors
+    val accent = themeColors.pink
+    val textPrimary = themeColors.textPrimary
+    val textSecondary = themeColors.textSecondary
+    val bgDark = themeColors.backgroundDark
+    val bgElevated = themeColors.backgroundElevated
 
     var rules by remember { mutableStateOf<List<EpiseerrRule>>(emptyList()) }
     var isLoadingRules by remember { mutableStateOf(true) }
@@ -100,16 +105,24 @@ fun RulePickerScreen(
         }
     }
 
-    if (showWebview && syncServerUrl.isNotBlank()) {
-        val deepUrl = "$syncServerUrl/xadarr"
-        EpiseerrWebviewScreen(url = deepUrl, onBack = { showWebview = false })
+    val webviewTargetUrl = when {
+        episeerrUrl.isNotBlank() -> {
+            val base = episeerrUrl.trimEnd('/')
+            val tmdb = pendingItem.tmdbId?.takeIf { it.isNotBlank() }
+            if (tmdb != null) "$base/series/$tmdb" else base
+        }
+        syncServerUrl.isNotBlank() -> "$syncServerUrl/episeerr"
+        else -> ""
+    }
+    if (showWebview && webviewTargetUrl.isNotBlank()) {
+        EpiseerrWebviewScreen(url = webviewTargetUrl, onBack = { showWebview = false })
         return
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D1117))
+            .background(bgDark)
             .onPreviewKeyEvent { evt ->
                 if (evt.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (evt.key) {
@@ -122,7 +135,7 @@ fun RulePickerScreen(
                     }
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                         when (focusedIndex) {
-                            rules.size -> showWebview = true
+                            rules.size -> if (webviewTargetUrl.isNotBlank()) showWebview = true
                             else -> {
                                 val rule = rules.getOrNull(focusedIndex) ?: return@onPreviewKeyEvent false
                                 if (!isAssigning) {
@@ -153,7 +166,7 @@ fun RulePickerScreen(
             // ── Header ──────────────────────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBack, null, tint = TextSecondary)
+                    Icon(Icons.Default.ArrowBack, null, tint = textSecondary)
                 }
                 Spacer(Modifier.width(12.dp))
                 pendingItem.poster?.let {
@@ -168,8 +181,8 @@ fun RulePickerScreen(
                     Spacer(Modifier.width(16.dp))
                 }
                 Column {
-                    Text(pendingItem.title, color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("Select a rule to start watching", color = TextSecondary, fontSize = 14.sp)
+                    Text(pendingItem.title, color = textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Select a rule to start watching", color = textSecondary, fontSize = 14.sp)
                 }
             }
 
@@ -191,7 +204,7 @@ fun RulePickerScreen(
 
             if (isLoadingRules) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Pink)
+                    CircularProgressIndicator(color = accent)
                 }
             } else {
                 // ── Rules list ──────────────────────────────────────────────
@@ -203,9 +216,9 @@ fun RulePickerScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else BackgroundElevated)
+                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else bgElevated)
                                 .then(
-                                    if (isFocused) Modifier.border(2.dp, Pink, RoundedCornerShape(10.dp))
+                                    if (isFocused) Modifier.border(2.dp, accent, RoundedCornerShape(10.dp))
                                     else Modifier
                                 )
                                 .then(if (idx == 0) Modifier.focusRequester(firstRuleFocusRequester) else Modifier)
@@ -215,13 +228,13 @@ fun RulePickerScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(rule.displayName, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                    Text(rule.displayName, color = textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                                     if (rule.seriesCount > 0) {
-                                        Text("${rule.seriesCount} series", color = TextSecondary, fontSize = 12.sp)
+                                        Text("${rule.seriesCount} series", color = textSecondary, fontSize = 12.sp)
                                     }
                                 }
                                 if (isFocused && isAssigning) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Pink, strokeWidth = 2.dp)
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = accent, strokeWidth = 2.dp)
                                 }
                             }
                         }
@@ -234,18 +247,18 @@ fun RulePickerScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else Color(0xFF1F2937))
+                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else bgElevated)
                                 .then(
-                                    if (isFocused) Modifier.border(2.dp, TextSecondary, RoundedCornerShape(10.dp))
+                                    if (isFocused) Modifier.border(2.dp, textSecondary, RoundedCornerShape(10.dp))
                                     else Modifier
                                 )
                                 .focusable()
                                 .onFocusChanged { if (it.hasFocus) focusedIndex = rules.size }
                                 .padding(horizontal = 20.dp, vertical = 14.dp)
                         ) {
-                            Icon(Icons.Default.OpenInNew, null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.OpenInNew, null, tint = textSecondary, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text("Advanced (open web UI)", color = TextSecondary, fontSize = 14.sp)
+                            Text("Advanced (open web UI)", color = textSecondary, fontSize = 14.sp)
                         }
                     }
                 }
