@@ -1,5 +1,13 @@
 # Xadarr — Claude Code Project Context
 
+## Core Architecture Principle
+
+xadarr-server is the single source of truth for all state — watchlist, catalogue configuration, settings, activity history, API keys. All clients (Android TV app, mobile, web UI) read from and write to xadarr-server. No client owns its own state independently. A change made on any device or surface is immediately reflected everywhere else. The experience is seamless regardless of which device you pick up.
+
+## Web UI Design Principle
+
+The xadarr-server web UI is not an admin panel — it is Xadarr in a browser. It should look and feel identical to the Android TV app: same dark theme, same card and catalogue row layout, same navigation structure (Home, Discover, Watchlist, TV, Cameras). A user switching from the TV to a browser should feel seamless, not like they opened a settings page. The web UI adapts for mouse/touch interaction but mirrors the TV app's visual design and structure exactly.
+
 ## What This Is
 
 Xadarr (package `com.arflix.tv`) is an Android TV media hub — a fork of Arflix. It streams IPTV, Jellyfin, Plex, and Emby sources using ExoPlayer. Built with Kotlin + Jetpack Compose (TV material3), Hilt DI, Coroutines/Flow.
@@ -14,6 +22,11 @@ Joe is the sole developer. He works from a couch using an Android TV remote.
 
 # ADB device
 adb connect 192.168.254.91:5555
+```
+
+**After every successful build, always copy the APK to `/mnt/usbshare/`:**
+```bash
+cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk /mnt/usbshare/xadarr-latest.apk
 ```
 
 ## What We've Added (beyond upstream fork)
@@ -90,6 +103,36 @@ Favorited IPTV channels appear as a dedicated "On Now" row showing current progr
 - **Hero backdrop:** frozen when focused on On Now row — does not update hero background for IPTV items
 - **Logo fallback:** channels without `channel.logo` show a colored background (hash of channel name) + initial letter
 
+### 12. Cameras Screen (Frigate integration)
+Frigate camera grid accessible via top nav Cameras tab. Snapshot thumbnails with LIVE badge. Tap → fullscreen HLS player (no mini-player for cameras). Frigate URL configured in Settings; Cameras tab hidden if not configured.
+
+- **`FrigateRepository.kt`** — fetches camera list from Frigate `/api/config`, builds snapshot and stream URLs
+- **`CamerasScreen.kt`** — grid of camera cards, nav bar stays visible and functional
+- **`CameraPlayerScreen`** — fullscreen ExoPlayer for HLS streams, overlays entire screen including nav bar
+- **Home row** — Cameras catalogue row on Home, same pattern as On Now row
+- Stream URLs route through Frigate's go2rtc HLS endpoint (not raw RTSP) so TV can reach them
+
+### 13. Catalogue Management
+Catalogues have a visibility toggle (eye) instead of delete-only. Each catalogue has a placement setting: **Home** or **Discover**.
+
+### 14. Discover Screen
+Replaces the Watchlist tab in the top nav bar. Renders catalogue rows assigned to Discover placement, same format as Home. Watchlist is now a standard catalogue row assignable to Home or Discover.
+
+### 15. Episeerr Integration
+Full integration with Episeerr for media management awareness on the TV.
+
+- **`EpiseerrRepository.kt`** — `getPendingItems()`, `getRules()`, `assignRule()`, `getRecentEpiseerrEvents()`
+- **`EpiseerrPollManager`** — singleton, 60s polling loop, exposes `pendingTmdbIds: StateFlow` and `toastEvents: SharedFlow`
+- **Toast notifications** — `EpiseerrActivityToast` overlay in `ArflixApp`, slides in from top, auto-dismisses 4s, colour-coded by event type. Shows anywhere in app, not just during playback. Events: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`
+- **Watchlist pending badge** — `LocalEpiseerrPendingIds` CompositionLocal; `isPending` param on `MediaCard` shows amber stripe + ring border for items awaiting rule selection in Episeerr
+- **Rule picker** — `RulePickerScreen` full-screen D-pad composable with poster, rules list, assign + Advanced (webview to Episeerr) buttons; tapping a pending watchlist card opens it; `RulePickerViewModel` for Hilt injection
+- **Server catalogue rule badge** — JF/Plex/Emby catalogue row cards show assigned Episeerr rule name as small badge
+- **Webview** — `EpiseerrWebviewScreen` full-screen overlay with back button, used for deep links into Episeerr
+- Episeerr URL configured in Settings (`EPISEERR_URL_KEY`); all integration silently disabled if not set
+
+### 16. Theme System
+Multiple selectable themes persisted in DataStore, applied on app start without restart. All composables use `MaterialTheme.colorScheme.*` tokens — no hardcoded colors. Themes: **Midnight** (default, navy/blue), **Owl** (warm dark, amber/gold), **Black & Gold** (pure black, rich gold), **Neon** (pure black, electric cyan/green).
+
 ## Key Files
 
 | File | Purpose |
@@ -108,6 +151,13 @@ Favorited IPTV channels appear as a dedicated "On Now" row showing current progr
 | `ui/screens/tv/live/LiveTvPlayerViewModel.kt` | Activity-scoped IPTV player for mini-player |
 | `ui/screens/tv/live/LiveTvMiniPlayerOverlay.kt` | Floating PiP tile shown on non-TV screens |
 | `ui/components/AppTopBar.kt` | Top nav bar — accent-color animated focus border on all focused items |
+| `data/repository/FrigateRepository.kt` | Fetches camera list and builds stream/snapshot URLs |
+| `ui/screens/cameras/CamerasScreen.kt` | Camera grid with nav bar, snapshot cards |
+| `ui/screens/cameras/CameraPlayerScreen.kt` | Fullscreen HLS camera player |
+| `data/repository/EpiseerrRepository.kt` | Episeerr API calls — pending, rules, assign |
+| `data/repository/EpiseerrPollManager.kt` | 60s poll loop, toast events, pending state |
+| `ui/screens/episeerr/RulePickerScreen.kt` | D-pad rule picker for pending watchlist items |
+| `ui/screens/episeerr/EpiseerrWebviewScreen.kt` | Full-screen webview for Episeerr deep links |
 
 ## Settings Navigation Pattern
 
@@ -169,11 +219,13 @@ Episeerr is Joe's own Python/Flask media management app. **Two separate director
 | | episeerr_custom | episeerr_dev |
 |---|---|---|
 | Purpose | **Production running instance** | Upstream source / future releases |
-| Deploy | `docker cp <file> episeerr:/app/<file>` | `./release_dev.sh custom` → Docker Hub |
+| Deploy | `docker cp <file> episeerr:/app/<file>` | `./promote_dev.sh <version>` → Docker Hub |
 | Container | `episeerr` (port 5002) | same image, different build |
 
 **Always edit `episeerr_custom`, deploy via `docker cp` to `episeerr` container.**
-`docker cp` changes survive `docker restart` but NOT container recreate. Run `./release_dev.sh custom` from `episeerr_custom/` to bake into the Docker Hub image.
+`docker cp` changes survive `docker restart` but NOT container recreate. Run `./release_custom.sh <version>` from `episeerr_custom/` to bake into the Docker Hub image.
+
+**Never rebuild the running `episeerr` container from `episeerr_dev`.**
 
 ### Xadarr integration blueprint
 File: `episeerr_custom/integrations/arvio.py`, URL prefix `/api/integration/arvio`.
@@ -189,26 +241,43 @@ Routes:
 
 Watchlist sync was removed from arvio.py in 2.0.20. Trakt handles watchlist natively; arvio.py is webhook-only.
 
+### Episeerr xadarr webhook integration
+File: `episeerr_custom/integrations/xadarr.py`
+
+- `fire_xadarr_webhook()` — background thread helper, derives URL from stored xadarr service URL
+- `/api/integration/xadarr/pending` — returns `episeerr_select` pending items with TMDB poster
+- Fires to Xadarr webhook system on: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`
+- `episeerr_select` tagged series in Sonarr → auto-added to xadarr-server watchlist
+
 ## xadarr-server
 
 Separate container for the sync server web UI (port 7979).
 
 ```
 container_name: xadarr-server
-build:    ~/projects/arvio/sync-server/
+build:    ~/projects/xadarr/xadarr-server/
 data:     /home/joe/config/xadarr-server/data  →  /data/  inside container
 ports:    7979:7979
+compose:  /docker/media/compose
 ```
 
-**Code deploy:** `docker cp ~/projects/arvio/sync-server/<file> xadarr-server:/app/<file> && docker restart xadarr-server`
+**Code deploy:** `docker cp ~/projects/xadarr/xadarr-server/<file> xadarr-server:/app/<file> && docker restart xadarr-server`
+
+**Rebuild:** `cd /docker/media/compose && docker compose build xadarr-server && docker compose up -d xadarr-server`
 
 **Data files** (inside container at `/data/`, host at `/home/joe/config/xadarr-server/data/`):
 - `xadarr_settings.json` — full settings blob from TV app
 - `watchlist.json` — web UI managed watchlist (separate from TV app's watchlist)
-- `server_config.json` — TMDB key and server-level config
+- `server_config.json` — TMDB key, server-level config including Episeerr URL
 - `webhook_log.json`, `history.json`
 
-**Critical:** `/data/` and the source tree `~/projects/arvio/sync-server/` are completely separate. Data files are on the host volume. `docker cp` goes to `/app/` (code), not `/data/` (data).
+**Critical:** `/data/` and the source tree `~/projects/xadarr/xadarr-server/` are completely separate. Data files are on the host volume. `docker cp` goes to `/app/` (code), not `/data/` (data).
+
+### xadarr-server web UI features
+- **Media tab** — Trending and Watchlist with rule badges and pending indicators (amber badge/border for episeerr_select items)
+- **History tab** — activity feed from stored Episeerr webhook events (grabbed, ready, rule triggered, watched, deleted) with timestamps and purple event chips
+- **SSE** — broadcasts Episeerr events to web UI in real time, auto-refreshes pending/rules on incoming events
+- **Episeerr proxy endpoints** — `/api/episeerr/pending`, `/api/episeerr/rules`, `/api/episeerr/assign`
 
 ### Service enable/disable (Episeerr)
 Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters `WHERE enabled = 1`, so:
@@ -219,6 +288,17 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 **Do NOT use `config is not None` as the widget enabled check** — that also hides services with no DB row (env-var configured services like Radarr, Sonos, SABnzbd). Instead query `SELECT enabled FROM services WHERE ...` and only set `widget['enabled'] = False` when `row is not None and not row[0]`.
 
+## Current Version
+
+**v2.2** — Mobile-friendly catalogue management, user API keys, mobile Discover tab, repository rename.
+
+Changes since v2.1:
+- User-configurable TMDB API key, Trakt Client ID/Secret in Settings accounts section (TV + mobile). Runtime key update via `OkHttpProvider.setUserApiKeys()`. Falls back to `BuildConfig` values if unset.
+- `ProgressWebhookRepository.kt` renamed to `WebhookRepository.kt`; class renamed to `WebhookRepository`. All injection sites updated.
+- Mobile bottom bar: Watchlist replaced with Discover (catalogue rows). `AppBottomBar.kt`.
+- Mobile Settings: Frigate URL dialog wired up; API key fields added to "USER INFO & ACCOUNT" section.
+- Mobile catalogue management redesigned as touch-friendly two-row cards: title row (tap=rename, long-press=reorder mode) + 40dp action strip (Wide/Poster layout toggle, Visible/Hidden, Placement cycle, Delete). Built-in Watchlist/CW rows same treatment. `MobileCatalogChip` composable added to `SettingsScreen.kt`.
+
 ## TODO
 
-- **User-configurable API keys in Settings** — Move TMDB API key and Trakt Client ID/Secret from `BuildConfig` (baked into APK, extractable via decompilation) to user-editable settings stored in DataStore. Add fields to the "accounts" section in SettingsScreen. Fall back to `BuildConfig` values if the user hasn't entered their own. This eliminates the key-in-APK exposure for public repo distributions.
+- **Camera stream routing** — TV cannot reach go2rtc at `192.168.254.64`. Streams need to route through Frigate's go2rtc at `192.168.254.205:1984`. Requires exposing port 1984 from the Frigate container and configuring go2rtc to re-stream cameras.

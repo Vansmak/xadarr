@@ -166,6 +166,10 @@ import com.arflix.tv.util.tr
 import com.arflix.tv.util.trUpper
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.toggleCatalogueRowLayoutMode
+import com.arflix.tv.ui.components.CardLayoutMode
+import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
+import androidx.compose.material.icons.filled.CropLandscape
+import androidx.compose.material.icons.filled.CropPortrait
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
@@ -358,6 +362,9 @@ fun SettingsScreen(
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var showFrigateUrlDialog by remember { mutableStateOf(false) }
+    var showTmdbApiKeyDialog by remember { mutableStateOf(false) }
+    var showTraktClientIdDialog by remember { mutableStateOf(false) }
+    var showTraktClientSecretDialog by remember { mutableStateOf(false) }
     var qualityFilterRegexPattern by remember { mutableStateOf("") }
     var showHomeServerInput by remember { mutableStateOf(false) }
     var showPlexHomeServerInput by remember { mutableStateOf(false) }
@@ -393,7 +400,7 @@ fun SettingsScreen(
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
             "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
-            "accounts" -> 5
+            "accounts" -> 8
             else -> 0
         }
     }
@@ -627,6 +634,9 @@ fun SettingsScreen(
         showSyncServerUrlDialog ||
         showEpiseerrUrlDialog ||
         showFrigateUrlDialog ||
+        showTmdbApiKeyDialog ||
+        showTraktClientIdDialog ||
+        showTraktClientSecretDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.traktCode != null ||
@@ -1051,6 +1061,9 @@ fun SettingsScreen(
                                                 3 -> showSyncServerUrlDialog = true
                                                 4 -> showEpiseerrUrlDialog = true
                                                 5 -> viewModel.clearMediaCache()
+                                                6 -> showTmdbApiKeyDialog = true
+                                                7 -> showTraktClientIdDialog = true
+                                                8 -> showTraktClientSecretDialog = true
                                             }
                                         }
                                         else -> Unit
@@ -1108,6 +1121,10 @@ fun SettingsScreen(
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
                 onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
+                onShowFrigateUrlDialog = { showFrigateUrlDialog = true },
+                onShowTmdbApiKeyDialog = { showTmdbApiKeyDialog = true },
+                onShowTraktClientIdDialog = { showTraktClientIdDialog = true },
+                onShowTraktClientSecretDialog = { showTraktClientSecretDialog = true },
             )
         } else {
             AppTopBar(
@@ -1449,6 +1466,12 @@ fun SettingsScreen(
                             onSyncServerUrlClick = { showSyncServerUrlDialog = true },
                             episeerrUrl = uiState.episeerrUrl,
                             onEpiseerrUrlClick = { showEpiseerrUrlDialog = true },
+                            tmdbApiKey = uiState.tmdbApiKey,
+                            onTmdbApiKeyClick = { showTmdbApiKeyDialog = true },
+                            traktClientId = uiState.traktClientId,
+                            onTraktClientIdClick = { showTraktClientIdDialog = true },
+                            traktClientSecret = uiState.traktClientSecret,
+                            onTraktClientSecretClick = { showTraktClientSecretDialog = true },
                         )
                     }
                   }
@@ -1513,6 +1536,43 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (showTmdbApiKeyDialog) {
+            ApiKeyDialog(
+                title = "TMDB API Key",
+                currentValue = uiState.tmdbApiKey,
+                onSave = { key ->
+                    viewModel.saveTmdbApiKey(key)
+                    showTmdbApiKeyDialog = false
+                },
+                onDismiss = { showTmdbApiKeyDialog = false }
+            )
+        }
+
+        if (showTraktClientIdDialog) {
+            ApiKeyDialog(
+                title = "Trakt Client ID",
+                currentValue = uiState.traktClientId,
+                onSave = { id ->
+                    viewModel.saveTraktClientId(id)
+                    showTraktClientIdDialog = false
+                },
+                onDismiss = { showTraktClientIdDialog = false }
+            )
+        }
+
+        if (showTraktClientSecretDialog) {
+            ApiKeyDialog(
+                title = "Trakt Client Secret",
+                currentValue = uiState.traktClientSecret,
+                isPassword = true,
+                onSave = { secret ->
+                    viewModel.saveTraktClientSecret(secret)
+                    showTraktClientSecretDialog = false
+                },
+                onDismiss = { showTraktClientSecretDialog = false }
             )
         }
 
@@ -1946,6 +2006,54 @@ fun SettingsScreen(
                     showEpiseerrUrlDialog = false
                 },
                 onDismiss = { showEpiseerrUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showFrigateUrlDialog) {
+            FrigateUrlDialog(
+                currentValue = uiState.frigateUrl,
+                onSave = { url ->
+                    viewModel.saveFrigateUrl(url)
+                    showFrigateUrlDialog = false
+                },
+                onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showTmdbApiKeyDialog) {
+            ApiKeyDialog(
+                title = "TMDB API Key",
+                currentValue = uiState.tmdbApiKey,
+                onSave = { key ->
+                    viewModel.saveTmdbApiKey(key)
+                    showTmdbApiKeyDialog = false
+                },
+                onDismiss = { showTmdbApiKeyDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showTraktClientIdDialog) {
+            ApiKeyDialog(
+                title = "Trakt Client ID",
+                currentValue = uiState.traktClientId,
+                onSave = { id ->
+                    viewModel.saveTraktClientId(id)
+                    showTraktClientIdDialog = false
+                },
+                onDismiss = { showTraktClientIdDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showTraktClientSecretDialog) {
+            ApiKeyDialog(
+                title = "Trakt Client Secret",
+                currentValue = uiState.traktClientSecret,
+                isPassword = true,
+                onSave = { secret ->
+                    viewModel.saveTraktClientSecret(secret)
+                    showTraktClientSecretDialog = false
+                },
+                onDismiss = { showTraktClientSecretDialog = false }
             )
         }
 
@@ -3218,6 +3326,10 @@ private fun MobileSettingsLayout(
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
+    onShowFrigateUrlDialog: () -> Unit = {},
+    onShowTmdbApiKeyDialog: () -> Unit = {},
+    onShowTraktClientIdDialog: () -> Unit = {},
+    onShowTraktClientSecretDialog: () -> Unit = {},
 ) {
     BackHandler(enabled = page != "MAIN") {
         onNavigate("MAIN")
@@ -3261,6 +3373,9 @@ private fun MobileSettingsLayout(
                 onSwitchProfile = onSwitchProfile,
                 onShowSyncServerUrlDialog = onShowSyncServerUrlDialog,
                 onShowEpiseerrUrlDialog = onShowEpiseerrUrlDialog,
+                onShowTmdbApiKeyDialog = onShowTmdbApiKeyDialog,
+                onShowTraktClientIdDialog = onShowTraktClientIdDialog,
+                onShowTraktClientSecretDialog = onShowTraktClientSecretDialog,
             )
         } else {
             Row(
@@ -3303,7 +3418,8 @@ private fun MobileSettingsLayout(
                 openCustomUserAgentDialog = openCustomUserAgentDialog,
                 onShowWebhookUrlDialog = onShowWebhookUrlDialog,
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
-                onShowWebhookCompletionDialog = onShowWebhookCompletionDialog
+                onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
+                onShowFrigateUrlDialog = onShowFrigateUrlDialog,
             )
         }
     }
@@ -3321,6 +3437,9 @@ private fun MobileSettingsMainPage(
     onSwitchProfile: () -> Unit,
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
+    onShowTmdbApiKeyDialog: () -> Unit = {},
+    onShowTraktClientIdDialog: () -> Unit = {},
+    onShowTraktClientSecretDialog: () -> Unit = {},
 ) {
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -3442,6 +3561,30 @@ private fun MobileSettingsMainPage(
                     onClick = onShowEpiseerrUrlDialog
                 )
                 MobileSettingsRow(
+                    icon = Icons.Default.VpnKey,
+                    title = "TMDB API Key",
+                    subtitle = "Can also be set via the xadarr-server web UI",
+                    value = if (uiState.tmdbApiKey.isBlank()) "Not set" else "Set",
+                    isFocused = false,
+                    onClick = onShowTmdbApiKeyDialog
+                )
+                MobileSettingsRow(
+                    icon = Icons.Default.VpnKey,
+                    title = "Trakt Client ID",
+                    subtitle = "Can also be set via the xadarr-server web UI",
+                    value = if (uiState.traktClientId.isBlank()) "Not set" else "Set",
+                    isFocused = false,
+                    onClick = onShowTraktClientIdDialog
+                )
+                MobileSettingsRow(
+                    icon = Icons.Default.VpnKey,
+                    title = "Trakt Client Secret",
+                    subtitle = "Can also be set via the xadarr-server web UI",
+                    value = if (uiState.traktClientSecret.isBlank()) "Not set" else "Set",
+                    isFocused = false,
+                    onClick = onShowTraktClientSecretDialog
+                )
+                MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
                     title = stringResource(R.string.app_version),
                     subtitle = "V${BuildConfig.VERSION_NAME}",
@@ -3474,7 +3617,8 @@ private fun MobileSettingsSubPage(
     openCustomUserAgentDialog: () -> Unit = {},
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
-    onShowWebhookCompletionDialog: () -> Unit = {}
+    onShowWebhookCompletionDialog: () -> Unit = {},
+    onShowFrigateUrlDialog: () -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -3712,7 +3856,9 @@ private fun MobileSettingsSubPage(
                     onCycleInterval = { viewModel.cycleWebhookInterval() },
                     onToggleWatchlistApi = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
                     onWatchlistPortClick = onShowWatchlistApiPortDialog,
-                    onCompletionPercentClick = onShowWebhookCompletionDialog
+                    onCompletionPercentClick = onShowWebhookCompletionDialog,
+                    frigateUrl = uiState.frigateUrl,
+                    onFrigateUrlClick = onShowFrigateUrlDialog,
                 )
             }
             "Catalogs" -> {
@@ -6703,68 +6849,142 @@ private fun CatalogsSettings(
         // ── Watchlist row (built-in, placement only) ──────────────────────────
         run {
             val isRowFocused = focusedIndex == 1
-            Row(
-                modifier = Modifier
-                    .settingsFocusSlot(1)
-                    .fillMaxWidth()
-                    .background(
-                        if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
-                        RoundedCornerShape(12.dp)
+            if (isMobile) {
+                Column(
+                    modifier = Modifier
+                        .settingsFocusSlot(1)
+                        .fillMaxWidth()
+                        .background(
+                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "My Watchlist",
+                                style = ArflixTypography.body,
+                                color = if (isRowFocused) TextPrimary else TextSecondary,
+                                maxLines = 1,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Built-in · position $watchlistSortOrder",
+                                style = ArflixTypography.caption,
+                                color = TextSecondary.copy(alpha = 0.7f),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        MobileCatalogChip(
+                            icon = Icons.Default.ArrowUpward,
+                            label = "Up",
+                            enabled = watchlistSortOrder > 0,
+                            onClick = onMoveWatchlistUp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = when (watchlistPlacement) {
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                                else -> Icons.Outlined.Home
+                            },
+                            label = watchlistPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                            onClick = {
+                                val next = when (watchlistPlacement) {
+                                    com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                                }
+                                onSetWatchlistPlacement(next)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = Icons.Default.ArrowDownward,
+                            label = "Down",
+                            onClick = onMoveWatchlistDown,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = if (!isWatchlistHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            label = if (!isWatchlistHidden) "Visible" else "Hidden",
+                            onClick = { onSetWatchlistHidden(!isWatchlistHidden) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .settingsFocusSlot(1)
+                        .fillMaxWidth()
+                        .background(
+                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "My Watchlist",
+                            style = ArflixTypography.body,
+                            color = if (isRowFocused) TextPrimary else TextSecondary,
+                            maxLines = 1,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Built-in · position $watchlistSortOrder",
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.7f),
+                            maxLines = 1,
+                        )
+                    }
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowUpward,
+                        isFocused = isRowFocused && focusedActionIndex == 0,
+                        enabled = watchlistSortOrder > 0,
+                        onClick = onMoveWatchlistUp
                     )
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "My Watchlist",
-                        style = ArflixTypography.body,
-                        color = if (isRowFocused) TextPrimary else TextSecondary,
-                        maxLines = 1,
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = when (watchlistPlacement) {
+                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                            else -> Icons.Outlined.Home
+                        },
+                        label = watchlistPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                        isFocused = isRowFocused && focusedActionIndex == 1,
+                        onClick = {
+                            val next = when (watchlistPlacement) {
+                                com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                            }
+                            onSetWatchlistPlacement(next)
+                        }
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Built-in · position $watchlistSortOrder",
-                        style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.7f),
-                        maxLines = 1,
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowDownward,
+                        isFocused = isRowFocused && focusedActionIndex == 2,
+                        onClick = onMoveWatchlistDown
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = if (!isWatchlistHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        isFocused = isRowFocused && focusedActionIndex == 3,
+                        onClick = { onSetWatchlistHidden(!isWatchlistHidden) }
                     )
                 }
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowUpward,
-                    isFocused = isRowFocused && focusedActionIndex == 0,
-                    enabled = watchlistSortOrder > 0,
-                    onClick = onMoveWatchlistUp
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = when (watchlistPlacement) {
-                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
-                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
-                        else -> Icons.Outlined.Home
-                    },
-                    label = watchlistPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
-                    isFocused = isRowFocused && focusedActionIndex == 1,
-                    onClick = {
-                        val next = when (watchlistPlacement) {
-                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
-                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
-                        }
-                        onSetWatchlistPlacement(next)
-                    }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowDownward,
-                    isFocused = isRowFocused && focusedActionIndex == 2,
-                    onClick = onMoveWatchlistDown
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = if (!isWatchlistHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                    isFocused = isRowFocused && focusedActionIndex == 3,
-                    onClick = { onSetWatchlistHidden(!isWatchlistHidden) }
-                )
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
@@ -6772,68 +6992,142 @@ private fun CatalogsSettings(
         // ── Continue Watching row (built-in, position + placement + visibility) ──
         run {
             val isRowFocused = focusedIndex == 2
-            Row(
-                modifier = Modifier
-                    .settingsFocusSlot(2)
-                    .fillMaxWidth()
-                    .background(
-                        if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
-                        RoundedCornerShape(12.dp)
+            if (isMobile) {
+                Column(
+                    modifier = Modifier
+                        .settingsFocusSlot(2)
+                        .fillMaxWidth()
+                        .background(
+                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Continue Watching",
+                                style = ArflixTypography.body,
+                                color = if (isRowFocused) TextPrimary else TextSecondary,
+                                maxLines = 1,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Built-in · position $cwSortOrder",
+                                style = ArflixTypography.caption,
+                                color = TextSecondary.copy(alpha = 0.7f),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        MobileCatalogChip(
+                            icon = Icons.Default.ArrowUpward,
+                            label = "Up",
+                            enabled = cwSortOrder > 0,
+                            onClick = onMoveCwUp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = when (cwPlacement) {
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                                else -> Icons.Outlined.Home
+                            },
+                            label = cwPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                            onClick = {
+                                val next = when (cwPlacement) {
+                                    com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                                }
+                                onSetCwPlacement(next)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = Icons.Default.ArrowDownward,
+                            label = "Down",
+                            onClick = onMoveCwDown,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MobileCatalogChip(
+                            icon = if (!isCwHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            label = if (!isCwHidden) "Visible" else "Hidden",
+                            onClick = { onSetCwHidden(!isCwHidden) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .settingsFocusSlot(2)
+                        .fillMaxWidth()
+                        .background(
+                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Continue Watching",
+                            style = ArflixTypography.body,
+                            color = if (isRowFocused) TextPrimary else TextSecondary,
+                            maxLines = 1,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Built-in · position $cwSortOrder",
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.7f),
+                            maxLines = 1,
+                        )
+                    }
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowUpward,
+                        isFocused = isRowFocused && focusedActionIndex == 0,
+                        enabled = cwSortOrder > 0,
+                        onClick = onMoveCwUp
                     )
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Continue Watching",
-                        style = ArflixTypography.body,
-                        color = if (isRowFocused) TextPrimary else TextSecondary,
-                        maxLines = 1,
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = when (cwPlacement) {
+                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                            else -> Icons.Outlined.Home
+                        },
+                        label = cwPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
+                        isFocused = isRowFocused && focusedActionIndex == 1,
+                        onClick = {
+                            val next = when (cwPlacement) {
+                                com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
+                            }
+                            onSetCwPlacement(next)
+                        }
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Built-in · position $cwSortOrder",
-                        style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.7f),
-                        maxLines = 1,
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = Icons.Default.ArrowDownward,
+                        isFocused = isRowFocused && focusedActionIndex == 2,
+                        onClick = onMoveCwDown
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CatalogActionChip(
+                        icon = if (!isCwHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        isFocused = isRowFocused && focusedActionIndex == 3,
+                        onClick = { onSetCwHidden(!isCwHidden) }
                     )
                 }
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowUpward,
-                    isFocused = isRowFocused && focusedActionIndex == 0,
-                    enabled = cwSortOrder > 0,
-                    onClick = onMoveCwUp
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = when (cwPlacement) {
-                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
-                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
-                        else -> Icons.Outlined.Home
-                    },
-                    label = cwPlacement.name.lowercase().replaceFirstChar { it.uppercase() },
-                    isFocused = isRowFocused && focusedActionIndex == 1,
-                    onClick = {
-                        val next = when (cwPlacement) {
-                            com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
-                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> com.arflix.tv.data.model.CatalogPlacement.HOME
-                        }
-                        onSetCwPlacement(next)
-                    }
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = Icons.Default.ArrowDownward,
-                    isFocused = isRowFocused && focusedActionIndex == 2,
-                    onClick = onMoveCwDown
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CatalogActionChip(
-                    icon = if (!isCwHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                    isFocused = isRowFocused && focusedActionIndex == 3,
-                    onClick = { onSetCwHidden(!isCwHidden) }
-                )
             }
             Spacer(modifier = Modifier.height(10.dp))
         }
@@ -6871,19 +7165,27 @@ private fun CatalogsSettings(
             val isSelected = selectedIds.contains(catalog.id)
             val layoutToggleEnabled = catalog.kind != CatalogKind.COLLECTION_RAIL
             val layoutRowKey = remember(catalog.id, catalog.kind) { catalogueLayoutRowKey(catalog) }
-            Row(
-                modifier = Modifier
-                    .settingsFocusSlot(rowFocusIndex)
-                    .fillMaxWidth()
-                    .background(
-                        if (isSelected) Pink.copy(alpha = 0.2f)
-                        else if (isRowFocused) Color.White.copy(alpha = 0.08f) 
-                        else Color.Transparent,
-                        RoundedCornerShape(12.dp)
-                    )
-                    .then(
-                        if (isMobile) {
-                            Modifier.combinedClickable(
+            if (isMobile) {
+                val scope = rememberCoroutineScope()
+                val context = LocalContext.current
+                val layoutMode = rememberCatalogueRowLayoutMode(layoutRowKey)
+                val placement = catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME
+                val placementLabel = placement.name.lowercase().replaceFirstChar { it.uppercase() }
+                Column(
+                    modifier = Modifier
+                        .settingsFocusSlot(rowFocusIndex)
+                        .fillMaxWidth()
+                        .background(
+                            if (isSelected) Pink.copy(alpha = 0.2f)
+                            else if (isRowFocused) Color.White.copy(alpha = 0.08f)
+                            else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
                                 onClick = {
                                     if (selectionMode) {
                                         selectedIds = if (isSelected) selectedIds - catalog.id else selectedIds + catalog.id
@@ -6899,76 +7201,143 @@ private fun CatalogsSettings(
                                     }
                                 }
                             )
-                        } else {
-                            Modifier.clickable { onRenameCatalog(catalog) }
+                            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = if (!selectionMode) 4.dp else 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (selectionMode) {
+                            Icon(
+                                imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = if (isSelected) Pink else TextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
                         }
-                    )
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isMobile && selectionMode) {
-                    Icon(
-                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = null,
-                        tint = if (isSelected) Pink else TextSecondary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = ArflixTypography.body,
-                        color = if (isRowFocused || isSelected) TextPrimary else TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = subtitle,
-                        style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                if (isMobile) {
-                    if (!selectionMode) {
-                        CatalogueRowLayoutToggleButton(
-                            rowKey = layoutRowKey,
-                            enabled = layoutToggleEnabled
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    if (selectionMode && selectedIds.size == 1 && isSelected) {
-                        Icon(
-                            imageVector = Icons.Default.DragHandle,
-                            contentDescription = "Drag to reorder",
-                            tint = TextSecondary,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .pointerInput(catalog.id) {
-                                    var dragOffset = 0f
-                                    val itemHeight = 64.dp.toPx()
-                                    detectVerticalDragGestures(
-                                        onDragEnd = { dragOffset = 0f },
-                                        onDragCancel = { dragOffset = 0f }
-                                    ) { change, dragAmount ->
-                                        change.consume()
-                                        dragOffset += dragAmount
-                                        if (dragOffset > itemHeight) {
-                                            onMoveCatalogDown(catalog)
-                                            dragOffset -= itemHeight
-                                        } else if (dragOffset < -itemHeight) {
-                                            onMoveCatalogUp(catalog)
-                                            dragOffset += itemHeight
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title,
+                                style = ArflixTypography.body,
+                                color = if (isRowFocused || isSelected) TextPrimary else TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = subtitle,
+                                style = ArflixTypography.caption,
+                                color = TextSecondary.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (selectionMode && selectedIds.size == 1 && isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.DragHandle,
+                                contentDescription = "Drag to reorder",
+                                tint = TextSecondary,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .pointerInput(catalog.id) {
+                                        var dragOffset = 0f
+                                        val itemHeight = 64.dp.toPx()
+                                        detectVerticalDragGestures(
+                                            onDragEnd = { dragOffset = 0f },
+                                            onDragCancel = { dragOffset = 0f }
+                                        ) { change, dragAmount ->
+                                            change.consume()
+                                            dragOffset += dragAmount
+                                            if (dragOffset > itemHeight) {
+                                                onMoveCatalogDown(catalog)
+                                                dragOffset -= itemHeight
+                                            } else if (dragOffset < -itemHeight) {
+                                                onMoveCatalogUp(catalog)
+                                                dragOffset += itemHeight
+                                            }
                                         }
                                     }
-                                }
+                            )
+                        }
+                    }
+                    if (!selectionMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (layoutToggleEnabled) {
+                                MobileCatalogChip(
+                                    icon = if (layoutMode == CardLayoutMode.POSTER) Icons.Default.CropPortrait else Icons.Default.CropLandscape,
+                                    label = if (layoutMode == CardLayoutMode.POSTER) "Poster" else "Wide",
+                                    onClick = { scope.launch { toggleCatalogueRowLayoutMode(context, layoutRowKey) } },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            MobileCatalogChip(
+                                icon = if (!catalog.isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                label = if (!catalog.isHidden) "Visible" else "Hidden",
+                                onClick = { onToggleVisibility(catalog) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MobileCatalogChip(
+                                icon = when (placement) {
+                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
+                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
+                                    else -> Icons.Outlined.Home
+                                },
+                                label = placementLabel,
+                                onClick = {
+                                    val next = when (placement) {
+                                        com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
+                                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
+                                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
+                                    }
+                                    onSetPlacement(catalog, next)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MobileCatalogChip(
+                                icon = Icons.Default.Delete,
+                                label = "Delete",
+                                isDestructive = true,
+                                onClick = { onDeleteCatalog(catalog) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .settingsFocusSlot(rowFocusIndex)
+                        .fillMaxWidth()
+                        .background(
+                            if (isSelected) Pink.copy(alpha = 0.2f)
+                            else if (isRowFocused) Color.White.copy(alpha = 0.08f)
+                            else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
+                        .clickable { onRenameCatalog(catalog) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            style = ArflixTypography.body,
+                            color = if (isRowFocused || isSelected) TextPrimary else TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = subtitle,
+                            style = ArflixTypography.caption,
+                            color = TextSecondary.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                } else {
                     val isApps = catalog.id == "installed_apps"
                     val isRail = catalog.kind == com.arflix.tv.data.model.CatalogKind.COLLECTION_RAIL
                     val hasExtraChip = isApps || isRail
@@ -7017,14 +7386,12 @@ private fun CatalogsSettings(
                         forceFocused = isRowFocused && focusedActionIndex == layoutIdx
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    // Eye toggle: hidden catalogs are preserved but not shown on any screen
                     CatalogActionChip(
                         icon = if (!catalog.isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                         isFocused = isRowFocused && focusedActionIndex == eyeIdx,
                         onClick = { onToggleVisibility(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    // Placement toggle: Home → Discover → Search → Home
                     val placementLabel = (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME)
                         .name.lowercase().replaceFirstChar { it.uppercase() }
                     CatalogActionChip(
@@ -7328,6 +7695,41 @@ private fun ManageServicesModal(
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MobileCatalogChip(
+    icon: ImageVector,
+    label: String? = null,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    isDestructive: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val bgColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f)
+    val borderColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f)
+    val contentColor = when {
+        !enabled -> TextSecondary.copy(alpha = 0.3f)
+        isDestructive -> Color(0xFFFF6B6B)
+        else -> TextSecondary
+    }
+    Row(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(imageVector = icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(16.dp))
+        if (label != null) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(text = label, style = ArflixTypography.caption, color = contentColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 @Composable
 private fun CatalogActionChip(
     icon: ImageVector,
@@ -7810,6 +8212,12 @@ private fun AccountsSettings(
     onSyncServerUrlClick: () -> Unit = {},
     episeerrUrl: String = "",
     onEpiseerrUrlClick: () -> Unit = {},
+    tmdbApiKey: String = "",
+    onTmdbApiKeyClick: () -> Unit = {},
+    traktClientId: String = "",
+    onTraktClientIdClick: () -> Unit = {},
+    traktClientSecret: String = "",
+    onTraktClientSecretClick: () -> Unit = {},
 ) {
     Column {
         Text(
@@ -7910,6 +8318,42 @@ private fun AccountsSettings(
             isFocused = focusedIndex == 5,
             onClick = onClearCache,
             modifier = Modifier.settingsFocusSlot(5)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
+            icon = Icons.Default.VpnKey,
+            title = "TMDB API Key",
+            subtitle = "Can also be set via the xadarr-server web UI",
+            value = if (tmdbApiKey.isBlank()) "Not set" else "Set",
+            isFocused = focusedIndex == 6,
+            onClick = onTmdbApiKeyClick,
+            modifier = Modifier.settingsFocusSlot(6)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
+            icon = Icons.Default.VpnKey,
+            title = "Trakt Client ID",
+            subtitle = "Can also be set via the xadarr-server web UI",
+            value = if (traktClientId.isBlank()) "Not set" else "Set",
+            isFocused = focusedIndex == 7,
+            onClick = onTraktClientIdClick,
+            modifier = Modifier.settingsFocusSlot(7)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
+            icon = Icons.Default.VpnKey,
+            title = "Trakt Client Secret",
+            subtitle = "Can also be set via the xadarr-server web UI",
+            value = if (traktClientSecret.isBlank()) "Not set" else "Set",
+            isFocused = focusedIndex == 8,
+            onClick = onTraktClientSecretClick,
+            modifier = Modifier.settingsFocusSlot(8)
         )
 
     }
@@ -9857,6 +10301,114 @@ private fun EpiseerrUrlDialog(
                     onValueChange = { value = it },
                     placeholder = { Text("http://192.168.1.x:5002", color = TextSecondary.copy(alpha = 0.4f)) },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f)
+                    )
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val cancelFocus = remember { FocusRequester() }
+                    val saveFocus = remember { FocusRequester() }
+                    Surface(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).focusRequester(cancelFocus).pointerInput(Unit) {
+                            detectTapGestures(onTap = { onDismiss() })
+                        },
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = BackgroundElevated,
+                            focusedContainerColor = BackgroundElevated.copy(alpha = 0.8f)
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                        border = ClickableSurfaceDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.3f))
+                            )
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.cancel),
+                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = TextSecondary
+                        )
+                    }
+                    Surface(
+                        onClick = { onSave(value) },
+                        modifier = Modifier.weight(1f).focusRequester(saveFocus).pointerInput(Unit) {
+                            detectTapGestures(onTap = { onSave(value) })
+                        },
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Pink.copy(alpha = 0.15f),
+                            focusedContainerColor = Pink.copy(alpha = 0.25f)
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                        border = ClickableSurfaceDefaults.border(
+                            border = androidx.tv.material3.Border(
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Pink.copy(alpha = 0.4f))
+                            )
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.save),
+                            modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = Pink
+                        )
+                    }
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(150)
+                        inputFocusRequester.requestFocus()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApiKeyDialog(
+    title: String,
+    currentValue: String,
+    isPassword: Boolean = false,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMobile = LocalDeviceType.current.isTouchDevice()
+    var value by remember(currentValue) { mutableStateOf(currentValue) }
+    val inputFocusRequester = remember { FocusRequester() }
+    BackHandler { onDismiss() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        inputFocusRequester.requestFocus()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .then(
+                    if (isMobile) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    else Modifier.width(520.dp)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text(text = title, style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Can also be set via the xadarr-server web UI",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    singleLine = true,
+                    visualTransformation = if (isPassword) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,

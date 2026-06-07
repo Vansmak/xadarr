@@ -83,7 +83,7 @@ fun serializeWebhookUrlConfigs(configs: List<WebhookUrlConfig>): String {
 }
 
 @Singleton
-class ProgressWebhookRepository @Inject constructor(
+class WebhookRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient
 ) {

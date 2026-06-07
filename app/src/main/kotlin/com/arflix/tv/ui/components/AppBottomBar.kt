@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
@@ -61,7 +61,7 @@ data class BottomBarItem(
 val bottomBarItems = listOf(
     BottomBarItem(R.string.home, Icons.Default.Home, "home"),
     BottomBarItem(R.string.search, Icons.Default.Search, "search"),
-    BottomBarItem(R.string.watchlist, Icons.Default.Bookmark, "watchlist"),
+    BottomBarItem(R.string.discover, Icons.Default.Explore, "discover"),
     BottomBarItem(R.string.topbar_tv, Icons.Default.LiveTv, "tv"),
     BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")

@@ -199,6 +199,9 @@ data class SettingsUiState(
     val syncServerUrl: String = "",
     val episeerrUrl: String = "",
     val frigateUrl: String = "",
+    val tmdbApiKey: String = "",
+    val traktClientId: String = "",
+    val traktClientSecret: String = "",
     val pinnedApps: List<String> = emptyList(),
 )
 
@@ -467,6 +470,9 @@ class SettingsViewModel @Inject constructor(
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
+            val tmdbApiKey = prefs[com.arflix.tv.data.repository.USER_TMDB_API_KEY].orEmpty()
+            val traktClientId = prefs[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_ID].orEmpty()
+            val traktClientSecret = prefs[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_SECRET].orEmpty()
             val watchlistPlacement = prefs[watchlistPlacementKey]
                 ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
                 ?: com.arflix.tv.data.model.CatalogPlacement.HOME
@@ -554,6 +560,9 @@ class SettingsViewModel @Inject constructor(
                 syncServerUrl = syncServerUrl,
                 episeerrUrl = episeerrUrl,
                 frigateUrl = frigateUrl,
+                tmdbApiKey = tmdbApiKey,
+                traktClientId = traktClientId,
+                traktClientSecret = traktClientSecret,
                 watchlistPlacement = watchlistPlacement,
                 watchlistSortOrder = watchlistSortOrder,
                 isWatchlistHidden = isWatchlistHidden,
@@ -1272,6 +1281,33 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.FRIGATE_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(frigateUrl = url.trim())
+        }
+    }
+
+    fun saveTmdbApiKey(key: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.USER_TMDB_API_KEY] = key.trim() }
+            val updated = _uiState.value.copy(tmdbApiKey = key.trim())
+            _uiState.value = updated
+            OkHttpProvider.setUserApiKeys(key.trim(), updated.traktClientId, updated.traktClientSecret)
+        }
+    }
+
+    fun saveTraktClientId(id: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_ID] = id.trim() }
+            val updated = _uiState.value.copy(traktClientId = id.trim())
+            _uiState.value = updated
+            OkHttpProvider.setUserApiKeys(updated.tmdbApiKey, id.trim(), updated.traktClientSecret)
+        }
+    }
+
+    fun saveTraktClientSecret(secret: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_SECRET] = secret.trim() }
+            val updated = _uiState.value.copy(traktClientSecret = secret.trim())
+            _uiState.value = updated
+            OkHttpProvider.setUserApiKeys(updated.tmdbApiKey, updated.traktClientId, secret.trim())
         }
     }
 

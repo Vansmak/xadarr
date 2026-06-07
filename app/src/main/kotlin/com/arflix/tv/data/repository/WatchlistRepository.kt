@@ -56,7 +56,7 @@ class WatchlistRepository @Inject constructor(
     private val profileManager: ProfileManager,
     private val tmdbApi: TmdbApi,
     private val invalidationBus: CloudSyncInvalidationBus,
-    private val progressWebhookRepository: ProgressWebhookRepository,
+    private val progressWebhookRepository: WebhookRepository,
     private val okHttpClient: OkHttpClient,
 ) {
     private val gson = Gson()

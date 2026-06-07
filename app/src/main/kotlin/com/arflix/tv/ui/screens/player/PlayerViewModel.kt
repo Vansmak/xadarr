@@ -133,7 +133,7 @@ class PlayerViewModel @Inject constructor(
     private val tmdbApi: TmdbApi,
     private val skipIntroRepository: SkipIntroRepository,
     private val playbackTelemetryRepository: PlaybackTelemetryRepository,
-    private val progressWebhookRepository: com.arflix.tv.data.repository.ProgressWebhookRepository,
+    private val progressWebhookRepository: com.arflix.tv.data.repository.WebhookRepository,
     private val serverSessionRepository: com.arflix.tv.data.repository.ServerSessionRepository,
     private val playerStateHolder: com.arflix.tv.server.PlayerStateHolder,
 ) : ViewModel() {
