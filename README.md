@@ -68,17 +68,45 @@ Configure in **Settings → Plugins & Extensions → Progress Webhook**.
 
 ## Screenshots
 
-| Home | Details |
-|------|---------|
-| ![Home screen](screenshots/home_v190.png) | ![Details screen](screenshots/details_v190.png) |
+### Home & Navigation
 
-| Live TV | Collections |
-|---------|-------------|
-| ![Live TV screen](screenshots/live_tv_v1991.png) | ![Collections screen](screenshots/collections_v1991.png) |
+| Home with On Now row + Cameras | Discover tab |
+|-------------------------------|--------------|
+| ![Home screen with On Now and Cameras rows](screenshots/Screenshot_20260606-191615.png) | ![Discover tab](screenshots/Screenshot_20260606-191702.png) |
 
-| Mobile | Profiles |
-|--------|----------|
-| ![Mobile screen](screenshots/mobile_home.webp) | ![Profiles screen](screenshots/profiles_v1991.png) |
+| Cameras row (Frigate) | Details |
+|-----------------------|---------|
+| ![Cameras row with live feeds](screenshots/Screenshot_20260606-191636.png) | ![Details screen](screenshots/details_v190.png) |
+
+### Live TV
+
+| TV Guide — EPG overlay | TV Guide — category sidebar |
+|------------------------|---------------------------|
+| ![TV guide fullscreen EPG](screenshots/Screenshot_20260606-191737.png) | ![TV guide with category sidebar](screenshots/Screenshot_20260606-191751.png) |
+
+| Live TV mini-player (PiP) | Long-press context menu |
+|--------------------------|------------------------|
+| ![Mini-player PiP tile on home screen](screenshots/Screenshot_20260606-191806.png) | ![Long-press context menu with PiP](screenshots/Screenshot_20260606-192048.png) |
+
+### Settings & Integrations
+
+| Integration settings (webhook) | Catalog management |
+|-------------------------------|-------------------|
+| ![Integration settings showing webhook config](screenshots/Screenshot_20260606-191855.png) | ![Catalog settings with reorder controls](screenshots/Screenshot_20260606-191925.png) |
+
+| Services picker | Interface settings |
+|----------------|--------------------|
+| ![Services picker for home row](screenshots/Screenshot_20260606-191945.png) | ![Interface settings](screenshots/Screenshot_20260606-192012.png) |
+
+| Apps row manager | Collections |
+|-----------------|-------------|
+| ![Apps row manager](screenshots/Screenshot_20260606-191936.png) | ![Collections screen](screenshots/collections_v1991.png) |
+
+### Mobile
+
+| Mobile home | Mobile details |
+|------------|---------------|
+| ![Mobile home screen](screenshots/mobile_home.webp) | ![Mobile details screen](screenshots/mobile_details.webp) |
 
 ## Availability
 
