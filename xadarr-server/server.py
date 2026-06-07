@@ -19,7 +19,7 @@ import threading
 import requests
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context, redirect
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 SETTINGS_FILE      = DATA_DIR / "xadarr_settings.json"
-WATCHLIST_FILE     = DATA_DIR / "watchlist.json"
+WATCHLIST_FILE     = DATA_DIR / "watchlist.json"   # legacy — kept for migration only
 HISTORY_FILE       = DATA_DIR / "history.json"
 WEBHOOK_LOG_FILE   = DATA_DIR / "webhook_log.json"
 SERVER_CONFIG_FILE = DATA_DIR / "server_config.json"
@@ -56,7 +56,6 @@ _player_state: dict = {
     "isLive": False,
 }
 
-# Episeerr-sourced events to store in history and forward to SSE clients
 _EPISEERR_EVENTS = frozenset({
     "episode.grabbed", "episode.ready",
     "rule.triggered", "rule.assigned",
@@ -64,8 +63,7 @@ _EPISEERR_EVENTS = frozenset({
 })
 
 
-def _broadcast_player_state():
-    payload = "data: " + json.dumps(_player_state) + "\n\n"
+def _sse_push(payload: str):
     with _sse_lock:
         dead = []
         for q in _sse_queues:
@@ -75,20 +73,20 @@ def _broadcast_player_state():
                 dead.append(q)
         for q in dead:
             _sse_queues.remove(q)
+
+
+def _broadcast_player_state():
+    _sse_push("data: " + json.dumps(_player_state) + "\n\n")
 
 
 def _broadcast_episeerr_event(entry: dict):
-    """Push an episeerr activity event to all SSE subscribers as a named 'episeerr' event."""
-    payload = "event: episeerr\ndata: " + json.dumps(entry) + "\n\n"
-    with _sse_lock:
-        dead = []
-        for q in _sse_queues:
-            try:
-                q.put_nowait(payload)
-            except queue.Full:
-                dead.append(q)
-        for q in dead:
-            _sse_queues.remove(q)
+    _sse_push("event: episeerr\ndata: " + json.dumps(entry) + "\n\n")
+
+
+def _broadcast_watchlist():
+    blob = _load_json(SETTINGS_FILE, {})
+    count = len(_get_watchlist(blob))
+    _sse_push("event: watchlist\ndata: " + json.dumps({"count": count}) + "\n\n")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,7 +113,12 @@ def _load_server_config() -> dict:
 
 
 def _get_episeerr_url() -> str:
-    return _load_server_config().get("episeerr_url", "").rstrip("/")
+    # Settings blob first (written by TV app), fall back to server_config
+    blob = _load_json(SETTINGS_FILE, {})
+    url = blob.get("episeerr_url", "")
+    if not url:
+        url = _load_server_config().get("episeerr_url", "")
+    return url.rstrip("/")
 
 
 def _append_webhook_log(entry: dict, max_entries: int = 100):
@@ -186,6 +189,106 @@ def _get_addons(blob: dict) -> list:
 def _set_addons(blob: dict, addons: list):
     pid = _active_profile_id(blob)
     blob.setdefault("addonsByProfile", {})[pid] = addons
+
+
+def _get_frigate_url(blob: dict = None) -> str:
+    if blob is None:
+        blob = _load_json(SETTINGS_FILE, {})
+    return blob.get("frigate_url", "").rstrip("/")
+
+
+def _normalize_media_type(mt: str) -> str:
+    if mt.lower() in ("tv", "series", "show"):
+        return "show"
+    return "movie"
+
+
+# ── Watchlist blob helpers ────────────────────────────────────────────────────
+
+def _get_watchlist(blob: dict) -> list:
+    pid = _active_profile_id(blob)
+    return blob.get("watchlistByProfile", {}).get(pid, [])
+
+
+def _set_watchlist(blob: dict, items: list):
+    pid = _active_profile_id(blob)
+    blob.setdefault("watchlistByProfile", {})[pid] = items
+
+
+def _migrate_watchlist_to_blob(blob: dict) -> bool:
+    """One-time migration from watchlist.json → blob. Returns True if migration ran."""
+    if not WATCHLIST_FILE.exists():
+        return False
+    if _get_watchlist(blob):
+        return False  # blob already has data
+    legacy = _load_json(WATCHLIST_FILE, [])
+    if not legacy:
+        return False
+    converted = []
+    for item in legacy:
+        tmdb_id = item.get("id") or item.get("tmdbId")
+        if not tmdb_id:
+            continue
+        converted.append({
+            "tmdbId": int(tmdb_id),
+            "title": item.get("title", ""),
+            "mediaType": _normalize_media_type(item.get("mediaType", "movie")),
+            "posterPath": item.get("posterPath") or item.get("image", ""),
+            "backdropPath": item.get("backdropPath") or item.get("backdropUrl", ""),
+            "addedAt": int(time.time() * 1000),
+            "sourceOrder": 0,
+        })
+    _set_watchlist(blob, converted)
+    return True
+
+
+def _watchlist_to_web(items: list) -> list:
+    """Map blob watchlist format → web UI format."""
+    result = []
+    for item in items:
+        tmdb_id = item.get("tmdbId") or item.get("id")
+        result.append({
+            "id": tmdb_id,
+            "tmdbId": tmdb_id,
+            "title": item.get("title", ""),
+            "mediaType": _normalize_media_type(item.get("mediaType", "movie")),
+            "image": item.get("posterPath", ""),
+            "posterPath": item.get("posterPath", ""),
+            "backdropUrl": item.get("backdropPath", ""),
+            "addedAt": item.get("addedAt"),
+            "inWatchlist": True,
+        })
+    return result
+
+
+# ── Catalogue blob helpers ────────────────────────────────────────────────────
+
+def _get_catalogues(blob: dict) -> list:
+    pid = _active_profile_id(blob)
+    return blob.get("catalogsByProfile", {}).get(pid, [])
+
+
+def _set_catalogues(blob: dict, catalogues: list):
+    pid = _active_profile_id(blob)
+    blob.setdefault("catalogsByProfile", {})[pid] = catalogues
+
+
+# Synthetic catalogue rows managed by the web server (not in the TV blob)
+_SYNTHETIC_CATS = [
+    {"id": "continue_watching", "title": "Continue Watching", "kind": "STANDARD", "sourceType": "PREINSTALLED"},
+    {"id": "watchlist",         "title": "Watchlist",         "kind": "STANDARD", "sourceType": "PREINSTALLED"},
+]
+_SYNTHETIC_IDS = {c["id"] for c in _SYNTHETIC_CATS}
+
+
+def _get_web_row_visibility() -> dict:
+    return _load_server_config().get("web_row_visibility", {})
+
+
+def _save_web_row_visibility(visibility: dict):
+    cfg = _load_server_config()
+    cfg["web_row_visibility"] = visibility
+    _save_json(SERVER_CONFIG_FILE, cfg)
 
 
 # ── Home server auth helpers ──────────────────────────────────────────────────
@@ -274,7 +377,10 @@ def after_request(response):
 @app.route("/<path:path>", methods=["GET"])
 def serve_static(path):
     if path and (WEB_DIR / path).exists():
-        return send_from_directory(str(WEB_DIR), path)
+        resp = send_from_directory(str(WEB_DIR), path)
+        if path.endswith((".js", ".css")):
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
     return send_from_directory(str(WEB_DIR), "index.html")
 
 
@@ -369,28 +475,30 @@ def sync_webhook():
         tmdb_id = event.get("tmdb_id") or event.get("tmdbId")
         title    = event.get("title", "")
         if tmdb_id and title:
-            watchlist = _load_json(WATCHLIST_FILE, [])
-            already   = any(str(w.get("id")) == str(tmdb_id) for w in watchlist)
+            blob = _get_blob()
+            _migrate_watchlist_to_blob(blob)
+            wl = _get_watchlist(blob)
+            already = any(str(w.get("tmdbId") or w.get("id")) == str(tmdb_id) for w in wl)
             if not already:
                 new_item = {
-                    "id":        int(tmdb_id),
-                    "title":     title,
-                    "mediaType": "show",
-                    "inWatchlist": True,
-                    "addedAt":   entry["timestamp"],
-                    "pending":   True,
+                    "tmdbId": int(tmdb_id),
+                    "title": title,
+                    "mediaType": "tv",
+                    "addedAt": int(time.time() * 1000),
+                    "sourceOrder": 0,
+                    "posterPath": "",
+                    "backdropPath": "",
                 }
-                # Fetch poster from TMDB if available
                 tmdb_data = _tmdb_get(f"/tv/{tmdb_id}")
                 if tmdb_data and tmdb_data.get("poster_path"):
                     new_item["posterPath"] = "https://image.tmdb.org/t/p/w342" + tmdb_data["poster_path"]
-                    new_item["image"]      = new_item["posterPath"]
-                if tmdb_data and not new_item.get("overview"):
-                    new_item["overview"] = tmdb_data.get("overview", "")
-                watchlist.insert(0, new_item)
-                _save_json(WATCHLIST_FILE, watchlist)
+                if tmdb_data and tmdb_data.get("backdrop_path"):
+                    new_item["backdropPath"] = "https://image.tmdb.org/t/p/w780" + tmdb_data["backdrop_path"]
+                wl.insert(0, new_item)
+                _set_watchlist(blob, wl)
+                _save_blob(blob)
+                _broadcast_watchlist()
 
-    # Append inbound event to webhook log
     _append_webhook_log({
         "timestamp": entry["timestamp"],
         "event": entry["event"],
@@ -402,7 +510,6 @@ def sync_webhook():
         "direction": "inbound",
     })
 
-    # Update live player state
     global _player_state
     if entry_event in ("start", "progress"):
         _player_state = {
@@ -429,10 +536,12 @@ def sync_webhook():
 @app.route("/api/integration/xadarr/status", methods=["GET"])
 def sync_status():
     cfg = _load_server_config()
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
     return jsonify({
         "server": cfg.get("server_name", "Xadarr Server"),
         "version": "1.0.0",
-        "watchlist_count": len(_load_json(WATCHLIST_FILE, [])),
+        "watchlist_count": len(_get_watchlist(blob)),
         "history_count": len(_load_json(HISTORY_FILE, [])),
         "tmdb_configured": bool(_load_json(SETTINGS_FILE, {}).get("tmdb_api_key") or os.environ.get("TMDB_API_KEY")),
     })
@@ -453,8 +562,6 @@ def webhook_test():
     if not target_url:
         return jsonify({"ok": False, "error": "No URL specified"}), 400
 
-    # Build a payload that matches the first configured event for this URL so the
-    # receiving endpoint (e.g. Episeerr watchlist) gets a recognisable payload.
     event_name = events[0] if events else "start"
     if event_name in ("watchlist.add", "watchlist.remove"):
         payload = {
@@ -503,7 +610,6 @@ def webhook_log():
 # ── Episeerr proxy endpoints ───────────────────────────────────────────────────
 
 def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None, timeout: int = 15):
-    """Helper: forward a request to the configured Episeerr instance."""
     base = _get_episeerr_url()
     if not base:
         return jsonify({"error": "Episeerr URL not configured"}), 503
@@ -519,15 +625,13 @@ def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None, ti
         return jsonify({"error": str(exc)}), 502
 
 
-# Simple in-process cache for slow managed-series (Sonarr call)
 _managed_series_cache: list = []
 _managed_series_cache_ts: float = 0.0
-_MANAGED_SERIES_TTL = 300  # seconds
+_MANAGED_SERIES_TTL = 300
 
 
 @app.route("/api/episeerr/managed-series", methods=["GET"])
 def episeerr_managed_series():
-    """Proxy /api/managed-series with local cache (Sonarr lookup is slow)."""
     global _managed_series_cache, _managed_series_cache_ts
     now = time.time()
     if now - _managed_series_cache_ts < _MANAGED_SERIES_TTL and _managed_series_cache:
@@ -550,19 +654,16 @@ def episeerr_managed_series():
 
 @app.route("/api/episeerr/pending", methods=["GET"])
 def episeerr_pending():
-    """Proxy to Episeerr's /api/integration/xadarr/pending endpoint."""
     return _episeerr_proxy("/api/integration/xadarr/pending")
 
 
 @app.route("/api/episeerr/rules", methods=["GET"])
 def episeerr_rules():
-    """Proxy to Episeerr's /api/rules-list endpoint."""
     return _episeerr_proxy("/api/rules-list")
 
 
 @app.route("/api/episeerr/assign", methods=["POST"])
 def episeerr_assign():
-    """Proxy rule assignment to Episeerr's /api/assign-pending-rule endpoint."""
     body = request.get_json(force=True) or {}
     return _episeerr_proxy("/api/assign-pending-rule", method="POST", body=body)
 
@@ -779,7 +880,6 @@ _WEBHOOK_DEFAULTS = {
 
 
 def _resolve_webhook_urls(blob, event_filter=None):
-    """Return list of URL strings from webhook_urls config, optionally filtered by event."""
     raw = blob.get("webhook_urls") or []
     if not raw:
         legacy = blob.get("webhook_url", "").strip()
@@ -799,7 +899,6 @@ def _resolve_webhook_urls(blob, event_filter=None):
 
 
 def _fire_watchlist_webhook(event_name, item):
-    """Fire watchlist.add or watchlist.remove to subscribed URLs in background."""
     blob = _load_json(SETTINGS_FILE, {})
     if not blob.get("webhook_enabled", False):
         return
@@ -808,11 +907,12 @@ def _fire_watchlist_webhook(event_name, item):
         return
     headers_dict = blob.get("webhook_headers") or {}
     req_headers = {"Content-Type": "application/json", **headers_dict}
+    tmdb_id = item.get("tmdbId") or item.get("id") or item.get("tmdb_id")
     payload = {
         "event": event_name,
         "title": item.get("title", ""),
-        "tmdb_id": item.get("id") or item.get("tmdb_id"),
-        "media_type": "movie" if item.get("mediaType") == "movie" else "tv",
+        "tmdb_id": tmdb_id,
+        "media_type": "movie" if _normalize_media_type(item.get("mediaType", "")) == "movie" else "tv",
     }
 
     def _fire():
@@ -857,63 +957,102 @@ def post_settings():
     return jsonify({"ok": True})
 
 
-# ── Dashboard: watchlist ──────────────────────────────────────────────────────
+# ── Dashboard: watchlist (blob-backed) ──────────────────────────────────────
 
 @app.route("/api/media/watchlist", methods=["GET"])
 def get_watchlist():
-    items = _load_json(WATCHLIST_FILE, [])
-    for item in items:
-        if not item.get('image') and item.get('posterPath'):
-            item['image'] = item['posterPath']
-    return jsonify(items)
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
+    items = _get_watchlist(blob)
+    return jsonify(_watchlist_to_web(items))
 
 
 @app.route("/api/media/watchlist", methods=["POST"])
 def add_to_watchlist():
     item = request.get_json(force=True) or {}
-    if not item.get("id"):
+    tmdb_id = item.get("id") or item.get("tmdbId")
+    if not tmdb_id:
         return jsonify({"error": "missing id"}), 400
+    tmdb_id = int(tmdb_id)
 
-    # Fetch poster from TMDB if not provided
-    if not item.get("posterPath") and not item.get("image"):
-        tmdb_id = item.get("id")
-        mt = (item.get("mediaType") or "").lower()
-        path = "/movie/" if mt == "movie" else "/tv/"
-        tmdb_data = _tmdb_get(path + str(tmdb_id))
-        if tmdb_data and tmdb_data.get("poster_path"):
-            item["posterPath"] = "https://image.tmdb.org/t/p/w342" + tmdb_data["poster_path"]
-        if tmdb_data and not item.get("title"):
-            item["title"] = tmdb_data.get("title") or tmdb_data.get("name") or ""
+    media_type = _normalize_media_type(item.get("mediaType") or "movie")
+    poster_path = item.get("posterPath") or item.get("image") or ""
+    backdrop_path = item.get("backdropPath") or item.get("backdropUrl") or ""
+    title = item.get("title", "")
 
-    watchlist = _load_json(WATCHLIST_FILE, [])
-    exists = any(str(w.get("id")) == str(item["id"]) and w.get("mediaType") == item.get("mediaType") for w in watchlist)
+    # Fetch from TMDB if poster not provided
+    if not poster_path:
+        endpoint = "/movie/" if media_type == "movie" else "/tv/"
+        tmdb_data = _tmdb_get(endpoint + str(tmdb_id))
+        if tmdb_data:
+            if tmdb_data.get("poster_path"):
+                poster_path = "https://image.tmdb.org/t/p/w342" + tmdb_data["poster_path"]
+            if tmdb_data.get("backdrop_path"):
+                backdrop_path = "https://image.tmdb.org/t/p/w780" + tmdb_data["backdrop_path"]
+            if not title:
+                title = tmdb_data.get("title") or tmdb_data.get("name") or ""
+
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
+    wl = _get_watchlist(blob)
+    exists = any(int(w.get("tmdbId") or w.get("id") or 0) == tmdb_id for w in wl)
     if not exists:
-        item["inWatchlist"] = True
-        item["addedAt"] = datetime.utcnow().isoformat() + "Z"
-        watchlist.insert(0, item)
-        _save_json(WATCHLIST_FILE, watchlist)
-        _fire_watchlist_webhook("watchlist.add", item)
+        new_item = {
+            "tmdbId": tmdb_id,
+            "title": title,
+            "mediaType": media_type,
+            "posterPath": poster_path,
+            "backdropPath": backdrop_path,
+            "addedAt": int(time.time() * 1000),
+            "sourceOrder": 0,
+        }
+        wl.insert(0, new_item)
+        _set_watchlist(blob, wl)
+        _save_blob(blob)
+        _fire_watchlist_webhook("watchlist.add", new_item)
+        _broadcast_watchlist()
     return jsonify({"ok": True})
 
 
 @app.route("/api/media/watchlist/<media_type>/<int:item_id>", methods=["DELETE"])
 def remove_from_watchlist(media_type, item_id):
-    _TV_TYPES = {"tv", "show", "series"}
-
-    def _matches(w):
-        if str(w.get("id")) != str(item_id):
-            return False
-        wmt = w.get("mediaType", "")
-        return wmt == media_type or (media_type in _TV_TYPES and wmt in _TV_TYPES)
-
-    watchlist = _load_json(WATCHLIST_FILE, [])
-    removed = [w for w in watchlist if _matches(w)]
-    watchlist = [w for w in watchlist if not _matches(w)]
-    _save_json(WATCHLIST_FILE, watchlist)
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
+    wl = _get_watchlist(blob)
+    removed = [w for w in wl if int(w.get("tmdbId") or w.get("id") or 0) == item_id]
+    wl = [w for w in wl if int(w.get("tmdbId") or w.get("id") or 0) != item_id]
+    _set_watchlist(blob, wl)
+    _save_blob(blob)
     if removed:
         removed[0]["mediaType"] = media_type
         _fire_watchlist_webhook("watchlist.remove", removed[0])
+    _broadcast_watchlist()
     return jsonify({"ok": True})
+
+
+# ── Dashboard: continue watching ─────────────────────────────────────────────
+
+@app.route("/api/media/continue-watching", methods=["GET"])
+def get_continue_watching():
+    blob = _get_blob()
+    pid = _active_profile_id(blob)
+    items = blob.get("localContinueWatchingByProfile", {}).get(pid, [])
+    result = []
+    for item in items:
+        result.append({
+            "id": item.get("id"),
+            "title": item.get("title", ""),
+            "episode": item.get("episode"),
+            "episodeTitle": item.get("episodeTitle", ""),
+            "season": item.get("season"),
+            "mediaType": item.get("mediaType", ""),
+            "image": item.get("posterPath", ""),
+            "backdropUrl": item.get("backdropPath", ""),
+            "progress": item.get("progress", 0),
+            "durationSeconds": item.get("durationSeconds", 0),
+            "resumePositionSeconds": item.get("resumePositionSeconds", 0),
+        })
+    return jsonify(result)
 
 
 # ── Dashboard: history ────────────────────────────────────────────────────────
@@ -950,10 +1089,12 @@ def _map_tmdb_item(item: dict, media_type: str | None = None) -> dict:
 
 
 def _mark_watchlist(items: list[dict]) -> list[dict]:
-    watchlist = _load_json(WATCHLIST_FILE, [])
-    wl_keys = {(str(w["id"]), w.get("mediaType", "movie")) for w in watchlist}
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
+    wl = _get_watchlist(blob)
+    wl_ids = {str(w.get("tmdbId") or w.get("id") or "") for w in wl}
     for item in items:
-        item["inWatchlist"] = (str(item["id"]), item.get("mediaType", "movie")) in wl_keys
+        item["inWatchlist"] = str(item.get("id", "")) in wl_ids
     return items
 
 
@@ -983,6 +1124,267 @@ def get_trending():
     )
     items.sort(key=lambda x: x["popularity"], reverse=True)
     return jsonify(_mark_watchlist(items[:40]))
+
+
+@app.route("/api/media/popular", methods=["GET"])
+def get_popular():
+    movies = _tmdb_get("/movie/popular") or {}
+    shows = _tmdb_get("/tv/popular") or {}
+    return jsonify({
+        "movies": _mark_watchlist([_map_tmdb_item(r, "movie") for r in movies.get("results", []) if r.get("poster_path")]),
+        "shows":  _mark_watchlist([_map_tmdb_item(r, "tv")    for r in shows.get("results",  []) if r.get("poster_path")]),
+    })
+
+
+@app.route("/api/media/upcoming", methods=["GET"])
+def get_upcoming():
+    data = _tmdb_get("/movie/upcoming") or {}
+    items = [_map_tmdb_item(r, "movie") for r in data.get("results", []) if r.get("poster_path")]
+    return jsonify(_mark_watchlist(items))
+
+
+# ── Dashboard: home server recent items ──────────────────────────────────────
+
+@app.route("/api/media/server-items", methods=["GET"])
+def get_server_items():
+    blob = _get_blob()
+    connections = [c for c in _get_connections(blob) if c.get("enabled")]
+    if not connections:
+        return jsonify([])
+
+    conn = connections[0]
+    kind = conn.get("serverKind", "JELLYFIN")
+    server_url = conn.get("serverUrl", "").rstrip("/")
+    token = conn.get("accessToken", "")
+    user_id = conn.get("userId", "")
+
+    if kind in ("JELLYFIN", "EMBY"):
+        headers = {
+            "X-Emby-Token": token,
+            "Accept": "application/json",
+        }
+        try:
+            r = requests.get(
+                f"{server_url}/Users/{user_id}/Items",
+                params={
+                    "SortBy": "DateCreated",
+                    "SortOrder": "Descending",
+                    "IncludeItemTypes": "Movie,Series",
+                    "Recursive": "true",
+                    "Fields": "Overview,ProviderIds,PrimaryImageAspectRatio",
+                    "ImageTypeLimit": "1",
+                    "EnableImageTypes": "Primary,Backdrop",
+                    "Limit": "20",
+                },
+                headers=headers,
+                timeout=10,
+            )
+            r.raise_for_status()
+            items = []
+            for it in r.json().get("Items", []):
+                item_id = it.get("Id", "")
+                tmdb_id = it.get("ProviderIds", {}).get("Tmdb") or item_id
+                poster = f"{server_url}/Items/{item_id}/Images/Primary?maxHeight=300&api_key={token}" if item_id else ""
+                items.append({
+                    "id": tmdb_id,
+                    "title": it.get("Name", ""),
+                    "mediaType": "movie" if it.get("Type") == "Movie" else "show",
+                    "image": poster,
+                    "backdropUrl": f"{server_url}/Items/{item_id}/Images/Backdrop?maxHeight=500&api_key={token}" if item_id else "",
+                    "overview": it.get("Overview", ""),
+                    "year": it.get("ProductionYear", ""),
+                    "inWatchlist": False,
+                })
+            return jsonify(_mark_watchlist(items))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+
+    elif kind == "PLEX":
+        try:
+            r = requests.get(
+                f"{server_url}/library/recentlyAdded",
+                params={"X-Plex-Token": token},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            media_list = r.json().get("MediaContainer", {}).get("Metadata", [])[:20]
+            items = []
+            for it in media_list:
+                thumb = it.get("thumb", "")
+                art = it.get("art", "")
+                guids = it.get("Guid", [])
+                tmdb_id = next((g["id"].split("//")[-1] for g in guids if "tmdb" in g.get("id", "")), it.get("ratingKey", ""))
+                items.append({
+                    "id": tmdb_id,
+                    "title": it.get("title", ""),
+                    "mediaType": "movie" if it.get("type") == "movie" else "show",
+                    "image": f"{server_url}{thumb}?X-Plex-Token={token}" if thumb else "",
+                    "backdropUrl": f"{server_url}{art}?X-Plex-Token={token}" if art else "",
+                    "overview": it.get("summary", ""),
+                    "year": it.get("year", ""),
+                    "inWatchlist": False,
+                })
+            return jsonify(_mark_watchlist(items))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+
+    return jsonify([])
+
+
+# ── Cameras (Frigate) ─────────────────────────────────────────────────────────
+
+@app.route("/api/cameras/list", methods=["GET"])
+def cameras_list():
+    blob = _get_blob()
+    frigate_url = _get_frigate_url(blob)
+    if not frigate_url:
+        return jsonify([])
+    try:
+        r = requests.get(f"{frigate_url}/api/config", timeout=8)
+        r.raise_for_status()
+        cameras_config = r.json().get("cameras", {})
+        cameras = [
+            {"name": name, "snapshotUrl": f"/api/cameras/snapshot/{name}"}
+            for name in cameras_config.keys()
+        ]
+        return jsonify(cameras)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/cameras/snapshot/<camera_name>", methods=["GET"])
+def camera_snapshot(camera_name):
+    blob = _get_blob()
+    frigate_url = _get_frigate_url(blob)
+    if not frigate_url:
+        return "Frigate not configured", 503
+    try:
+        url = f"{frigate_url}/api/{camera_name}/latest.jpg"
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        return Response(r.content, content_type=r.headers.get("Content-Type", "image/jpeg"))
+    except Exception as e:
+        return str(e), 502
+
+
+# ── Catalogue management ──────────────────────────────────────────────────────
+
+@app.route("/api/catalogues", methods=["GET"])
+def get_catalogues():
+    blob = _get_blob()
+    cats = _get_catalogues(blob)
+    visibility = _get_web_row_visibility()
+    # Build synthetic entries with stored sortOrder
+    synthetic = []
+    for i, sc in enumerate(_SYNTHETIC_CATS):
+        hidden = visibility.get(sc["id"], False)
+        sort_order = visibility.get(f"{sc['id']}_sort", i - len(_SYNTHETIC_CATS))
+        synthetic.append({
+            **sc,
+            "isHidden": hidden,
+            "placement": "HIDDEN" if hidden else "HOME",
+            "sortOrder": sort_order,
+        })
+    # Fill missing sortOrder on real cats
+    for i, c in enumerate(cats):
+        if c.get("sortOrder") is None:
+            c["sortOrder"] = i
+    # Merge and sort by sortOrder so user-defined position is respected
+    merged = synthetic + cats
+    merged.sort(key=lambda c: (c.get("sortOrder") or 0))
+    return jsonify(merged)
+
+
+@app.route("/api/catalogues", methods=["PUT"])
+def put_catalogues():
+    cats = request.get_json(force=True) or []
+    synthetic = [c for c in cats if c.get("id") in _SYNTHETIC_IDS]
+    real = [c for c in cats if c.get("id") not in _SYNTHETIC_IDS]
+    if synthetic:
+        visibility = _get_web_row_visibility()
+        for sc in synthetic:
+            visibility[sc["id"]] = sc.get("placement") == "HIDDEN" or bool(sc.get("isHidden"))
+            visibility[f"{sc['id']}_sort"] = sc.get("sortOrder", 0)
+        _save_web_row_visibility(visibility)
+    blob = _get_blob()
+    _set_catalogues(blob, real)
+    _save_blob(blob)
+    return jsonify({"ok": True})
+
+
+# ── Trakt OAuth ───────────────────────────────────────────────────────────────
+
+@app.route("/api/trakt/status", methods=["GET"])
+def trakt_status():
+    blob = _get_blob()
+    tokens = (blob.get("traktTokens") or {}).get(SETUP_PROFILE_ID, {})
+    client_id = blob.get("trakt_client_id", "")
+    connected = bool(tokens.get("accessToken"))
+    return jsonify({
+        "connected": connected,
+        "hasClientId": bool(client_id),
+        "clientIdHint": (client_id[:6] + "…") if client_id else "",
+    })
+
+
+@app.route("/api/trakt/connect", methods=["GET"])
+def trakt_connect():
+    blob = _get_blob()
+    client_id = blob.get("trakt_client_id", "")
+    if not client_id:
+        return "No Trakt Client ID configured — add it in Settings first", 400
+    redirect_uri = request.host_url.rstrip("/") + "/api/trakt/callback"
+    auth_url = (
+        f"https://trakt.tv/oauth/authorize"
+        f"?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}"
+    )
+    return redirect(auth_url)
+
+
+@app.route("/api/trakt/callback", methods=["GET"])
+def trakt_callback():
+    code = request.args.get("code", "")
+    if not code:
+        return "No code received from Trakt", 400
+    blob = _get_blob()
+    client_id = blob.get("trakt_client_id", "")
+    client_secret = blob.get("trakt_client_secret", "")
+    redirect_uri = request.host_url.rstrip("/") + "/api/trakt/callback"
+    try:
+        r = requests.post(
+            "https://api.trakt.tv/oauth/token",
+            json={
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        tok = r.json()
+        blob.setdefault("traktTokens", {})[SETUP_PROFILE_ID] = {
+            "accessToken": tok.get("access_token"),
+            "refreshToken": tok.get("refresh_token"),
+            "expiresAt": int(time.time() * 1000) + tok.get("expires_in", 0) * 1000,
+        }
+        blob["traktLinked"] = True
+        _save_blob(blob)
+        return redirect("/?trakt=connected")
+    except Exception as e:
+        return f"Trakt token exchange failed: {e}", 502
+
+
+@app.route("/api/trakt/disconnect", methods=["POST"])
+def trakt_disconnect():
+    blob = _get_blob()
+    blob.setdefault("traktTokens", {})[SETUP_PROFILE_ID] = {}
+    blob["traktLinked"] = False
+    _save_blob(blob)
+    return jsonify({"ok": True})
 
 
 # ── Dashboard: player state + SSE ────────────────────────────────────────────
@@ -1021,11 +1423,13 @@ def player_events():
     )
 
 
-# ── Legacy watchlist endpoint ─────────────────────────────────────────────────
+# ── Legacy watchlist endpoint (blob-backed) ───────────────────────────────────
 
 @app.route("/watchlist", methods=["GET"])
 def legacy_watchlist():
-    return jsonify(_load_json(WATCHLIST_FILE, []))
+    blob = _get_blob()
+    _migrate_watchlist_to_blob(blob)
+    return jsonify(_watchlist_to_web(_get_watchlist(blob)))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

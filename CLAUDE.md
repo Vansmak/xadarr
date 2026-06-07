@@ -251,7 +251,7 @@ File: `episeerr_custom/integrations/xadarr.py`
 
 ## xadarr-server
 
-Separate container for the sync server web UI (port 7979).
+Separate container for the sync server web UI (port 7979). The web UI is Xadarr in a browser — same dark theme, same catalogue row layout, same navigation. Not an admin panel.
 
 ```
 container_name: xadarr-server
@@ -261,23 +261,41 @@ ports:    7979:7979
 compose:  /docker/media/compose
 ```
 
-**Code deploy:** `docker cp ~/projects/xadarr/xadarr-server/<file> xadarr-server:/app/<file> && docker restart xadarr-server`
+**Code deploy:** `for f in server.py web/index.html web/app.js web/style.css; do docker cp ~/projects/xadarr/xadarr-server/$f xadarr-server:/app/$f; done && docker restart xadarr-server`
 
 **Rebuild:** `cd /docker/media/compose && docker compose build xadarr-server && docker compose up -d xadarr-server`
 
 **Data files** (inside container at `/data/`, host at `/home/joe/config/xadarr-server/data/`):
-- `xadarr_settings.json` — full settings blob from TV app
-- `watchlist.json` — web UI managed watchlist (separate from TV app's watchlist)
-- `server_config.json` — TMDB key, server-level config including Episeerr URL
+- `xadarr_settings.json` — full settings blob from TV app (watchlist, catalogues, all settings)
+- `server_config.json` — TMDB key, Episeerr URL, web-local row visibility, web theme
 - `webhook_log.json`, `history.json`
+
+Note: `watchlist.json` is retired — watchlist is now read/written directly from `watchlistByProfile[pid]` in the settings blob, same as the TV app.
 
 **Critical:** `/data/` and the source tree `~/projects/xadarr/xadarr-server/` are completely separate. Data files are on the host volume. `docker cp` goes to `/app/` (code), not `/data/` (data).
 
 ### xadarr-server web UI features
-- **Media tab** — Trending and Watchlist with rule badges and pending indicators (amber badge/border for episeerr_select items)
-- **History tab** — activity feed from stored Episeerr webhook events (grabbed, ready, rule triggered, watched, deleted) with timestamps and purple event chips
-- **SSE** — broadcasts Episeerr events to web UI in real time, auto-refreshes pending/rules on incoming events
-- **Episeerr proxy endpoints** — `/api/episeerr/pending`, `/api/episeerr/rules`, `/api/episeerr/assign`
+- **Home** — hero backdrop (from watchlist/library), catalogue rows in configured order (CW, Watchlist, server library, Cameras)
+- **Discover** — all DISCOVER-placed catalogues rendered dynamically; content mapped by title keyword (trending/popular/upcoming via TMDB)
+- **Cameras** — Frigate snapshot grid; fullscreen HLS via go2rtc (port 1984 must be exposed in Frigate compose)
+- **History** — activity feed from Episeerr webhook events with timestamps and colour-coded chips
+- **Settings** — Jellyfin/Emby/Plex connections, IPTV, addons, Frigate URL, Trakt status, catalogue placement/order
+- **Sidebar** — live player state (SSE), recent activity (collapsed by default), 4-theme switcher
+- **SSE** — real-time Episeerr toasts, watchlist sync across browser tabs, player state
+
+### Catalogue placement sync model
+Catalogue placement (Home/Discover/Hidden) and sort order are stored in the blob (`catalogsByProfile[pid]`) and **shared across TV app and web UI**. Web changes take effect on the TV at next app launch.
+
+**Web-local only** (in `server_config.json`, not the blob): Continue Watching row position/visibility and Cameras home row position — the TV manages these natively in-app.
+
+### Camera live stream requirement
+Snapshot thumbnails proxy through xadarr-server (no extra ports). For fullscreen live video, Frigate's go2rtc must be reachable on port 1984:
+```yaml
+# Frigate docker-compose
+ports:
+  - "1984:1984"
+```
+Without this, fullscreen falls back to a snapshot refreshing every 3 seconds.
 
 ### Service enable/disable (Episeerr)
 Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters `WHERE enabled = 1`, so:
@@ -301,4 +319,4 @@ Changes since v2.1:
 
 ## TODO
 
-- **Camera stream routing** — TV cannot reach go2rtc at `192.168.254.64`. Streams need to route through Frigate's go2rtc at `192.168.254.205:1984`. Requires exposing port 1984 from the Frigate container and configuring go2rtc to re-stream cameras.
+- **Camera live stream (infra)** — web UI HLS player is ready; requires exposing port `1984:1984` in the Frigate docker-compose so go2rtc is reachable from the browser. Without it, fullscreen falls back to 3s snapshot refresh.
