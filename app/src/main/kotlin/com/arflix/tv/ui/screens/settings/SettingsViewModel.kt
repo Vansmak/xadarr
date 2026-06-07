@@ -195,7 +195,7 @@ data class SettingsUiState(
     val watchlistApiEnabled: Boolean = false,
     val watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
     val webhookCompletionPercent: Int = 90,
-    // Arvio sync server URL — arvio-server instance for full settings sync
+    // Xadarr sync server URL — xadarr-server instance for full settings sync
     val syncServerUrl: String = "",
     val episeerrUrl: String = "",
     val frigateUrl: String = "",

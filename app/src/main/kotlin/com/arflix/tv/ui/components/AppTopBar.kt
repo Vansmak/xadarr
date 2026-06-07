@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -45,6 +46,8 @@ import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+import com.arflix.tv.ui.screens.tv.live.LiveColors
+import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.util.settingsDataStore
 import java.text.SimpleDateFormat
@@ -227,6 +230,11 @@ private fun TopBarNavChip(
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
         label = "topbar_scale"
     )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        animationSpec = tween(AnimationConstants.DURATION_FAST),
+        label = "topbar_chip_border"
+    )
     val label = if (item == SidebarItem.TV) {
         stringResource(R.string.topbar_tv)
     } else {
@@ -235,6 +243,7 @@ private fun TopBarNavChip(
 
     Row(
         modifier = Modifier
+            .border(LiveDims.FocusBorder, borderColor, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(containerColor)
             .graphicsLayer {
@@ -295,10 +304,16 @@ private fun TopBarSettingsGear(
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
         label = "topbar_settings_scale"
     )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        animationSpec = tween(AnimationConstants.DURATION_FAST),
+        label = "topbar_settings_border"
+    )
 
     Box(
         modifier = Modifier
             .size(36.dp)
+            .border(LiveDims.FocusBorder, borderColor, CircleShape)
             .clip(CircleShape)
             .background(containerColor)
             .graphicsLayer {
@@ -348,10 +363,16 @@ private fun TopBarProfileAvatar(
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
         label = "topbar_profile_scale"
     )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        animationSpec = tween(AnimationConstants.DURATION_FAST),
+        label = "topbar_profile_border"
+    )
 
     Box(
         modifier = Modifier
             .size(40.dp)
+            .border(LiveDims.FocusBorder, borderColor, CircleShape)
             .clip(CircleShape)
             .background(containerColor)
             .graphicsLayer {

@@ -172,7 +172,7 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             .okHttpClient(OkHttpProvider.coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    // The 2 GB Android TV dump showed Arvio spending most of
+                    // The 2 GB Android TV dump showed Xadarr spending most of
                     // its memory in native bitmap/texture allocations
                     // (255 MB native heap, 77 MB GPU cache). Use a fixed TV
                     // image budget instead of a percent of largeHeap memory so

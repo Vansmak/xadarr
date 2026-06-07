@@ -9,6 +9,7 @@ import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -473,6 +474,7 @@ fun LiveTvScreen(
         guideGroupsVisible = true
         focusZone = LiveTvFocusZone.CATEGORY_LIST
         focusActiveCategorySignal += 1
+        runCatching { sidebarFocus.requestFocus() }
     }
 
     fun focusPlaylistSearch() {
@@ -656,6 +658,7 @@ fun LiveTvScreen(
             }
             focusZone = LiveTvFocusZone.CHANNEL_LIST
             delay(80L)
+            focusSelectedChannelSignal += 1
             runCatching { epgFocus.requestFocus() }
         }
     }
@@ -824,10 +827,17 @@ fun LiveTvScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-            } else Box(
+            } else {
+                // Animate EpgGrid left padding to match the sidebar width so the
+                // channel column stays visible when groups are open.
+                val epgStartOffset by animateDpAsState(
+                    targetValue = if (guideGroupsVisible) LiveDims.SidebarExpanded else 0.dp,
+                    animationSpec = tween(180),
+                    label = "epg-start",
+                )
+                Box(
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // Full-width channel list + EPG — sidebar overlays from the left.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -878,6 +888,7 @@ fun LiveTvScreen(
                             onEnterEpg = { channel -> focusEpg(channel.id) },
                             onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
                             modifier = Modifier
+                                .padding(start = epgStartOffset)
                                 .fillMaxSize()
                                 .onFocusChanged {
                                     if (it.hasFocus && focusZone == LiveTvFocusZone.CATEGORY_LIST) {
@@ -953,6 +964,7 @@ fun LiveTvScreen(
                             .focusRequester(sidebarFocus),
                     )
                 }
+            }
             }
         }
 
