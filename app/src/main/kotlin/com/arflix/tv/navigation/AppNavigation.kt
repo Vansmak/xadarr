@@ -22,6 +22,7 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.ui.screens.cameras.CameraPlayerScreen
 import com.arflix.tv.ui.screens.cameras.CamerasScreen
+import com.arflix.tv.ui.screens.home.AllAppsScreen
 import com.arflix.tv.ui.screens.details.DetailsScreen
 import com.arflix.tv.ui.screens.discover.DiscoverScreen
 import com.arflix.tv.ui.screens.home.HomeScreen
@@ -68,6 +69,7 @@ sealed class Screen(val route: String) {
         }
     }
     object ProfileSelection : Screen("profile_selection")
+    object AllApps : Screen("all_apps")
     
     object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}") {
         fun createRoute(
@@ -220,6 +222,9 @@ fun AppNavigation(
                     }
                 },
                 onExitApp = onExitApp,
+                onNavigateToAllApps = {
+                    navController.navigate(Screen.AllApps.route)
+                },
                 onInterceptBack = {
                     val active = liveTvPlayerViewModel.state.value.isActive
                     if (active) liveTvPlayerViewModel.dismiss()
@@ -575,6 +580,11 @@ fun AppNavigation(
                 },
                 onBack = goBack,
             )
+        }
+
+        // All Apps grid — full alphabetical list of installed apps
+        composable(Screen.AllApps.route) {
+            AllAppsScreen(onBack = goBack)
         }
 
         // Camera fullscreen player

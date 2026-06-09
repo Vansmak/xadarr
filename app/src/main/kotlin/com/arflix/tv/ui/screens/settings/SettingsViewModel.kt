@@ -203,6 +203,7 @@ data class SettingsUiState(
     val traktClientId: String = "",
     val traktClientSecret: String = "",
     val pinnedApps: List<String> = emptyList(),
+    val launcherModeEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -489,6 +490,7 @@ class SettingsViewModel @Inject constructor(
             val pinnedApps = prefs[com.arflix.tv.data.repository.PINNED_APPS_KEY]
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                 ?: listOf("org.smarttube.stable", "org.smarttube.beta", "com.cxinventor.file.explorer", "com.android.tv.settings")
+            val launcherModeEnabled = prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -570,6 +572,7 @@ class SettingsViewModel @Inject constructor(
                 cwSortOrder = cwSortOrder,
                 isCwHidden = isCwHidden,
                 pinnedApps = pinnedApps,
+                launcherModeEnabled = launcherModeEnabled,
             )
         }
     }
@@ -1264,9 +1267,14 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun saveSyncServerUrl(url: String) {
+        val previousUrl = _uiState.value.syncServerUrl
         viewModelScope.launch {
             cloudSyncRepository.saveSyncServerUrl(url.trim())
             _uiState.value = _uiState.value.copy(syncServerUrl = url.trim())
+            // On a fresh device (no prior server URL), auto-pull to restore all settings.
+            if (previousUrl.isBlank() && url.isNotBlank()) {
+                restoreCloudStateToLocalInternal(silent = false)
+            }
         }
     }
 
@@ -1274,6 +1282,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.EPISEERR_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(episeerrUrl = url.trim())
+            syncLocalStateToCloud(silent = true)
         }
     }
 
@@ -1328,6 +1337,30 @@ class SettingsViewModel @Inject constructor(
             val value = packages.joinToString(",")
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.PINNED_APPS_KEY] = value }
             _uiState.value = _uiState.value.copy(pinnedApps = packages)
+        }
+    }
+
+    fun setLauncherMode(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] = enabled }
+            _uiState.value = _uiState.value.copy(launcherModeEnabled = enabled)
+            val aliasComponent = android.content.ComponentName(context.packageName, "com.arflix.tv.LauncherActivity")
+            val state = if (enabled)
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            else
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            runCatching {
+                context.packageManager.setComponentEnabledSetting(aliasComponent, state, android.content.pm.PackageManager.DONT_KILL_APP)
+            }
+            // When enabling, open the system Home Settings screen immediately so the user can
+            // select Xadarr as default — no ADB or manual navigation required.
+            if (enabled) {
+                runCatching {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+            }
         }
     }
 

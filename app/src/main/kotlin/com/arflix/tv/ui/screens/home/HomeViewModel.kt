@@ -105,6 +105,7 @@ data class HomeUiState(
     // EPG data for the Live TV / On Now home row, keyed by MediaItem stable ID.
     // Updated by refreshFavoriteTvEpg() whenever now/next data changes.
     val liveChannelEpg: Map<Int, com.arflix.tv.data.model.IptvNowNext> = emptyMap(),
+    val launcherModeEnabled: Boolean = false,
 )
 
 data class HomeCollectionRow(
@@ -564,7 +565,13 @@ class HomeViewModel @Inject constructor(
                     )
                 }
         }
-        return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps)
+        val allAppsTile = com.arflix.tv.data.model.MediaItem(
+            id = "all_apps".hashCode(),
+            title = "All Apps",
+            status = "all_apps",
+            mediaType = com.arflix.tv.data.model.MediaType.MOVIE
+        )
+        return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps + allAppsTile)
     }
 
     private suspend fun buildCamerasCategory(): Category? {
@@ -1325,12 +1332,14 @@ class HomeViewModel @Inject constructor(
                 val trailerDelaySeconds = (prefs.asMap().entries
                     .firstOrNull { (key, _) -> key.name.endsWith("_trailer_delay_seconds") }
                     ?.value as? String)?.toIntOrNull() ?: 2
+                val launcherModeEnabled = prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false
                 _uiState.value = _uiState.value.copy(
                     trailerAutoPlay = trailerEnabled,
                     trailerSoundEnabled = trailerSoundEnabled,
                     trailerDelaySeconds = trailerDelaySeconds,
                     showBudget = showBudget,
-                    clockFormat = clockFormat
+                    clockFormat = clockFormat,
+                    launcherModeEnabled = launcherModeEnabled
                 )
             } catch (_: Exception) {}
         }

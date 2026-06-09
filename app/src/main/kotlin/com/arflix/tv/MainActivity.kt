@@ -388,6 +388,16 @@ class MainActivity : ComponentActivity() {
                 .state?.putState("screen", "Main")
         }
 
+        lifecycleScope.launch {
+            val launcherEnabled = settingsDataStore.data.first()[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false
+            val aliasComponent = android.content.ComponentName(packageName, "com.arflix.tv.LauncherActivity")
+            val state = if (launcherEnabled)
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            else
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            runCatching { packageManager.setComponentEnabledSetting(aliasComponent, state, android.content.pm.PackageManager.DONT_KILL_APP) }
+        }
+
         runAfterFirstDraw {
             lifecycleScope.launch {
                 authRepository.get().checkAuthState()

@@ -62,7 +62,7 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.ArflixTV.Splash">
 
-            <!-- TV Launcher -->
+            <!-- TV Launcher (app grid / banner row) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -74,11 +74,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Allow ARVIO to be set as default home/launcher -->
+        </activity>
+
+        <!--
+          Launcher-mode activity — disabled by default so it does NOT disturb
+          the existing default home app on install. Enabled at runtime only
+          when the user turns on "Launcher Mode" in Settings, which makes
+          Xadarr appear in the system "Choose home app" picker. A real
+          <activity> is required — activity-alias is not indexed by the
+          Android TV home app picker.
+        -->
+        <activity
+            android:name=".LauncherActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.ArflixTV">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

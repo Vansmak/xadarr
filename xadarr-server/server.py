@@ -1114,6 +1114,159 @@ def search_media():
     return jsonify(_mark_watchlist(items))
 
 
+_FRANCHISE_KEYWORDS = {
+    "marvel": "7153", "dc universe": "9714", "star wars": "1562",
+    "james bond": "83", "harry potter": "116", "jurassic park": "803",
+    "mission impossible": "585", "john wick": "199879", "the matrix": "133",
+    "alien vs predator": "283", "pirates of the caribbean": "270",
+    "terminator": "50969", "lord of the rings": "2382", "x-men": "7194",
+    "hunger games": "8374", "avatar": "186574", "dune": "11166",
+    "indiana jones": "695", "the godfather": "256", "transformers": "5765",
+}
+
+@app.route("/api/media/discover", methods=["GET"])
+def discover_by_filter():
+    provider_id  = request.args.get("provider_id",  "").strip()
+    genre_id     = request.args.get("genre_id",     "").strip()
+    year_start   = request.args.get("year_start",   "").strip()
+    year_end     = request.args.get("year_end",     "").strip()
+    franchise    = request.args.get("franchise",    "").strip().lower()
+    if not provider_id and not genre_id and not year_start and not franchise:
+        return jsonify({"movies": [], "shows": []})
+
+    if franchise:
+        keyword_id = _FRANCHISE_KEYWORDS.get(franchise)
+        if not keyword_id:
+            return jsonify({"movies": [], "shows": []})
+        data = _tmdb_get("/discover/movie", {
+            "with_keywords": keyword_id,
+            "sort_by": "popularity.desc",
+            "page": 1,
+        }) or {}
+        movies = [_map_tmdb_item(r, "movie") for r in data.get("results", []) if r.get("poster_path")][:20]
+        return jsonify({"movies": _mark_watchlist(movies), "shows": []})
+    tv_genre_map = {
+        "28": "10759", "14": "10765", "878": "10765", "10752": "10768",
+    }
+    base_movie = {"sort_by": "popularity.desc", "vote_count.gte": 20}
+    base_tv    = {"sort_by": "popularity.desc", "vote_count.gte": 20}
+    if provider_id:
+        base_movie.update({"with_watch_providers": provider_id, "watch_region": "US"})
+        base_tv.update({"with_watch_providers": provider_id, "watch_region": "US"})
+    if genre_id:
+        base_movie["with_genres"] = genre_id
+        base_tv["with_genres"]    = tv_genre_map.get(genre_id, genre_id)
+    if year_start and year_end:
+        base_movie.update({
+            "primary_release_date.gte": f"{year_start}-01-01",
+            "primary_release_date.lte": f"{year_end}-12-31",
+        })
+        base_tv.update({
+            "first_air_date.gte": f"{year_start}-01-01",
+            "first_air_date.lte": f"{year_end}-12-31",
+        })
+
+    def fetch_pages(endpoint, params, pages=3):
+        seen_ids = set()
+        results = []
+        for p in range(1, pages + 1):
+            data = _tmdb_get(endpoint, {**params, "page": p}) or {}
+            for r in data.get("results", []):
+                if r.get("poster_path") and r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    results.append(r)
+            if p >= (data.get("total_pages") or 1):
+                break
+        return results
+
+    raw_movies = fetch_pages("/discover/movie", base_movie)
+    raw_shows  = fetch_pages("/discover/tv",    base_tv)
+    movies = [_map_tmdb_item(r, "movie") for r in raw_movies]
+    shows  = [_map_tmdb_item(r, "tv")    for r in raw_shows]
+    return jsonify({
+        "movies": _mark_watchlist(movies),
+        "shows":  _mark_watchlist(shows),
+    })
+
+
+@app.route("/api/media/search-discover", methods=["GET"])
+def search_discover():
+    from datetime import datetime, timedelta
+
+    type_filter = request.args.get("type", "all").strip()   # all | movies | tv
+    genre_id    = request.args.get("genre_id", "").strip()
+
+    today             = datetime.now().strftime("%Y-%m-%d")
+    one_year_ago      = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    three_months_ago  = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+    # Map movie genre IDs to TV genre equivalents (used when type=all)
+    _TV_GENRE_MAP = {
+        "28": "10759",    # Action → Action & Adventure
+        "14": "10765",    # Fantasy → Sci-Fi & Fantasy
+        "878": "10765",   # Sci-Fi → Sci-Fi & Fantasy
+        "10752": "10768", # War → War & Politics
+    }
+    movie_genre = genre_id or None
+    tv_genre    = _TV_GENRE_MAP.get(genre_id, genre_id) if genre_id else None
+
+    def _fetch(endpoint, sort_by, extra):
+        params = {"sort_by": sort_by, "page": 1, **extra}
+        data = _tmdb_get(endpoint, params) or {}
+        return [r for r in data.get("results", []) if r.get("poster_path")][:20]
+
+    def fetch_m(sort_by, extra):
+        if movie_genre:
+            extra = {**extra, "with_genres": movie_genre}
+        return _fetch("/discover/movie", sort_by, extra)
+
+    def fetch_t(sort_by, extra):
+        if tv_genre:
+            extra = {**extra, "with_genres": tv_genre}
+        return _fetch("/discover/tv", sort_by, extra)
+
+    def interleave(m_raw, t_raw):
+        m = [_map_tmdb_item(r, "movie") for r in m_raw]
+        t = [_map_tmdb_item(r, "tv")    for r in t_raw]
+        out = []
+        for i in range(max(len(m), len(t))):
+            if i < len(m): out.append(m[i])
+            if i < len(t): out.append(t[i])
+        return out[:20]
+
+    def build_row(sort_by, m_extra, t_extra):
+        if type_filter == "movies":
+            return [_map_tmdb_item(r, "movie") for r in fetch_m(sort_by, m_extra)]
+        elif type_filter == "tv":
+            return [_map_tmdb_item(r, "tv")    for r in fetch_t(sort_by, t_extra)]
+        else:
+            return interleave(fetch_m(sort_by, m_extra), fetch_t(sort_by, t_extra))
+
+    trending     = build_row("popularity.desc",
+                             {"vote_count.gte": 50,   "primary_release_date.lte": today},
+                             {"vote_count.gte": 50,   "first_air_date.lte": today})
+    popular_year = build_row("popularity.desc",
+                             {"vote_count.gte": 20,   "primary_release_date.gte": one_year_ago, "primary_release_date.lte": today},
+                             {"vote_count.gte": 20,   "first_air_date.gte": one_year_ago,        "first_air_date.lte": today})
+    top_rated    = build_row("vote_average.desc",
+                             {"vote_count.gte": 1000, "primary_release_date.lte": today},
+                             {"vote_count.gte": 1000, "first_air_date.lte": today})
+    new_releases = build_row("popularity.desc",
+                             {"vote_count.gte": 10,   "primary_release_date.gte": three_months_ago, "primary_release_date.lte": today},
+                             {"vote_count.gte": 10,   "first_air_date.gte": three_months_ago,        "first_air_date.lte": today})
+    hidden_gems  = build_row("vote_average.desc",
+                             {"vote_count.gte": 200, "vote_count.lte": 5000, "primary_release_date.lte": today},
+                             {"vote_count.gte": 200, "vote_count.lte": 5000, "first_air_date.lte": today})
+
+    return jsonify({
+        "trending":          _mark_watchlist(trending),
+        "popular_this_year": _mark_watchlist(popular_year),
+        "top_rated":         _mark_watchlist(top_rated),
+        "new_releases":      _mark_watchlist(new_releases),
+        "hidden_gems":       _mark_watchlist(hidden_gems),
+    })
+
+
 @app.route("/api/media/trending", methods=["GET"])
 def get_trending():
     movies = _tmdb_get("/trending/movie/week") or {}

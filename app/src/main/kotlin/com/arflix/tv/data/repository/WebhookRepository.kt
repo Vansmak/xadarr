@@ -35,6 +35,7 @@ val WATCHLIST_HIDDEN_KEY = booleanPreferencesKey("watchlist_hidden")
 val CW_PLACEMENT_KEY = stringPreferencesKey("cw_placement")
 val CW_SORT_ORDER_KEY = stringPreferencesKey("cw_sort_order")
 val CW_HIDDEN_KEY = booleanPreferencesKey("cw_hidden")
+val LAUNCHER_MODE_KEY = booleanPreferencesKey("launcher_mode")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"

@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.4] - 2026-06-09
+
+### Added
+- **Launcher Mode** — new toggle in Settings → Appearance makes Xadarr appear in the system "Choose home app" picker. Enabling opens Android Home Settings immediately so the user can set Xadarr as default without navigating manually. A dedicated `LauncherActivity` (disabled by default) carries the HOME intent-filter so install never disturbs the existing launcher.
+- **All Apps screen** — alphabetical grid of all installed apps, accessible via a new "All Apps" tile at the end of the Apps home row. (`AllAppsScreen.kt`)
+- **xadarr-server: Search tab discover rows** — Search tab now shows curated TMDB rows (Trending, Popular This Year, Top Rated, New Releases, Hidden Gems) when no query is typed. Rows update live when type filter (All / Movies / TV) or genre chip changes.
+- **xadarr-server: Black & Gold theme** — pure black background with rich gold accents, matching the Xadarr TV app theme. Available in the sidebar theme switcher.
+
+### Changed
+- **Discover screen focus** — initial focus now targets the first row's lazy row directly instead of the outer `LazyColumn` focus group, preventing the left-shift / scroll-cascade bug on screen entry.
+- **Cloud sync: Episeerr URL** — Episeerr URL is now included in the settings blob so it syncs across devices. Saving the URL also triggers an immediate background push.
+- **Auto-restore on first server URL** — entering the xadarr-server URL on a fresh device automatically pulls the full settings blob without requiring a manual "Restore from server" tap.
+- **Back key in Launcher Mode** — pressing Back on the home screen when Launcher Mode is enabled is a no-op (home apps must not be exitable).
+
+## [2.3] - 2026-06-09
+
+### Added
+- **xadarr-server web UI** — full browser client at port 7979. Home, Discover, Cameras, History, and Settings pages matching the TV app layout. Real-time Episeerr toast notifications and watchlist sync via SSE. Sidebar shows live player state and recent activity. Four themes: Midnight, Owl, Black & Gold, Neon.
+
+## [2.2] - 2026-06-09
+
+### Added
+- **User-configurable API keys** — TMDB API key and Trakt Client ID/Secret settable in Settings → Accounts (TV and mobile). Runtime key update via `OkHttpProvider.setUserApiKeys()`; falls back to build-time keys if unset.
+- **Mobile Discover tab** — Watchlist replaced with Discover (catalogue rows) in the mobile bottom navigation bar.
+- **Mobile catalogue management** — touch-friendly two-row cards in Settings → Catalogs: title row (tap to rename, long-press to reorder) + action strip (layout toggle, visibility, placement, delete). `MobileCatalogChip` composable.
+- **Mobile Frigate URL** — Frigate URL dialog wired up in mobile Settings.
+
+### Changed
+- `ProgressWebhookRepository.kt` renamed to `WebhookRepository.kt`; class renamed to `WebhookRepository`. All injection sites updated.
+
 ## [2.1] - 2026-06-05
 
 ### Added

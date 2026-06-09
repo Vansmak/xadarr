@@ -89,17 +89,21 @@ fun DiscoverScreen(
     val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
     val rootFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
+    val firstRowFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
     var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
     val lazyColumnState = rememberLazyListState()
 
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
 
-    // Drive focus into the content once categories are ready
+    // Drive focus directly into the first row once categories are ready.
+    // Targeting firstRowFocusRequester (one level deep) instead of the LazyColumn
+    // focusGroup (three levels deep) avoids the "bring into view" scroll cascade
+    // that was hiding the first heading and left-shifting the first row.
     LaunchedEffect(uiState.categories.isNotEmpty()) {
         if (uiState.categories.isNotEmpty() && focusZone == DiscoverFocusZone.ROWS) {
-            delay(80)
-            runCatching { contentFocusRequester.requestFocus() }
+            delay(150)
+            runCatching { firstRowFocusRequester.requestFocus() }
         }
     }
 
@@ -190,7 +194,7 @@ fun DiscoverScreen(
                         .padding(top = AppTopBarContentTopInset)
                         .focusRequester(contentFocusRequester)
                         .focusGroup(),
-                    contentPadding = PaddingValues(bottom = 200.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 200.dp),
                 ) {
                     itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
                         val isWatchlistRow = category.id == "my_watchlist"
@@ -209,7 +213,12 @@ fun DiscoverScreen(
                             )
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (rowIdx == 0) Modifier.focusRequester(firstRowFocusRequester).focusGroup()
+                                        else Modifier
+                                    ),
                             ) {
                                 items(category.items, key = { it.id }) { item ->
                                     val itemIsPending = isWatchlistRow &&

@@ -23,6 +23,15 @@ function xadarr() {
     searchQuery: '',
     searchResults: [],
     searchLoading: false,
+    searchTypeFilter: 'all',   // 'all' | 'movies' | 'tv'
+    searchGenreId: null,
+    searchDiscoverData: { trending: [], popular_this_year: [], top_rated: [], new_releases: [], hidden_gems: [] },
+    searchDiscoverLoading: false,
+    browseMode: false,
+    browseTitle: '',
+    browseMovies: [],
+    browseShows: [],
+    browseLoading: false,
 
     // Cameras
     cameras: [],
@@ -68,6 +77,41 @@ function xadarr() {
       'drama','family','fantasy','history','horror','mystery','romance',
       'sci-fi','thriller','war & military','western','superhero',
     ]),
+    _PROVIDER_IDS: {
+      'netflix': 8, 'hbo max': 1899, 'disney+': 337, 'prime video': 9,
+      'apple tv+': 350, 'hulu': 15, 'paramount+': 2303, 'peacock': 386,
+      'starz': 43, 'shudder': 99, 'mgm+': 268, 'discovery+': 584,
+      'crunchyroll': 283, 'mubi': 11,
+    },
+    _GENRE_IDS: {
+      'action': 28, 'adventure': 12, 'animation': 16, 'comedy': 35,
+      'crime': 80, 'documentary': 99, 'drama': 18, 'family': 10751,
+      'fantasy': 14, 'history': 36, 'horror': 27, 'mystery': 9648,
+      'romance': 10749, 'sci-fi': 878, 'thriller': 53,
+      'war & military': 10752, 'western': 37,
+    },
+    _TILE_IMAGES: {
+      // Services
+      'netflix':     'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/netflix.png',
+      'prime video': 'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/amazonprime.png',
+      'apple tv+':   'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/appletvplus.png',
+      'disney+':     'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/disneyplus.png',
+      'hbo max':     'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/hbomax.png',
+      'hulu':        'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/hulu.png',
+      'paramount+':  'https://raw.githubusercontent.com/mrtxiv/networks-video-collection/3486fc9a3d0efe59d1929e75f66021dc4e15bcb7/networks%20collection/paramount.png',
+      // Genres
+      'action':      'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/action-wide.png',
+      'sci-fi':      'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/sci-fi-wide.png',
+      'horror':      'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/horror-wide.png',
+      'thriller':    'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/thriller-wide.png',
+      'fantasy':     'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/fantasy-wide.png',
+      'animation':   'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/animation-wide.png',
+      'adventure':   'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/adventure-wide.png',
+      'comedy':      'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/comedy-wide.png',
+      'family':      'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/family-movie-night-wide.png',
+      'crime':       'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/crime-wide.png',
+      'superhero':   'https://raw.githubusercontent.com/itsrenoria/fusion-starter-kit/refs/heads/main/resources/widgets/genres/wide/dannyrutledge/superheroes-wide.png',
+    },
     serverForm: { kind: 'JELLYFIN', url: '', username: '', password: '', token: '' },
     serverConnecting: false,
     serverError: '',
@@ -114,8 +158,11 @@ function xadarr() {
 
       if (tab === 'search') {
         this.$nextTick(() => this.$refs.searchInput?.focus());
+        if (this.searchDiscoverData.trending.length === 0) {
+          this.loadSearchDiscover();
+        }
       }
-      if ((tab === 'discover' || tab === 'search') && !this.discoverLoaded) {
+      if (tab === 'discover' && !this.discoverLoaded) {
         this.loadDiscover();
       }
       if (tab === 'tv' && !this.iptv.m3uUrl) {
@@ -212,16 +259,114 @@ function xadarr() {
     },
 
     // ── Search ────────────────────────────────────────────────────────────
+
+    searchGenresForType() {
+      const all = [
+        {id: 28,    name: 'Action'},      {id: 12,    name: 'Adventure'},
+        {id: 16,    name: 'Animation'},   {id: 35,    name: 'Comedy'},
+        {id: 80,    name: 'Crime'},       {id: 99,    name: 'Documentary'},
+        {id: 18,    name: 'Drama'},       {id: 10751, name: 'Family'},
+        {id: 14,    name: 'Fantasy'},     {id: 27,    name: 'Horror'},
+        {id: 9648,  name: 'Mystery'},     {id: 10749, name: 'Romance'},
+        {id: 878,   name: 'Sci-Fi'},      {id: 53,    name: 'Thriller'},
+        {id: 10752, name: 'War'},         {id: 37,    name: 'Western'},
+      ];
+      const tv = [
+        {id: 10759, name: 'Action & Adventure'}, {id: 16,    name: 'Animation'},
+        {id: 35,    name: 'Comedy'},             {id: 80,    name: 'Crime'},
+        {id: 99,    name: 'Documentary'},        {id: 18,    name: 'Drama'},
+        {id: 10751, name: 'Family'},             {id: 10762, name: 'Kids'},
+        {id: 9648,  name: 'Mystery'},            {id: 10765, name: 'Sci-Fi & Fantasy'},
+        {id: 10768, name: 'War & Politics'},     {id: 37,    name: 'Western'},
+      ];
+      return this.searchTypeFilter === 'tv' ? tv : all;
+    },
+
+    setSearchType(type) {
+      this.searchTypeFilter = type;
+      this.searchGenreId = null;
+      if (this.searchQuery.length < 2) this.loadSearchDiscover();
+    },
+
+    setSearchGenre(id) {
+      this.searchGenreId = (this.searchGenreId === id) ? null : id;
+      this.loadSearchDiscover();
+    },
+
+    async loadSearchDiscover() {
+      this.searchDiscoverLoading = true;
+      const params = new URLSearchParams({ type: this.searchTypeFilter });
+      if (this.searchGenreId) params.set('genre_id', String(this.searchGenreId));
+      const data = await fetch(`/api/media/search-discover?${params}`)
+        .then(r => r.json()).catch(() => ({}));
+      this.searchDiscoverData = {
+        trending:          Array.isArray(data.trending)          ? data.trending          : [],
+        popular_this_year: Array.isArray(data.popular_this_year) ? data.popular_this_year : [],
+        top_rated:         Array.isArray(data.top_rated)         ? data.top_rated         : [],
+        new_releases:      Array.isArray(data.new_releases)      ? data.new_releases      : [],
+        hidden_gems:       Array.isArray(data.hidden_gems)       ? data.hidden_gems       : [],
+      };
+      Object.values(this.searchDiscoverData).forEach(arr => this._markWatchlistFlag(arr));
+      this.searchDiscoverLoading = false;
+    },
+
+    searchDiscoverRows() {
+      const d = this.searchDiscoverData;
+      return [
+        { id: 'sd-trend', title: 'Trending',          items: d.trending },
+        { id: 'sd-popy',  title: 'Popular This Year', items: d.popular_this_year },
+        { id: 'sd-top',   title: 'Top Rated',         items: d.top_rated },
+        { id: 'sd-new',   title: 'New Releases',      items: d.new_releases },
+        { id: 'sd-hgems', title: 'Hidden Gems',       items: d.hidden_gems },
+      ].filter(r => r.items.length > 0);
+    },
+
     async doSearch() {
       const q = this.searchQuery.trim();
       if (q.length < 2) { this.searchResults = []; return; }
       this.searchLoading = true;
       const data = await fetch(`/api/media/search?q=${encodeURIComponent(q)}`).then(r => r.json()).catch(() => []);
       if (Array.isArray(data)) {
-        this.searchResults = data;
+        let results = data;
+        if (this.searchTypeFilter === 'movies') results = data.filter(i => i.mediaType === 'movie');
+        else if (this.searchTypeFilter === 'tv')  results = data.filter(i => i.mediaType === 'show');
+        this.searchResults = results;
         this._markWatchlistFlag(this.searchResults);
       }
       this.searchLoading = false;
+    },
+
+    async browseByTile(cat, opt) {
+      const t = (cat.title || '').toLowerCase();
+      let qs = '';
+      if (t.includes('service')) {
+        const pid = this._PROVIDER_IDS[opt.name.toLowerCase()];
+        if (!pid) return;
+        qs = `provider_id=${pid}`;
+      } else if (t.includes('genre')) {
+        const gid = this._GENRE_IDS[opt.name.toLowerCase()];
+        if (!gid) return;
+        qs = `genre_id=${gid}`;
+      } else { return; }
+      this.browseMode = true;
+      this.browseTitle = opt.name;
+      this.browseLoading = true;
+      this.browseMovies = [];
+      this.browseShows = [];
+      const data = await fetch(`/api/media/discover?${qs}`).then(r => r.json()).catch(() => ({}));
+      const f = this.searchTypeFilter;
+      this.browseMovies = f === 'tv'     ? [] : (Array.isArray(data.movies) ? data.movies : []);
+      this.browseShows  = f === 'movies' ? [] : (Array.isArray(data.shows)  ? data.shows  : []);
+      this._markWatchlistFlag(this.browseMovies);
+      this._markWatchlistFlag(this.browseShows);
+      this.browseLoading = false;
+    },
+
+    clearBrowse() {
+      this.browseMode = false;
+      this.browseTitle = '';
+      this.browseMovies = [];
+      this.browseShows = [];
     },
 
     // ── Cameras ───────────────────────────────────────────────────────────
@@ -589,7 +734,11 @@ function xadarr() {
 
       return this.catalogues
         .filter(c => c.kind === 'COLLECTION' && matchSet.has((c.title || '').toLowerCase()))
-        .map(c => ({id: c.id, name: c.title}));
+        .map(c => ({
+          id: c.id,
+          name: c.title,
+          coverImage: c.collectionCoverImageUrl || this._TILE_IMAGES[(c.title || '').toLowerCase()] || null,
+        }));
     },
 
     // A sub-item is "selected" (visible) when its catalogue is not hidden.

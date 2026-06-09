@@ -72,6 +72,7 @@
   <div class="sidebar" :class="{'mobile-open': mobileSidebarOpen}">
     <div class="sidebar-header">
       <span class="sidebar-brand">Xadarr</span>
+      <button class="sidebar-close-btn" @click="mobileSidebarOpen=false" title="Close">✕</button>
     </div>
 
     <!-- Nav -->
@@ -127,8 +128,14 @@
 
     <!-- ══ SEARCH ══════════════════════════════════════════════════════════ -->
     <div class="tab-pane" :class="{active: activeTab==='search'}">
+
+      <!-- Sticky search bar — back button in browse mode -->
       <div class="search-bar">
-        <div class="search-input-wrap">
+        <div class="browse-bar" x-show="browseMode">
+          <button class="btn btn-secondary btn-sm" @click="clearBrowse()">← Back</button>
+          <span class="browse-bar-title" x-text="browseTitle"></span>
+        </div>
+        <div class="search-input-wrap" x-show="!browseMode">
           <span class="search-icon">🔍</span>
           <input type="text" placeholder="Search movies &amp; shows…"
                  x-model="searchQuery"
@@ -138,16 +145,89 @@
         </div>
       </div>
 
-      <!-- Results -->
-      <div x-show="searchQuery.length >= 2">
+      <!-- Chip row: type + genre in one horizontal scrollable row -->
+      <div class="search-chips" x-show="!browseMode">
+        <button class="cat-chip" :class="{selected: searchTypeFilter==='all'}"    @click="setSearchType('all')">All</button>
+        <button class="cat-chip" :class="{selected: searchTypeFilter==='movies'}" @click="setSearchType('movies')">Movies</button>
+        <button class="cat-chip" :class="{selected: searchTypeFilter==='tv'}"     @click="setSearchType('tv')">TV Shows</button>
+        <template x-for="g in searchGenresForType()" :key="'sg-'+g.id">
+          <button class="cat-chip" :class="{selected: searchGenreId===g.id}"
+                  @click="setSearchGenre(g.id)" x-text="g.name"></button>
+        </template>
+      </div>
+
+      <!-- Browse results when a tile is clicked — full-page grid -->
+      <div x-show="browseMode">
+        <div class="empty-state" x-show="browseLoading"><div class="spinner"></div></div>
+        <template x-if="!browseLoading">
+          <div class="browse-results-wrap">
+            <template x-if="browseMovies.length > 0">
+              <div>
+                <div class="browse-section-hd" x-text="'Movies · ' + browseMovies.length"></div>
+                <div class="browse-results-grid">
+                  <template x-for="item in browseMovies" :key="'bm-'+item.id">
+                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)">
+                      <template x-if="item.image">
+                        <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
+                             @error="$el.style.display='none'">
+                      </template>
+                      <template x-if="!item.image">
+                        <div class="card-poster-placeholder" x-text="item.title"></div>
+                      </template>
+                      <div class="card-info">
+                        <div class="card-title" x-text="item.title"></div>
+                        <div class="card-meta" x-text="item.year"></div>
+                      </div>
+                      <button class="card-wl-btn" :class="{'in-wl': item.inWatchlist}"
+                              @click.stop="toggleWatchlist(item)"
+                              x-text="item.inWatchlist ? '✓' : '+'" :title="item.inWatchlist?'Remove':'Add'"></button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <template x-if="browseShows.length > 0">
+              <div>
+                <div class="browse-section-hd" x-text="'TV Shows · ' + browseShows.length"></div>
+                <div class="browse-results-grid">
+                  <template x-for="item in browseShows" :key="'bs-'+item.id">
+                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)">
+                      <template x-if="item.image">
+                        <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
+                             @error="$el.style.display='none'">
+                      </template>
+                      <template x-if="!item.image">
+                        <div class="card-poster-placeholder" x-text="item.title"></div>
+                      </template>
+                      <div class="card-info">
+                        <div class="card-title" x-text="item.title"></div>
+                        <div class="card-meta" x-text="item.year"></div>
+                      </div>
+                      <button class="card-wl-btn" :class="{'in-wl': item.inWatchlist}"
+                              @click.stop="toggleWatchlist(item)"
+                              x-text="item.inWatchlist ? '✓' : '+'" :title="item.inWatchlist?'Remove':'Add'"></button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div class="empty-state" x-show="browseMovies.length===0 && browseShows.length===0">
+              <span class="text-muted text-sm">No results for "<span x-text="browseTitle"></span>"</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Text search results -->
+      <div x-show="!browseMode && searchQuery.length >= 2">
         <div class="empty-state" x-show="searchLoading"><div class="spinner"></div></div>
-        <div class="catalogue-row" x-show="!searchLoading && searchResults.length > 0" style="margin-top:16px">
+        <div class="catalogue-row" x-show="!searchLoading && searchResults.length > 0" style="margin-top:8px">
           <div class="row-header">
             <span class="row-title">Results for "<span x-text="searchQuery"></span>"</span>
             <span class="text-muted text-sm" x-text="searchResults.length + ' found'"></span>
           </div>
           <div class="row-scroll">
-            <template x-for="item in searchResults" :key="item.id+item.mediaType">
+            <template x-for="item in searchResults" :key="'sr-'+item.id+item.mediaType">
               <div class="card" @mouseenter="hoverCard(item)">
                 <template x-if="item.image">
                   <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
@@ -167,30 +247,67 @@
             </template>
           </div>
         </div>
-        <div class="empty-state" x-show="!searchLoading && searchQuery.length>=2 && searchResults.length===0">
+        <div class="empty-state" x-show="!searchLoading && searchResults.length===0">
           <span class="icon">🔍</span>
           <span>No results for "<span x-text="searchQuery"></span>"</span>
         </div>
       </div>
 
-      <!-- Category rows when idle -->
-      <div x-show="searchQuery.length < 2" class="rows-container" style="margin-top:8px">
+      <!-- Idle: Services tiles → Genres tiles → Discover rows -->
+      <div x-show="!browseMode && searchQuery.length < 2" class="rows-container" style="margin-top:4px">
+
+        <!-- COLLECTION_RAIL catalogues assigned to Search (Services, Genres) -->
         <template x-for="cat in searchSuggestionCats()" :key="'sc-'+cat.id">
           <div class="catalogue-row">
             <div class="row-header"><span class="row-title" x-text="cat.title"></span></div>
-            <div class="row-scroll" style="padding-bottom:8px">
-              <template x-for="opt in catDisplayItems(cat)" :key="opt.id">
-                <div class="search-cat-tile" @click="searchQuery=opt.name; doSearch()">
-                  <span x-text="opt.name"></span>
+            <div class="row-scroll">
+              <template x-for="opt in catDisplayItems(cat)" :key="'ct-'+opt.id">
+                <div class="collection-tile" @click="browseByTile(cat, opt)">
+                  <template x-if="opt.coverImage">
+                    <img class="collection-tile-img" :src="opt.coverImage" :alt="opt.name" loading="lazy"
+                         @error="$el.style.display='none'">
+                  </template>
+                  <div class="collection-tile-label" x-text="opt.name"></div>
                 </div>
               </template>
             </div>
           </div>
         </template>
-        <div class="empty-state" x-show="searchSuggestionCats().length===0" style="padding:40px 0">
-          <span class="text-muted text-sm">No search categories configured — set catalogues to Search placement in Settings</span>
-        </div>
+
+        <!-- 5 TMDB discover rows filtered by selected chip -->
+        <div class="empty-state" x-show="searchDiscoverLoading"><div class="spinner"></div></div>
+        <template x-if="!searchDiscoverLoading">
+          <div>
+            <template x-for="row in searchDiscoverRows()" :key="row.id">
+              <div class="catalogue-row">
+                <div class="row-header"><span class="row-title" x-text="row.title"></span></div>
+                <div class="row-scroll">
+                  <template x-for="item in row.items" :key="'sdr-'+row.id+item.id">
+                    <div class="card" @mouseenter="hoverCard(item)">
+                      <template x-if="item.image">
+                        <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
+                             @error="$el.style.display='none'">
+                      </template>
+                      <template x-if="!item.image">
+                        <div class="card-poster-placeholder" x-text="item.title"></div>
+                      </template>
+                      <div class="card-info">
+                        <div class="card-title" x-text="item.title"></div>
+                        <div class="card-meta" x-text="[item.year, item.mediaType==='show'?'TV':'Movie'].filter(Boolean).join(' · ')"></div>
+                      </div>
+                      <button class="card-wl-btn" :class="{'in-wl': item.inWatchlist}"
+                              @click.stop="toggleWatchlist(item)"
+                              x-text="item.inWatchlist ? '✓' : '+'" :title="item.inWatchlist?'Remove':'Add'"></button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
       </div>
+
     </div><!-- search pane -->
 
 
@@ -274,11 +391,11 @@
           </div>
         </div>
 
-        <!-- Server Shows -->
+        <!-- Server Shows (Jellyfin / Emby / Plex) -->
         <div class="catalogue-row" x-show="serverItems.filter(i=>i.mediaType==='show').length > 0"
              :style="'order:'+serverCatOrder('show')">
           <div class="row-header">
-            <span class="row-title" x-text="(servers[0]?.name || 'Server') + ' — Shows'"></span>
+            <span class="row-title" x-text="(servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Shows'"></span>
           </div>
           <div class="row-scroll">
             <template x-for="item in serverItems.filter(i=>i.mediaType==='show')" :key="'svs-'+item.id">
@@ -302,11 +419,11 @@
           </div>
         </div>
 
-        <!-- Server Movies -->
+        <!-- Server Movies (Jellyfin / Emby / Plex) -->
         <div class="catalogue-row" x-show="serverItems.filter(i=>i.mediaType==='movie').length > 0"
              :style="'order:'+serverCatOrder('movie')">
           <div class="row-header">
-            <span class="row-title" x-text="(servers[0]?.name || 'Server') + ' — Movies'"></span>
+            <span class="row-title" x-text="(servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Movies'"></span>
           </div>
           <div class="row-scroll">
             <template x-for="item in serverItems.filter(i=>i.mediaType==='movie')" :key="'svm-'+item.id">

@@ -566,6 +566,7 @@ fun HomeScreen(
     onDismissMiniPlayer: (() -> Unit)? = null,
     // Called when user selects a channel from the On Now home row — plays in mini-player.
     onPlayChannelInMiniPlayer: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
+    onNavigateToAllApps: () -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
 
@@ -1187,6 +1188,8 @@ fun HomeScreen(
             liveChannelEpg = uiState.liveChannelEpg,
             onPlayChannelInMiniPlayer = onPlayChannelInMiniPlayer,
             onPendingItemClick = { item -> rulePickerItem = item },
+            launcherModeEnabled = uiState.launcherModeEnabled,
+            onNavigateToAllApps = onNavigateToAllApps,
         )
         } // end trailer-dim wrapper
 
@@ -2360,6 +2363,8 @@ private fun HomeInputLayer(
     liveChannelEpg: Map<Int, com.arflix.tv.data.model.IptvNowNext> = emptyMap(),
     onPlayChannelInMiniPlayer: ((streamUrl: String, channelId: String, channelName: String, programTitle: String) -> Unit)? = null,
     onPendingItemClick: ((MediaItem) -> Unit)? = null,
+    launcherModeEnabled: Boolean = false,
+    onNavigateToAllApps: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val latestDismissMiniPlayer = androidx.compose.runtime.rememberUpdatedState(onDismissMiniPlayer)
@@ -2603,7 +2608,7 @@ private fun HomeInputLayer(
                             if (onInterceptBack?.invoke() == true) {
                                 true
                             } else if (focusState.isSidebarFocused) {
-                                onExitApp()
+                                if (!launcherModeEnabled) onExitApp()
                                 true
                             } else {
                                 focusState.isSidebarFocused = true
@@ -2665,6 +2670,9 @@ private fun HomeInputLayer(
                                         // Must check collection: BEFORE falling through to Details — D-pad SELECT
                                         // on a service tile (Netflix, HBO, ...) was hitting DetailsScreen with the
                                         // synthetic hash id and spamming TMDB 404s instead of opening the catalog.
+                                        if (item.status == "all_apps") {
+                                            onNavigateToAllApps()
+                                        }
                                         val appPackage = item.status?.removePrefix("app:")
                                             ?.takeIf { item.status?.startsWith("app:") == true && it.isNotBlank() }
                                         val collectionId = item.status?.removePrefix("collection:")
@@ -3629,15 +3637,23 @@ private fun ContentRow(
                 }
                 // ── Live TV / On Now row — dedicated card with EPG, progress, LIVE badge ──
                 if (isAppsRow) {
-                    val packageName = item.status?.removePrefix("app:").orEmpty()
-                    val appContext = androidx.compose.ui.platform.LocalContext.current
-                    AppLauncherCard(
-                        packageName = packageName,
-                        label = item.title,
-                        isFocused = itemIsFocused,
-                        onFocused = onCardFocused,
-                        onClick = { onBeforeAppLaunch?.invoke(); launchApp(appContext, packageName) },
-                    )
+                    if (item.status == "all_apps") {
+                        AllAppsCard(
+                            isFocused = itemIsFocused,
+                            onFocused = onCardFocused,
+                            onClick = { latestOnItemClick.value(item) },
+                        )
+                    } else {
+                        val packageName = item.status?.removePrefix("app:").orEmpty()
+                        val appContext = androidx.compose.ui.platform.LocalContext.current
+                        AppLauncherCard(
+                            packageName = packageName,
+                            label = item.title,
+                            isFocused = itemIsFocused,
+                            onFocused = onCardFocused,
+                            onClick = { onBeforeAppLaunch?.invoke(); launchApp(appContext, packageName) },
+                        )
+                    }
                     return@itemsIndexed
                 }
                 if (isLiveTvRow) {

@@ -222,7 +222,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
-        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22)
+        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36)
         "profiles" -> listOf(19)
         "network" -> listOf(25, 26, 35)
         else -> emptyList()
@@ -850,6 +850,7 @@ fun SettingsScreen(
                                                 35 -> showCustomUserAgentDialog = true
                                                 27 -> viewModel.cycleVolumeBoost()
                                                 34 -> viewModel.cycleTrailerDelay()
+                                                36 -> viewModel.setLauncherMode(!uiState.launcherModeEnabled)
                                             }
                                         }
                                         "iptv" -> {
@@ -1306,7 +1307,9 @@ fun SettingsScreen(
                             qualityFilterValue = uiState.qualityFilterPresetLabel,
                             onQualityFiltersClick = { showQualityFiltersModal = true },
                             customUserAgent = uiState.customUserAgent,
-                            onCustomUserAgentClick = { showCustomUserAgentDialog = true }
+                            onCustomUserAgentClick = { showCustomUserAgentDialog = true },
+                            launcherModeEnabled = uiState.launcherModeEnabled,
+                            onLauncherModeToggle = { viewModel.setLauncherMode(it) }
                         )
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
@@ -4706,7 +4709,9 @@ private fun TvGeneralSettingsRows(
     qualityFilterValue: String = "OFF",
     onQualityFiltersClick: () -> Unit = {},
     customUserAgent: String = "",
-    onCustomUserAgentClick: () -> Unit = {}
+    onCustomUserAgentClick: () -> Unit = {},
+    launcherModeEnabled: Boolean = false,
+    onLauncherModeToggle: (Boolean) -> Unit = {}
 ) {
     Column {
         tvGeneralRowsForSection(section).forEachIndexed { localIndex, rowId ->
@@ -4796,6 +4801,7 @@ private fun TvGeneralSettingsRows(
                 )
                 34 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.trailer_delay), stringResource(R.string.trailer_delay_desc), "${trailerDelaySeconds}s", focusedIndex == localIndex, onTrailerDelayClick, Modifier.settingsFocusSlot(localIndex))
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
+                36 -> SettingsToggleRow("Launcher Mode", "Set Xadarr as the Android TV home screen", launcherModeEnabled, focusedIndex == localIndex, onLauncherModeToggle, Modifier.settingsFocusSlot(localIndex))
             }
         }
     }
