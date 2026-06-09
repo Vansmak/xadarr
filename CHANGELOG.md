@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file.
 - **Cloud sync: Episeerr URL** — Episeerr URL is now included in the settings blob so it syncs across devices. Saving the URL also triggers an immediate background push.
 - **Auto-restore on first server URL** — entering the xadarr-server URL on a fresh device automatically pulls the full settings blob without requiring a manual "Restore from server" tap.
 - **Back key in Launcher Mode** — pressing Back on the home screen when Launcher Mode is enabled is a no-op (home apps must not be exitable).
+- **Internal naming aligned with app identity** — all skin, theme, focus, and component classes, resource names, SharedPreferences keys, KeyStore aliases, and client identifiers throughout the codebase now use the Xadarr name consistently.
 
 ## [2.3] - 2026-06-09
 
