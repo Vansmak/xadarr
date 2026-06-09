@@ -39,13 +39,13 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 
 /**
- * Premium ARVIO Loading Screen - Optimized for TV Performance
+ * Xadarr Loading Screen - Optimized for TV Performance
  * Removed heavy effects: blur, particles, multiple animated layers
  * Clean, lightweight design that runs smooth on TV hardware
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun ArvioLoadingScreen(
+fun XadarrLoadingScreen(
     modifier: Modifier = Modifier,
     showText: Boolean = true
 ) {
@@ -83,7 +83,7 @@ fun ArvioLoadingScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Image(
-                painter = painterResource(id = R.drawable.arvio_loading_logo),
+                painter = painterResource(id = R.drawable.xadarr_loading_logo),
                 contentDescription = "Xadarr",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier

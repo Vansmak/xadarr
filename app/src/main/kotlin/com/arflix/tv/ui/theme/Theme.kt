@@ -8,14 +8,14 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
-import com.arflix.tv.ui.skin.ProvideArvioSkin
+import com.arflix.tv.ui.skin.ProvideXadarrSkin
 import com.arflix.tv.ui.skin.focusBorderColorFromName
 
 /**
- * ARVIO Color scheme holder - Arctic Fuse 2 inspired
+ * Xadarr color scheme holder - Arctic Fuse 2 inspired
  * Minimal dark theme with light gray (#EDEDED) on pure black (#000000)
  */
-data class ArvioColors(
+data class XadarrColors(
     // Arctic Fuse 2 Main Colors
     val arcticWhite: androidx.compose.ui.graphics.Color = ArcticWhite,
     val arcticWhite90: androidx.compose.ui.graphics.Color = ArcticWhite90,
@@ -70,26 +70,26 @@ data class ArvioColors(
     val particlePink: androidx.compose.ui.graphics.Color = ParticlePink
 )
 
-val LocalArvioColors = staticCompositionLocalOf { ArvioColors() }
+val LocalXadarrColors = staticCompositionLocalOf { XadarrColors() }
 val LocalOledBlackBackground = staticCompositionLocalOf { false }
 
 @Composable
-fun appBackgroundDark(): Color = LocalArvioColors.current.backgroundDark
+fun appBackgroundDark(): Color = LocalXadarrColors.current.backgroundDark
 
 @Composable
-fun appCardBackground(): Color = LocalArvioColors.current.backgroundCard
+fun appCardBackground(): Color = LocalXadarrColors.current.backgroundCard
 
 @Composable
-fun appElevatedBackground(): Color = LocalArvioColors.current.backgroundElevated
+fun appElevatedBackground(): Color = LocalXadarrColors.current.backgroundElevated
 
 @Composable
-fun appTextPrimary(): Color = LocalArvioColors.current.textPrimary
+fun appTextPrimary(): Color = LocalXadarrColors.current.textPrimary
 
 @Composable
-fun appTextSecondary(): Color = LocalArvioColors.current.textSecondary
+fun appTextSecondary(): Color = LocalXadarrColors.current.textSecondary
 
 // Keep legacy aliases for compatibility
-val LocalArflixColors = LocalArvioColors
+val LocalArflixColors = LocalXadarrColors
 
 private data class ThemePalette(
     val background: Color,
@@ -145,7 +145,7 @@ private fun paletteForTheme(name: String, oledBlack: Boolean): ThemePalette = wh
     )
 }
 
-private fun arvioColorsFromPalette(p: ThemePalette): ArvioColors = ArvioColors(
+private fun xadarrColorsFromPalette(p: ThemePalette): XadarrColors = XadarrColors(
     arcticWhite = p.textPrimary,
     arcticWhite90 = p.textPrimary.copy(alpha = 0.9f),
     arcticWhite70 = p.textSecondary,
@@ -178,12 +178,12 @@ private fun arvioColorsFromPalette(p: ThemePalette): ArvioColors = ArvioColors(
 )
 
 /**
- * Main ARVIO TV theme - Arctic Fuse 2 inspired
+ * Main Xadarr TV theme - Arctic Fuse 2 inspired
  * Pure black background, light gray text, white focus states
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun ArvioTvTheme(
+fun XadarrTvTheme(
     oledBlackBackground: Boolean = false,
     focusBorderColorName: String? = null,
     themeName: String = "Midnight",
@@ -215,14 +215,14 @@ fun ArvioTvTheme(
         border = palette.borderLight
     )
 
-    val arvioColors = arvioColorsFromPalette(palette)
+    val xadarrColors = xadarrColorsFromPalette(palette)
 
     CompositionLocalProvider(
-        LocalArvioColors provides arvioColors,
+        LocalXadarrColors provides xadarrColors,
         LocalOledBlackBackground provides oledBlackBackground,
         LocalFocusBorderColorOverride provides focusBorderColor
     ) {
-        ProvideArvioSkin {
+        ProvideXadarrSkin {
             MaterialTheme(
                 colorScheme = colorScheme,
                 content = content
@@ -239,7 +239,7 @@ fun ArflixTvTheme(
     focusBorderColorName: String? = null,
     themeName: String = "Midnight",
     content: @Composable () -> Unit
-) = ArvioTvTheme(
+) = XadarrTvTheme(
     oledBlackBackground = oledBlackBackground,
     focusBorderColorName = focusBorderColorName,
     themeName = themeName,
@@ -247,20 +247,20 @@ fun ArflixTvTheme(
 )
 
 /**
- * Access custom ARVIO colors
+ * Access Xadarr colors
  */
-object ArvioTheme {
-    val colors: ArvioColors
+object XadarrTheme {
+    val colors: XadarrColors
         @Composable
-        get() = LocalArvioColors.current
+        get() = LocalXadarrColors.current
 }
 
 // Legacy alias for compatibility
 object ArflixTheme {
-    val colors: ArvioColors
+    val colors: XadarrColors
         @Composable
-        get() = LocalArvioColors.current
+        get() = LocalXadarrColors.current
 }
 
 // Type alias for backward compatibility
-typealias ArflixColors = ArvioColors
+typealias ArflixColors = XadarrColors

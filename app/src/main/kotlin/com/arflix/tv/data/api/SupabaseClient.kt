@@ -362,7 +362,7 @@ data class MarkEpisodeWatchedParams(
     @SerializedName("p_season") val season: Int,
     @SerializedName("p_episode") val episode: Int,
     @SerializedName("p_show_trakt_id") val showTraktId: Int? = null,
-    @SerializedName("p_source") val source: String = "arvio"
+    @SerializedName("p_source") val source: String = "xadarr"
 )
 
 /**

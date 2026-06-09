@@ -126,7 +126,7 @@ import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.network.OkHttpProvider
-import com.arflix.tv.ui.components.MediaCard as ArvioMediaCard
+import com.arflix.tv.ui.components.MediaCard as XadarrMediaCard
 import com.arflix.tv.ui.components.TrailerPlayer
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.AppTopBar
@@ -142,13 +142,13 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
-import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
-import com.arflix.tv.ui.focus.isArvioDpadNavigationKey
-import com.arflix.tv.ui.focus.rememberArvioDpadRepeatGate
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.focus.xadarrManualBringIntoViewBoundary
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
+import com.arflix.tv.ui.focus.isXadarrDpadNavigationKey
+import com.arflix.tv.ui.focus.rememberXadarrDpadRepeatGate
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundCard
@@ -371,7 +371,7 @@ private fun createHomeHeroPlaybackHandles(context: Context): HomeHeroPlaybackHan
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
     val heroDataSourceFactory =
-        OkHttpDataSource.Factory(heroOkHttp).setUserAgent("ARVIO/1.7.0 (Android TV)")
+        OkHttpDataSource.Factory(heroOkHttp).setUserAgent("Xadarr/1.0 (Android TV)")
     val heroHlsFactory = HlsMediaSource.Factory(heroDataSourceFactory)
         .setAllowChunklessPreparation(true)
     val heroDefaultFactory = DefaultMediaSourceFactory(context)
@@ -2374,7 +2374,7 @@ private fun HomeInputLayer(
     var rootHasFocus by remember { mutableStateOf(false) }
     val focusRecoveryDelayMs = 180L
     var preferredCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
-    val dpadRepeatGate = rememberArvioDpadRepeatGate(
+    val dpadRepeatGate = rememberXadarrDpadRepeatGate(
         horizontalMinRepeatIntervalMs = 80L,
         verticalMinRepeatIntervalMs = 112L
     )
@@ -2471,17 +2471,17 @@ private fun HomeInputLayer(
                 return@onPreviewKeyEvent false
             }
             if (trailerIsPlaying && event.type == KeyEventType.KeyDown &&
-                (isArvioDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.Back)
+                (isXadarrDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.Back)
             ) {
                 onTrailerStop()
                 return@onPreviewKeyEvent true
             }
-            if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
+            if (event.type == KeyEventType.KeyUp && isXadarrDpadNavigationKey(event.key)) {
                 dpadRepeatGate.reset()
             }
             if (
                 event.type == KeyEventType.KeyDown &&
-                isArvioDpadNavigationKey(event.key) &&
+                isXadarrDpadNavigationKey(event.key) &&
                 dpadRepeatGate.shouldSkip(
                     keyCode = event.nativeKeyEvent.keyCode,
                     repeatCount = event.nativeKeyEvent.repeatCount,
@@ -2910,7 +2910,7 @@ private fun MobileHomeRowsLayer(
 
                 // Horizontal card row with touch scrolling
                 LazyRow(
-                    modifier = Modifier.arvioDpadFocusGroup(),
+                    modifier = Modifier.xadarrDpadFocusGroup(),
                     contentPadding = PaddingValues(
                         start = contentStartPadding,
                         end = 16.dp,
@@ -2933,7 +2933,7 @@ private fun MobileHomeRowsLayer(
                             ) {
                                 val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                                 val collectionLandscape = item.collectionTileShape != CollectionTileShape.POSTER
-                                ArvioMediaCard(
+                                XadarrMediaCard(
                                     item = item,
                                     width = rowMobileItemWidth,
                                     isLandscape = if (isCollectionRow) collectionLandscape else !rowUsePosterCards,
@@ -2959,7 +2959,7 @@ private fun MobileHomeRowsLayer(
                         } else {
                             val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
                             val collectionLandscape = item.collectionTileShape != CollectionTileShape.POSTER
-                            ArvioMediaCard(
+                            XadarrMediaCard(
                                 item = item,
                                 width = rowMobileItemWidth,
                                 isLandscape = if (isCollectionRow) collectionLandscape else !rowUsePosterCards,
@@ -3115,7 +3115,7 @@ private fun TvHomeRowsLayer(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .height(rowsViewportHeight)
-                .arvioManualBringIntoViewBoundary()
+                .xadarrManualBringIntoViewBoundary()
                 .clipToBounds()
         ) {
             LazyColumn(
@@ -3123,7 +3123,7 @@ private fun TvHomeRowsLayer(
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 modifier = Modifier
                     .fillMaxSize()
-                    .arvioDpadFocusGroup(enableFocusRestorer = false)
+                    .xadarrDpadFocusGroup(enableFocusRestorer = false)
                     .clipToBounds(),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
@@ -3242,14 +3242,14 @@ private fun HomeViewportRailFocusOverlay(
     val targetWidth = if (effectivePosterMode) 119.dp else 210.dp
     val targetHeight = if (effectivePosterMode) 119.dp * (3f/2f) else 210.dp * (9f/16f)
 
-    ArvioFocusableSurface(
+    XadarrFocusableSurface(
         modifier = Modifier
             .padding(start = startPadding, top = 48.dp)
             .size(width = targetWidth, height = targetHeight)
             .zIndex(8f),
-        shape = rememberArvioCardShape(ArvioSkin.radius.md),
+        shape = rememberXadarrCardShape(XadarrSkin.radius.md),
         backgroundColor = Color.Transparent,
-        outlineColor = ArvioSkin.colors.focusOutline,
+        outlineColor = XadarrSkin.colors.focusOutline,
         outlineWidth = 2.5.dp,
         focusedScale = 1f,
         pressedScale = 0.97f,
@@ -3368,7 +3368,7 @@ private fun ImdbSvgRatingBadge(
     logoHeight: Dp,
     textShadow: Shadow
 ) {
-    val imdbLogoUri = remember { "android.resource://com.arvio.tv/${R.raw.logo_imdb_rectangle}" }
+    val imdbLogoUri = remember { "android.resource://com.arflix.tv/${R.raw.logo_imdb_rectangle}" }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -3494,7 +3494,7 @@ private fun ContentRow(
     } else {
         focusedItemIndex
     }
-    val railFocusShape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val railFocusShape = rememberXadarrCardShape(XadarrSkin.radius.md)
     val railEndPadding = lockedHomeRailEndPadding(
         itemWidth = itemWidth,
         startPadding = startPadding,
@@ -3592,12 +3592,12 @@ private fun ContentRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .arvioManualBringIntoViewBoundary()
+                .xadarrManualBringIntoViewBoundary()
                 .then(clipModifier)
         ) {
             LazyRow(
                 state = rowState,
-                modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+                modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
                 contentPadding = PaddingValues(
                     start = startPadding,
                     end = railEndPadding,
@@ -3702,7 +3702,7 @@ private fun ContentRow(
                     Box(
                         modifier = Modifier.width(itemWidth)
                     ) {
-                        ArvioMediaCard(
+                        XadarrMediaCard(
                             item = item,
                             width = itemWidth,
                             isLandscape = !effectivePosterMode,
@@ -3734,7 +3734,7 @@ private fun ContentRow(
                 } else {
                     // Standard Card - keep width aligned with scroll math
                     val cardLogoUrl = if (isCollectionRow) null else cardLogoUrls["${item.mediaType}_${item.id}"]
-                    ArvioMediaCard(
+                    XadarrMediaCard(
                         item = item,
                         width = itemWidth,
                         isLandscape = !effectivePosterMode,
@@ -3756,7 +3756,7 @@ private fun ContentRow(
                 }
             }
             if (railFocusOverlayActive) {
-                ArvioFocusableSurface(
+                XadarrFocusableSurface(
                     modifier = Modifier
                         .padding(start = startPadding, top = 14.dp)
                         .width(itemWidth)
@@ -3764,7 +3764,7 @@ private fun ContentRow(
                         .zIndex(4f),
                     shape = railFocusShape,
                     backgroundColor = Color.Transparent,
-                    outlineColor = ArvioSkin.colors.focusOutline,
+                    outlineColor = XadarrSkin.colors.focusOutline,
                     outlineWidth = 2.5.dp,
                     focusedScale = 1f,
                     pressedScale = 0.97f,

@@ -44,7 +44,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
-import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.XadarrSkin
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -154,11 +154,11 @@ private fun QuickActionTile(
 ) {
     val shape = RoundedCornerShape(12.dp)
     val background = if (isFocused) {
-        ArvioSkin.colors.surfaceRaised.copy(alpha = 0.9f)
+        XadarrSkin.colors.surfaceRaised.copy(alpha = 0.9f)
     } else {
-        ArvioSkin.colors.surface.copy(alpha = 0.85f)
+        XadarrSkin.colors.surface.copy(alpha = 0.85f)
     }
-    val outline = if (isFocused) ArvioSkin.colors.focusOutline else Color.Transparent
+    val outline = if (isFocused) XadarrSkin.colors.focusOutline else Color.Transparent
     val contentAlpha = if (isEnabled) 1f else 0.45f
 
     Column(
@@ -174,14 +174,14 @@ private fun QuickActionTile(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = ArvioSkin.colors.textPrimary.copy(alpha = contentAlpha),
+            tint = XadarrSkin.colors.textPrimary.copy(alpha = contentAlpha),
             modifier = Modifier.size(26.dp)
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = label,
-            style = ArvioSkin.typography.caption,
-            color = ArvioSkin.colors.textPrimary.copy(alpha = contentAlpha)
+            style = XadarrSkin.typography.caption,
+            color = XadarrSkin.colors.textPrimary.copy(alpha = contentAlpha)
         )
     }
 }

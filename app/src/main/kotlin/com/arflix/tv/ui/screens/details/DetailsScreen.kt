@@ -154,13 +154,13 @@ import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
-import com.arflix.tv.ui.focus.arvioManualBringIntoViewBoundary
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
-import com.arflix.tv.ui.focus.isArvioDpadNavigationKey
-import com.arflix.tv.ui.focus.rememberArvioDpadRepeatGate
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.focus.xadarrManualBringIntoViewBoundary
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
+import com.arflix.tv.ui.focus.isXadarrDpadNavigationKey
+import com.arflix.tv.ui.focus.rememberXadarrDpadRepeatGate
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
@@ -356,17 +356,17 @@ fun DetailsScreen(
     }
 
     // D-pad key handler — only used on TV (skipped on mobile/touch devices)
-    val dpadRepeatGate = rememberArvioDpadRepeatGate(
+    val dpadRepeatGate = rememberXadarrDpadRepeatGate(
         horizontalMinRepeatIntervalMs = 80L,
         verticalMinRepeatIntervalMs = 112L
     )
     val keyModifier = if (isMobile) Modifier else Modifier.onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp && isArvioDpadNavigationKey(event.key)) {
+                if (event.type == KeyEventType.KeyUp && isXadarrDpadNavigationKey(event.key)) {
                     dpadRepeatGate.reset()
                 }
                 if (
                     event.type == KeyEventType.KeyDown &&
-                    isArvioDpadNavigationKey(event.key) &&
+                    isXadarrDpadNavigationKey(event.key) &&
                     dpadRepeatGate.shouldSkip(
                         keyCode = event.nativeKeyEvent.keyCode,
                         repeatCount = event.nativeKeyEvent.repeatCount,
@@ -1463,7 +1463,7 @@ private fun DetailsContent(
                             Spacer(modifier = Modifier.height(20.dp))
                             Text(
                                 text = stringResource(R.string.seasons),
-                                style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                                style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                                 color = Color.White.copy(alpha = 0.9f)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -1498,7 +1498,7 @@ private fun DetailsContent(
                         Spacer(modifier = Modifier.height(20.dp))
                         Text(
                             text = stringResource(R.string.episodes),
-                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1508,7 +1508,7 @@ private fun DetailsContent(
                 // Episodes LazyRow (outside the inner Column to allow independent horizontal scroll)
                 if (item.mediaType == MediaType.TV && episodes.isNotEmpty()) {
                     LazyRow(
-                        modifier = Modifier.arvioDpadFocusGroup(),
+                        modifier = Modifier.xadarrDpadFocusGroup(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1537,13 +1537,13 @@ private fun DetailsContent(
                         Spacer(modifier = Modifier.height(24.dp))
                         Text(
                             text = stringResource(R.string.cast),
-                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     LazyRow(
-                        modifier = Modifier.arvioDpadFocusGroup(),
+                        modifier = Modifier.xadarrDpadFocusGroup(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -1571,13 +1571,13 @@ private fun DetailsContent(
                         Spacer(modifier = Modifier.height(24.dp))
                         Text(
                             text = stringResource(R.string.more_like_this),
-                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     LazyRow(
-                        modifier = Modifier.arvioDpadFocusGroup(),
+                        modifier = Modifier.xadarrDpadFocusGroup(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1608,13 +1608,13 @@ private fun DetailsContent(
                         val displayName = collectionName ?: stringResource(R.string.more_like_this)
                         Text(
                             text = displayName,
-                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     LazyRow(
-                        modifier = Modifier.arvioDpadFocusGroup(),
+                        modifier = Modifier.xadarrDpadFocusGroup(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -1644,13 +1644,13 @@ private fun DetailsContent(
                         Spacer(modifier = Modifier.height(24.dp))
                         Text(
                             text = stringResource(R.string.reviews),
-                            style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     LazyRow(
-                        modifier = Modifier.arvioDpadFocusGroup(),
+                        modifier = Modifier.xadarrDpadFocusGroup(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -2200,8 +2200,8 @@ private fun DetailsTvRows(
             .height(contentRowHeight)
             .padding(start = 24.dp, bottom = contentRowBottomPadding)
             .graphicsLayer { translationY = detailsStackOffsetPx.value }
-            .arvioManualBringIntoViewBoundary()
-            .arvioDpadFocusGroup(enableFocusRestorer = false)
+            .xadarrManualBringIntoViewBoundary()
+            .xadarrDpadFocusGroup(enableFocusRestorer = false)
             .clipToBounds(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         contentPadding = PaddingValues(top = 6.dp)
@@ -2332,7 +2332,7 @@ private fun DetailsSeasonRail(
 
     TvLazyRow(
         state = seasonRowState,
-        modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+        modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
         contentPadding = PaddingValues(
             start = contentStartPadding,
             end = lockedDetailsRailEndPadding(
@@ -2401,7 +2401,7 @@ private fun DetailsEpisodeRail(
     Box(modifier = Modifier.fillMaxWidth()) {
         TvLazyRow(
             state = episodeRowState,
-            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+            modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
             contentPadding = PaddingValues(
                 start = contentStartPadding,
                 end = lockedDetailsRailEndPadding(
@@ -2465,7 +2465,7 @@ private fun DetailsCastRail(
     Column {
         Text(
             text = stringResource(R.string.cast),
-            style = ArvioSkin.typography.sectionTitle.copy(
+            style = XadarrSkin.typography.sectionTitle.copy(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -2475,7 +2475,7 @@ private fun DetailsCastRail(
 
         TvLazyRow(
             state = castRowState,
-            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+            modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
             contentPadding = PaddingValues(
                 start = contentStartPadding,
                 end = lockedDetailsRailEndPadding(
@@ -2527,7 +2527,7 @@ private fun DetailsReviewRail(
     Column {
         Text(
             text = stringResource(R.string.reviews),
-            style = ArvioSkin.typography.sectionTitle.copy(
+            style = XadarrSkin.typography.sectionTitle.copy(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -2537,7 +2537,7 @@ private fun DetailsReviewRail(
 
         TvLazyRow(
             state = reviewRowState,
-            modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+            modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
             contentPadding = PaddingValues(
                 start = contentStartPadding,
                 end = lockedDetailsRailEndPadding(
@@ -2595,7 +2595,7 @@ private fun DetailsSimilarRail(
     Column {
         Text(
             text = stringResource(R.string.more_like_this),
-            style = ArvioSkin.typography.sectionTitle.copy(
+            style = XadarrSkin.typography.sectionTitle.copy(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -2606,7 +2606,7 @@ private fun DetailsSimilarRail(
         Box(modifier = Modifier.fillMaxWidth()) {
             TvLazyRow(
                 state = similarRowState,
-                modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+                modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
                 contentPadding = PaddingValues(
                     start = contentStartPadding,
                     end = lockedDetailsRailEndPadding(
@@ -2680,7 +2680,7 @@ private fun DetailsCollectionRail(
         val displayName = collectionName ?: stringResource(R.string.more_like_this)
         Text(
             text = displayName,
-            style = ArvioSkin.typography.sectionTitle.copy(
+            style = XadarrSkin.typography.sectionTitle.copy(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -2691,7 +2691,7 @@ private fun DetailsCollectionRail(
         Box(modifier = Modifier.fillMaxWidth()) {
             TvLazyRow(
                 state = collectionRowState,
-                modifier = Modifier.arvioDpadFocusGroup(enableFocusRestorer = false),
+                modifier = Modifier.xadarrDpadFocusGroup(enableFocusRestorer = false),
                 contentPadding = PaddingValues(
                     start = contentStartPadding,
                     end = lockedDetailsRailEndPadding(
@@ -2796,15 +2796,15 @@ private fun FixedDetailsRailFocusOverlay(
     width: Dp,
     aspectRatio: Float
 ) {
-    ArvioFocusableSurface(
+    XadarrFocusableSurface(
         modifier = Modifier
             .padding(start = startPadding, top = topPadding)
             .width(width)
             .aspectRatio(aspectRatio)
             .zIndex(4f),
-        shape = rememberArvioCardShape(ArvioSkin.radius.md),
+        shape = rememberXadarrCardShape(XadarrSkin.radius.md),
         backgroundColor = Color.Transparent,
-        outlineColor = ArvioSkin.colors.focusOutline,
+        outlineColor = XadarrSkin.colors.focusOutline,
         outlineWidth = 2.5.dp,
         focusedScale = 1f,
         pressedScale = 0.97f,
@@ -2902,7 +2902,7 @@ private fun DetailsImdbSvgRatingBadge(
     logoHeight: Dp,
     textShadow: Shadow
 ) {
-    val imdbLogoUri = remember { "android.resource://com.arvio.tv/${R.raw.logo_imdb_rectangle}" }
+    val imdbLogoUri = remember { "android.resource://com.arflix.tv/${R.raw.logo_imdb_rectangle}" }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -3013,7 +3013,7 @@ private fun MobileActionButton(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = text,
-            style = ArvioSkin.typography.button.copy(
+            style = XadarrSkin.typography.button.copy(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             ),
@@ -3085,7 +3085,7 @@ private fun PremiumActionButton(
     val shape = RoundedCornerShape(12.dp)
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val textStyle = ArvioSkin.typography.button.copy(
+    val textStyle = XadarrSkin.typography.button.copy(
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.3.sp
@@ -3229,7 +3229,7 @@ private fun EpisodeCard(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.03f else 1f,
         animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 400f),
@@ -3276,14 +3276,14 @@ private fun EpisodeCard(
         Modifier
     }
 
-    ArvioFocusableSurface(
+    XadarrFocusableSurface(
         modifier = Modifier
             .width(cardWidth)
             .aspectRatio(aspectRatio)
             .then(scaleModifier),
         shape = shape,
-        backgroundColor = ArvioSkin.colors.surface,
-        outlineColor = ArvioSkin.colors.focusOutline,
+        backgroundColor = XadarrSkin.colors.surface,
+        outlineColor = XadarrSkin.colors.focusOutline,
         outlineWidth = borderWidth,
         focusedScale = 1f,
         pressedScale = 1f,
@@ -3327,7 +3327,7 @@ private fun EpisodeCard(
                 ) {
                     Text(
                         text = "Spoiler",
-                        style = ArvioSkin.typography.caption.copy(fontWeight = FontWeight.Bold),
+                        style = XadarrSkin.typography.caption.copy(fontWeight = FontWeight.Bold),
                         color = Color.White.copy(alpha = 0.6f)
                     )
                 }
@@ -3348,7 +3348,7 @@ private fun EpisodeCard(
                 ) {
                     Text(
                         text = episodeCode,
-                        style = ArvioSkin.typography.caption.copy(
+                        style = XadarrSkin.typography.caption.copy(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.3.sp
@@ -3384,7 +3384,7 @@ private fun EpisodeCard(
                     }
                     Text(
                         text = episodeAirDateLabel,
-                        style = ArvioSkin.typography.caption.copy(
+                        style = XadarrSkin.typography.caption.copy(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
@@ -3413,7 +3413,7 @@ private fun EpisodeCard(
                     )
                     Text(
                         text = rating,
-                        style = ArvioSkin.typography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        style = XadarrSkin.typography.caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                         color = Color.White
                     )
                 }
@@ -3426,7 +3426,7 @@ private fun EpisodeCard(
             ) {
                 Text(
                     text = episode.name,
-                    style = ArvioSkin.typography.cardTitle.copy(
+                    style = XadarrSkin.typography.cardTitle.copy(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     ),
@@ -3436,7 +3436,7 @@ private fun EpisodeCard(
                 )
                 Text(
                     text = previewText,
-                    style = ArvioSkin.typography.caption.copy(
+                    style = XadarrSkin.typography.caption.copy(
                         fontSize = 10.sp,
                         lineHeight = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -3454,12 +3454,12 @@ private fun EpisodeCard(
                         .padding(bottom = 8.dp, end = 8.dp)
                         .size(16.dp)
                         .background(
-                            color = ArvioSkin.colors.watchedGreen.copy(alpha = 0.22f),
+                            color = XadarrSkin.colors.watchedGreen.copy(alpha = 0.22f),
                             shape = CircleShape
                         )
                         .border(
                             width = 1.dp,
-                            color = ArvioSkin.colors.watchedGreen,
+                            color = XadarrSkin.colors.watchedGreen,
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -3467,7 +3467,7 @@ private fun EpisodeCard(
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        tint = ArvioSkin.colors.watchedGreen,
+                        tint = XadarrSkin.colors.watchedGreen,
                         modifier = Modifier.size(9.dp)
                     )
                 }
@@ -3549,7 +3549,7 @@ private fun SeasonButton(
     ) {
         Text(
             text = "${stringResource(R.string.season_label)} $season",
-            style = ArvioSkin.typography.button.copy(
+            style = XadarrSkin.typography.button.copy(
                 fontSize = 13.sp,
                 fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium
             ),
@@ -3561,12 +3561,12 @@ private fun SeasonButton(
                 modifier = Modifier
                     .size(14.dp)
                     .background(
-                        color = ArvioSkin.colors.watchedGreen.copy(alpha = 0.2f),
+                        color = XadarrSkin.colors.watchedGreen.copy(alpha = 0.2f),
                         shape = CircleShape
                     )
                     .border(
                         width = 1.dp,
-                        color = ArvioSkin.colors.watchedGreen,
+                        color = XadarrSkin.colors.watchedGreen,
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -3574,7 +3574,7 @@ private fun SeasonButton(
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = ArvioSkin.colors.watchedGreen,
+                    tint = XadarrSkin.colors.watchedGreen,
                     modifier = Modifier.size(8.dp)
                 )
             }
@@ -3611,12 +3611,12 @@ private fun CastCard(
         } else {
             Modifier
         }
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier
                 .size(100.dp)
                 .then(scaleModifier),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.65f),
+            backgroundColor = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.65f),
             enableSystemFocus = false,
             isFocusedOverride = isFocused,
             outlineWidth = borderWidth,
@@ -3640,8 +3640,8 @@ private fun CastCard(
                 ) {
                     Text(
                         text = member.name.firstOrNull()?.toString().orEmpty(),
-                        style = ArvioSkin.typography.sectionTitle,
-                        color = ArvioSkin.colors.textMuted
+                        style = XadarrSkin.typography.sectionTitle,
+                        color = XadarrSkin.colors.textMuted
                     )
                 }
             }
@@ -3651,8 +3651,8 @@ private fun CastCard(
         
         Text(
             text = member.name,
-            style = ArvioSkin.typography.cardTitle,
-            color = if (isFocused) ArvioSkin.colors.textPrimary else ArvioSkin.colors.textMuted,
+            style = XadarrSkin.typography.cardTitle,
+            color = if (isFocused) XadarrSkin.colors.textPrimary else XadarrSkin.colors.textMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -3660,8 +3660,8 @@ private fun CastCard(
         if (member.character.isNotEmpty()) {
             Text(
                 text = member.character,
-                style = ArvioSkin.typography.caption,
-                color = ArvioSkin.colors.textMuted.copy(alpha = 0.85f),
+                style = XadarrSkin.typography.caption,
+                color = XadarrSkin.colors.textMuted.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -3714,13 +3714,13 @@ private fun CircularCastCard(
                     if (isFocused) {
                         Modifier.border(
                             width = borderWidth,
-                            color = ArvioSkin.colors.focusOutline,
+                            color = XadarrSkin.colors.focusOutline,
                             shape = CircleShape
                         )
                     } else Modifier
                 )
                 .clip(CircleShape)
-                .background(ArvioSkin.colors.surfaceRaised.copy(alpha = 0.4f)),
+                .background(XadarrSkin.colors.surfaceRaised.copy(alpha = 0.4f)),
             contentAlignment = Alignment.Center
         ) {
             if (castMember.profilePath != null) {
@@ -3734,7 +3734,7 @@ private fun CircularCastCard(
                 // Placeholder with initials
                 Text(
                     text = castMember.name.take(1).uppercase(),
-                    style = ArvioSkin.typography.sectionTitle.copy(
+                    style = XadarrSkin.typography.sectionTitle.copy(
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     ),
@@ -3748,7 +3748,7 @@ private fun CircularCastCard(
         // Name
         Text(
             text = castMember.name,
-            style = ArvioSkin.typography.caption.copy(
+            style = XadarrSkin.typography.caption.copy(
                 fontSize = 11.sp,
                 fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
             ),
@@ -3763,7 +3763,7 @@ private fun CircularCastCard(
         if (castMember.character.isNotEmpty()) {
             Text(
                 text = castMember.character,
-                style = ArvioSkin.typography.caption.copy(fontSize = 10.sp),
+                style = XadarrSkin.typography.caption.copy(fontSize = 10.sp),
                 color = Color.White.copy(alpha = 0.5f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -3821,7 +3821,7 @@ private fun ReviewCard(
             )
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) ArvioSkin.colors.focusOutline else Color.White.copy(alpha = borderAlpha),
+                color = if (isFocused) XadarrSkin.colors.focusOutline else Color.White.copy(alpha = borderAlpha),
                 shape = shape
             )
             .padding(16.dp)
@@ -3840,7 +3840,7 @@ private fun ReviewCard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(ArvioSkin.colors.surfaceRaised.copy(alpha = 0.5f)),
+                        .background(XadarrSkin.colors.surfaceRaised.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (review.authorAvatar != null) {
@@ -3853,7 +3853,7 @@ private fun ReviewCard(
                     } else {
                         Text(
                             text = review.author.take(1).uppercase(),
-                            style = ArvioSkin.typography.button.copy(
+                            style = XadarrSkin.typography.button.copy(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             ),
@@ -3865,7 +3865,7 @@ private fun ReviewCard(
                 Column {
                     Text(
                         text = review.author,
-                        style = ArvioSkin.typography.cardTitle.copy(
+                        style = XadarrSkin.typography.cardTitle.copy(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
@@ -3888,7 +3888,7 @@ private fun ReviewCard(
                             )
                             Text(
                                 text = String.format("%.1f", review.rating),
-                                style = ArvioSkin.typography.caption.copy(fontSize = 11.sp),
+                                style = XadarrSkin.typography.caption.copy(fontSize = 11.sp),
                                 color = Color.White.copy(alpha = 0.8f)
                             )
                         }
@@ -3899,7 +3899,7 @@ private fun ReviewCard(
             // Review content
             Text(
                 text = review.content,
-                style = ArvioSkin.typography.body.copy(
+                style = XadarrSkin.typography.body.copy(
                     fontSize = 12.sp,
                     lineHeight = 18.sp
                 ),

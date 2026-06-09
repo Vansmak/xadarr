@@ -87,10 +87,10 @@ import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.BackgroundCard
@@ -656,8 +656,8 @@ private fun SearchInputBar(
         return
     }
 
-    val shape = rememberArvioCardShape(10.dp)
-    ArvioFocusableSurface(
+    val shape = rememberXadarrCardShape(10.dp)
+    XadarrFocusableSurface(
         modifier = Modifier
             .width(searchBarWidth)
             .height(54.dp)
@@ -760,7 +760,7 @@ private fun DiscoverFilterStrip(
                     else -> false
                 }
             }
-            .arvioDpadFocusGroup(),
+            .xadarrDpadFocusGroup(),
         horizontalArrangement = Arrangement.spacedBy(if (isTouchDevice) 7.dp else 9.dp),
         contentPadding = PaddingValues(
             start = if (isTouchDevice) 0.dp else 22.dp,
@@ -896,7 +896,7 @@ private fun RowsLayer(
         LazyColumn(
             state = listState,
             contentPadding = PaddingValues(top = focusBleedPadding / 2, bottom = maxHeight * 0.6f),
-            modifier = Modifier.fillMaxSize().arvioDpadFocusGroup(),
+            modifier = Modifier.fillMaxSize().xadarrDpadFocusGroup(),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             items(categories.size, key = { categories[it].id }) { index ->
@@ -934,7 +934,7 @@ private fun RowsLayer(
                         ) {
                             Text(
                                 category.title,
-                                style = ArvioSkin.typography.sectionTitle.copy(fontSize = 15.sp),
+                                style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp),
                                 color = Color.White.copy(alpha = if (isCurrentRow) 0.9f else 0.5f)
                             )
                         }
@@ -988,7 +988,7 @@ private fun RowsLayer(
 
                         LazyRow(
                             state = rowState,
-                            modifier = Modifier.arvioDpadFocusGroup(),
+                            modifier = Modifier.xadarrDpadFocusGroup(),
                             contentPadding = PaddingValues(
                                 start = focusBleedPadding,
                                 end = itemWidth + 56.dp,
@@ -1039,7 +1039,7 @@ private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoadi
 
     val focusBleedPadding = if (isTouchDevice) 14.dp else 24.dp
     LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(minSize = itemWidth + focusBleedPadding), contentPadding = PaddingValues(horizontal = focusBleedPadding, vertical = focusBleedPadding),
-        horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(26.dp), modifier = Modifier.fillMaxSize().arvioDpadFocusGroup()) {
+        horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(26.dp), modifier = Modifier.fillMaxSize().xadarrDpadFocusGroup()) {
         items(items.size, key = { "${items[it].mediaType}_${items[it].id}" }) { idx ->
             val item = items[idx]
             MediaCard(item = item.copy(

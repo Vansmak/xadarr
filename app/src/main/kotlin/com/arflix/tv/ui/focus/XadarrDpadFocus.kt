@@ -17,7 +17,7 @@ import androidx.compose.ui.input.key.Key
 import kotlin.Unit
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
-fun Modifier.arvioDpadFocusGroup(
+fun Modifier.xadarrDpadFocusGroup(
     restoreFocusRequester: FocusRequester? = null,
     enableFocusRestorer: Boolean = true
 ): Modifier {
@@ -30,18 +30,18 @@ fun Modifier.arvioDpadFocusGroup(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-private object ArvioNoOpBringIntoViewResponder : BringIntoViewResponder {
+private object XadarrNoOpBringIntoViewResponder : BringIntoViewResponder {
     override fun calculateRectForParent(localRect: Rect): Rect = localRect
 
     override suspend fun bringChildIntoView(localRect: () -> Rect?) = Unit
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-fun Modifier.arvioManualBringIntoViewBoundary(): Modifier {
-    return bringIntoViewResponder(ArvioNoOpBringIntoViewResponder)
+fun Modifier.xadarrManualBringIntoViewBoundary(): Modifier {
+    return bringIntoViewResponder(XadarrNoOpBringIntoViewResponder)
 }
 
-fun isArvioDpadNavigationKey(key: Key): Boolean {
+fun isXadarrDpadNavigationKey(key: Key): Boolean {
     return key == Key.DirectionLeft ||
         key == Key.DirectionRight ||
         key == Key.DirectionUp ||
@@ -49,7 +49,7 @@ fun isArvioDpadNavigationKey(key: Key): Boolean {
 }
 
 @Stable
-class ArvioDpadRepeatGate(
+class XadarrDpadRepeatGate(
     private val horizontalMinRepeatIntervalMs: Long,
     private val verticalMinRepeatIntervalMs: Long = horizontalMinRepeatIntervalMs
 ) {
@@ -83,13 +83,13 @@ class ArvioDpadRepeatGate(
 }
 
 @Composable
-fun rememberArvioDpadRepeatGate(
+fun rememberXadarrDpadRepeatGate(
     minRepeatIntervalMs: Long = 82L,
     horizontalMinRepeatIntervalMs: Long = minRepeatIntervalMs,
     verticalMinRepeatIntervalMs: Long = minRepeatIntervalMs
-): ArvioDpadRepeatGate {
+): XadarrDpadRepeatGate {
     return remember(horizontalMinRepeatIntervalMs, verticalMinRepeatIntervalMs) {
-        ArvioDpadRepeatGate(
+        XadarrDpadRepeatGate(
             horizontalMinRepeatIntervalMs = horizontalMinRepeatIntervalMs,
             verticalMinRepeatIntervalMs = verticalMinRepeatIntervalMs
         )

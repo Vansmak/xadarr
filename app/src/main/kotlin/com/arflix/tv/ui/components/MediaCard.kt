@@ -40,9 +40,9 @@ import coil.size.Precision
 import com.arflix.tv.data.model.CollectionGroupKind
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
@@ -51,9 +51,9 @@ import androidx.compose.ui.zIndex
  * Media card component for rows/grids.
  * Arctic Fuse 2 style:
  * - Large landscape cards with solid pink/magenta focus border
- * - Transform-based focus (graphicsLayer) via `ArvioFocusableSurface`
+ * - Transform-based focus (graphicsLayer) via `XadarrFocusableSurface`
  * - No layout size changes on focus (no width/height scaling)
- * - Uses `ArvioSkin` for consistent styling
+ * - Uses `XadarrSkin` for consistent styling
  */
 
 private val missingArtworkBrush = Brush.linearGradient(
@@ -135,7 +135,7 @@ fun MediaCard(
     } else {
         baseImageUrl
     }
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
 
     val showFocusOutline = visualFocused
     val jumpBorderWidth = if (showFocusOutline) 2.5.dp else 0.dp
@@ -185,13 +185,13 @@ fun MediaCard(
             .width(width)
             .zIndex(if (visualFocused && raiseOnFocus) 1f else 0f)
     ) {
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surface,
-            outlineColor = ArvioSkin.colors.focusOutline,
+            backgroundColor = XadarrSkin.colors.surface,
+            outlineColor = XadarrSkin.colors.focusOutline,
             outlineWidth = jumpBorderWidth,
             focusedScale = focusedScale,
             pressedScale = 0.97f,
@@ -228,7 +228,7 @@ fun MediaCard(
                     ) {
                         Text(
                             text = item.title,
-                            style = ArvioSkin.typography.cardTitle,
+                            style = XadarrSkin.typography.cardTitle,
                             color = Color.White.copy(alpha = 0.82f),
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
@@ -278,7 +278,7 @@ fun MediaCard(
                     ) {
                         Text(
                             text = item.title,
-                            style = ArvioSkin.typography.cardTitle.copy(
+                            style = XadarrSkin.typography.cardTitle.copy(
                                 fontSize = when {
                                     isGenreCollectionTile && isLandscape -> 18.sp
                                     isLandscape -> 15.sp
@@ -352,12 +352,12 @@ fun MediaCard(
                         .padding(bottom = 6.dp, end = 6.dp)
                         .size(14.dp)
                         .background(
-                            color = ArvioSkin.colors.watchedGreen.copy(alpha = 0.2f),
+                            color = XadarrSkin.colors.watchedGreen.copy(alpha = 0.2f),
                             shape = CircleShape
                         )
                         .border(
                             width = 1.dp,
-                            color = ArvioSkin.colors.watchedGreen,
+                            color = XadarrSkin.colors.watchedGreen,
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -365,7 +365,7 @@ fun MediaCard(
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        tint = ArvioSkin.colors.watchedGreen,
+                        tint = XadarrSkin.colors.watchedGreen,
                         modifier = Modifier.size(8.dp)
                     )
                 }
@@ -400,17 +400,17 @@ fun MediaCard(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(ArvioSkin.spacing.x2)
+                                .padding(XadarrSkin.spacing.x2)
                                 .background(
-                                    color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.85f),
-                                    shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                    color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                    shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
                                 )
-                                .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                                .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
                         ) {
                             Text(
                                 text = topRightLabel,
-                                style = ArvioSkin.typography.badge,
-                                color = ArvioSkin.colors.textPrimary,
+                                style = XadarrSkin.typography.badge,
+                                color = XadarrSkin.colors.textPrimary,
                             )
                         }
                     }
@@ -428,17 +428,17 @@ fun MediaCard(
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
-                                    .padding(ArvioSkin.spacing.x2)
+                                    .padding(XadarrSkin.spacing.x2)
                                     .background(
-                                        color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.62f),
-                                        shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                        color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.62f),
+                                        shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
                                     )
-                                    .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                                    .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
                             ) {
                                 Text(
                                     text = epsLabel,
-                                    style = ArvioSkin.typography.badge,
-                                    color = ArvioSkin.colors.textPrimary,
+                                    style = XadarrSkin.typography.badge,
+                                    color = XadarrSkin.colors.textPrimary,
                                 )
                             }
                         }
@@ -451,19 +451,19 @@ fun MediaCard(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(
-                                    end = ArvioSkin.spacing.x2,
+                                    end = XadarrSkin.spacing.x2,
                                     bottom = 14.dp
                                 )
                                 .background(
-                                    color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.70f),
-                                    shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                    color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.70f),
+                                    shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
                                 )
-                                .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                                .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
                         ) {
                             Text(
                                 text = "S${nextEpisode.seasonNumber} • E${nextEpisode.episodeNumber}",
-                                style = ArvioSkin.typography.badge,
-                                color = ArvioSkin.colors.textPrimary,
+                                style = XadarrSkin.typography.badge,
+                                color = XadarrSkin.colors.textPrimary,
                             )
                         }
                     }
@@ -472,15 +472,15 @@ fun MediaCard(
         }
 
         if (showTitle && !showCollectionTitleOverlay) {
-            Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
+            Spacer(modifier = Modifier.height(XadarrSkin.spacing.x2))
 
             Text(
                 text = item.title,
-                style = ArvioSkin.typography.cardTitle,
+                style = XadarrSkin.typography.cardTitle,
                 color = if (visualFocused) {
-                    ArvioSkin.colors.textPrimary
+                    XadarrSkin.colors.textPrimary
                 } else {
-                    ArvioSkin.colors.textPrimary.copy(alpha = 0.85f)
+                    XadarrSkin.colors.textPrimary.copy(alpha = 0.85f)
                 },
                 maxLines = titleMaxLines,
                 overflow = TextOverflow.Ellipsis,
@@ -502,8 +502,8 @@ fun MediaCard(
             }
             Text(
                 text = subtitle,
-                style = ArvioSkin.typography.caption,
-                color = ArvioSkin.colors.textMuted.copy(alpha = 0.85f),
+                style = XadarrSkin.typography.caption,
+                color = XadarrSkin.colors.textMuted.copy(alpha = 0.85f),
                 maxLines = subtitleMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -522,7 +522,7 @@ private fun PlaceholderCard(
     modifier: Modifier = Modifier
 ) {
     val aspectRatio = if (isLandscape) 16f / 9f else 2f / 3f
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
 
     Column(
         modifier = modifier.width(width)
@@ -539,14 +539,14 @@ private fun PlaceholderCard(
             )
         }
 
-        Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
+        Spacer(modifier = Modifier.height(XadarrSkin.spacing.x2))
 
         // Title skeleton
         SkeletonBox(
             modifier = Modifier
                 .fillMaxWidth(0.7f)
                 .height(14.dp)
-                .clip(rememberArvioCardShape(ArvioSkin.radius.sm))
+                .clip(rememberXadarrCardShape(XadarrSkin.radius.sm))
         )
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -556,7 +556,7 @@ private fun PlaceholderCard(
             modifier = Modifier
                 .fillMaxWidth(0.5f)
                 .height(12.dp)
-                .clip(rememberArvioCardShape(ArvioSkin.radius.sm))
+                .clip(rememberXadarrCardShape(XadarrSkin.radius.sm))
         )
     }
 }
@@ -581,8 +581,8 @@ fun PosterCard(
     var isFocused by remember { mutableStateOf(false) }
     val visualFocused = isFocusedOverride || isFocused
 
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
-    val outlineColor = if (useWhiteBorder) ArvioSkin.colors.focusOutline else ArvioSkin.colors.accent
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
+    val outlineColor = if (useWhiteBorder) XadarrSkin.colors.focusOutline else XadarrSkin.colors.accent
 
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -606,12 +606,12 @@ fun PosterCard(
     }
 
     Column(modifier = modifier.width(width)) {
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surface,
+            backgroundColor = XadarrSkin.colors.surface,
             outlineColor = outlineColor,
             enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocusedOverride,
@@ -634,12 +634,12 @@ fun PosterCard(
 
         // Only show title and year when focused
         if (visualFocused) {
-            Spacer(modifier = Modifier.height(ArvioSkin.spacing.x1))
+            Spacer(modifier = Modifier.height(XadarrSkin.spacing.x1))
 
             Text(
                 text = item.title,
-                style = ArvioSkin.typography.caption,
-                color = ArvioSkin.colors.textPrimary,
+                style = XadarrSkin.typography.caption,
+                color = XadarrSkin.colors.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -647,8 +647,8 @@ fun PosterCard(
             if (item.year.isNotBlank()) {
                 Text(
                     text = item.year,
-                    style = ArvioSkin.typography.caption,
-                    color = ArvioSkin.colors.textMuted.copy(alpha = 0.65f),
+                    style = XadarrSkin.typography.caption,
+                    color = XadarrSkin.colors.textMuted.copy(alpha = 0.65f),
                 )
             }
         }

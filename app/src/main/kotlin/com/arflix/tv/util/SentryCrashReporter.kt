@@ -77,7 +77,7 @@ object SentryCrashReporter : AppLogger.CrashContextProvider {
     override fun log(message: String) {
         if (!isInitialized) return
         val breadcrumb = Breadcrumb().apply {
-            setCategory("arvio")
+            setCategory("xadarr")
             setType("diagnostic")
             setMessage(message.take(500))
             setLevel(SentryLevel.INFO)

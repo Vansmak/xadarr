@@ -1126,7 +1126,7 @@ class CatalogRepository @Inject constructor(
         return withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", OkHttpProvider.userAgentOr("Mozilla/5.0 (Android TV; ARVIO)"))
+                .header("User-Agent", OkHttpProvider.userAgentOr("Mozilla/5.0 (Android TV; Xadarr)"))
                 .build()
             runCatching {
                 okHttpClient.newCall(request).execute().use { response ->

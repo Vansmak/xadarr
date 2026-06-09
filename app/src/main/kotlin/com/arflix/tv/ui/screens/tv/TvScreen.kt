@@ -124,10 +124,10 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.AccentGreen
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.appBackgroundDark
 
 import java.time.Instant
@@ -545,7 +545,7 @@ fun TvScreen(
     }
     val iptvDataSourceFactory = remember(iptvHttpClient) {
         OkHttpDataSource.Factory(iptvHttpClient)
-            .setUserAgent("ARVIO/1.2.0 (Android TV)")
+            .setUserAgent("Xadarr/1.0 (Android TV)")
     }
     // HLS factory with chunkless preparation (used when stream is detected as HLS)
     val iptvHlsFactory = remember(iptvDataSourceFactory) {
@@ -1462,7 +1462,7 @@ private fun CategoryRail(
     LazyColumn(
         state = listState,
         verticalArrangement = Arrangement.spacedBy(1.dp),
-        modifier = modifier.arvioDpadFocusGroup()
+        modifier = modifier.xadarrDpadFocusGroup()
     ) {
         itemsIndexed(groups, key = { _, group -> group }, contentType = { _, _ -> "category_group" }) { index, group ->
             GroupRailItem(
@@ -1799,7 +1799,7 @@ private fun GuidePanel(
             LazyColumn(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.fillMaxSize().arvioDpadFocusGroup()
+                modifier = Modifier.fillMaxSize().xadarrDpadFocusGroup()
             ) {
                 itemsIndexed(
                     channels,
@@ -2360,7 +2360,7 @@ private fun FocusableMenuItem(label: String, icon: ImageVector, iconTint: Color 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun NotConfiguredPanel() {
-    val colors = ArvioTheme.colors
+    val colors = XadarrTheme.colors
     Box(
         modifier = Modifier
             .fillMaxSize()

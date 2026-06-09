@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.sp
 import com.arflix.tv.ui.theme.InterFontFamily
 
 @Immutable
-data class ArvioColorTokens(
+data class XadarrColorTokens(
     val background: Color,
     val surface: Color,
     val surfaceRaised: Color,
@@ -28,7 +28,7 @@ data class ArvioColorTokens(
 )
 
 @Immutable
-data class ArvioSpacingTokens(
+data class XadarrSpacingTokens(
     val x1: Dp,
     val x2: Dp,
     val x3: Dp,
@@ -40,14 +40,14 @@ data class ArvioSpacingTokens(
 )
 
 @Immutable
-data class ArvioRadiusTokens(
+data class XadarrRadiusTokens(
     val sm: Dp,
     val md: Dp,
     val lg: Dp,
 )
 
 @Immutable
-data class ArvioTypographyTokens(
+data class XadarrTypographyTokens(
     val heroTitle: TextStyle,
     val sectionTitle: TextStyle,
     val cardTitle: TextStyle,
@@ -58,7 +58,7 @@ data class ArvioTypographyTokens(
 )
 
 @Immutable
-data class ArvioMotionTokens(
+data class XadarrMotionTokens(
     val focusDurationMillis: Int,
     val focusEasing: Easing,
     val screenTransitionMillis: Int,
@@ -66,7 +66,7 @@ data class ArvioMotionTokens(
 )
 
 @Immutable
-data class ArvioFocusTokens(
+data class XadarrFocusTokens(
     val scaleFocused: Float,
     val scalePressed: Float,
     val durationMillis: Int,
@@ -78,20 +78,20 @@ data class ArvioFocusTokens(
 )
 
 @Immutable
-data class ArvioSkinTokens(
-    val colors: ArvioColorTokens,
-    val spacing: ArvioSpacingTokens,
-    val radius: ArvioRadiusTokens,
-    val typography: ArvioTypographyTokens,
-    val motion: ArvioMotionTokens,
-    val focus: ArvioFocusTokens,
+data class XadarrSkinTokens(
+    val colors: XadarrColorTokens,
+    val spacing: XadarrSpacingTokens,
+    val radius: XadarrRadiusTokens,
+    val typography: XadarrTypographyTokens,
+    val motion: XadarrMotionTokens,
+    val focus: XadarrFocusTokens,
 ) {
     companion object {
-        fun defaults(): ArvioSkinTokens {
+        fun defaults(): XadarrSkinTokens {
             val easeOut: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
 
-            return ArvioSkinTokens(
-                colors = ArvioColorTokens(
+            return XadarrSkinTokens(
+                colors = XadarrColorTokens(
                     background = Color(0xFF000000),
                     surface = Color(0xFF0D0D0D),
                     surfaceRaised = Color(0xFF1A1A1A),
@@ -105,7 +105,7 @@ data class ArvioSkinTokens(
                     watchedGreen = Color(0xFF4CAF50),  // Green checkmark (Arctic Fuse 2 style)
                     inProgressGrey = Color(0xFF757575),  // Grey clock for in-progress
                 ),
-                spacing = ArvioSpacingTokens(
+                spacing = XadarrSpacingTokens(
                     x1 = 4.dp,
                     x2 = 8.dp,
                     x3 = 12.dp,
@@ -115,12 +115,12 @@ data class ArvioSkinTokens(
                     x12 = 48.dp,
                     x16 = 64.dp,
                 ),
-                radius = ArvioRadiusTokens(
+                radius = XadarrRadiusTokens(
                     sm = 8.dp,
                     md = 12.dp,
                     lg = 16.dp,
                 ),
-                typography = ArvioTypographyTokens(
+                typography = XadarrTypographyTokens(
                     heroTitle = TextStyle(
                         fontFamily = InterFontFamily,
                         fontWeight = FontWeight.Black,
@@ -171,13 +171,13 @@ data class ArvioSkinTokens(
                         lineHeight = 20.sp,
                     ),
                 ),
-                motion = ArvioMotionTokens(
+                motion = XadarrMotionTokens(
                     focusDurationMillis = 120,    // Smooth focus transitions
                     focusEasing = easeOut,
                     screenTransitionMillis = 150, // Smooth screen transitions
                     heroFadeMillis = 200,         // Smooth backdrop dissolve
                 ),
-                focus = ArvioFocusTokens(
+                focus = XadarrFocusTokens(
                     scaleFocused = 1.05f,  // Noticeable scale for TV viewing distance
                     scalePressed = 0.97f,
                     durationMillis = 120,  // Smooth but responsive animations

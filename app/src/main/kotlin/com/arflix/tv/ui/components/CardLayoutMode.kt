@@ -21,10 +21,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.arflix.tv.data.repository.CloudSyncScope
 import com.arflix.tv.di.RepositoryAccessEntryPoint
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.util.profilesDataStore
 import com.arflix.tv.util.settingsDataStore
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -179,22 +179,22 @@ fun CatalogueRowLayoutToggleButton(
     val scope = rememberCoroutineScope()
     val normalizedRowKey = remember(rowKey) { normalizeCatalogueRowLayoutKey(rowKey) }
     val mode = rememberCatalogueRowLayoutMode(normalizedRowKey)
-    val shape = rememberArvioCardShape(8.dp)
+    val shape = rememberXadarrCardShape(8.dp)
 
-    ArvioFocusableSurface(
+    XadarrFocusableSurface(
         modifier = modifier
             .size(36.dp)
-            .arvioDpadFocusGroup(enableFocusRestorer = false),
+            .xadarrDpadFocusGroup(enableFocusRestorer = false),
         shape = shape,
         backgroundColor = Color.Transparent,
-        outlineColor = ArvioSkin.colors.focusOutline,
+        outlineColor = XadarrSkin.colors.focusOutline,
         outlineWidth = 2.dp,
         focusedScale = 1.08f,
         pressedScale = 0.95f,
         enabled = enabled,
         enableSystemFocus = enabled,
         onClick = {
-            if (!enabled) return@ArvioFocusableSurface
+            if (!enabled) return@XadarrFocusableSurface
             scope.launch {
                 toggleCatalogueRowLayoutMode(context, normalizedRowKey)
             }

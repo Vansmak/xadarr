@@ -66,7 +66,7 @@ import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.Pink
@@ -350,7 +350,7 @@ fun WatchlistScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .focusRequester(gridFocusRequester)
-                                .arvioDpadFocusGroup()
+                                .xadarrDpadFocusGroup()
                                 .onFocusChanged { 
                                     gridHasFocus = it.hasFocus
                                     if (it.hasFocus) {

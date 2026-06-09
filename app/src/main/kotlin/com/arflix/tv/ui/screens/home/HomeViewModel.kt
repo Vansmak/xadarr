@@ -3146,7 +3146,7 @@ class HomeViewModel @Inject constructor(
             // When connected to Trakt, use ONLY Trakt as the source of truth for
             // Continue Watching. The previous code merged local/history items which
             // polluted the CW row with shows not on the user's Trakt — e.g., items
-            // watched before connecting Trakt, or items from ARVIO Cloud watch_history
+            // watched before connecting Trakt, or items from Xadarr watch_history
             // that Trakt doesn't know about. Trakt users expect CW to match exactly
             // what Trakt shows as "Up Next."
             val traktItems = if (forceFresh) {

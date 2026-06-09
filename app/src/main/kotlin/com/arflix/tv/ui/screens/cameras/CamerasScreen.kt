@@ -93,7 +93,7 @@ import com.arflix.tv.ui.components.topBarSelectedIndex
 import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -257,7 +257,7 @@ fun CamerasScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(ArvioTheme.colors.backgroundDark)
+            .background(XadarrTheme.colors.backgroundDark)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->

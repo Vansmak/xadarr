@@ -56,7 +56,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
@@ -87,9 +87,9 @@ fun MediaContextMenu(
     val isMobile = LocalDeviceType.current.isTouchDevice()
     var focusedIndex by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
-    val cardBg = ArvioTheme.colors.backgroundCard
-    val elevatedBg = ArvioTheme.colors.backgroundElevated
-    val borderColor = ArvioTheme.colors.borderLight
+    val cardBg = XadarrTheme.colors.backgroundCard
+    val elevatedBg = XadarrTheme.colors.backgroundElevated
+    val borderColor = XadarrTheme.colors.borderLight
 
     val menuItems = buildList {
         add(MenuItem(
@@ -400,8 +400,8 @@ fun LiveTvContextMenu(
 ) {
     val focusRequester = remember { FocusRequester() }
     var focusedIndex by remember { mutableIntStateOf(0) }
-    val cardBg = ArvioTheme.colors.backgroundCard
-    val borderColor = ArvioTheme.colors.borderLight
+    val cardBg = XadarrTheme.colors.backgroundCard
+    val borderColor = XadarrTheme.colors.borderLight
 
     val menuItems = listOf(
         MenuItem(icon = Icons.Default.PlayArrow, labelRes = R.string.play_full_screen, action = onPlayFullScreen),

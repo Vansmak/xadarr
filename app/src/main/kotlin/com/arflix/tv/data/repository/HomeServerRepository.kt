@@ -875,7 +875,7 @@ class HomeServerRepository @Inject constructor(
         val builder = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "ARVIO/${BuildConfig.VERSION_NAME}")
+            .header("User-Agent", "Xadarr/${BuildConfig.VERSION_NAME}")
         if (connection?.serverKind == HomeServerKind.PLEX) {
             plexHeaders(connection.accessToken).forEach { (key, value) -> builder.header(key, value) }
         } else {

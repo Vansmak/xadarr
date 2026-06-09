@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.ui.theme.InterFontFamily
 
-// ARVIO Live TV — design tokens. OKLCH reference kept in spec.md §2.
+// Xadarr Live TV — design tokens. OKLCH reference kept in spec.md §2.
 // Mapped from handoff/tokens.kt. `InterFontFamily` ships; JetBrains Mono
 // falls back to system Monospace (Inter's tabular figures are acceptable
 // for the numeric/badge slots; can swap for bundled JBMono later).

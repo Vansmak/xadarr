@@ -55,7 +55,7 @@ import coil.compose.AsyncImage
 import com.arflix.tv.data.repository.EpiseerrPendingItem
 import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.EpiseerrRule
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -69,7 +69,7 @@ fun RulePickerScreen(
 ) {
     BackHandler { onDismiss() }
 
-    val themeColors = ArvioTheme.colors
+    val themeColors = XadarrTheme.colors
     val accent = themeColors.pink
     val textPrimary = themeColors.textPrimary
     val textSecondary = themeColors.textSecondary

@@ -3080,7 +3080,7 @@ class MediaRepository @Inject constructor(
             "apple tv+" -> R.drawable.apple_tv_plus_logo
             else -> null
         } ?: return null
-        return "android.resource://com.arvio.tv/$resId"
+        return "android.resource://com.arflix.tv/$resId"
     }
 
     private fun normalizeWatchRegion(region: String?): String {
@@ -3282,7 +3282,7 @@ class MediaRepository @Inject constructor(
     private fun fetchUrl(url: String): String? {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", OkHttpProvider.userAgentOr("Mozilla/5.0 (Android TV; ARVIO)"))
+            .header("User-Agent", OkHttpProvider.userAgentOr("Mozilla/5.0 (Android TV; Xadarr)"))
             .build()
         return runCatching {
             okHttpClient.newCall(request).execute().use { response ->

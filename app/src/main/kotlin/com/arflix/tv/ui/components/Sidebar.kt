@@ -47,10 +47,10 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.Profile
-import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.theme.AnimationConstants
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
@@ -186,7 +186,7 @@ private fun SidebarProfileAvatar(
                     .width(3.dp)
                     .height(22.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background((LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
+                    .background((LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
             )
         }
         Box(
@@ -218,7 +218,7 @@ private fun SidebarIcon(
     isFocused: Boolean,
     hasBadge: Boolean = false
 ) {
-    val accent = LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline
+    val accent = LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline
     // Animated icon color - accent when focused, dark grey when not
     val iconColor by animateColorAsState(
         targetValue = when {
@@ -279,7 +279,7 @@ private fun SidebarIcon(
                     .width(3.dp)
                     .height(22.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background((LocalFocusBorderColorOverride.current ?: ArvioSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
+                    .background((LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline).copy(alpha = indicatorAlpha))
             )
         }
 

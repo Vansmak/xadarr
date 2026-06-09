@@ -127,7 +127,7 @@ private fun chooseStartupChannelId(
 }
 
 /**
- * Live TV screen — Arvio spec §1. Three focus regions: Sidebar ↔ MiniPlayer ↔ EPG.
+ * Live TV screen — Xadarr spec §1. Three focus regions: Sidebar ↔ MiniPlayer ↔ EPG.
  * Preserves every IPTV feature from the legacy [com.arflix.tv.ui.screens.tv.TvScreen]
  * (favorites, hidden groups, EPG refresh, cloud sync) — only the UI shell is new.
  */

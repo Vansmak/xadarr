@@ -173,7 +173,7 @@ import androidx.compose.material.icons.filled.CropPortrait
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalFrigateConfigured
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
@@ -2094,7 +2094,7 @@ fun SettingsScreen(
             TraktActivationModal(
                 title = "Connect with code",
                 instruction = if (LocalDeviceType.current.isTouchDevice()) {
-                    "Open the auth page, sign in, then return to ARVIO. This screen will finish automatically."
+                    "Open the auth page, sign in, then return to Xadarr. This screen will finish automatically."
                 } else {
                     "Scan the QR code or open the auth page and confirm this code"
                 },
@@ -2677,7 +2677,7 @@ private fun CloudEmailPasswordModal(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "ARVIO Cloud Sign-in",
+                    text = "Xadarr Cloud Sign-in",
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary,
                     modifier = Modifier.padding(bottom = 24.dp)
@@ -2911,7 +2911,7 @@ private fun CloudPairModal(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "ARVIO Cloud Pairing",
+                    text = "Xadarr Cloud Pairing",
                     style = ArflixTypography.sectionTitle,
                     color = TextPrimary,
                     modifier = Modifier.padding(bottom = 10.dp)
@@ -4098,7 +4098,7 @@ private fun UnknownSourcesModal(
                 Text("Allow Unknown Sources", style = ArflixTypography.sectionTitle, color = TextPrimary)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Allow installs from unknown sources for ARVIO so the downloaded update APK can be installed.",
+                    "Allow installs from unknown sources for Xadarr so the downloaded update APK can be installed.",
                     style = ArflixTypography.body,
                     color = TextSecondary
                 )
@@ -4467,7 +4467,7 @@ private fun tvSettingsSectionDescription(section: String): String {
         "catalogs" -> "Discover, rename, order and remove home rows and list catalogs."
         "stremio" -> "Manage third-party addon sources."
         "accounts" -> "Cloud sync, Trakt, app updates and account controls."
-        else -> "Configure ARVIO for this profile."
+        else -> "Configure Xadarr for this profile."
     }
 }
 
@@ -4587,7 +4587,7 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
     }
     return when (section) {
         "language" -> when (focusedIndex) {
-            0 -> TvSettingsHelp("App language", "Changes the interface and metadata language used by ARVIO.")
+            0 -> TvSettingsHelp("App language", "Changes the interface and metadata language used by Xadarr.")
             else -> TvSettingsHelp("Default audio", "Preferred audio language when multiple tracks exist.")
         }
         "subtitles" -> when (focusedIndex) {
@@ -8272,8 +8272,8 @@ private fun AccountsSettings(
                 updateStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall -> "Latest update downloaded and ready to install"
                 updateStatus is com.arflix.tv.updater.UpdateStatus.Checking -> "Checking GitHub Releases for a newer APK"
                 updateStatus is com.arflix.tv.updater.UpdateStatus.UpdateAvailable -> "Update available: ${updateStatus.update.title.ifBlank { updateStatus.update.tag }}"
-                updateStatus is com.arflix.tv.updater.UpdateStatus.Success -> "You already have the latest ARVIO version"
-                else -> "Check GitHub Releases for the latest ARVIO APK"
+                updateStatus is com.arflix.tv.updater.UpdateStatus.Success -> "You already have the latest Xadarr version"
+                else -> "Check GitHub Releases for the latest Xadarr APK"
             },
             actionLabel = when {
                 !isSelfUpdateSupported -> "PLAY"
@@ -9533,7 +9533,7 @@ private fun SubtitlePickerModal(
 
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.heightIn(max = 360.dp).arvioDpadFocusGroup()
+                    modifier = Modifier.heightIn(max = 360.dp).xadarrDpadFocusGroup()
                 ) {
                     itemsIndexed(options) { index, option ->
                         val isFocused = index == safeIndex

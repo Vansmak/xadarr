@@ -192,7 +192,7 @@ fun AppUpdateModal(
                         LinearProgressIndicator(
                             progress = status.progress ?: 0f,
                             modifier = Modifier.fillMaxWidth(),
-                            color = Pink, // Uses ARVIO's Pink accent instead of SuccessGreen
+                            color = Pink, // Uses Xadarr's Pink accent instead of SuccessGreen
                             trackColor = Color.White.copy(alpha = 0.08f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -203,7 +203,7 @@ fun AppUpdateModal(
                         )
                     }
                     is UpdateStatus.ReadyToInstall -> {
-                        androidx.compose.material3.Text("The latest ARVIO update has been downloaded and is ready to install.", style = ArflixTypography.body, color = TextPrimary)
+                        androidx.compose.material3.Text("The latest Xadarr update has been downloaded and is ready to install.", style = ArflixTypography.body, color = TextPrimary)
                     }
                     is UpdateStatus.Installing -> {
                         androidx.compose.material3.Text("The Android package installer should appear. If it does not, you can try pressing Install again.", style = ArflixTypography.body, color = TextPrimary)

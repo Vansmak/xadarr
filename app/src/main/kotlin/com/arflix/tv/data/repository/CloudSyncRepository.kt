@@ -132,7 +132,7 @@ class CloudSyncRepository @Inject constructor(
         syncServerBaseUrl().isNotBlank()
 
     /**
-     * Verifies [url] is a reachable Arvio-compatible sync server by calling
+     * Verifies [url] is a reachable Xadarr-compatible sync server by calling
      * /api/integration/xadarr/status.
      * Returns true if the server responds with HTTP 200.
      */
@@ -1223,7 +1223,7 @@ class CloudSyncRepository @Inject constructor(
         // Only import local CW for profiles that DON'T have Trakt connected.
         // For Trakt profiles, CW is sourced exclusively from Trakt's progress API.
         // The previous code imported local CW unconditionally, which meant every
-        // show ever partially watched in ARVIO (written to cloud by
+        // show ever partially watched in Xadarr (written to cloud by
         // saveLocalContinueWatching during playback) got restored to local DataStore
         // on cloud pull — polluting the CW row with non-Trakt items that persisted
         // even after app reinstall.

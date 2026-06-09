@@ -3,7 +3,7 @@ package com.arflix.tv.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * ARVIO Color Palette
+ * Xadarr Color Palette
  * Arctic Fuse 2 Inspired - Minimal Dark Theme
  */
 
@@ -140,7 +140,7 @@ val ParticlePurpleDark = ArcticBlack50
 // ============================================
 // LEGACY ALIASES
 // ============================================
-val ArvioAccent = ArcticWhite
-val ArvioPurple = ArcticBlack
-val ArvioLight = ArcticWhite70
+val XadarrAccent = ArcticWhite
+val XadarrPurple = ArcticBlack
+val XadarrLight = ArcticWhite70
 

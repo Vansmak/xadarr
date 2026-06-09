@@ -70,7 +70,7 @@ import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.TextPrimary
@@ -660,7 +660,7 @@ private fun CollectionTabBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .arvioDpadFocusGroup()
+            .xadarrDpadFocusGroup()
             .padding(start = 42.dp, end = 42.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -780,7 +780,7 @@ private fun CollectionItemsGrid(
     TvLazyVerticalGrid(
         columns = TvGridCells.Fixed(gridColumns),
         state = gridState,
-        modifier = Modifier.fillMaxSize().arvioDpadFocusGroup().clipToBounds(),
+        modifier = Modifier.fillMaxSize().xadarrDpadFocusGroup().clipToBounds(),
         contentPadding = PaddingValues(
             start = 42.dp,
             top = topContentPadding,

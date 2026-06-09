@@ -22,8 +22,8 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
@@ -55,12 +55,12 @@ fun AppLauncherCard(
         modifier = modifier.width(90.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier.size(80.dp),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surface,
-            outlineColor = ArvioSkin.colors.focusOutline,
-            outlineWidth = ArvioSkin.focus.outlineWidth,
+            backgroundColor = XadarrSkin.colors.surface,
+            outlineColor = XadarrSkin.colors.focusOutline,
+            outlineWidth = XadarrSkin.focus.outlineWidth,
             focusedScale = 1.08f,
             pressedScale = 0.97f,
             enableSystemFocus = false,
@@ -121,12 +121,12 @@ fun AllAppsCard(
         modifier = modifier.width(90.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier.size(80.dp),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surface,
-            outlineColor = ArvioSkin.colors.focusOutline,
-            outlineWidth = ArvioSkin.focus.outlineWidth,
+            backgroundColor = XadarrSkin.colors.surface,
+            outlineColor = XadarrSkin.colors.focusOutline,
+            outlineWidth = XadarrSkin.focus.outlineWidth,
             focusedScale = 1.08f,
             pressedScale = 0.97f,
             enableSystemFocus = false,

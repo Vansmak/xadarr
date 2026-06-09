@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalFoundationApi::class)
-fun Modifier.arvioFocusable(
+fun Modifier.xadarrFocusable(
     enabled: Boolean = true,
     enableSystemFocus: Boolean = true,
     useSystemFocusForVisuals: Boolean = true,
@@ -67,12 +67,12 @@ fun Modifier.arvioFocusable(
         else -> 1f
     }
 
-    val tokens = ArvioSkin.focus
+    val tokens = XadarrSkin.focus
     val scale = if (animateFocus) {
         val animatedScale by animateFloatAsState(
             targetValue = targetScale,
             animationSpec = tween(durationMillis = 105, easing = tokens.easing),
-            label = "arvio_focus_scale",
+            label = "xadarr_focus_scale",
         )
         animatedScale
     } else {
@@ -84,7 +84,7 @@ fun Modifier.arvioFocusable(
         val animatedAlpha by animateFloatAsState(
             targetValue = if (visualFocused) 1f else 0f,
             animationSpec = tween(durationMillis = 120, easing = tokens.easing),
-            label = "arvio_focus_alpha",
+            label = "xadarr_focus_alpha",
         )
         animatedAlpha
     } else {
@@ -201,20 +201,20 @@ fun Modifier.arvioFocusable(
 }
 
 @Composable
-fun ArvioFocusableSurface(
+fun XadarrFocusableSurface(
     modifier: Modifier = Modifier,
     shape: Shape,
-    backgroundColor: Color = ArvioSkin.colors.surface,
-    focusedScale: Float = ArvioSkin.focus.scaleFocused,
-    pressedScale: Float = ArvioSkin.focus.scalePressed,
-    outlineWidth: Dp = ArvioSkin.focus.outlineWidth,
-    glowWidth: Dp = ArvioSkin.focus.glowWidth,
-    glowAlpha: Float = ArvioSkin.focus.glowAlpha,
-    outlineColor: Color = ArvioSkin.colors.focusOutline,
+    backgroundColor: Color = XadarrSkin.colors.surface,
+    focusedScale: Float = XadarrSkin.focus.scaleFocused,
+    pressedScale: Float = XadarrSkin.focus.scalePressed,
+    outlineWidth: Dp = XadarrSkin.focus.outlineWidth,
+    glowWidth: Dp = XadarrSkin.focus.glowWidth,
+    glowAlpha: Float = XadarrSkin.focus.glowAlpha,
+    outlineColor: Color = XadarrSkin.colors.focusOutline,
     focusedTransformOriginX: Float = 0.5f,
     useGradientBorder: Boolean = false,  // Arctic Fuse 2: SOLID border, not gradient
-    gradientStartColor: Color = ArvioSkin.colors.focusGradientStart,
-    gradientEndColor: Color = ArvioSkin.colors.focusGradientEnd,
+    gradientStartColor: Color = XadarrSkin.colors.focusGradientStart,
+    gradientEndColor: Color = XadarrSkin.colors.focusGradientEnd,
     animateFocus: Boolean = true,
     enabled: Boolean = true,
     enableSystemFocus: Boolean = true,
@@ -230,7 +230,7 @@ fun ArvioFocusableSurface(
 
     Box(
         modifier = modifier
-            .arvioFocusable(
+            .xadarrFocusable(
                 enabled = enabled,
                 enableSystemFocus = enableSystemFocus,
                 useSystemFocusForVisuals = useSystemFocusForVisuals,
@@ -267,7 +267,7 @@ fun ArvioFocusableSurface(
 }
 
 @Composable
-fun rememberArvioCardShape(cornerRadius: Dp = ArvioSkin.radius.md): Shape {
+fun rememberXadarrCardShape(cornerRadius: Dp = XadarrSkin.radius.md): Shape {
     return remember(cornerRadius) {
         androidx.compose.foundation.shape.RoundedCornerShape(cornerRadius)
     }

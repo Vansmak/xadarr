@@ -33,15 +33,15 @@ import coil.size.Precision
 import androidx.compose.ui.platform.LocalContext
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
-import com.arflix.tv.ui.skin.ArvioFocusableSurface
-import com.arflix.tv.ui.skin.ArvioSkin
-import com.arflix.tv.ui.skin.rememberArvioCardShape
+import com.arflix.tv.ui.skin.XadarrFocusableSurface
+import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.ui.skin.rememberXadarrCardShape
 
 /**
  * Continue Watching card with progress bar.
  *
  * Notes:
- * - Focus visuals are handled by `ArvioFocusableSurface` (no layout scaling).
+ * - Focus visuals are handled by `XadarrFocusableSurface` (no layout scaling).
  * - The `isFocused` param is preserved for compatibility with any external focus tracking.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -55,15 +55,15 @@ fun ContinueWatchingCard(
     isFocused: Boolean = false,
     onClick: () -> Unit = {},
 ) {
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
 
     Column(modifier = Modifier.width(width)) {
-        ArvioFocusableSurface(
+        XadarrFocusableSurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f),
             shape = shape,
-            backgroundColor = ArvioSkin.colors.surface,
+            backgroundColor = XadarrSkin.colors.surface,
             onClick = onClick,
         ) { surfaceFocused ->
             val focused = isFocused || surfaceFocused
@@ -95,7 +95,7 @@ fun ContinueWatchingCard(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    ArvioSkin.colors.background.copy(alpha = 0.85f),
+                                    XadarrSkin.colors.background.copy(alpha = 0.85f),
                                 ),
                                 startY = 120f,
                             )
@@ -110,13 +110,13 @@ fun ContinueWatchingCard(
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .background(ArvioSkin.colors.accent, CircleShape),
+                                .background(XadarrSkin.colors.accent, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play",
-                                tint = ArvioSkin.colors.textPrimary,
+                                tint = XadarrSkin.colors.textPrimary,
                                 modifier = Modifier.size(32.dp),
                             )
                         }
@@ -127,19 +127,19 @@ fun ContinueWatchingCard(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x2),
+                        .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x2),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp)
-                            .background(ArvioSkin.colors.focusOutline.copy(alpha = 0.20f)),
+                            .background(XadarrSkin.colors.focusOutline.copy(alpha = 0.20f)),
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .height(3.dp)
-                            .background(ArvioSkin.colors.accent),
+                            .background(XadarrSkin.colors.accent),
                     )
                 }
 
@@ -147,17 +147,17 @@ fun ContinueWatchingCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(ArvioSkin.spacing.x2)
+                            .padding(XadarrSkin.spacing.x2)
                             .background(
-                                color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.85f),
-                                shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                                color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
                             )
-                            .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                            .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
                     ) {
                         Text(
                             text = timeRemaining,
-                            style = ArvioSkin.typography.badge,
-                            color = ArvioSkin.colors.textPrimary,
+                            style = XadarrSkin.typography.badge,
+                            color = XadarrSkin.colors.textPrimary,
                         )
                     }
                 }
@@ -166,28 +166,28 @@ fun ContinueWatchingCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(ArvioSkin.spacing.x2)
+                        .padding(XadarrSkin.spacing.x2)
                         .background(
-                            color = ArvioSkin.colors.surfaceRaised.copy(alpha = 0.85f),
-                            shape = rememberArvioCardShape(ArvioSkin.radius.sm),
+                            color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                            shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
                         )
-                        .padding(horizontal = ArvioSkin.spacing.x2, vertical = ArvioSkin.spacing.x1),
+                        .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
                 ) {
                     Text(
                         text = typeLabel,
-                        style = ArvioSkin.typography.badge,
-                        color = ArvioSkin.colors.textPrimary,
+                        style = XadarrSkin.typography.badge,
+                        color = XadarrSkin.colors.textPrimary,
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(ArvioSkin.spacing.x2))
+        Spacer(modifier = Modifier.height(XadarrSkin.spacing.x2))
 
         Text(
             text = item.title,
-            style = ArvioSkin.typography.cardTitle,
-            color = if (isFocused) ArvioSkin.colors.textPrimary else ArvioSkin.colors.textMuted,
+            style = XadarrSkin.typography.cardTitle,
+            color = if (isFocused) XadarrSkin.colors.textPrimary else XadarrSkin.colors.textMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -196,8 +196,8 @@ fun ContinueWatchingCard(
         if (meta != null) {
             Text(
                 text = meta,
-                style = ArvioSkin.typography.caption,
-                color = ArvioSkin.colors.textMuted.copy(alpha = 0.85f),
+                style = XadarrSkin.typography.caption,
+                color = XadarrSkin.colors.textMuted.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -217,12 +217,12 @@ fun ContinueWatchingCardCompact(
     isFocused: Boolean = false,
     onClick: () -> Unit = {},
 ) {
-    val shape = rememberArvioCardShape(ArvioSkin.radius.md)
+    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
 
-    ArvioFocusableSurface(
+    XadarrFocusableSurface(
         modifier = Modifier.width(380.dp),
         shape = shape,
-        backgroundColor = ArvioSkin.colors.surface,
+        backgroundColor = XadarrSkin.colors.surface,
         onClick = onClick,
     ) { surfaceFocused ->
         val focused = isFocused || surfaceFocused
@@ -230,14 +230,14 @@ fun ContinueWatchingCardCompact(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(ArvioSkin.spacing.x2),
+                .padding(XadarrSkin.spacing.x2),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .width(100.dp)
                     .aspectRatio(16f / 9f)
-                    .background(ArvioSkin.colors.surfaceRaised, rememberArvioCardShape(ArvioSkin.radius.sm)),
+                    .background(XadarrSkin.colors.surfaceRaised, rememberXadarrCardShape(XadarrSkin.radius.sm)),
             ) {
                 val compactUrl = (item.backdrop ?: item.image).takeIf { !it.isNullOrBlank() }
                 if (compactUrl != null) {
@@ -258,32 +258,32 @@ fun ContinueWatchingCardCompact(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(3.dp)
-                        .background(ArvioSkin.colors.focusOutline.copy(alpha = 0.20f)),
+                        .background(XadarrSkin.colors.focusOutline.copy(alpha = 0.20f)),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
                             .fillMaxSize()
-                            .background(ArvioSkin.colors.accent),
+                            .background(XadarrSkin.colors.accent),
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(ArvioSkin.spacing.x3))
+            Spacer(modifier = Modifier.width(XadarrSkin.spacing.x3))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.title,
-                    style = ArvioSkin.typography.cardTitle,
-                    color = ArvioSkin.colors.textPrimary,
+                    style = XadarrSkin.typography.cardTitle,
+                    color = XadarrSkin.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (episodeInfo != null) {
                     Text(
                         text = episodeInfo,
-                        style = ArvioSkin.typography.caption,
-                        color = ArvioSkin.colors.textMuted,
+                        style = XadarrSkin.typography.caption,
+                        color = XadarrSkin.colors.textMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -294,13 +294,13 @@ fun ContinueWatchingCardCompact(
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .background(ArvioSkin.colors.accent, CircleShape),
+                        .background(XadarrSkin.colors.accent, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Play",
-                        tint = ArvioSkin.colors.textPrimary,
+                        tint = XadarrSkin.colors.textPrimary,
                         modifier = Modifier.size(24.dp),
                     )
                 }

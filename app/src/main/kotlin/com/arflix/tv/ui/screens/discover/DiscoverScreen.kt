@@ -55,7 +55,7 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
-import com.arflix.tv.ui.theme.ArvioTheme
+import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalFrigateConfigured
@@ -112,7 +112,7 @@ fun DiscoverScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(ArvioTheme.colors.backgroundDark)
+            .background(XadarrTheme.colors.backgroundDark)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->

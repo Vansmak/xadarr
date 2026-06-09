@@ -53,7 +53,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
-import com.arflix.tv.ui.focus.arvioDpadFocusGroup
+import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -385,7 +385,7 @@ fun EpgGrid(
                     state = channelListState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .arvioDpadFocusGroup()
+                        .xadarrDpadFocusGroup()
                 ) {
                     itemsIndexed(
                         channels,

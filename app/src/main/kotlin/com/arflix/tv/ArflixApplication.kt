@@ -56,7 +56,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
- * ARVIO TV Application class
+ * Xadarr Application class
  */
 @HiltAndroidApp
 class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFactory {

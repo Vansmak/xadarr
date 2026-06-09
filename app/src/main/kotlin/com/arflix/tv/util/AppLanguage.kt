@@ -165,7 +165,7 @@ fun tr(text: String): String {
         "Add movies and shows to watch later" -> R.string.add_later
         "No results found",
         "Unable to load content",
-        "ARVIO uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." -> R.string.no_results
+        "Xadarr uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." -> R.string.no_results
         "No results found for" -> R.string.no_results_for
         // Actions
         "Close",
@@ -314,7 +314,7 @@ private object AppLanguageRegexes {
                 "Display the movie budget on the home hero banner" to "Toon het filmbudget in de hero-banner",
                 "Trakt/MDBList URLs can be added manually. Addon catalogs appear automatically." to "Trakt/MDBList-URL's kunnen handmatig worden toegevoegd. Addon-catalogi verschijnen automatisch.",
                 "Optional account for syncing profiles, addons, catalogs and IPTV settings" to "Optioneel account voor synchronisatie van profielen, addons, catalogi en IPTV-instellingen",
-                "ARVIO uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." to "ARVIO gebruikt streaming-addons uit de community om videobronnen te vinden. Zonder minimaal een streaming-addon kan inhoud niet worden afgespeeld.",
+                "Xadarr uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." to "Xadarr gebruikt streaming-addons uit de community om videobronnen te vinden. Zonder minimaal een streaming-addon kan inhoud niet worden afgespeeld.",
                 "Switch tabs • Navigate • BACK Close" to "Wissel tabs • Navigeer • TERUG sluiten",
                 "Waiting for authorization... (Press OK to cancel)" to "Wachten op autorisatie... (druk OK om te annuleren)"
             )
@@ -518,7 +518,7 @@ private object AppLanguageRegexes {
         "Import a Trakt or MDBList catalog URL" to catalogs,
         "Trakt/MDBList URLs can be added manually. Addon catalogs appear automatically." to catalogs,
         "Linked Accounts" to accounts,
-        "ARVIO Cloud" to "ARVIO Cloud",
+        "Xadarr Cloud" to "Xadarr Cloud",
         "Optional account for syncing profiles, addons, catalogs and IPTV settings" to accounts,
         "App Update" to settings,
         "App Updates" to settings,
@@ -560,7 +560,7 @@ private object AppLanguageRegexes {
         "Next Episode" to next,
         "Switch tabs • Navigate • BACK Close" to "$subtitles • $back • $close",
         "Switch tabs â€¢ Navigate â€¢ BACK Close" to "$subtitles • $back • $close",
-        "ARVIO uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." to noResults,
+        "Xadarr uses community streaming addons to find video sources. Without at least one streaming addon, content cannot be played." to noResults,
         "No audio tracks available" to audio,
         "TRY AGAIN" to retry.uppercase(Locale.ROOT),
         "GO BACK" to back.uppercase(Locale.ROOT),

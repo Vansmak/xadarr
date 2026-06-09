@@ -454,11 +454,11 @@ private fun ComponentActivity.runAfterFirstDraw(block: () -> Unit) {
 }
 
 /**
- * Simple ARVIO loading screen - app logo + spinner
+ * Xadarr loading screen - app logo + spinner
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun ArvioLoadingScreen() {
+fun XadarrLoadingScreen() {
     val infiniteTransition = rememberInfiniteTransition(label = "loading")
     val reveal = remember { Animatable(0f) }
 
@@ -526,7 +526,7 @@ fun ArvioLoadingScreen() {
         }
 
         Image(
-            painter = painterResource(id = R.drawable.arvio_loading_logo),
+            painter = painterResource(id = R.drawable.xadarr_loading_logo),
             contentDescription = "Xadarr",
             modifier = Modifier
                 .padding(horizontal = 24.dp)
@@ -545,7 +545,7 @@ fun ArvioLoadingScreen() {
 }
 
 /**
- * Root composable for the ARVIO app
+ * Root composable for the Xadarr app
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -587,7 +587,7 @@ fun ArflixApp(
         authState !is AuthState.Loading
 
     if (!startupReady || !startupIntroComplete) {
-        ArvioLoadingScreen()
+        XadarrLoadingScreen()
         return
     }
 

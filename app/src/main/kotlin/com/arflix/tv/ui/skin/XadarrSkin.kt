@@ -6,19 +6,19 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-val LocalArvioSkinTokens = staticCompositionLocalOf { ArvioSkinTokens.defaults() }
+val LocalXadarrSkinTokens = staticCompositionLocalOf { XadarrSkinTokens.defaults() }
 
 /**
  * Optional override for the focus border colour, driven by the user's
- * "Focus border colour" setting. When non-null every [arvioFocusable]
- * composable uses this colour instead of [ArvioColorTokens.focusOutline].
+ * "Focus border colour" setting. When non-null every [xadarrFocusable]
+ * composable uses this colour instead of [XadarrColorTokens.focusOutline].
  */
 val LocalFocusBorderColorOverride = staticCompositionLocalOf<Color?> { null }
 
 /**
  * Resolves the effective focus border colour for a component that draws its
  * own focus border (for example, settings rows and glow chips) instead of
- * using the [arvioFocusable] modifier. Returns the user's chosen override
+ * using the [xadarrFocusable] modifier. Returns the user's chosen override
  * when set, otherwise the provided fallback color.
  *
  * Call this inside a `@Composable` lambda to read the CompositionLocal.
@@ -44,48 +44,48 @@ fun focusBorderColorFromName(name: String): Color = when (name) {
 }
 
 @Composable
-fun ProvideArvioSkin(
-    tokens: ArvioSkinTokens = ArvioSkinTokens.defaults(),
+fun ProvideXadarrSkin(
+    tokens: XadarrSkinTokens = XadarrSkinTokens.defaults(),
     content: @Composable () -> Unit,
 ) {
     CompositionLocalProvider(
-        LocalArvioSkinTokens provides tokens,
+        LocalXadarrSkinTokens provides tokens,
         content = content,
     )
 }
 
-object ArvioSkin {
-    val tokens: ArvioSkinTokens
+object XadarrSkin {
+    val tokens: XadarrSkinTokens
         @Composable
         @ReadOnlyComposable
-        get() = LocalArvioSkinTokens.current
+        get() = LocalXadarrSkinTokens.current
 
-    val colors: ArvioColorTokens
+    val colors: XadarrColorTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.colors
 
-    val spacing: ArvioSpacingTokens
+    val spacing: XadarrSpacingTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.spacing
 
-    val radius: ArvioRadiusTokens
+    val radius: XadarrRadiusTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.radius
 
-    val typography: ArvioTypographyTokens
+    val typography: XadarrTypographyTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.typography
 
-    val motion: ArvioMotionTokens
+    val motion: XadarrMotionTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.motion
 
-    val focus: ArvioFocusTokens
+    val focus: XadarrFocusTokens
         @Composable
         @ReadOnlyComposable
         get() = tokens.focus
