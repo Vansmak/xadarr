@@ -320,3 +320,4 @@ Changes since v2.1:
 ## TODO
 
 - **Camera live stream (infra)** — web UI HLS player is ready; requires exposing port `1984:1984` in the Frigate docker-compose so go2rtc is reachable from the browser. Without it, fullscreen falls back to 3s snapshot refresh.
+- **Contribute features to arvio-fork** — port Xadarr's new features (webhook, cameras, themes, TV guide fixes, catalogue placement, Discover tab, etc.) to `arvio-fork` repo (separate from xadarr). Must use Arvio naming throughout (`ArvioSkin`, `ArvioTheme`, etc. — NOT Xadarr names). Strip all Episeerr-specific code. Reference commit `9a22108` on xadarr main — that is the last commit before the Xadarr rename, so the code still uses Arvio naming and is the cleanest starting point for porting.
