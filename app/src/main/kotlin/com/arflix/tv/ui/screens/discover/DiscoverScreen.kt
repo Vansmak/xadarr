@@ -97,12 +97,11 @@ fun DiscoverScreen(
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
 
     // Drive focus directly into the first row once categories are ready.
-    // Targeting firstRowFocusRequester (one level deep) instead of the LazyColumn
-    // focusGroup (three levels deep) avoids the "bring into view" scroll cascade
-    // that was hiding the first heading and left-shifting the first row.
+    // Delay must exceed the NavHost fade-out animation (250ms) so the exiting
+    // screen's cards are no longer composing and competing when we request focus.
     LaunchedEffect(uiState.categories.isNotEmpty()) {
         if (uiState.categories.isNotEmpty() && focusZone == DiscoverFocusZone.ROWS) {
-            delay(150)
+            delay(300)
             runCatching { firstRowFocusRequester.requestFocus() }
         }
     }
