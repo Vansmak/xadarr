@@ -591,7 +591,7 @@ class TraktSyncService @Inject constructor(
                                 showTraktId = showTraktId,
                                 watched = true,
                                 watchedAt = now,
-                                source = "arvio",
+                                source = "xadarr",
                                 updatedAt = now
                             )
                         )
@@ -690,7 +690,7 @@ class TraktSyncService @Inject constructor(
                         showTraktId = showTraktId,
                         watched = true,
                         watchedAt = now,
-                        source = "arvio",
+                        source = "xadarr",
                         updatedAt = now
                     )
                 )
@@ -824,7 +824,7 @@ class TraktSyncService @Inject constructor(
                 durationSeconds = durationSeconds,
                 pausedAt = Instant.now().toString(),
                 updatedAt = Instant.now().toString(),
-                source = profileHistorySource("arvio"),
+                source = profileHistorySource("xadarr"),
                 title = title,
                 episodeTitle = episodeTitle,
                 backdropPath = backdropPath,

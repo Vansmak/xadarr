@@ -4710,7 +4710,7 @@ class IptvRepository @Inject constructor(
 
     private fun saveServerOffset(creds: XtreamCredentials, offset: Long) {
         runCatching {
-            context.getSharedPreferences("arvio_iptv_prefs", android.content.Context.MODE_PRIVATE)
+            context.getSharedPreferences("xadarr_iptv_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putLong(xtreamServerOffsetKey(creds), offset)
                 .apply()
@@ -4719,7 +4719,7 @@ class IptvRepository @Inject constructor(
 
     private fun getServerOffset(creds: XtreamCredentials): Long {
         return runCatching {
-            context.getSharedPreferences("arvio_iptv_prefs", android.content.Context.MODE_PRIVATE)
+            context.getSharedPreferences("xadarr_iptv_prefs", android.content.Context.MODE_PRIVATE)
                 .getLong(xtreamServerOffsetKey(creds), 0L)
         }.getOrDefault(0L)
     }
@@ -6178,7 +6178,7 @@ class IptvRepository @Inject constructor(
     private companion object {
         const val ENC_PREFIX = "encv1:"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val CONFIG_KEY_ALIAS = "arvio_iptv_config_v1"
+        const val CONFIG_KEY_ALIAS = "xadarr_iptv_config_v1"
         const val MAX_IPTV_CACHE_BYTES = 25L * 1024L * 1024L
         const val IPTV_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
         const val BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"

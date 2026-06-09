@@ -53,7 +53,7 @@ val THEME_KEY = stringPreferencesKey("selected_theme")
  * ~50–200 ms. [setDeviceModeOverrideCache] keeps this in lock-step with the
  * DataStore value whenever the user changes the setting.
  */
-private const val DEVICE_MODE_PREFS = "arvio_device_mode_cache"
+private const val DEVICE_MODE_PREFS = "xadarr_device_mode_cache"
 private const val DEVICE_MODE_PREF_KEY = "device_mode_override"
 
 fun setDeviceModeOverrideCache(context: Context, value: String?) {

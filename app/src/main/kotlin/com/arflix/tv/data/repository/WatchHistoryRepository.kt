@@ -83,7 +83,7 @@ class WatchHistoryRepository @Inject constructor(
     /**
      * In-memory filter that accepts entries for the current profile only.
      * Matches by profile NAME (cross-device) and profile UUID (same device).
-     * Legacy entries (source = "arvio" / "trakt" / null) are only accepted
+     * Legacy entries (source = "xadarr" / "trakt" / null) are only accepted
      * for the default profile to avoid cross-profile leakage.
      */
     private fun filterByProfile(entries: List<WatchHistoryEntry>): List<WatchHistoryEntry> {
@@ -102,7 +102,7 @@ class WatchHistoryRepository @Inject constructor(
                 // Profile-specific entries: match by UUID or name
                 src != null && src.startsWith("profile:") ->
                     src.startsWith(prefixById) || src.startsWith(prefixByName)
-                // Legacy entries (null / "arvio" / "trakt"): only show on default profile
+                // Legacy entries (null / "xadarr" / "trakt"): only show on default profile
                 else -> isDefault
             }
         }
@@ -143,7 +143,7 @@ class WatchHistoryRepository @Inject constructor(
                 progress = progress,
                 duration_seconds = duration,
                 position_seconds = position,
-                source = profileHistorySource("arvio"),
+                source = profileHistorySource("xadarr"),
                 stream_key = streamKey,
                 stream_addon_id = streamAddonId,
                 stream_title = streamTitle

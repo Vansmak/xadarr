@@ -196,7 +196,7 @@ class HomeServerRepository @Inject constructor(
         const val ADDON_NAME = "Home Server"
         const val CONNECTION_KEY_NAME = "home_server_connection_v1"
         const val CATALOG_SOURCE_REF_PREFIX = "home_server_catalog|"
-        private const val HOME_SERVER_TOKEN_KEY_ALIAS = "arvio_home_server_tokens_v1"
+        private const val HOME_SERVER_TOKEN_KEY_ALIAS = "xadarr_home_server_tokens_v1"
         private const val SECURE_TOKEN_PREFIX = "enc:v1:"
         private const val SOURCE_CACHE_MAX_ENTRIES = 128
         private const val SOURCE_CACHE_TTL_MS = 30L * 60L * 1000L
@@ -826,7 +826,7 @@ class HomeServerRepository @Inject constructor(
     private fun deviceId(): String {
         return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
             ?.takeIf { it.isNotBlank() }
-            ?: "arvio-android"
+            ?: "xadarr-android"
     }
 
     private fun authHeader(token: String? = null): String {
@@ -863,7 +863,7 @@ class HomeServerRepository @Inject constructor(
                 "!?" + listOf(
                     "clientID=${deviceId()}",
                     "code=$code",
-                    "$contextProductKey=ARVIO"
+                    "$contextProductKey=Xadarr"
                 ).joinToString("&")
             )
             ?.build()

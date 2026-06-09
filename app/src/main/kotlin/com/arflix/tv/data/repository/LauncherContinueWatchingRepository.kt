@@ -43,10 +43,10 @@ class LauncherContinueWatchingRepository @Inject constructor(
 ) {
     companion object {
         private const val TAG = "LauncherCW"
-        private const val CHANNEL_INTERNAL_ID = "arvio_continue_watching_channel"
-        private const val PREVIEW_PROGRAM_PREFIX = "arvio_continue_preview"
-        private const val WATCH_NEXT_PROGRAM_PREFIX = "arvio_continue_watchnext"
-        private const val URI_SCHEME = "arvio"
+        private const val CHANNEL_INTERNAL_ID = "xadarr_continue_watching_channel"
+        private const val PREVIEW_PROGRAM_PREFIX = "xadarr_continue_preview"
+        private const val WATCH_NEXT_PROGRAM_PREFIX = "xadarr_continue_watchnext"
+        private const val URI_SCHEME = "xadarr"
         private const val URI_HOST = "continue"
     }
 
@@ -351,7 +351,7 @@ class LauncherContinueWatchingRepository @Inject constructor(
 
 fun LauncherContinueWatchingRequest.toUri(): Uri {
     return Uri.Builder()
-        .scheme("arvio")
+        .scheme("xadarr")
         .authority("continue")
         .appendPath(mediaType.name.lowercase())
         .appendPath(mediaId.toString())
@@ -364,7 +364,7 @@ fun LauncherContinueWatchingRequest.toUri(): Uri {
 }
 
 fun Uri.toLauncherContinueWatchingRequest(): LauncherContinueWatchingRequest? {
-    if (scheme != "arvio" || authority != "continue") return null
+    if (scheme != "xadarr" || authority != "continue") return null
     val typeSegment = pathSegments.getOrNull(0) ?: return null
     val mediaId = pathSegments.getOrNull(1)?.toIntOrNull() ?: return null
     val mediaType = if (typeSegment.equals("tv", ignoreCase = true)) MediaType.TV else MediaType.MOVIE

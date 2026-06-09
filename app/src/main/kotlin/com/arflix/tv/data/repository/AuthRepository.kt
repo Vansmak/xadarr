@@ -142,9 +142,9 @@ class AuthRepository @Inject constructor(
     private val accountSyncMutationMutex = Mutex()
     private val ACCOUNT_SYNC_PAYLOAD_KEY = "accountSyncPayload"
     private val ACCOUNT_SYNC_UPDATED_AT_KEY = "accountSyncUpdatedAt"
-    private val PROFILE_SYNC_PAYLOAD_KEY = "__arvioAccountSyncPayload"
-    private val PROFILE_SYNC_UPDATED_AT_KEY = "__arvioAccountSyncUpdatedAt"
-    private val PROFILE_SYNC_LEGACY_ADDONS_KEY = "__arvioLegacyAddons"
+    private val PROFILE_SYNC_PAYLOAD_KEY = "__xadarrAccountSyncPayload"
+    private val PROFILE_SYNC_UPDATED_AT_KEY = "__xadarrAccountSyncUpdatedAt"
+    private val PROFILE_SYNC_LEGACY_ADDONS_KEY = "__xadarrLegacyAddons"
 
     // DataStore keys
     private object PrefsKeys {

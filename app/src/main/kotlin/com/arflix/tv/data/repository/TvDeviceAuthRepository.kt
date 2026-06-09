@@ -65,7 +65,7 @@ class TvDeviceAuthRepository @Inject constructor(
                     val userCode = json.getString("user_code")
                     val verificationUrl = json.optString("verification_url")
                         .ifBlank { json.optString("verification_uri") }
-                        .ifBlank { "https://auth.arvio.tv/?code=${java.net.URLEncoder.encode(userCode, "UTF-8")}" }
+                        .ifBlank { "https://auth.xadarr.local/?code=${java.net.URLEncoder.encode(userCode, "UTF-8")}" }
                     TvDeviceAuthSession(
                         userCode = userCode,
                         deviceCode = json.getString("device_code"),

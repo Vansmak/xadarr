@@ -206,7 +206,7 @@ private class SettingsFocusTracker {
 
 private val LocalSettingsFocusTracker = compositionLocalOf<SettingsFocusTracker?> { null }
 
-private const val ACCOUNT_DELETION_URL = "https://auth.arvio.tv/delete"
+private const val ACCOUNT_DELETION_URL = "https://auth.xadarr.local/delete"
 
 private val tvGeneralSectionIds = setOf(
     "language",
@@ -2852,7 +2852,7 @@ private fun CloudPairModal(
     val effectiveVerificationUrl = remember(verificationUrl, userCode) {
         verificationUrl.ifBlank {
             userCode.takeIf { it.isNotBlank() }?.let { code ->
-                "https://auth.arvio.tv/?code=$code"
+                "https://auth.xadarr.local/?code=$code"
             }.orEmpty()
         }
     }

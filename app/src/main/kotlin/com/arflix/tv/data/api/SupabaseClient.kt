@@ -296,7 +296,7 @@ data class WatchHistoryRecord(
     @SerializedName("duration_seconds") val durationSeconds: Long,
     @SerializedName("paused_at") val pausedAt: String? = null,
     @SerializedName("updated_at") val updatedAt: String? = null,
-    val source: String? = null, // "trakt" or "arvio"
+    val source: String? = null, // "trakt" or "xadarr"
     val title: String? = null,
     @SerializedName("episode_title") val episodeTitle: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
@@ -351,7 +351,7 @@ data class WatchedEpisodeRecord(
     @SerializedName("show_trakt_id") val showTraktId: Int? = null,
     @SerializedName("watched") val watched: Boolean? = true,
     @SerializedName("watched_at") val watchedAt: String? = null,
-    val source: String? = null, // "trakt" or "arvio"
+    val source: String? = null, // "trakt" or "xadarr"
     @SerializedName("updated_at") val updatedAt: String? = null
 )
 
@@ -382,7 +382,7 @@ data class EpisodeProgressRecord(
     @SerializedName("duration_seconds") val durationSeconds: Long,
     @SerializedName("paused_at") val pausedAt: String? = null,
     @SerializedName("last_updated_at") val lastUpdatedAt: String? = null,
-    val source: String? = null, // "trakt" or "arvio"
+    val source: String? = null, // "trakt" or "xadarr"
     val title: String? = null,
     @SerializedName("episode_title") val episodeTitle: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
