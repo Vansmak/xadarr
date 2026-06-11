@@ -13,7 +13,7 @@ It is not Sonarr or Radarr. It does not download, manage, or automate anything. 
 - **No cloud account required for sync.** LAN peer-to-peer and xadarr-server work with no account at all. Google Drive sync optionally uses a Google account already on the device.
 - **Live TV** with a fullscreen EPG overlay guide, a slide-in category sidebar (D-pad Left to open, D-pad Right to dismiss), channel favourites with sort options, last-channel return (D-pad Right while watching), and a picture-in-picture mini-player that keeps your stream alive when you navigate away from the guide
 - **Trakt integration** — watchlist and continue-watching per profile
-- **Episeerr integration** — request, rule assignment, and activity toasts directly on the TV
+- **In-app notifications** — toast alerts from Sonarr, Radarr, Jellyfin, or any service that supports webhooks; shows on screen wherever you are in the app
 - **Frigate camera grid** — snapshot thumbnails and live HLS streams from your Frigate instance
 - **Webhook system** — POST playback and watchlist events to any HTTP endpoint (Episeerr, Home Assistant, n8n, anything)
 - **Launcher mode** — with a launcher app such as Projectivity, Xadarr can replace your Android TV home screen entirely
@@ -134,7 +134,7 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 
 | Service | URL pattern |
 |---------|-------------|
-| Episeerr | `http://your-episeerr:5002/api/integration/xadarr/webhook` |
+| Sonarr / Radarr | `http://your-xadarr-server:7979/api/notify` |
 | Home Assistant | `http://homeassistant.local:8123/api/webhook/your-id` |
 | n8n | `http://your-n8n:5678/webhook/your-path` |
 

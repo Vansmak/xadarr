@@ -16,7 +16,9 @@ import os
 import time
 import queue
 import threading
+import uuid
 import requests
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context, redirect
@@ -87,6 +89,73 @@ def _broadcast_watchlist():
     blob = _load_json(SETTINGS_FILE, {})
     count = len(_get_watchlist(blob))
     _sse_push("event: watchlist\ndata: " + json.dumps({"count": count}) + "\n\n")
+
+
+# ── Notification queue ────────────────────────────────────────────────────────
+
+_notifications: deque = deque(maxlen=100)
+_notifications_lock = threading.Lock()
+
+
+def _store_notification(entry: dict):
+    with _notifications_lock:
+        _notifications.appendleft(entry)
+    _sse_push("event: notification\ndata: " + json.dumps(entry) + "\n\n")
+
+
+def _make_notification(source: str, title: str, message: str | None, notif_type: str) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "source": source,
+        "title": title,
+        "message": message or "",
+        "type": notif_type,
+    }
+
+
+def _parse_arr_webhook(data: dict) -> dict | None:
+    """Normalise a Sonarr or Radarr native webhook payload to a notification dict.
+    Returns None if the payload is not an arr webhook or is a test/ignored event."""
+    event_type = data.get("eventType", "")
+    if not event_type:
+        return None
+
+    # Map arr eventType → our type
+    type_map = {
+        "Grab":            "grab",
+        "Download":        "ready",
+        "HealthIssue":     "error",
+        "HealthRestored":  "info",
+        "ApplicationUpdate": "info",
+        "Test":            "info",
+        "MovieAdded":      "info",
+        "SeriesAdd":       "info",
+    }
+    notif_type = type_map.get(event_type, "info")
+
+    if "series" in data:
+        source = "Sonarr"
+        series = data.get("series") or {}
+        title = series.get("title") or "Unknown"
+        episodes = data.get("episodes") or []
+        if episodes:
+            ep = episodes[0]
+            s_num = ep.get("seasonNumber", 0)
+            e_num = ep.get("episodeNumber", 0)
+            ep_title = ep.get("title", "")
+            message = f"S{s_num:02d}E{e_num:02d}" + (f" – {ep_title}" if ep_title else "")
+        else:
+            message = event_type
+    elif "movie" in data:
+        source = "Radarr"
+        movie = data.get("movie") or {}
+        title = movie.get("title") or "Unknown"
+        message = event_type
+    else:
+        return None
+
+    return _make_notification(source, title, message, notif_type)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -469,6 +538,20 @@ def sync_webhook():
         _save_json(HISTORY_FILE, history)
     if is_episeerr:
         _broadcast_episeerr_event(entry)
+        _episeerr_type_map = {
+            "episode.grabbed": "grab", "episode.ready": "ready",
+            "rule.triggered": "info", "rule.assigned": "info",
+            "watchlist.requested": "info",
+        }
+        _store_notification(_make_notification(
+            source="Episeerr",
+            title=entry["title"],
+            message=entry.get("rule") or (
+                f"S{entry['season']:02d}E{entry['episode']:02d}"
+                if entry.get("season") and entry.get("episode") else None
+            ),
+            notif_type=_episeerr_type_map.get(entry_event, "info"),
+        ))
 
     # Auto-add to watchlist when episeerr requests a pending series
     if entry_event == "watchlist.requested":
@@ -1613,6 +1696,42 @@ def player_events():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Generic notification endpoint ────────────────────────────────────────────
+
+@app.route("/api/notify", methods=["POST"])
+def post_notify():
+    data = request.get_json(force=True, silent=True) or {}
+
+    # Try to parse as a Sonarr/Radarr native webhook first
+    entry = _parse_arr_webhook(data)
+
+    if entry is None:
+        # Generic format: { title, message, type, source }
+        title = str(data.get("title") or "").strip()
+        if not title:
+            return jsonify({"ok": False, "error": "title required"}), 400
+        entry = _make_notification(
+            source=str(data.get("source") or "Unknown").strip(),
+            title=title,
+            message=str(data.get("message") or "").strip() or None,
+            notif_type=str(data.get("type") or "info").strip(),
+        )
+
+    _store_notification(entry)
+    return jsonify({"ok": True, "id": entry["id"]})
+
+
+@app.route("/api/notify/recent", methods=["GET"])
+def get_notify_recent():
+    limit = min(int(request.args.get("limit", 20)), 100)
+    since = request.args.get("since", "")  # ISO timestamp — return only newer entries
+    with _notifications_lock:
+        items = list(_notifications)
+    if since:
+        items = [n for n in items if n.get("timestamp", "") > since]
+    return jsonify(items[:limit])
 
 
 # ── Legacy watchlist endpoint (blob-backed) ───────────────────────────────────

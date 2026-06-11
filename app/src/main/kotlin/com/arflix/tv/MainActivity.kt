@@ -130,8 +130,9 @@ import dagger.Lazy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.arflix.tv.data.repository.AppNotification
 import com.arflix.tv.data.repository.EpiseerrPollManager
-import com.arflix.tv.data.repository.EpiseerrToast
+import com.arflix.tv.data.repository.NotificationPollManager
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.animation.slideInVertically
@@ -189,6 +190,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var episeerrPollManager: EpiseerrPollManager
+
+    @Inject
+    lateinit var notificationPollManager: NotificationPollManager
 
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
@@ -393,6 +397,7 @@ class MainActivity : ComponentActivity() {
                         preloadedLogoCache = startupState.logoCache,
                         onExitApp = { finish() },
                         episeerrPollManager = episeerrPollManager,
+                        notificationPollManager = notificationPollManager,
                         navigateHomeSignal = navigateHomeSignal,
                     )
                 }
@@ -608,6 +613,7 @@ fun ArflixApp(
     preloadedLogoCache: Map<String, String> = emptyMap(),
     onExitApp: () -> Unit = {},
     episeerrPollManager: EpiseerrPollManager? = null,
+    notificationPollManager: NotificationPollManager? = null,
     navigateHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
 ) {
     val context = LocalContext.current
@@ -637,13 +643,14 @@ fun ArflixApp(
     val liveTvPlayerViewModel: LiveTvPlayerViewModel = hiltViewModel()
 
     LaunchedEffect(episeerrPollManager) { episeerrPollManager?.startPolling() }
+    LaunchedEffect(notificationPollManager) { notificationPollManager?.startPolling() }
 
-    var activeEpiseerrToast by remember { mutableStateOf<EpiseerrToast?>(null) }
-    LaunchedEffect(episeerrPollManager) {
-        episeerrPollManager?.toastEvents?.collect { toast ->
-            activeEpiseerrToast = toast
+    var activeAppNotification by remember { mutableStateOf<AppNotification?>(null) }
+    LaunchedEffect(notificationPollManager) {
+        notificationPollManager?.notificationEvents?.collect { notification ->
+            activeAppNotification = notification
             delay(4_000L)
-            activeEpiseerrToast = null
+            activeAppNotification = null
         }
     }
 
@@ -807,16 +814,16 @@ fun ArflixApp(
                 onDismiss = { liveTvPlayerViewModel.dismiss() },
             )
 
-            // ── Episeerr activity toast ──────────────────────────────────────────
+            // ── App notification toast ───────────────────────────────────────────
             androidx.compose.animation.AnimatedVisibility(
-                visible = activeEpiseerrToast != null,
+                visible = activeAppNotification != null,
                 enter = slideInVertically { -it } + fadeIn(),
                 exit = slideOutVertically { -it } + fadeOut(),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 20.dp)
             ) {
-                activeEpiseerrToast?.let { EpiseerrActivityToast(it) }
+                activeAppNotification?.let { AppNotificationToast(it) }
             }
         }
         if (showBottomBar) {
@@ -898,21 +905,13 @@ private fun LiveTvMiniPlayerLayer(
 }
 
 @Composable
-private fun EpiseerrActivityToast(toast: EpiseerrToast) {
-    val badgeColor = when (toast.event) {
-        "episode.grabbed"  -> Color(0xFFEA580C) // orange
-        "episode.ready"    -> Color(0xFF0D9488) // teal
-        "rule.assigned", "rule.triggered" -> Color(0xFF7C3AED) // purple
-        "watchlist.requested" -> Color(0xFF4F46E5) // indigo
-        else -> Color(0xFF374151)
-    }
-    val eventLabel = when (toast.event) {
-        "episode.grabbed"    -> "Grabbed"
-        "episode.ready"      -> "Ready"
-        "rule.assigned"      -> "Rule assigned"
-        "rule.triggered"     -> "Rule triggered"
-        "watchlist.requested" -> "Pending"
-        else -> toast.event
+private fun AppNotificationToast(notification: AppNotification) {
+    val badgeColor = when (notification.type) {
+        "grab"    -> Color(0xFFEA580C) // orange
+        "ready"   -> Color(0xFF0D9488) // teal
+        "error"   -> Color(0xFFDC2626) // red
+        "warning" -> Color(0xFFD97706) // amber
+        else      -> Color(0xFF2563EB) // blue for info/unknown
     }
     Box(
         modifier = Modifier
@@ -928,25 +927,24 @@ private fun EpiseerrActivityToast(toast: EpiseerrToast) {
                     .background(badgeColor)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text(eventLabel, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(
+                    notification.source.ifBlank { "Notify" },
+                    fontSize = 10.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             Column {
                 Text(
-                    toast.title.ifBlank { "Unknown" },
+                    notification.title.ifBlank { "Unknown" },
                     fontSize = 14.sp,
                     color = Color.White,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (toast.rule != null) {
-                    Text(toast.rule, fontSize = 11.sp, color = Color(0xFFD1D5DB))
-                } else if (toast.season != null && toast.episode != null) {
-                    Text(
-                        "S${toast.season.toString().padStart(2, '0')}E${toast.episode.toString().padStart(2, '0')}",
-                        fontSize = 11.sp,
-                        color = Color(0xFFD1D5DB)
-                    )
+                if (!notification.message.isNullOrBlank()) {
+                    Text(notification.message, fontSize = 11.sp, color = Color(0xFFD1D5DB))
                 }
             }
         }

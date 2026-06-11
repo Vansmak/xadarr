@@ -228,7 +228,7 @@ Episeerr is Joe's own Python/Flask media management app. **Two separate director
 **Never rebuild the running `episeerr` container from `episeerr_dev`.**
 
 ### Xadarr integration blueprint
-File: `episeerr_custom/integrations/arvio.py`, URL prefix `/api/integration/arvio`.
+File: `episeerr_custom/integrations/xadarr.py`, URL prefix `/api/integration/xadarr`.
 
 Routes:
 - `POST /webhook` — playback events (start/pause/stop/progress); triggers Sonarr rule processing at completion threshold
