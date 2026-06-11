@@ -80,7 +80,7 @@ Web UI at `http://your-server:7979` — same Home, Discover, Cameras, and Settin
 
 ## Install
 
-Download the latest APK from [Releases](https://github.com/Vansmak/xadarr/releases) and sideload to your TV or Fire TV device.
+Download the latest APK from [Releases](https://github.com/Vansmak/xadarr/releases) and sideload to your Android\Google TV device. Fire TV device not tested.
 
 **Downloader app URL:**
 ```
