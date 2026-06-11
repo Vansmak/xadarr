@@ -105,7 +105,7 @@ All notable changes to this project are documented in this file.
 ## [1.0] - 2026-05-30
 
 ### Added
-- Initial Xadarr release — forked from Arvio (Apache 2.0), itself a fork of Arflix. Xadarr identity, icons, and self-hosted sync direction established from this point.
+- Initial Xadarr release — forked from Arvio (Apache 2.0). Xadarr identity, icons, and self-hosted sync direction established from this point.
 
 ## [2.0.20] - 2026-05-29
 
