@@ -148,6 +148,8 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 | Home Assistant | `http://homeassistant.local:8123/api/webhook/your-id` |
 | n8n | `http://your-n8n:5678/webhook/your-path` |
 
+**Automatic downloads via Trakt:** Connect Trakt in Settings → Accounts. Radarr and Sonarr can monitor your Trakt watchlist natively — anything you add in Xadarr flows through to your download stack automatically, no extra configuration needed.
+
 `progress` fires at a configurable interval (default 30 s). No retry on failure.
 
 ---
