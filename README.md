@@ -1,6 +1,6 @@
 # Xadarr
 
-Xadarr takes its name from the detection-and-ranging technology family — radar, sonar, lidar — that the *arr ecosystem has always played on. Where those tools scan the sky or the sea, Xadarr scans your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync across every device you pick up.
+XADAR stands for X-Ray Detection and Ranging — a real detection technology in the same family as radar (radio), sonar (sound), and lidar (light). The *arr ecosystem has always played on that naming lineage. Where those tools locate things in the physical world, Xadarr locates your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync across every device you pick up.
 
 It is not Sonarr or Radarr. It does not download, manage, or automate anything. It is a media hub — a single place to browse and play from Jellyfin, Emby, Plex, IPTV playlists, and streaming add-ons, with everything staying in sync across every device you pick up.
 
