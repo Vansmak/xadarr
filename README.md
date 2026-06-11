@@ -197,6 +197,12 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 
 ---
 
+## Credits
+
+Xadarr is forked from [Arvio](https://github.com/arvio-app/arvio), which is itself forked from Arflix. Both are released under the Apache 2.0 license. Xadarr's self-hosted sync, Episeerr integration, Frigate cameras, three-tier sync, and all other features documented here were built on top of that foundation.
+
+---
+
 ## Policy
 
 Xadarr is a media browser and player for user-configured sources. It does not host, distribute, or link to third-party media. Users supply their own services, playlists, add-ons, and URLs and are solely responsible for complying with applicable law.
