@@ -1,5 +1,13 @@
 # Xadarr
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
+
+[![GitHub Issues](https://img.shields.io/github/issues/vansmak/xadarr)](https://github.com/Vansmak/xadarr/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/vansmak/xadarr)](https://github.com/Vansmak/xadarr/stargazers)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-orange)](https://buymeacoffee.com/vansmak)
+
+---
+
 XADAR stands for X-Ray Detection and Ranging — a real detection technology in the same family as radar (radio), sonar (sound), and lidar (light). The *arr ecosystem has always played on that naming lineage. Where those tools locate things in the physical world, Xadarr locates your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync across every device you pick up.
 
 It is not Sonarr or Radarr. It does not download, manage, or automate anything. It is a media hub — a single place to browse and play from Jellyfin, Emby, Plex, IPTV playlists, and streaming add-ons, with everything staying in sync across every device you pick up.
@@ -194,6 +202,16 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 | Mobile home | Mobile details |
 |-------------|----------------|
 | ![Mobile home](screenshots/mobile_home.webp) | ![Mobile details](screenshots/mobile_details.webp) |
+
+---
+
+## Support
+
+This project was built with significant AI assistance. I designed the architecture and features; AI helped write the code. Use it or don't — no argument here.
+
+If it saves you time and you want to see it maintained:
+
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
 
 ---
 
