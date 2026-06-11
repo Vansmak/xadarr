@@ -5,9 +5,11 @@ import android.util.Log
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.repository.AppNotification
 import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.IptvRepository
+import com.arflix.tv.data.repository.NotificationPollManager
 import com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
@@ -35,6 +37,7 @@ import java.io.IOException
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.util.Collections
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -47,6 +50,7 @@ class WebAppServer @Inject constructor(
     private val playerStateHolder: PlayerStateHolder,
     private val tmdbApi: TmdbApi,
     private val cloudSyncRepository: CloudSyncRepository,
+    private val notificationPollManager: NotificationPollManager,
 ) {
     companion object {
         const val DEFAULT_PORT = 7979
@@ -138,6 +142,9 @@ class WebAppServer @Inject constructor(
                 // SSE stream for real-time player state
                 method == NanoHTTPD.Method.GET && uri == "/api/player/events" ->
                     handleSseStream()
+                // Notifications — direct push from Sonarr, Radarr, etc.
+                method == NanoHTTPD.Method.POST && uri == "/api/notify" ->
+                    handleNotify(session)
                 // Device sync endpoints (LAN peer-to-peer)
                 method == NanoHTTPD.Method.GET && uri == "/api/sync/status" ->
                     handleSyncStatus()
@@ -342,6 +349,63 @@ class WebAppServer @Inject constructor(
         val id = parts[1].toIntOrNull() ?: return json(JSONObject().put("error", "bad id"))
         watchlistRepository.removeFromWatchlist(mediaType, id)
         return json(JSONObject().put("status", "removed"))
+    }
+
+    // ── Notification handler ──────────────────────────────────────────────────
+
+    private fun handleNotify(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val raw = bodyMap["postData"]?.takeIf { it.isNotBlank() }
+            ?: return json(JSONObject().put("ok", false).put("error", "empty body"))
+        val body = runCatching { JSONObject(raw) }.getOrNull()
+            ?: return json(JSONObject().put("ok", false).put("error", "invalid json"))
+
+        val notification = parseArrWebhook(body) ?: run {
+            val title = body.optString("title").trim()
+            if (title.isBlank()) return json(JSONObject().put("ok", false).put("error", "title required"))
+            AppNotification(
+                id      = UUID.randomUUID().toString(),
+                source  = body.optString("source").trim().ifBlank { "Unknown" },
+                title   = title,
+                message = body.optString("message").trim().takeIf { it.isNotBlank() },
+                type    = body.optString("type").trim().ifBlank { "info" },
+            )
+        }
+        notificationPollManager.receiveDirectNotification(notification)
+        return json(JSONObject().put("ok", true).put("id", notification.id))
+    }
+
+    private fun parseArrWebhook(data: JSONObject): AppNotification? {
+        val eventType = data.optString("eventType").ifBlank { return null }
+        val typeMap = mapOf(
+            "Grab" to "grab", "Download" to "ready",
+            "HealthIssue" to "error", "HealthRestored" to "info",
+            "ApplicationUpdate" to "info", "Test" to "info",
+            "MovieAdded" to "info", "SeriesAdd" to "info",
+        )
+        val notifType = typeMap[eventType] ?: "info"
+        return when {
+            data.has("series") -> {
+                val series = data.optJSONObject("series")
+                val title = series?.optString("title") ?: "Unknown"
+                val episodes = data.optJSONArray("episodes")
+                val message = if (episodes != null && episodes.length() > 0) {
+                    val ep = episodes.getJSONObject(0)
+                    val s = ep.optInt("seasonNumber"); val e = ep.optInt("episodeNumber")
+                    val epTitle = ep.optString("title")
+                    "S${s.toString().padStart(2,'0')}E${e.toString().padStart(2,'0')}" +
+                        if (epTitle.isNotBlank()) " – $epTitle" else ""
+                } else eventType
+                AppNotification(UUID.randomUUID().toString(), "Sonarr", title, message, notifType)
+            }
+            data.has("movie") -> {
+                val movie = data.optJSONObject("movie")
+                val title = movie?.optString("title") ?: "Unknown"
+                AppNotification(UUID.randomUUID().toString(), "Radarr", title, eventType, notifType)
+            }
+            else -> null
+        }
     }
 
     // ── Sync handlers ─────────────────────────────────────────────────────────

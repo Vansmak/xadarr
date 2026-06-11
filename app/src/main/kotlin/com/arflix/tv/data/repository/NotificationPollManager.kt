@@ -59,6 +59,11 @@ class NotificationPollManager @Inject constructor(
         scope.launch { poll() }
     }
 
+    // Called directly by WebAppServer when a /api/notify POST arrives on-device.
+    fun receiveDirectNotification(notification: AppNotification) {
+        _events.tryEmit(notification)
+    }
+
     private suspend fun poll() = withContext(Dispatchers.IO) {
         val base = serverBase().ifBlank { return@withContext }
         try {
