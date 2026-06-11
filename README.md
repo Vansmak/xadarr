@@ -82,7 +82,10 @@ Web UI at `http://your-server:7979` — same Home, Discover, Cameras, and Settin
 
 Download the latest APK from [Releases](https://github.com/Vansmak/xadarr/releases) and sideload to your TV or Fire TV device.
 
-Downloader code (for installing via the Downloader app): check the latest release notes.
+**Downloader app URL:**
+```
+https://github.com/Vansmak/xadarr/releases/latest/download/app-sideload-debug.apk
+```
 
 The app checks for updates itself. Settings → Accounts → App Update.
 
