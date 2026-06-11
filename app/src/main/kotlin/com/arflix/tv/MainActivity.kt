@@ -197,6 +197,7 @@ class MainActivity : ComponentActivity() {
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
+    val navigateSettingsSignal = MutableStateFlow(0)
     private var wasInBackground = false
 
     private val goHomeReceiver = object : BroadcastReceiver() {
@@ -399,6 +400,7 @@ class MainActivity : ComponentActivity() {
                         episeerrPollManager = episeerrPollManager,
                         notificationPollManager = notificationPollManager,
                         navigateHomeSignal = navigateHomeSignal,
+                        navigateSettingsSignal = navigateSettingsSignal,
                     )
                 }
             }
@@ -480,6 +482,15 @@ class MainActivity : ComponentActivity() {
         jankStats?.isTrackingEnabled = false
         jankStats = null
         super.onDestroy()
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_SETTINGS &&
+            event.action == android.view.KeyEvent.ACTION_UP) {
+            navigateSettingsSignal.value++
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 }
 
@@ -615,6 +626,7 @@ fun ArflixApp(
     episeerrPollManager: EpiseerrPollManager? = null,
     notificationPollManager: NotificationPollManager? = null,
     navigateHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
+    navigateSettingsSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
 ) {
     val context = LocalContext.current
     val authState by authRepository.authState.collectAsStateWithLifecycle()
@@ -663,6 +675,17 @@ fun ArflixApp(
                 seen = count
                 navController.navigate(Screen.Home.route) {
                     popUpTo(Screen.Home.route) { inclusive = false }
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+    LaunchedEffect(navController) {
+        var seen = navigateSettingsSignal.value
+        navigateSettingsSignal.collect { count ->
+            if (count > seen) {
+                seen = count
+                navController.navigate(Screen.Settings.route) {
                     launchSingleTop = true
                 }
             }

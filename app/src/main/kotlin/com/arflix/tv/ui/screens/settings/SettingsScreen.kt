@@ -226,7 +226,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
         "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36)
         "profiles" -> listOf(19)
-        "network" -> listOf(25, 26, 35)
+        "network" -> listOf(25, 26, 35, 37)
         else -> emptyList()
     }
 }
@@ -852,6 +852,10 @@ fun SettingsScreen(
                                                 25 -> openDnsProviderPicker()
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
+                                                37 -> context.startActivity(
+                                                    android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                )
                                                 27 -> viewModel.cycleVolumeBoost()
                                                 34 -> viewModel.cycleTrailerDelay()
                                                 36 -> viewModel.setLauncherMode(!uiState.launcherModeEnabled)
@@ -1324,7 +1328,13 @@ fun SettingsScreen(
                             customUserAgent = uiState.customUserAgent,
                             onCustomUserAgentClick = { showCustomUserAgentDialog = true },
                             launcherModeEnabled = uiState.launcherModeEnabled,
-                            onLauncherModeToggle = { viewModel.setLauncherMode(it) }
+                            onLauncherModeToggle = { viewModel.setLauncherMode(it) },
+                            onAndroidSettingsClick = {
+                                context.startActivity(
+                                    android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
                         )
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
@@ -4751,7 +4761,8 @@ private fun TvGeneralSettingsRows(
     customUserAgent: String = "",
     onCustomUserAgentClick: () -> Unit = {},
     launcherModeEnabled: Boolean = false,
-    onLauncherModeToggle: (Boolean) -> Unit = {}
+    onLauncherModeToggle: (Boolean) -> Unit = {},
+    onAndroidSettingsClick: () -> Unit = {},
 ) {
     Column {
         tvGeneralRowsForSection(section).forEachIndexed { localIndex, rowId ->
@@ -4842,6 +4853,7 @@ private fun TvGeneralSettingsRows(
                 34 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.trailer_delay), stringResource(R.string.trailer_delay_desc), "${trailerDelaySeconds}s", focusedIndex == localIndex, onTrailerDelayClick, Modifier.settingsFocusSlot(localIndex))
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
                 36 -> SettingsToggleRow("Launcher Mode", "Set Xadarr as the Android TV home screen", launcherModeEnabled, focusedIndex == localIndex, onLauncherModeToggle, Modifier.settingsFocusSlot(localIndex))
+                37 -> SettingsRow(Icons.Default.Settings, "Android Settings", "Open Android TV system settings", "", focusedIndex == localIndex, onAndroidSettingsClick, Modifier.settingsFocusSlot(localIndex))
             }
         }
     }
