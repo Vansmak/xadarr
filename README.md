@@ -2,7 +2,6 @@
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
 
-[![GitHub Issues](https://img.shields.io/github/issues/vansmak/xadarr)](https://github.com/Vansmak/xadarr/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/vansmak/xadarr)](https://github.com/Vansmak/xadarr/stargazers)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-orange)](https://buymeacoffee.com/vansmak)
 
