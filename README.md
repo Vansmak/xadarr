@@ -1,6 +1,6 @@
 # Xadarr
 
-Xadarr takes its name from the detection-and-ranging technology family — radar, sonar, lidar — that the *arr ecosystem has always played on. Where those tools scan the sky or the sea, Xadarr scans your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync without a cloud account.
+Xadarr takes its name from the detection-and-ranging technology family — radar, sonar, lidar — that the *arr ecosystem has always played on. Where those tools scan the sky or the sea, Xadarr scans your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync across every device you pick up.
 
 It is not Sonarr or Radarr. It does not download, manage, or automate anything. It is a media hub — a single place to browse and play from Jellyfin, Emby, Plex, IPTV playlists, and streaming add-ons, with everything staying in sync across every device you pick up.
 
@@ -10,7 +10,7 @@ It is not Sonarr or Radarr. It does not download, manage, or automate anything. 
 
 - Browse and stream from **Jellyfin, Emby, Plex**, and IPTV (M3U, Xtream, Stalker)
 - **Watchlist, continue watching, and settings sync** across all your devices — automatically, over your local network or via Google Drive
-- **No cloud account required.** Sync works entirely on hardware you control
+- **No cloud account required for sync.** LAN peer-to-peer and xadarr-server work with no account at all. Google Drive sync optionally uses a Google account already on the device.
 - **Live TV** with a fullscreen EPG overlay guide, a slide-in category sidebar (D-pad Left to open, D-pad Right to dismiss), channel favourites with sort options, last-channel return (D-pad Right while watching), and a picture-in-picture mini-player that keeps your stream alive when you navigate away from the guide
 - **Trakt integration** — watchlist and continue-watching per profile
 - **Episeerr integration** — request, rule assignment, and activity toasts directly on the TV
