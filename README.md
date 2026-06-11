@@ -200,6 +200,12 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 |-----------------------|----------------------|
 | ![Webhooks](screenshots/Screenshot_20260606-191855.png) | ![Catalogues](screenshots/Screenshot_20260606-191925.png) |
 
+### Web UI (xadarr-server)
+
+| Home |
+|------|
+| ![Web home](screenshots/home%20Xadarr-server.png) |
+
 ### Mobile
 
 | Mobile home | Mobile details |
