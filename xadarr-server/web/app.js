@@ -56,6 +56,17 @@ function xadarr() {
     mobileSidebarOpen: false,
     sidebarSec: { player: true, history: false, theme: false },
 
+    // Detail sheet
+    detailItem: null,
+    detailLoading: false,
+
+    // Expanded row grid
+    expandedRow: null,
+
+    // Swipe navigation
+    swipeStartX: 0,
+    swipeStartY: 0,
+
     // Settings
     settings: {},
     webhookUrlRaw: '',
@@ -939,12 +950,73 @@ function xadarr() {
       }
     },
 
+    // ── Detail sheet ──────────────────────────────────────────────────────
+    openDetail(item) {
+      this.detailItem = { ...item };
+      this.detailLoading = false;
+      // If no overview yet and item has a TMDB id, fetch full details
+      const id = item.id || item.tmdbId;
+      if (id && !item.overview) {
+        this.detailLoading = true;
+        const mt = item.mediaType === 'show' ? 'tv' : 'movie';
+        fetch(`/api/media/detail?id=${id}&type=${mt}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && this.detailItem) Object.assign(this.detailItem, data);
+          })
+          .finally(() => { this.detailLoading = false; });
+      } else if (id && item.overview && !item.genres) {
+        // Has overview but no genres — fetch silently in background
+        const mt = item.mediaType === 'show' ? 'tv' : 'movie';
+        fetch(`/api/media/detail?id=${id}&type=${mt}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && this.detailItem) Object.assign(this.detailItem, data);
+          });
+      }
+    },
+
+    closeDetail() {
+      this.detailItem = null;
+      this.detailLoading = false;
+    },
+
+    // ── Expanded row grid ─────────────────────────────────────────────────
+    openExpandedRow(title, items) {
+      this.expandedRow = { title, items: [...items] };
+    },
+
+    closeExpandedRow() {
+      this.expandedRow = null;
+    },
+
     // ── CW subtitle ───────────────────────────────────────────────────────
     cwSubtitle(item) {
       if (item.episode) {
         return `S${item.season || 1}E${item.episode}` + (item.episodeTitle ? ` · ${item.episodeTitle}` : '');
       }
       return item.mediaType || '';
+    },
+
+    // ── Tab title & swipe navigation ─────────────────────────────────────
+    tabTitle() {
+      return { home:'Home', search:'Search', discover:'Discover', tv:'TV', cameras:'Cameras', settings:'Settings', history:'History', player:'Now Playing' }[this.activeTab] || '';
+    },
+
+    swipeStart(e) {
+      this.swipeStartX = e.touches[0].clientX;
+      this.swipeStartY = e.touches[0].clientY;
+    },
+
+    swipeEnd(e) {
+      const dx = e.changedTouches[0].clientX - this.swipeStartX;
+      const dy = e.changedTouches[0].clientY - this.swipeStartY;
+      if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      const tabs = ['search', 'home', 'discover', ...(this.camerasFrigateConfigured ? ['cameras'] : []), 'settings'];
+      const i = tabs.indexOf(this.activeTab);
+      if (i === -1) return;
+      if (dx < 0 && i < tabs.length - 1) this.switchTab(tabs[i + 1]);
+      else if (dx > 0 && i > 0) this.switchTab(tabs[i - 1]);
     },
 
     // ── Time helpers ──────────────────────────────────────────────────────

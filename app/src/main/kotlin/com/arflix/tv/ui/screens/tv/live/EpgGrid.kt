@@ -57,6 +57,7 @@ import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val EpgWindowMinutes = 24 * 60
@@ -208,6 +209,7 @@ fun EpgGrid(
         if (safeIdx < 0) return true
         val nextIdx = safeIdx + delta
         if (nextIdx < 0 && delta < 0) {
+            if (delta < -1) return keepChannelFocus(0) // page scroll near top — clamp, don't exit
             onMoveUpFromTopOfChannels()
             return true
         }
@@ -253,6 +255,9 @@ fun EpgGrid(
     }
 
     LaunchedEffect(windowStartMillis) {
+        // scrollBy clamps to maxValue, which is 0 before content is laid out (epgReady=false).
+        // Wait for maxValue > 0 so scrollTo doesn't reset the initial nowScrollPx to 0.
+        snapshotFlow { hScroll.maxValue }.first { it > 0 }
         with(density) {
             val nowOffsetMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
             val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
@@ -432,6 +437,8 @@ fun EpgGrid(
                                 },
                                 onMoveUp = { moveChannelFocus(-1) },
                                 onMoveDown = { moveChannelFocus(+1) },
+                                onPageUp = { moveChannelFocus(-5) },
+                                onPageDown = { moveChannelFocus(+5) },
                                 onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
                                 rowHeight = rowHeight,
                                 forceFocused = gridFocused &&

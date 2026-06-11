@@ -15,6 +15,7 @@
   <!-- ── Mobile header (hidden on desktop) ─────────────────────────────── -->
   <div class="mobile-header">
     <span class="mobile-brand" @click="mobileSidebarOpen=!mobileSidebarOpen">Xadarr</span>
+    <span class="mobile-page-title" x-text="tabTitle()"></span>
   </div>
 
   <!-- ── Mobile sidebar overlay ────────────────────────────────────────── -->
@@ -51,6 +52,89 @@
       <div class="modal-footer">
         <button class="btn btn-ghost btn-sm" @click="showRulePicker=false">Cancel</button>
         <button class="btn btn-primary btn-sm" @click="assignRule()" :disabled="!selectedRuleId">Assign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Detail sheet ──────────────────────────────────────────────────── -->
+  <div class="detail-backdrop" x-show="detailItem" x-cloak @click.self="closeDetail()">
+    <div class="detail-sheet" @click.stop>
+      <div class="detail-hero" x-show="detailItem?.backdropUrl"
+           :style="detailItem?.backdropUrl ? `background-image:url('${detailItem.backdropUrl}')` : ''">
+        <div class="detail-hero-gradient"></div>
+      </div>
+      <button class="detail-close" @click="closeDetail()">✕</button>
+
+      <div class="detail-body">
+        <div class="detail-poster-row">
+          <template x-if="detailItem?.image">
+            <img class="detail-poster" :src="detailItem.image" :alt="detailItem?.title" loading="lazy">
+          </template>
+          <div class="detail-meta-col">
+            <div class="detail-title" x-text="detailItem?.title"></div>
+            <div class="detail-meta-row">
+              <span class="hero-badge" x-text="detailItem?.mediaType==='show' ? 'TV' : 'MOVIE'"></span>
+              <span class="text-muted" x-text="detailItem?.year"></span>
+              <span x-show="detailItem?.rating" class="text-muted" x-text="'★ ' + (detailItem?.rating?.toFixed?.(1) || '')"></span>
+              <span x-show="detailItem?.runtime" class="text-muted" x-text="detailItem?.runtime + ' min'"></span>
+            </div>
+            <div class="detail-genres" x-show="detailItem?.genres?.length">
+              <template x-for="g in (detailItem?.genres || [])" :key="g">
+                <span class="detail-genre-chip" x-text="g"></span>
+              </template>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button class="btn btn-primary btn-sm"
+                      @click="toggleWatchlist(detailItem); detailItem.inWatchlist=!detailItem.inWatchlist"
+                      x-text="detailItem?.inWatchlist ? '✓ In Watchlist' : '+ Watchlist'"></button>
+              <button class="btn btn-secondary btn-sm" x-show="detailItem?.isPending"
+                      @click="closeDetail(); openRulePicker(detailItem)">Assign Rule</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-tagline" x-show="detailItem?.tagline" x-text="detailItem?.tagline"></div>
+        <p class="detail-overview" x-show="detailItem?.overview" x-text="detailItem?.overview"></p>
+
+        <div class="detail-cast" x-show="detailItem?.cast?.length">
+          <div class="detail-section-label">Cast</div>
+          <div class="detail-cast-list" x-text="(detailItem?.cast || []).join(' · ')"></div>
+        </div>
+
+        <div class="detail-loading" x-show="detailLoading">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Expanded row grid ─────────────────────────────────────────────── -->
+  <div class="expanded-backdrop" x-show="expandedRow" x-cloak @click.self="closeExpandedRow()">
+    <div class="expanded-panel" @click.stop>
+      <div class="expanded-panel-header">
+        <span class="expanded-panel-title" x-text="expandedRow?.title"></span>
+        <span class="text-muted text-sm" x-text="(expandedRow?.items?.length || 0) + ' items'"></span>
+        <button class="expanded-close" @click="closeExpandedRow()">✕</button>
+      </div>
+      <div class="expanded-grid">
+        <template x-for="item in (expandedRow?.items || [])" :key="'eg-'+item.id">
+          <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
+            <template x-if="item.image">
+              <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
+                   @error="$el.style.display='none'">
+            </template>
+            <template x-if="!item.image">
+              <div class="card-poster-placeholder" x-text="item.title"></div>
+            </template>
+            <div class="card-info">
+              <div class="card-title" x-text="item.title"></div>
+              <div class="card-meta" x-text="item.year"></div>
+            </div>
+            <button class="card-wl-btn" :class="{'in-wl': item.inWatchlist}"
+                    @click.stop="toggleWatchlist(item)"
+                    x-text="item.inWatchlist ? '✓' : '+'" :title="item.inWatchlist?'Remove':'Add'"></button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -124,7 +208,9 @@
   </div>
 
   <!-- ── Main ───────────────────────────────────────────────────────────── -->
-  <div class="main">
+  <div class="main"
+       @touchstart.passive="swipeStart($event)"
+       @touchend.passive="swipeEnd($event)">
 
     <!-- ══ SEARCH ══════════════════════════════════════════════════════════ -->
     <div class="tab-pane" :class="{active: activeTab==='search'}">
@@ -166,7 +252,7 @@
                 <div class="browse-section-hd" x-text="'Movies · ' + browseMovies.length"></div>
                 <div class="browse-results-grid">
                   <template x-for="item in browseMovies" :key="'bm-'+item.id">
-                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)">
+                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                       <template x-if="item.image">
                         <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                              @error="$el.style.display='none'">
@@ -191,7 +277,7 @@
                 <div class="browse-section-hd" x-text="'TV Shows · ' + browseShows.length"></div>
                 <div class="browse-results-grid">
                   <template x-for="item in browseShows" :key="'bs-'+item.id">
-                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)">
+                    <div class="card browse-grid-card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                       <template x-if="item.image">
                         <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                              @error="$el.style.display='none'">
@@ -228,7 +314,7 @@
           </div>
           <div class="row-scroll">
             <template x-for="item in searchResults" :key="'sr-'+item.id+item.mediaType">
-              <div class="card" @mouseenter="hoverCard(item)">
+              <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                 <template x-if="item.image">
                   <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                        @error="$el.style.display='none'">
@@ -280,10 +366,13 @@
           <div>
             <template x-for="row in searchDiscoverRows()" :key="row.id">
               <div class="catalogue-row">
-                <div class="row-header"><span class="row-title" x-text="row.title"></span></div>
+                <div class="row-header">
+                  <span class="row-title" x-text="row.title"></span>
+                  <button class="row-see-all" @click="openExpandedRow(row.title, row.items)">See all</button>
+                </div>
                 <div class="row-scroll">
                   <template x-for="item in row.items" :key="'sdr-'+row.id+item.id">
-                    <div class="card" @mouseenter="hoverCard(item)">
+                    <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                       <template x-if="item.image">
                         <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                              @error="$el.style.display='none'">
@@ -340,10 +429,11 @@
           <div class="catalogue-row" :style="'order:'+catOrder('continue_watching')">
             <div class="row-header">
               <span class="row-title">Continue Watching</span>
+              <button class="row-see-all" @click="openExpandedRow('Continue Watching', cwItems)">See all</button>
             </div>
             <div class="row-scroll">
               <template x-for="item in cwItems" :key="item.id">
-                <div class="card-cw" @mouseenter="hoverCard(item)">
+                <div class="card-cw" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                   <div class="card-cw-backdrop-placeholder" x-show="!item.backdropUrl">▶</div>
                   <img class="card-cw-backdrop" x-show="item.backdropUrl"
                        :src="item.backdropUrl" :alt="item.title" loading="lazy"
@@ -366,12 +456,12 @@
              :style="'order:'+catOrder('watchlist')">
           <div class="row-header">
             <span class="row-title">Watchlist</span>
-            <span class="text-muted text-sm" x-text="watchlistItems.length + ' items'"></span>
+            <button class="row-see-all" @click="openExpandedRow('Watchlist', watchlistItems)"
+                    x-text="watchlistItems.length + ' items'"></button>
           </div>
           <div class="row-scroll">
             <template x-for="item in watchlistItems" :key="item.id">
-              <div class="card" @mouseenter="hoverCard(item)"
-                   @click="item.isPending && openRulePicker(item)">
+              <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                 <div class="card-pending-stripe" x-show="item.isPending"></div>
                 <div class="card-pending-ring" x-show="item.isPending"></div>
                 <template x-if="item.image">
@@ -396,10 +486,11 @@
              :style="'order:'+serverCatOrder('show')">
           <div class="row-header">
             <span class="row-title" x-text="(servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Shows'"></span>
+            <button class="row-see-all" @click="openExpandedRow((servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Shows', serverItems.filter(i=>i.mediaType==='show'))">See all</button>
           </div>
           <div class="row-scroll">
             <template x-for="item in serverItems.filter(i=>i.mediaType==='show')" :key="'svs-'+item.id">
-              <div class="card" @mouseenter="hoverCard(item)">
+              <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                 <template x-if="item.image">
                   <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                        @error="$el.style.display='none'">
@@ -424,10 +515,11 @@
              :style="'order:'+serverCatOrder('movie')">
           <div class="row-header">
             <span class="row-title" x-text="(servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Movies'"></span>
+            <button class="row-see-all" @click="openExpandedRow((servers[0]?.displayName || servers[0]?.serverName || 'Server') + ' — Movies', serverItems.filter(i=>i.mediaType==='movie'))">See all</button>
           </div>
           <div class="row-scroll">
             <template x-for="item in serverItems.filter(i=>i.mediaType==='movie')" :key="'svm-'+item.id">
-              <div class="card" @mouseenter="hoverCard(item)">
+              <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                 <template x-if="item.image">
                   <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                        @error="$el.style.display='none'">
@@ -506,10 +598,13 @@
         <!-- Dynamic DISCOVER catalogue rows -->
         <template x-for="cat in catalogues.filter(c => c.placement === 'DISCOVER').sort((a,b) => (a.sortOrder||0)-(b.sortOrder||0))" :key="cat.id">
           <div class="catalogue-row" x-show="discoverRowItems(cat).length > 0">
-            <div class="row-header"><span class="row-title" x-text="cat.title"></span></div>
+            <div class="row-header">
+              <span class="row-title" x-text="cat.title"></span>
+              <button class="row-see-all" @click="openExpandedRow(cat.title, discoverRowItems(cat))">See all</button>
+            </div>
             <div class="row-scroll">
               <template x-for="item in discoverRowItems(cat)" :key="'d-'+cat.id+'-'+item.id">
-                <div class="card" @mouseenter="hoverCard(item)">
+                <div class="card" @mouseenter="hoverCard(item)" @click="openDetail(item)">
                   <template x-if="item.image">
                     <img class="card-poster" :src="item.image" :alt="item.title" loading="lazy"
                          @error="$el.style.display='none'">

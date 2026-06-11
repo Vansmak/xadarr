@@ -23,6 +23,8 @@ import com.arflix.tv.data.repository.CatalogDiscoveryRepository
 import com.arflix.tv.data.repository.CatalogRepository
 import com.arflix.tv.data.repository.CollectionTemplateManifest
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.DRIVE_ACCOUNT_NAME_KEY
+import com.arflix.tv.data.repository.DriveSyncRepository
 import com.arflix.tv.data.repository.HomeServerConnection
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.PlexPinAuthSession
@@ -198,6 +200,8 @@ data class SettingsUiState(
     // Xadarr sync server URL — xadarr-server instance for full settings sync
     val syncServerUrl: String = "",
     val episeerrUrl: String = "",
+    val driveAccountName: String? = null,
+    val driveAvailableAccounts: List<String> = emptyList(),
     val frigateUrl: String = "",
     val tmdbApiKey: String = "",
     val traktClientId: String = "",
@@ -229,6 +233,7 @@ class SettingsViewModel @Inject constructor(
     private val apkDownloader: ApkDownloader,
     private val updateStatusManager: com.arflix.tv.updater.UpdateStatusManager,
     private val webAppServer: com.arflix.tv.server.WebAppServer,
+    private val driveSyncRepository: DriveSyncRepository,
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.filter { config ->
@@ -491,6 +496,8 @@ class SettingsViewModel @Inject constructor(
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                 ?: listOf("org.smarttube.stable", "org.smarttube.beta", "com.cxinventor.file.explorer", "com.android.tv.settings")
             val launcherModeEnabled = prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false
+            val driveAccountName = prefs[DRIVE_ACCOUNT_NAME_KEY]?.takeIf { it.isNotBlank() }
+            val driveAvailableAccounts = driveSyncRepository.listGoogleAccounts().map { it.name }
 
             // Check auth statuses
             val authState = authRepository.authState.first()
@@ -573,6 +580,8 @@ class SettingsViewModel @Inject constructor(
                 isCwHidden = isCwHidden,
                 pinnedApps = pinnedApps,
                 launcherModeEnabled = launcherModeEnabled,
+                driveAccountName = driveAccountName,
+                driveAvailableAccounts = driveAvailableAccounts,
             )
         }
     }
@@ -2703,6 +2712,29 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun connectDrive(accountName: String) {
+        viewModelScope.launch {
+            driveSyncRepository.saveAccount(accountName)
+            _uiState.value = _uiState.value.copy(
+                driveAccountName = accountName,
+                toastMessage = "Google Drive connected — syncing...",
+                toastType = ToastType.SUCCESS
+            )
+            cloudSyncRepository.pullFromCloud()
+        }
+    }
+
+    fun disconnectDrive() {
+        viewModelScope.launch {
+            driveSyncRepository.disconnect()
+            _uiState.value = _uiState.value.copy(
+                driveAccountName = null,
+                toastMessage = "Google Drive disconnected",
+                toastType = ToastType.INFO
+            )
+        }
+    }
+
     fun syncCloudStateToLocal(silent: Boolean = false) {
         viewModelScope.launch {
             restoreCloudStateToLocalInternal(silent = silent)
@@ -3117,6 +3149,10 @@ class SettingsViewModel @Inject constructor(
             )
             syncLocalStateToCloud(silent = true, force = true)
         }
+    }
+
+    fun showSettingsToast(message: String, type: ToastType = ToastType.INFO) {
+        _uiState.value = _uiState.value.copy(toastMessage = message, toastType = type)
     }
 
     fun dismissToast() {

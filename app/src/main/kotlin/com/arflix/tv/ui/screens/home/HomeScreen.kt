@@ -4,6 +4,7 @@ package com.arflix.tv.ui.screens.home
 
 import android.content.Context
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
@@ -2670,15 +2671,14 @@ private fun HomeInputLayer(
                                         // Must check collection: BEFORE falling through to Details — D-pad SELECT
                                         // on a service tile (Netflix, HBO, ...) was hitting DetailsScreen with the
                                         // synthetic hash id and spamming TMDB 404s instead of opening the catalog.
-                                        if (item.status == "all_apps") {
-                                            onNavigateToAllApps()
-                                        }
                                         val appPackage = item.status?.removePrefix("app:")
                                             ?.takeIf { item.status?.startsWith("app:") == true && it.isNotBlank() }
                                         val collectionId = item.status?.removePrefix("collection:")
                                             ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                                         val isCameraItem = item.status?.startsWith("camera:") == true
-                                        if (appPackage != null) {
+                                        if (item.status == "all_apps") {
+                                            onNavigateToAllApps()
+                                        } else if (appPackage != null) {
                                             latestDismissMiniPlayer.value?.invoke()
                                             launchApp(context, appPackage)
                                         } else if (isCameraItem) {
@@ -3142,7 +3142,12 @@ private fun TvHomeRowsLayer(
                     val rowIsFocused = !focusState.isSidebarFocused && actualRowIndex == focusState.currentRowIndex
                     val rowKey = remember(category.id) { "home:${category.id}" }
                     val rowUsePosterCards = rememberCatalogueRowLayoutMode(rowKey) == CardLayoutMode.POSTER
-                    val rowHeight = if (rowUsePosterCards) 252.dp else 202.dp
+                    val isAppsCategory = category.id == HomeViewModel.APPS_CATEGORY_ID
+                    val rowHeight = when {
+                        isAppsCategory -> 130.dp
+                        rowUsePosterCards -> 252.dp
+                        else -> 202.dp
+                    }
                     Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3189,11 +3194,15 @@ private fun TvHomeRowsLayer(
                 val focusedRowKey = remember(focusedCategory.id) { "home:${focusedCategory.id}" }
                 val focusedRowUsePosterCards = rememberCatalogueRowLayoutMode(focusedRowKey) == CardLayoutMode.POSTER
                 
-                if (homeViewportFocusOverlayActive(
-                    category = focusedCategory,
-                    focusedItemIndex = focusState.currentItemIndex,
-                    usePosterCards = focusedRowUsePosterCards
-                )) {
+                AnimatedVisibility(
+                    visible = homeViewportFocusOverlayActive(
+                        category = focusedCategory,
+                        focusedItemIndex = focusState.currentItemIndex,
+                        usePosterCards = focusedRowUsePosterCards
+                    ),
+                    enter = fadeIn(tween(60)),
+                    exit = fadeOut(tween(60))
+                ) {
                     HomeViewportRailFocusOverlay(
                         category = focusedCategory,
                         usePosterCards = focusedRowUsePosterCards,

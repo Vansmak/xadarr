@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.5] - 2026-06-11
+
+### Added
+- **Three-tier sync** — settings, watchlist, and IPTV favourites now sync across three independent backends in priority order: xadarr-server (full sync, existing behaviour), LAN peer-to-peer (same Wi-Fi, automatic, no server required), and Google Drive (cross-network, new device setup). All three can be active simultaneously; the first available backend wins on pull.
+- **LAN peer-to-peer sync** (`LanSyncService.kt`) — devices on the same network advertise and discover each other via mDNS (`_xadarr._tcp`). Full settings snapshot pushed and pulled with no configuration. Two devices, same Wi-Fi, no server needed.
+- **Google Drive sync** (`DriveSyncRepository.kt`) — connect a Google account in Settings → Accounts → Google Drive Sync. Settings back up to the Drive app-data folder (private, not visible to other apps or shareable). Restoring on a new device connects the same account and pulls the snapshot automatically. Consent handled via Android AccountManager.
+- **Drive account picker** — if multiple Google accounts are on the device, a D-pad-navigable picker appears on connect. Single-account devices connect directly.
+- **Credential-safe Drive backups** — IPTV playlist URLs (M3U, Xtream credentials), home server connections, and server passwords are stripped before upload. IPTV favourites, groups, and session state are kept. On restore, absent credential fields are skipped — existing local credentials are never overwritten with blank values.
+- **xadarr-server sync endpoints** — `/api/sync/status`, `GET /api/sync/snapshot`, `PUT /api/sync/snapshot` added to the LAN-facing web server for peer exchange.
+- **Sync on startup without server** — `pullFromCloud()` is called unconditionally on app start; Drive and LAN peers are tried when no xadarr-server URL is configured.
+
+### Changed
+- **DiscoverScreen focus** — entering from the Home tab no longer loses focus; the first row's content is focused directly on arrival.
+- `WebAppServer` always starts on app launch regardless of watchlist API toggle; LAN sync requires it.
+- `CloudSyncCoordinator` scheduleFlush no longer gated on Supabase auth state.
+
 ## [2.4] - 2026-06-09
 
 ### Added

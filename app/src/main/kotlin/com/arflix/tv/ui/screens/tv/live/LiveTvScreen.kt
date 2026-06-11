@@ -997,8 +997,8 @@ fun LiveTvScreen(
                         if (!isFullScreen || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
                             Key.Back, Key.Escape -> { exitFullScreenPlayback(); true }
-                            Key.DirectionUp -> { zap(+1); hudPokeSignal++; true }
-                            Key.DirectionDown -> { zap(-1); hudPokeSignal++; true }
+                            Key.DirectionUp, Key.ChannelUp -> { zap(+1); hudPokeSignal++; true }
+                            Key.DirectionDown, Key.ChannelDown -> { zap(-1); hudPokeSignal++; true }
                             Key.DirectionCenter, Key.Enter -> { hudPokeSignal++; true }
                             Key.DirectionRight -> { returnToPreviousChannel(); true }
                             Key.DirectionLeft -> { hudPokeSignal++; false }

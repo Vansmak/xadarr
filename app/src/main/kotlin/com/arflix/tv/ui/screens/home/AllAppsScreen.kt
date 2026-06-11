@@ -1,6 +1,8 @@
 package com.arflix.tv.ui.screens.home
 
 import android.content.Intent
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -32,6 +36,9 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.appBackgroundDark
 import androidx.compose.material3.MaterialTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 private data class AppEntry(val packageName: String, val label: String)
@@ -49,10 +56,11 @@ private fun launchApp(context: android.content.Context, packageName: String) {
 fun AllAppsScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) {
-            val pm = context.packageManager
+        val pm = context.packageManager
+        val appList = withContext(Dispatchers.IO) {
             val leanback = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
             val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             (pm.queryIntentActivities(leanback, 0) + pm.queryIntentActivities(launcher, 0))
@@ -61,6 +69,29 @@ fun AllAppsScreen(onBack: () -> Unit = {}) {
                 .map { AppEntry(it.activityInfo.packageName, it.loadLabel(pm).toString()) }
                 .sortedBy { it.label.lowercase() }
         }
+        apps = appList
+        // Pre-load all icons in parallel so the grid renders with icons on first visit.
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                appList.map { app ->
+                    async {
+                        if (!appIconCache.containsKey(app.packageName)) {
+                            val bmp = runCatching { pm.getApplicationIcon(app.packageName) }
+                                .getOrNull()
+                                ?.toBitmap()
+                                ?.asImageBitmap()
+                            if (bmp != null) appIconCache[app.packageName] = bmp
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+        loading = false
+    }
+
+    val gridFocus = remember { FocusRequester() }
+    LaunchedEffect(loading) {
+        if (!loading) runCatching { gridFocus.requestFocus() }
     }
 
     BackHandler { onBack() }
@@ -82,21 +113,35 @@ fun AllAppsScreen(onBack: () -> Unit = {}) {
                 color = TextPrimary,
                 modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 16.dp)
             )
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 100.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(apps, key = { it.packageName }) { app ->
-                    AppLauncherCard(
-                        packageName = app.packageName,
-                        label = app.label,
-                        isFocused = false,
-                        onFocused = {},
-                        onClick = { launchApp(context, app.packageName) }
+            if (loading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Loading…",
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 100.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize().focusRequester(gridFocus)
+                ) {
+                    items(apps, key = { it.packageName }) { app ->
+                        AppLauncherCard(
+                            packageName = app.packageName,
+                            label = app.label,
+                            isFocused = false,
+                            onFocused = {},
+                            enableSystemFocus = true,
+                            onClick = { launchApp(context, app.packageName) }
+                        )
+                    }
                 }
             }
         }

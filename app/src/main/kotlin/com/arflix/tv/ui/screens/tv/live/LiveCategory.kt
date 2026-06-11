@@ -37,7 +37,7 @@ data class EnrichedChannel(
     val catchupDays: Int get() = source.catchupDays
 }
 
-enum class FavoriteSortMode { DateAdded, Alphabetical, ByNumber }
+enum class FavoriteSortMode { DateAdded, Alphabetical, ByNumber, RecentlyUsed }
 
 data class LiveCategoryIndex(
     val byCategory: Map<String, List<EnrichedChannel>>,
@@ -55,6 +55,11 @@ data class LiveCategoryIndex(
                     FavoriteSortMode.DateAdded -> list
                     FavoriteSortMode.Alphabetical -> list.sortedBy { it.name.lowercase() }
                     FavoriteSortMode.ByNumber -> list.sortedBy { it.number }
+                    FavoriteSortMode.RecentlyUsed -> {
+                        val recentRank = recents.toList().asReversed()
+                            .withIndex().associate { (idx, id) -> id to idx }
+                        list.sortedWith(compareBy { recentRank[it.id] ?: Int.MAX_VALUE })
+                    }
                 }
             }
             "recent" -> recents.toList().asReversed().mapNotNull(byId::get).filterNot { it.isAdult }
@@ -471,10 +476,13 @@ fun buildCategoryTree(
     val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
+    val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+    }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())
     val adult = LiveSection("adult", "ADULT", emptyList())
-    val hidden = LiveSection("hidden", "HIDDEN", emptyList())
+    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList)
 
     return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden)
 }
@@ -622,10 +630,13 @@ fun buildCategoryTree(
     val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
+    val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+    }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())
     val adult = LiveSection("adult", "ADULT", emptyList())
-    val hidden = LiveSection("hidden", "HIDDEN", emptyList())
+    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList)
 
     return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden)
 }

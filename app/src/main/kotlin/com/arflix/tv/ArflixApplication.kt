@@ -28,6 +28,7 @@ import com.arflix.tv.data.repository.AuthRepository
 import com.arflix.tv.data.repository.AuthState
 import com.arflix.tv.data.repository.CloudSyncCoordinator
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.LanSyncService
 import com.arflix.tv.data.repository.RealtimeSyncManager
 import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.data.repository.ProfileManager
@@ -80,6 +81,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     lateinit var watchlistRepository: WatchlistRepository
     @Inject
     lateinit var webAppServer: WebAppServer
+    @Inject
+    lateinit var lanSyncService: LanSyncService
 
     override fun onCreate() {
         super.onCreate()
@@ -111,14 +114,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
         }
 
-        // Start web app server if enabled
+        // Always start the local sync server — it's required for LAN device sync.
+        // WATCHLIST_API_ENABLED_KEY now controls external API access visibility in Settings only.
         appScope.launch(Dispatchers.IO) {
             val prefs = settingsDataStore.data.first()
-            if (prefs[WATCHLIST_API_ENABLED_KEY] == true) {
-                val port = prefs[WATCHLIST_API_PORT_KEY]?.toIntOrNull() ?: WebAppServer.DEFAULT_PORT
-                runCatching { watchlistRepository.getWatchlistItems() }
-                webAppServer.start(port)
-            }
+            val port = prefs[WATCHLIST_API_PORT_KEY]?.toIntOrNull() ?: WebAppServer.DEFAULT_PORT
+            runCatching { watchlistRepository.getWatchlistItems() }
+            webAppServer.start(port)
+            lanSyncService.start(port)
         }
 
         // Initialize crash reporting. Sentry is preferred when SENTRY_DSN is configured;
@@ -136,28 +139,26 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             runCatching { watchlistRepository.getWatchlistItems() }
             delay(2_500L)
             cloudSyncCoordinator.start()
+            // Let first render/navigation settle before sync competes with image decode
+            delay(20_000L)
+            runCatching { cloudSyncRepository.pullFromCloud() }
+            // Only start Supabase realtime WebSocket if signed into Supabase
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                // Let first render/navigation settle before cloud restore and
-                // WebSocket work compete with image decode and Compose lists.
-                delay(20_000L)
-                runCatching { cloudSyncRepository.pullFromCloud() }
-                // Start realtime WebSocket listener for instant cross-device sync
                 realtimeSyncManager.start()
             }
         }
 
-        // Observe auth state: start realtime on login, stop on logout
+        // Observe Supabase auth state: start/stop realtime WebSocket only
+        // Coordinator and LAN sync run independently of Supabase login state
         appScope.launch {
             authRepository.authState.collectLatest { state ->
                 if (state is AuthState.Authenticated) {
                     delay(20_000L)
                     if (!authRepository.getCurrentUserId().isNullOrBlank()) {
-                        cloudSyncCoordinator.start()
                         realtimeSyncManager.start()
                     }
                 } else {
                     realtimeSyncManager.stop()
-                    cloudSyncCoordinator.stop()
                 }
             }
         }

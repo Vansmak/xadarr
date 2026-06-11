@@ -1889,8 +1889,8 @@ class IptvRepository @Inject constructor(
             )
         }.filter { it.m3uUrl.isNotBlank() }.take(3)
         context.settingsDataStore.edit { prefs ->
-            prefs[m3uUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedM3u)
-            prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
+            if (normalizedM3u.isNotBlank()) prefs[m3uUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedM3u)
+            if (normalizedEpg.isNotBlank()) prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
             prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
             if (state.hiddenGroups.isNotEmpty()) {

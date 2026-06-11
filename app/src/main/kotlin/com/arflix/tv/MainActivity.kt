@@ -1,6 +1,8 @@
 package com.arflix.tv
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -130,6 +132,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.arflix.tv.data.repository.EpiseerrPollManager
 import com.arflix.tv.data.repository.EpiseerrToast
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -189,6 +192,14 @@ class MainActivity : ComponentActivity() {
 
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
+    val navigateHomeSignal = MutableStateFlow(0)
+    private var wasInBackground = false
+
+    private val goHomeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: android.content.Intent) {
+            navigateHomeSignal.value++
+        }
+    }
 
     // StartupViewModel for parallel loading during splash
     private val startupViewModel: StartupViewModel by viewModels()
@@ -222,6 +233,15 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        val goHomeFilter = IntentFilter("com.arflix.tv.ACTION_GO_HOME").apply {
+            addAction("com.xadarr.tv.ACTION_GO_HOME")
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(goHomeReceiver, goHomeFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(goHomeReceiver, goHomeFilter)
+        }
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
         @Suppress("DEPRECATION")
@@ -373,6 +393,7 @@ class MainActivity : ComponentActivity() {
                         preloadedLogoCache = startupState.logoCache,
                         onExitApp = { finish() },
                         episeerrPollManager = episeerrPollManager,
+                        navigateHomeSignal = navigateHomeSignal,
                     )
                 }
             }
@@ -411,10 +432,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (wasInBackground) {
+            wasInBackground = false
+            navigateHomeSignal.value++
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        wasInBackground = true
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Prevent onResume from also incrementing — onNewIntent handles this resume.
+        wasInBackground = false
         pendingLauncherRequest = parseLauncherRequest(intent)
+        if (pendingLauncherRequest == null) {
+            navigateHomeSignal.value++
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -432,6 +471,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(goHomeReceiver) }
         jankStats?.isTrackingEnabled = false
         jankStats = null
         super.onDestroy()
@@ -568,6 +608,7 @@ fun ArflixApp(
     preloadedLogoCache: Map<String, String> = emptyMap(),
     onExitApp: () -> Unit = {},
     episeerrPollManager: EpiseerrPollManager? = null,
+    navigateHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
 ) {
     val context = LocalContext.current
     val authState by authRepository.authState.collectAsStateWithLifecycle()
@@ -608,6 +649,18 @@ fun ArflixApp(
 
     val navController = rememberNavController()
     val appCoroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(navController) {
+        var seen = navigateHomeSignal.value
+        navigateHomeSignal.collect { count ->
+            if (count > seen) {
+                seen = count
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(Screen.Home.route) { inclusive = false }
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
     var lastAddonsSyncKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(authState, activeProfile?.id) {

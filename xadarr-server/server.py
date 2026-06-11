@@ -1098,6 +1098,26 @@ def _mark_watchlist(items: list[dict]) -> list[dict]:
     return items
 
 
+@app.route("/api/media/detail", methods=["GET"])
+def media_detail():
+    tmdb_id = request.args.get("id", "").strip()
+    media_type = request.args.get("type", "movie").strip()
+    if not tmdb_id:
+        return jsonify({"error": "id required"}), 400
+    endpoint = f"/tv/{tmdb_id}" if media_type == "tv" else f"/movie/{tmdb_id}"
+    data = _tmdb_get(endpoint, {"append_to_response": "credits"})
+    if not data:
+        return jsonify({"error": "not found"}), 404
+    item = _map_tmdb_item(data, media_type)
+    item["genres"] = [g["name"] for g in data.get("genres", [])]
+    item["runtime"] = data.get("runtime") or (data.get("episode_run_time") or [None])[0]
+    item["tagline"] = data.get("tagline", "")
+    item["status"] = data.get("status", "")
+    cast = data.get("credits", {}).get("cast", [])
+    item["cast"] = [c["name"] for c in cast[:6]]
+    return jsonify(_mark_watchlist([item])[0])
+
+
 @app.route("/api/media/search", methods=["GET"])
 def search_media():
     q = request.args.get("q", "").strip()
@@ -1337,13 +1357,12 @@ def get_server_items():
             for it in r.json().get("Items", []):
                 item_id = it.get("Id", "")
                 tmdb_id = it.get("ProviderIds", {}).get("Tmdb") or item_id
-                poster = f"{server_url}/Items/{item_id}/Images/Primary?maxHeight=300&api_key={token}" if item_id else ""
                 items.append({
                     "id": tmdb_id,
                     "title": it.get("Name", ""),
                     "mediaType": "movie" if it.get("Type") == "Movie" else "show",
-                    "image": poster,
-                    "backdropUrl": f"{server_url}/Items/{item_id}/Images/Backdrop?maxHeight=500&api_key={token}" if item_id else "",
+                    "image": f"/api/media/jf-image/{item_id}/Primary" if item_id else "",
+                    "backdropUrl": f"/api/media/jf-image/{item_id}/Backdrop" if item_id else "",
                     "overview": it.get("Overview", ""),
                     "year": it.get("ProductionYear", ""),
                     "inWatchlist": False,
@@ -1404,6 +1423,26 @@ def cameras_list():
         return jsonify(cameras)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/media/jf-image/<item_id>/<image_type>", methods=["GET"])
+def jellyfin_image(item_id, image_type):
+    blob = _get_blob()
+    conn = next((c for c in _get_connections(blob) if c.get("enabled") and c.get("serverKind") in ("JELLYFIN", "EMBY")), None)
+    if not conn:
+        return "No server", 404
+    server_url = conn.get("serverUrl", "").rstrip("/")
+    token = conn.get("accessToken", "")
+    size = "maxHeight=300" if image_type == "Primary" else "maxHeight=500"
+    url = f"{server_url}/Items/{item_id}/Images/{image_type}?{size}&api_key={token}"
+    try:
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        resp = Response(r.content, content_type=r.headers.get("Content-Type", "image/jpeg"))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+    except Exception:
+        return "Image not found", 404
 
 
 @app.route("/api/cameras/snapshot/<camera_name>", methods=["GET"])

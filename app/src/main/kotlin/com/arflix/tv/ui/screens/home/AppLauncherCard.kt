@@ -28,6 +28,11 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+
+// Session-scoped icon cache — icons loaded from PackageManager once per process lifetime.
+// Eliminates the grey-box placeholder flash on every visit to the apps row or AllAppsScreen.
+internal val appIconCache = ConcurrentHashMap<String, ImageBitmap>()
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -38,15 +43,22 @@ fun AppLauncherCard(
     onClick: () -> Unit,
     onFocused: () -> Unit,
     modifier: Modifier = Modifier,
+    enableSystemFocus: Boolean = false,
 ) {
     val context = LocalContext.current
-    var icon by remember(packageName) { mutableStateOf<ImageBitmap?>(null) }
+    var icon by remember(packageName) { mutableStateOf(appIconCache[packageName]) }
 
     LaunchedEffect(packageName) {
+        if (appIconCache.containsKey(packageName)) {
+            icon = appIconCache[packageName]
+            return@LaunchedEffect
+        }
         val drawable: Drawable? = withContext(Dispatchers.IO) {
             runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
         }
-        icon = drawable?.toBitmap()?.asImageBitmap()
+        val bmp = drawable?.toBitmap()?.asImageBitmap()
+        if (bmp != null) appIconCache[packageName] = bmp
+        icon = bmp
     }
 
     val shape = RoundedCornerShape(12.dp)
@@ -63,7 +75,7 @@ fun AppLauncherCard(
             outlineWidth = XadarrSkin.focus.outlineWidth,
             focusedScale = 1.08f,
             pressedScale = 0.97f,
-            enableSystemFocus = false,
+            enableSystemFocus = enableSystemFocus,
             isFocusedOverride = isFocused,
             onClick = onClick,
             onFocusChanged = { focused -> if (focused) onFocused() },

@@ -5,6 +5,7 @@ import android.util.Log
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY
@@ -45,6 +46,7 @@ class WebAppServer @Inject constructor(
     private val homeServerRepository: HomeServerRepository,
     private val playerStateHolder: PlayerStateHolder,
     private val tmdbApi: TmdbApi,
+    private val cloudSyncRepository: CloudSyncRepository,
 ) {
     companion object {
         const val DEFAULT_PORT = 7979
@@ -136,6 +138,13 @@ class WebAppServer @Inject constructor(
                 // SSE stream for real-time player state
                 method == NanoHTTPD.Method.GET && uri == "/api/player/events" ->
                     handleSseStream()
+                // Device sync endpoints (LAN peer-to-peer)
+                method == NanoHTTPD.Method.GET && uri == "/api/sync/status" ->
+                    handleSyncStatus()
+                method == NanoHTTPD.Method.GET && uri == "/api/sync/snapshot" ->
+                    runBlocking { handleGetSnapshot() }
+                method == NanoHTTPD.Method.PUT && uri == "/api/sync/snapshot" ->
+                    runBlocking { handlePutSnapshot(session) }
                 else ->
                     notFound()
             }.also { addCors(it) }
@@ -333,6 +342,28 @@ class WebAppServer @Inject constructor(
         val id = parts[1].toIntOrNull() ?: return json(JSONObject().put("error", "bad id"))
         watchlistRepository.removeFromWatchlist(mediaType, id)
         return json(JSONObject().put("status", "removed"))
+    }
+
+    // ── Sync handlers ─────────────────────────────────────────────────────────
+
+    private fun handleSyncStatus(): NanoHTTPD.Response =
+        json(JSONObject().put("status", "ok").put("app", "xadarr"))
+
+    private suspend fun handleGetSnapshot(): NanoHTTPD.Response {
+        val payload = runCatching { cloudSyncRepository.buildCloudSnapshotJson() }
+            .getOrElse { return json(JSONObject().put("error", it.message ?: "build failed")) }
+        return NanoHTTPD.newFixedLengthResponse(
+            NanoHTTPD.Response.Status.OK, "application/json", payload
+        )
+    }
+
+    private suspend fun handlePutSnapshot(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val payload = bodyMap["postData"]?.takeIf { it.isNotBlank() }
+            ?: return json(JSONObject().put("error", "empty body"))
+        val ok = cloudSyncRepository.applyIncomingSnapshot(payload)
+        return json(JSONObject().put("status", if (ok) "applied" else "failed"))
     }
 
     // ── SSE ───────────────────────────────────────────────────────────────────

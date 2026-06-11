@@ -76,7 +76,9 @@ class CloudSyncRepository @Inject constructor(
     private val watchHistoryRepository: WatchHistoryRepository,
     private val watchlistRepository: WatchlistRepository,
     private val profileAvatarImageManager: ProfileAvatarImageManager,
-    private val invalidationBus: CloudSyncInvalidationBus
+    private val invalidationBus: CloudSyncInvalidationBus,
+    private val lanSyncService: LanSyncService,
+    private val driveSyncRepository: DriveSyncRepository,
 ) {
     private val gson = Gson()
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -203,6 +205,24 @@ class CloudSyncRepository @Inject constructor(
     @Volatile
     var isPushDirty: Boolean = false
         private set
+
+    /** Returns true if at least one sync backend is reachable/configured. */
+    suspend fun hasAnyBackend(): Boolean =
+        syncServerBaseUrl().isNotBlank() ||
+            driveSyncRepository.isConnected() ||
+            lanSyncService.peers.value.isNotEmpty()
+
+    /**
+     * Applies a snapshot pushed by a LAN peer. Called by WebAppServer on PUT /api/sync/snapshot.
+     * Returns true if the payload was applied successfully.
+     */
+    suspend fun applyIncomingSnapshot(payload: String): Boolean = cloudSyncMutex.withLock {
+        runCatching {
+            invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
+            markCloudPayloadApplied(payload)
+            true
+        }.getOrDefault(false)
+    }
 
     fun markLocalStateDirty() {
         val dirtyAt = System.currentTimeMillis()
@@ -649,19 +669,59 @@ class CloudSyncRepository @Inject constructor(
     //  PUSH LOCAL STATE TO CLOUD
     // ══════════════════════════════════════════════════════════
 
+    /**
+     * Strips IPTV playlist credentials and home server connections from a snapshot before
+     * uploading to Google Drive. LAN and xadarr-server sync always get the full payload.
+     * On Drive pull, absent fields are skipped (not overwritten), so existing local
+     * credentials are never wiped.
+     */
+    private fun sanitizeForDriveBackup(payload: String): String = runCatching {
+        val root = JSONObject(payload)
+
+        // Legacy root-level IPTV URL fields
+        root.remove("iptvM3uUrl")
+        root.remove("iptvEpgUrl")
+
+        // Per-profile IPTV: strip playlist URLs; keep favorites, groups, session
+        root.optJSONObject("iptvByProfile")?.let { byProfile ->
+            byProfile.keys().forEach { profileId ->
+                byProfile.optJSONObject(profileId)?.let { state ->
+                    state.put("m3uUrl", "")
+                    state.put("epgUrl", "")
+                    state.put("playlists", JSONArray())
+                }
+            }
+        }
+
+        // Per-profile settings: strip home server connections (contain server URL + credentials)
+        root.optJSONObject("profileSettingsById")?.let { byProfile ->
+            byProfile.keys().forEach { profileId ->
+                byProfile.optJSONObject(profileId)?.remove("homeServerConnectionJson")
+            }
+        }
+
+        root.toString()
+    }.getOrDefault(payload)
+
     suspend fun pushToCloud(): Result<Unit> = cloudSyncMutex.withLock {
         pushToCloudLocked()
     }
 
     private suspend fun pushToCloudLocked(): Result<Unit> {
-        if (syncServerBaseUrl().isBlank()) {
+        val hasServer = syncServerBaseUrl().isNotBlank()
+        val driveConnected = driveSyncRepository.isConnected()
+        val lanPeers = lanSyncService.peers.value
+
+        if (!hasServer && !driveConnected && lanPeers.isEmpty()) {
             AppLogger.breadcrumb(
                 tag = "CloudSync",
-                message = "push_skipped_sync_server_not_configured dirty=$isPushDirty",
-                severity = "warning"
+                message = "push_local_only_no_backends dirty=$isPushDirty",
+                severity = "info"
             )
-            return Result.failure(IllegalStateException("Sync server URL not configured"))
+            clearLocalDirtyAfterSuccessfulPush()
+            return Result.success(Unit)
         }
+
         val payload = runCatching { buildCloudSnapshotJson() }.getOrElse {
             markPushFailedDirty()
             AppLogger.recordException(
@@ -674,6 +734,28 @@ class CloudSyncRepository @Inject constructor(
             )
             return Result.failure(it)
         }
+
+        // Push to Drive and LAN peers fire-and-forget — failures don't block server push
+        if (driveConnected) {
+            val drivePayload = sanitizeForDriveBackup(payload)
+            repositoryScope.launch { driveSyncRepository.push(drivePayload) }
+        }
+        if (lanPeers.isNotEmpty()) {
+            repositoryScope.launch { lanSyncService.pushToPeers(payload) }
+        }
+
+        if (!hasServer) {
+            // No server configured; Drive/LAN are the sync backends
+            clearLocalDirtyAfterSuccessfulPush()
+            AppLogger.breadcrumb(
+                tag = "CloudSync",
+                message = "push_to_secondary_backends size=${payloadSizeBucket(payload)}",
+                severity = "info"
+            )
+            onPushCompleted?.invoke()
+            return Result.success(Unit)
+        }
+
         val result = syncServerSavePayload(payload)
         if (result.isSuccess) {
             clearLocalDirtyAfterSuccessfulPush()
@@ -684,9 +766,6 @@ class CloudSyncRepository @Inject constructor(
             )
             onPushCompleted?.invoke()
         } else {
-            // Mark dirty so the next ON_RESUME or periodic sync retries the push.
-            // Without this, a single network hiccup would permanently diverge the
-            // cloud state until the user explicitly changes another setting.
             markPushFailedDirty()
             AppLogger.recordException(
                 throwable = result.exceptionOrNull() ?: IllegalStateException("Cloud push failed"),
@@ -707,6 +786,7 @@ class CloudSyncRepository @Inject constructor(
 
     /**
      * Restores the full cloud state to local repositories.
+     * Tries configured server first, then Drive, then LAN peers.
      * Returns [RestoreResult] indicating what happened.
      */
     suspend fun pullFromCloud(): RestoreResult = cloudSyncMutex.withLock {
@@ -717,7 +797,8 @@ class CloudSyncRepository @Inject constructor(
                 severity = "info"
             )
             val pushResult = pushToCloudLocked()
-            if (pushResult.isFailure) {
+            // Only abort pull on server push failure — Drive/LAN failures are fire-and-forget
+            if (pushResult.isFailure && syncServerBaseUrl().isNotBlank()) {
                 AppLogger.recordException(
                     throwable = pushResult.exceptionOrNull() ?: IllegalStateException("Pending local cloud push failed"),
                     context = mapOf(
@@ -729,56 +810,69 @@ class CloudSyncRepository @Inject constructor(
             }
         }
 
-        val payloadResult = syncServerLoadPayload()
-        if (payloadResult.isFailure) {
-            AppLogger.recordException(
-                throwable = payloadResult.exceptionOrNull() ?: IllegalStateException("Cloud pull failed"),
-                context = mapOf(
-                    "error_area" to "CloudSync",
-                    "cloud_flow" to "pull_load_payload"
+        // 1. Try xadarr-server
+        if (syncServerBaseUrl().isNotBlank()) {
+            val payloadResult = syncServerLoadPayload()
+            if (payloadResult.isFailure) {
+                AppLogger.recordException(
+                    throwable = payloadResult.exceptionOrNull() ?: IllegalStateException("Cloud pull failed"),
+                    context = mapOf("error_area" to "CloudSync", "cloud_flow" to "pull_load_payload")
                 )
-            )
-            return@withLock RestoreResult.FAILED
+                return@withLock RestoreResult.FAILED
+            }
+            val payload = payloadResult.getOrNull().orEmpty()
+            if (payload.isNotBlank()) {
+                return@withLock applyPayloadLocked(payload)
+            }
+            AppLogger.breadcrumb(tag = "CloudSync", message = "pull_server_no_backup", severity = "info")
         }
 
-        val payload = payloadResult.getOrNull().orEmpty()
-        if (payload.isBlank()) {
+        // 2. Try Google Drive
+        if (driveSyncRepository.isConnected()) {
+            val driveResult = driveSyncRepository.pull()
+            val drivePayload = driveResult.getOrNull()
+            if (!drivePayload.isNullOrBlank()) {
+                AppLogger.breadcrumb(tag = "CloudSync", message = "pull_from_drive size=${payloadSizeBucket(drivePayload)}", severity = "info")
+                return@withLock applyPayloadLocked(drivePayload)
+            }
+        }
+
+        // 3. Try LAN peers
+        val lanPeers = lanSyncService.peers.value
+        for (peer in lanPeers) {
+            val peerPayload = lanSyncService.pullFromPeer(peer)
+            if (!peerPayload.isNullOrBlank()) {
+                AppLogger.breadcrumb(tag = "CloudSync", message = "pull_from_lan_peer ${peer.host}:${peer.port}", severity = "info")
+                return@withLock applyPayloadLocked(peerPayload)
+            }
+        }
+
+        AppLogger.breadcrumb(tag = "CloudSync", message = "pull_no_backup_any_backend", severity = "info")
+        RestoreResult.NO_BACKUP
+    }
+
+    private suspend fun applyPayloadLocked(payload: String): RestoreResult =
+        runCatching {
+            invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
+            markCloudPayloadApplied(payload)
             AppLogger.breadcrumb(
                 tag = "CloudSync",
-                message = "pull_no_backup",
+                message = "pull_restored size=${payloadSizeBucket(payload)}",
                 severity = "info"
             )
-            return@withLock RestoreResult.NO_BACKUP
+            RestoreResult.RESTORED
+        }.getOrElse { e ->
+            System.err.println("[CLOUD-SYNC] pullFromCloud apply failed: ${e.message}")
+            AppLogger.recordException(
+                throwable = e,
+                context = mapOf(
+                    "error_area" to "CloudSync",
+                    "cloud_flow" to "pull_apply_payload",
+                    "payload_size" to payloadSizeBucket(payload)
+                )
+            )
+            RestoreResult.FAILED
         }
-
-        runCatching {
-            invalidationBus.suppressDuringRemoteApply {
-                applyCloudPayload(payload)
-            }
-            markCloudPayloadApplied(payload)
-        }.fold(
-            onSuccess = {
-                AppLogger.breadcrumb(
-                    tag = "CloudSync",
-                    message = "pull_restored size=${payloadSizeBucket(payload)}",
-                    severity = "info"
-                )
-                RestoreResult.RESTORED
-            },
-            onFailure = { e ->
-                System.err.println("[CLOUD-SYNC] pullFromCloud failed: ${e.message}")
-                AppLogger.recordException(
-                    throwable = e,
-                    context = mapOf(
-                        "error_area" to "CloudSync",
-                        "cloud_flow" to "pull_apply_payload",
-                        "payload_size" to payloadSizeBucket(payload)
-                    )
-                )
-                RestoreResult.FAILED
-            }
-        )
-    }
 
     /**
      * Applies a cloud JSON payload to all local repositories.

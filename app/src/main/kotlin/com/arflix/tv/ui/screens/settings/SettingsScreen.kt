@@ -70,7 +70,9 @@ import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -365,6 +367,7 @@ fun SettingsScreen(
     var showTmdbApiKeyDialog by remember { mutableStateOf(false) }
     var showTraktClientIdDialog by remember { mutableStateOf(false) }
     var showTraktClientSecretDialog by remember { mutableStateOf(false) }
+    var showDriveAccountPickerDialog by remember { mutableStateOf(false) }
     var qualityFilterRegexPattern by remember { mutableStateOf("") }
     var showHomeServerInput by remember { mutableStateOf(false) }
     var showPlexHomeServerInput by remember { mutableStateOf(false) }
@@ -400,7 +403,7 @@ fun SettingsScreen(
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
             "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
-            "accounts" -> 8
+            "accounts" -> 9
             else -> 0
         }
     }
@@ -637,6 +640,7 @@ fun SettingsScreen(
         showTmdbApiKeyDialog ||
         showTraktClientIdDialog ||
         showTraktClientSecretDialog ||
+        showDriveAccountPickerDialog ||
         uiState.showCloudPairDialog ||
         uiState.showCloudEmailPasswordDialog ||
         uiState.traktCode != null ||
@@ -1060,11 +1064,22 @@ fun SettingsScreen(
                                                     }
                                                 }
                                                 3 -> showSyncServerUrlDialog = true
-                                                4 -> showEpiseerrUrlDialog = true
-                                                5 -> viewModel.clearMediaCache()
-                                                6 -> showTmdbApiKeyDialog = true
-                                                7 -> showTraktClientIdDialog = true
-                                                8 -> showTraktClientSecretDialog = true
+                                                4 -> {
+                                                    if (uiState.driveAccountName != null) {
+                                                        viewModel.disconnectDrive()
+                                                    } else when {
+                                                        uiState.driveAvailableAccounts.isEmpty() ->
+                                                            viewModel.showSettingsToast("No Google accounts on this device", ToastType.INFO)
+                                                        uiState.driveAvailableAccounts.size == 1 ->
+                                                            viewModel.connectDrive(uiState.driveAvailableAccounts.first())
+                                                        else -> showDriveAccountPickerDialog = true
+                                                    }
+                                                }
+                                                5 -> showEpiseerrUrlDialog = true
+                                                6 -> viewModel.clearMediaCache()
+                                                7 -> showTmdbApiKeyDialog = true
+                                                8 -> showTraktClientIdDialog = true
+                                                9 -> showTraktClientSecretDialog = true
                                             }
                                         }
                                         else -> Unit
@@ -1467,6 +1482,18 @@ fun SettingsScreen(
                             onClearCache = { viewModel.clearMediaCache() },
                             syncServerUrl = uiState.syncServerUrl,
                             onSyncServerUrlClick = { showSyncServerUrlDialog = true },
+                            driveAccountName = uiState.driveAccountName,
+                            onDriveClick = {
+                                if (uiState.driveAccountName != null) {
+                                    viewModel.disconnectDrive()
+                                } else when {
+                                    uiState.driveAvailableAccounts.isEmpty() ->
+                                        viewModel.showSettingsToast("No Google accounts on this device", ToastType.INFO)
+                                    uiState.driveAvailableAccounts.size == 1 ->
+                                        viewModel.connectDrive(uiState.driveAvailableAccounts.first())
+                                    else -> showDriveAccountPickerDialog = true
+                                }
+                            },
                             episeerrUrl = uiState.episeerrUrl,
                             onEpiseerrUrlClick = { showEpiseerrUrlDialog = true },
                             tmdbApiKey = uiState.tmdbApiKey,
@@ -1576,6 +1603,17 @@ fun SettingsScreen(
                     showTraktClientSecretDialog = false
                 },
                 onDismiss = { showTraktClientSecretDialog = false }
+            )
+        }
+
+        if (showDriveAccountPickerDialog) {
+            DriveAccountPickerDialog(
+                accounts = uiState.driveAvailableAccounts,
+                onSelect = { accountName ->
+                    viewModel.connectDrive(accountName)
+                    showDriveAccountPickerDialog = false
+                },
+                onDismiss = { showDriveAccountPickerDialog = false }
             )
         }
 
@@ -4572,7 +4610,8 @@ private fun tvSettingsPanelFacts(
             "Watchlist API" to if (uiState.watchlistApiEnabled) "Port ${uiState.watchlistApiPort}" else "Off"
         )
         "accounts" -> listOf(
-            "Trakt" to if (uiState.isTraktAuthenticated) "Connected" else "Disconnected"
+            "Trakt" to if (uiState.isTraktAuthenticated) "Connected" else "Disconnected",
+            "Drive" to if (uiState.driveAccountName != null) "Connected" else "Off"
         )
         else -> emptyList()
     }
@@ -4628,8 +4667,9 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             1 -> TvSettingsHelp("Force sync", "Push/pull the latest synced profile data with the sync server.")
             2 -> TvSettingsHelp("App updates", "Check for sideload app updates or install a downloaded update.")
             3 -> TvSettingsHelp("Sync Server URL", "Base URL of your Xadarr sync server for settings backup and restore.")
-            4 -> TvSettingsHelp("Episeerr URL", "Direct URL to your Episeerr instance for the rule picker web UI.")
-            5 -> TvSettingsHelp("Clear cache", "Wipe cached artwork and category data so everything reloads fresh.")
+            4 -> TvSettingsHelp("Google Drive Sync", "Back up and restore settings across devices via Google Drive app data.")
+            5 -> TvSettingsHelp("Episeerr URL", "Direct URL to your Episeerr instance for the rule picker web UI.")
+            6 -> TvSettingsHelp("Clear cache", "Wipe cached artwork and category data so everything reloads fresh.")
             else -> TvSettingsHelp("Account data", "Cloud sync, Trakt, updates and account controls.")
         }
         else -> TvSettingsHelp("Setting", "Use OK to change this option.")
@@ -8216,6 +8256,8 @@ private fun AccountsSettings(
     onClearCache: () -> Unit,
     syncServerUrl: String = "",
     onSyncServerUrlClick: () -> Unit = {},
+    driveAccountName: String? = null,
+    onDriveClick: () -> Unit = {},
     episeerrUrl: String = "",
     onEpiseerrUrlClick: () -> Unit = {},
     tmdbApiKey: String = "",
@@ -8303,6 +8345,16 @@ private fun AccountsSettings(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        SettingsRow(
+            icon = Icons.Default.CloudSync,
+            title = "Google Drive Sync",
+            subtitle = "Backup and restore settings across devices using your Google account",
+            value = if (driveAccountName != null) driveAccountName else "Not connected",
+            isFocused = focusedIndex == 4,
+            onClick = onDriveClick,
+            modifier = Modifier.settingsFocusSlot(4)
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingsRow(
@@ -8310,9 +8362,9 @@ private fun AccountsSettings(
             title = "Episeerr URL",
             subtitle = "Direct URL to your Episeerr instance for rule management",
             value = if (episeerrUrl.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 4,
+            isFocused = focusedIndex == 5,
             onClick = onEpiseerrUrlClick,
-            modifier = Modifier.settingsFocusSlot(4)
+            modifier = Modifier.settingsFocusSlot(5)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -8321,9 +8373,9 @@ private fun AccountsSettings(
             title = "Clear image cache",
             description = "Wipe cached posters, backdrops and category data so everything reloads fresh",
             actionLabel = "CLEAR",
-            isFocused = focusedIndex == 5,
+            isFocused = focusedIndex == 6,
             onClick = onClearCache,
-            modifier = Modifier.settingsFocusSlot(5)
+            modifier = Modifier.settingsFocusSlot(6)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -8333,9 +8385,9 @@ private fun AccountsSettings(
             title = "TMDB API Key",
             subtitle = "Can also be set via the xadarr-server web UI",
             value = if (tmdbApiKey.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 6,
+            isFocused = focusedIndex == 7,
             onClick = onTmdbApiKeyClick,
-            modifier = Modifier.settingsFocusSlot(6)
+            modifier = Modifier.settingsFocusSlot(7)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -8345,9 +8397,9 @@ private fun AccountsSettings(
             title = "Trakt Client ID",
             subtitle = "Can also be set via the xadarr-server web UI",
             value = if (traktClientId.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 7,
+            isFocused = focusedIndex == 8,
             onClick = onTraktClientIdClick,
-            modifier = Modifier.settingsFocusSlot(7)
+            modifier = Modifier.settingsFocusSlot(8)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -8357,9 +8409,9 @@ private fun AccountsSettings(
             title = "Trakt Client Secret",
             subtitle = "Can also be set via the xadarr-server web UI",
             value = if (traktClientSecret.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 8,
+            isFocused = focusedIndex == 9,
             onClick = onTraktClientSecretClick,
-            modifier = Modifier.settingsFocusSlot(8)
+            modifier = Modifier.settingsFocusSlot(9)
         )
 
     }
@@ -10477,6 +10529,99 @@ private fun ApiKeyDialog(
                         kotlinx.coroutines.delay(150)
                         inputFocusRequester.requestFocus()
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DriveAccountPickerDialog(
+    accounts: List<String>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    BackHandler { onDismiss() }
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        runCatching { firstFocus.requestFocus() }
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(420.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(BackgroundElevated)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text(
+                    text = "Choose Google Account",
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Settings will sync to this account's Google Drive",
+                    style = ArflixTypography.caption,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                accounts.forEachIndexed { index, account ->
+                    val focusRequester = if (index == 0) firstFocus else remember { FocusRequester() }
+                    Surface(
+                        onClick = { onSelect(account) },
+                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = Color.White.copy(alpha = 0.12f)
+                        ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = account,
+                                style = ArflixTypography.cardTitle,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (index < accounts.lastIndex) Spacer(modifier = Modifier.height(8.dp))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = BackgroundElevated,
+                        focusedContainerColor = BackgroundElevated.copy(alpha = 0.8f)
+                    ),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    border = ClickableSurfaceDefaults.border(
+                        border = androidx.tv.material3.Border(
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.3f))
+                        )
+                    )
+                ) {
+                    Text(
+                        text = "Cancel",
+                        modifier = Modifier.padding(vertical = 12.dp).fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        color = TextSecondary
+                    )
                 }
             }
         }

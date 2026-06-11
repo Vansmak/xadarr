@@ -1,5 +1,6 @@
 package com.arflix.tv.navigation
 
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -582,8 +583,16 @@ fun AppNavigation(
             )
         }
 
-        // All Apps grid — full alphabetical list of installed apps
-        composable(Screen.AllApps.route) {
+        // All Apps grid — full alphabetical list of installed apps.
+        // Instant transitions so the opaque background covers the launcher
+        // from frame 1 instead of fading in transparent over it.
+        composable(
+            route = Screen.AllApps.route,
+            enterTransition = { fadeIn(tween(0)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(0)) },
+            popExitTransition = { fadeOut(tween(150)) },
+        ) {
             AllAppsScreen(onBack = goBack)
         }
 

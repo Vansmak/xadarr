@@ -16,7 +16,8 @@ import javax.inject.Singleton
 class CloudSyncCoordinator @Inject constructor(
     private val invalidationBus: CloudSyncInvalidationBus,
     private val cloudSyncRepository: CloudSyncRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val lanSyncService: LanSyncService,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleLock = Any()
@@ -30,7 +31,9 @@ class CloudSyncCoordinator @Inject constructor(
             if (!started.compareAndSet(false, true)) return
             collectorJob = scope.launch {
                 invalidationBus.events.collectLatest { invalidation ->
-                    if (authRepository.getCurrentUserId().isNullOrBlank()) return@collectLatest
+                    // Always mark dirty regardless of auth — dirty flag gates pullFromCloud()
+                    // pre-push, which uses xadarr-server and doesn't require Supabase auth.
+                    // Auth check stays only in scheduleFlush to gate the debounced background push.
                     cloudSyncRepository.markLocalStateDirtyNow()
                     scheduleFlush(invalidation)
                 }
@@ -54,7 +57,8 @@ class CloudSyncCoordinator @Inject constructor(
             flushJob?.cancel()
             flushJob = scope.launch {
                 delay(debounceMsFor(invalidation.scope))
-                if (authRepository.getCurrentUserId().isNullOrBlank()) return@launch
+                // Push to whichever backends are available (server, Drive, LAN peers)
+                // No auth guard — works without Supabase login
                 runCatching { cloudSyncRepository.pushToCloud() }
                     .onFailure { error ->
                         Log.w("CloudSyncCoordinator", "Cloud push failed after ${invalidation.scope}: ${error.message}")

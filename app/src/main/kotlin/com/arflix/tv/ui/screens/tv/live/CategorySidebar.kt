@@ -225,6 +225,7 @@ fun CategorySidebar(
                         FavoriteSortMode.DateAdded -> "Sort: Date Added"
                         FavoriteSortMode.Alphabetical -> "Sort: A → Z"
                         FavoriteSortMode.ByNumber -> "Sort: By #"
+                        FavoriteSortMode.RecentlyUsed -> "Sort: Recently Used"
                     }
                     SidebarRow(
                         label = sortLabel,
@@ -368,6 +369,23 @@ fun CategorySidebar(
                         expanded = expanded,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { onSelect(cat.id) },
+                    )
+                }
+            }
+            if (tree.hidden.categories.isNotEmpty()) {
+                item { SectionHeader(tree.hidden.label, expanded) }
+                items(tree.hidden.categories, key = { "hidden:${it.id}" }) { cat ->
+                    SidebarRow(
+                        label = cat.label,
+                        count = cat.count,
+                        icon = Icons.Filled.VisibilityOff,
+                        active = false,
+                        expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            onUnhideCategory(groupName)
+                        },
                     )
                 }
             }
