@@ -3557,7 +3557,8 @@ private fun MobileSettingsMainPage(
                     "Plugins & Extensions" to Icons.Default.Extension,
                     "Catalogs" to Icons.Default.Widgets,
                     "IPTV" to Icons.Default.LiveTv,
-                    "Home Server" to Icons.Default.Cloud
+                    "Home Server" to Icons.Default.Cloud,
+                    "Network" to Icons.Default.Settings
                 )
                 categories.forEachIndexed { index, (name, icon) ->
                     Column {
@@ -4006,6 +4007,42 @@ private fun MobileSettingsSubPage(
                     onTest = { viewModel.testHomeServerConnection() },
                     onDisconnect = { viewModel.disconnectHomeServer() }
                 )
+            }
+            "Network" -> {
+                val lanSubtitle = when {
+                    !uiState.watchlistApiEnabled -> "Off — this device won't sync with others on the network"
+                    uiState.lanSyncPeerCount > 0 && uiState.lanSyncLastSyncedAt > 0L ->
+                        "${uiState.lanSyncPeerCount} peer${if (uiState.lanSyncPeerCount == 1) "" else "s"} · synced ${lanSyncRelativeTime(uiState.lanSyncLastSyncedAt)}"
+                    uiState.lanSyncPeerCount > 0 -> "${uiState.lanSyncPeerCount} peer${if (uiState.lanSyncPeerCount == 1) "" else "s"} found · not yet synced"
+                    else -> "Searching for peers on the network…"
+                }
+                MobileSettingsCategory(title = "LAN SYNC") {
+                    MobileSettingsRow(
+                        icon = Icons.Default.Cloud,
+                        title = "LAN Sync",
+                        subtitle = lanSubtitle,
+                        value = if (uiState.watchlistApiEnabled) "On :${uiState.watchlistApiPort}" else "Off",
+                        isFocused = false,
+                        onClick = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.CloudSync,
+                        title = "LAN Sync Master",
+                        subtitle = "This device always wins. Without a master, last change wins.",
+                        value = if (uiState.lanSyncMaster) "Master" else "Off",
+                        isFocused = false,
+                        onClick = { viewModel.setLanSyncMaster(!uiState.lanSyncMaster) }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Settings,
+                        title = "Local Server Port",
+                        subtitle = "Port for the local API server — used by xadarr-server and LAN sync peers",
+                        value = uiState.watchlistApiPort.toString(),
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = onShowWatchlistApiPortDialog
+                    )
+                }
             }
         }
     }
