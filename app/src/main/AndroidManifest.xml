@@ -78,6 +78,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Deep link: open Xadarr directly on the Settings screen -->
+            <intent-filter>
+                <action android:name="com.xadarr.tv.OPEN_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
         </activity>
 
         <!--

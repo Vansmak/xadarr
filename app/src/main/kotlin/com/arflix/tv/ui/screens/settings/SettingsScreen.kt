@@ -211,6 +211,7 @@ private val LocalSettingsFocusTracker = compositionLocalOf<SettingsFocusTracker?
 private const val ACCOUNT_DELETION_URL = "https://auth.xadarr.local/delete"
 
 private val tvGeneralSectionIds = setOf(
+    "android_settings",
     "language",
     "subtitles",
     "playback",
@@ -226,7 +227,8 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
         "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36)
         "profiles" -> listOf(19)
-        "network" -> listOf(25, 26, 35, 37)
+        "android_settings" -> listOf(37)
+        "network" -> listOf(25, 26, 35, 38, 39, 40)
         else -> emptyList()
     }
 }
@@ -383,6 +385,7 @@ fun SettingsScreen(
     }
     val sections = remember {
         buildList {
+            add("android_settings")
             add("accounts")
             add("profiles")
             add("playback")
@@ -402,7 +405,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
-            "stremio" -> stremioAddons.size + 7 + uiState.webhookUrls.size // addons + add button + URL rows + 6 integration settings + add-URL button
+            "stremio" -> stremioAddons.size + 5 + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + add-URL button
             "accounts" -> 9
             else -> 0
         }
@@ -852,6 +855,9 @@ fun SettingsScreen(
                                                 25 -> openDnsProviderPicker()
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
+                                                38 -> viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled)
+                                                39 -> showWatchlistApiPortDialog = true
+                                                40 -> viewModel.setLanSyncMaster(!uiState.lanSyncMaster)
                                                 37 -> context.startActivity(
                                                     android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
                                                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1040,10 +1046,8 @@ fun SettingsScreen(
                                                     webhookUrlDialogIndex = contentFocusIndex - (stremioAddons.size + 2)
                                                 contentFocusIndex == stremioAddons.size + 2 + uiState.webhookUrls.size -> webhookUrlDialogIndex = -1
                                                 contentFocusIndex == stremioAddons.size + 3 + uiState.webhookUrls.size -> viewModel.cycleWebhookInterval()
-                                                contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled)
-                                                contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showWatchlistApiPortDialog = true
-                                                contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
-                                                contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
+                                                contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
+                                                contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1194,6 +1198,7 @@ fun SettingsScreen(
                             }
                             SettingsSectionItem(
                                 icon = when (section) {
+                                    "android_settings" -> Icons.Default.Apps
                                     "language" -> Icons.Default.Language
                                     "subtitles" -> Icons.Default.Subtitles
                                     "playback" -> Icons.Default.PlayArrow
@@ -1208,6 +1213,7 @@ fun SettingsScreen(
                                     else -> Icons.Default.Settings
                                 },
                                 title = when (section) {
+                                    "android_settings" -> "Android Settings"
                                     "language" -> stringResource(R.string.language_and_audio)
                                     "subtitles" -> stringResource(R.string.subtitles)
 
@@ -1335,6 +1341,14 @@ fun SettingsScreen(
                                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                 )
                             },
+                            watchlistApiEnabled = uiState.watchlistApiEnabled,
+                            watchlistApiPort = uiState.watchlistApiPort,
+                            lanSyncMaster = uiState.lanSyncMaster,
+                            lanSyncPeerCount = uiState.lanSyncPeerCount,
+                            lanSyncLastSyncedAt = uiState.lanSyncLastSyncedAt,
+                            onToggleLanSync = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
+                            onLanSyncPortClick = { showWatchlistApiPortDialog = true },
+                            onToggleLanSyncMaster = { viewModel.setLanSyncMaster(!uiState.lanSyncMaster) },
                         )
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
@@ -1460,14 +1474,10 @@ fun SettingsScreen(
                             webhookEnabled = uiState.webhookEnabled,
                             webhookUrls = uiState.webhookUrls,
                             webhookIntervalSeconds = uiState.webhookIntervalSeconds,
-                            watchlistApiEnabled = uiState.watchlistApiEnabled,
-                            watchlistApiPort = uiState.watchlistApiPort,
                             webhookCompletionPercent = uiState.webhookCompletionPercent,
                             onToggleWebhook = { viewModel.setWebhookEnabled(!uiState.webhookEnabled) },
                             onWebhookUrlClick = { idx -> webhookUrlDialogIndex = idx },
                             onCycleInterval = { viewModel.cycleWebhookInterval() },
-                            onToggleWatchlistApi = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
-                            onWatchlistPortClick = { showWatchlistApiPortDialog = true },
                             onCompletionPercentClick = { showWebhookCompletionDialog = true },
                             frigateUrl = uiState.frigateUrl,
                             onFrigateUrlClick = { showFrigateUrlDialog = true },
@@ -3899,14 +3909,10 @@ private fun MobileSettingsSubPage(
                     webhookEnabled = uiState.webhookEnabled,
                     webhookUrls = uiState.webhookUrls,
                     webhookIntervalSeconds = uiState.webhookIntervalSeconds,
-                    watchlistApiEnabled = uiState.watchlistApiEnabled,
-                    watchlistApiPort = uiState.watchlistApiPort,
                     webhookCompletionPercent = uiState.webhookCompletionPercent,
                     onToggleWebhook = { viewModel.setWebhookEnabled(!uiState.webhookEnabled) },
                     onWebhookUrlClick = onShowWebhookUrlDialog,
                     onCycleInterval = { viewModel.cycleWebhookInterval() },
-                    onToggleWatchlistApi = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
-                    onWatchlistPortClick = onShowWatchlistApiPortDialog,
                     onCompletionPercentClick = onShowWebhookCompletionDialog,
                     frigateUrl = uiState.frigateUrl,
                     onFrigateUrlClick = onShowFrigateUrlDialog,
@@ -4213,6 +4219,7 @@ private fun UpdateActionButton(
 
 private fun tvSettingsSidebarGroup(section: String): String {
     return when (section) {
+        "android_settings" -> "Device"
         "accounts", "profiles" -> "Profile"
         "playback", "language", "subtitles" -> "Playback"
         "iptv", "stremio", "catalogs", "home_server" -> "Sources"
@@ -4485,6 +4492,7 @@ private data class TvSettingsHelp(
 @Composable
 private fun tvSettingsSectionTitle(section: String): String {
     return when (section) {
+        "android_settings" -> "Android Settings"
         "language" -> stringResource(R.string.language_and_audio)
         "subtitles" -> stringResource(R.string.subtitles)
 
@@ -4503,6 +4511,7 @@ private fun tvSettingsSectionTitle(section: String): String {
 
 private fun tvSettingsSectionDescription(section: String): String {
     return when (section) {
+        "android_settings" -> "Open the Android TV system settings panel."
         "language" -> "App text and preferred audio track."
         "subtitles" -> "Subtitle language defaults, display style and filtering."
 
@@ -4543,7 +4552,7 @@ private fun tvSettingsSectionPills(
             "OLED ${if (uiState.oledBlackBackground) "on" else "off"}"
         )
         "profiles" -> listOf(if (uiState.skipProfileSelection) "Skip on" else "Picker on")
-        "network" -> listOf("DNS ${uiState.dnsProvider}", if (uiState.showLoadingStats) "Stats on" else "Stats off")
+        "network" -> listOf("DNS ${uiState.dnsProvider}", if (uiState.showLoadingStats) "Stats on" else "Stats off", if (uiState.watchlistApiEnabled) "LAN Sync on" else "LAN Sync off")
         "iptv" -> listOf(
             "${uiState.iptvPlaylists.size}/3 playlists",
             "${formatCompactCount(uiState.iptvChannelCount)} channels",
@@ -4556,8 +4565,7 @@ private fun tvSettingsSectionPills(
         "catalogs" -> listOf("${uiState.catalogs.size} catalogs", "Cloud synced")
         "stremio" -> listOf(
             "$addonCount installed",
-            if (uiState.webhookEnabled) "Webhook on" else "Webhook off",
-            if (uiState.watchlistApiEnabled) "API :${uiState.watchlistApiPort}" else "API off"
+            if (uiState.webhookEnabled) "Webhook on" else "Webhook off"
         )
         "accounts" -> listOf(
             if (uiState.isTraktAuthenticated) "Trakt connected" else "Trakt off"
@@ -4598,7 +4606,8 @@ private fun tvSettingsPanelFacts(
         "network" -> listOf(
             "DNS" to uiState.dnsProvider,
             "Loading stats" to if (uiState.showLoadingStats) "On" else "Off",
-            "User-Agent" to formatUserAgentPreview(uiState.customUserAgent, 40)
+            "User-Agent" to formatUserAgentPreview(uiState.customUserAgent, 40),
+            "LAN Sync" to if (uiState.watchlistApiEnabled) "Port ${uiState.watchlistApiPort}" else "Off"
         )
         "iptv" -> listOf(
             "Playlists" to "${uiState.iptvPlaylists.size}/3",
@@ -4616,8 +4625,7 @@ private fun tvSettingsPanelFacts(
         )
         "stremio" -> listOf(
             "Addons" to addonCount.toString(),
-            "Webhook" to if (uiState.webhookEnabled) "On" else "Off",
-            "Watchlist API" to if (uiState.watchlistApiEnabled) "Port ${uiState.watchlistApiPort}" else "Off"
+            "Webhook" to if (uiState.webhookEnabled) "On" else "Off"
         )
         "accounts" -> listOf(
             "Trakt" to if (uiState.isTraktAuthenticated) "Connected" else "Disconnected",
@@ -4654,6 +4662,7 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
         }
         "appearance" -> TvSettingsHelp("Interface", "Control layout, OLED mode, clock and focus styling.")
         "profiles" -> TvSettingsHelp("Profiles", "Control whether this device opens the profile picker on startup.")
+        "android_settings" -> TvSettingsHelp("Android Settings", "Opens Android TV system settings — Wi-Fi, apps, display and device options.")
         "network" -> TvSettingsHelp("Network", "DNS and loading diagnostic preferences.")
         "iptv" -> when (focusedIndex) {
             0 -> TvSettingsHelp("Add playlist", "Add another IPTV playlist with M3U or Xtream details.")
@@ -4670,7 +4679,7 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
         }
         "stremio" -> when {
             focusedIndex < 0 -> TvSettingsHelp("Addon", "Enable, disable, add or remove third-party addon sources.")
-            else -> TvSettingsHelp("Plugins & Extensions", "Manage addons, configure progress webhook and watchlist API.")
+            else -> TvSettingsHelp("Plugins & Extensions", "Manage addons and configure the progress webhook.")
         }
         "accounts" -> when (focusedIndex) {
             0 -> TvSettingsHelp("Trakt", "Connect or disconnect Trakt watch history and lists.")
@@ -4763,6 +4772,14 @@ private fun TvGeneralSettingsRows(
     launcherModeEnabled: Boolean = false,
     onLauncherModeToggle: (Boolean) -> Unit = {},
     onAndroidSettingsClick: () -> Unit = {},
+    watchlistApiEnabled: Boolean = false,
+    watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
+    lanSyncMaster: Boolean = false,
+    lanSyncPeerCount: Int = 0,
+    lanSyncLastSyncedAt: Long = 0L,
+    onToggleLanSync: () -> Unit = {},
+    onLanSyncPortClick: () -> Unit = {},
+    onToggleLanSyncMaster: () -> Unit = {},
 ) {
     Column {
         tvGeneralRowsForSection(section).forEachIndexed { localIndex, rowId ->
@@ -4854,6 +4871,18 @@ private fun TvGeneralSettingsRows(
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
                 36 -> SettingsToggleRow("Launcher Mode", "Set Xadarr as the Android TV home screen", launcherModeEnabled, focusedIndex == localIndex, onLauncherModeToggle, Modifier.settingsFocusSlot(localIndex))
                 37 -> SettingsRow(Icons.Default.Settings, "Android Settings", "Open Android TV system settings", "", focusedIndex == localIndex, onAndroidSettingsClick, Modifier.settingsFocusSlot(localIndex))
+                38 -> {
+                    val lanSubtitle = when {
+                        !watchlistApiEnabled -> "Off — this device won't sync with others on the network"
+                        lanSyncPeerCount > 0 && lanSyncLastSyncedAt > 0L ->
+                            "$lanSyncPeerCount peer${if (lanSyncPeerCount == 1) "" else "s"} · synced ${lanSyncRelativeTime(lanSyncLastSyncedAt)}"
+                        lanSyncPeerCount > 0 -> "$lanSyncPeerCount peer${if (lanSyncPeerCount == 1) "" else "s"} found · not yet synced"
+                        else -> "Searching for peers on the network…"
+                    }
+                    SettingsRow(Icons.Default.Cloud, "LAN Sync", lanSubtitle, if (watchlistApiEnabled) "On :$watchlistApiPort" else "Off", focusedIndex == localIndex, onToggleLanSync, Modifier.settingsFocusSlot(localIndex))
+                }
+                39 -> SettingsRow(Icons.Default.Settings, "LAN Sync Port", "Port for the LAN sync server", watchlistApiPort.toString(), focusedIndex == localIndex, onLanSyncPortClick, Modifier.settingsFocusSlot(localIndex))
+                40 -> SettingsRow(Icons.Default.CloudSync, "LAN Sync Master", "This device always wins. Without a master, last change wins.", if (lanSyncMaster) "Master" else "Off", focusedIndex == localIndex, onToggleLanSyncMaster, Modifier.settingsFocusSlot(localIndex))
             }
         }
     }
@@ -7861,14 +7890,10 @@ private fun StremioAddonsSettings(
     webhookEnabled: Boolean = false,
     webhookUrls: List<com.arflix.tv.data.repository.WebhookUrlConfig> = emptyList(),
     webhookIntervalSeconds: Int = 30,
-    watchlistApiEnabled: Boolean = false,
-    watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
     webhookCompletionPercent: Int = 90,
     onToggleWebhook: () -> Unit = {},
     onWebhookUrlClick: (Int?) -> Unit = {},
     onCycleInterval: () -> Unit = {},
-    onToggleWatchlistApi: () -> Unit = {},
-    onWatchlistPortClick: () -> Unit = {},
     onCompletionPercentClick: () -> Unit = {},
     frigateUrl: String = "",
     onFrigateUrlClick: () -> Unit = {},
@@ -8024,37 +8049,13 @@ private fun StremioAddonsSettings(
         Spacer(modifier = Modifier.height(12.dp))
 
         SettingsRow(
-            icon = Icons.Default.Cloud,
-            title = "Watchlist API",
-            subtitle = "Serve watchlist JSON over LAN",
-            value = if (watchlistApiEnabled) "On :${watchlistApiPort}" else "Off",
-            isFocused = focusedIndex == addons.size + 4 + webhookUrls.size,
-            onClick = onToggleWatchlistApi,
-            modifier = Modifier.settingsFocusSlot(addons.size + 4 + webhookUrls.size)
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        SettingsRow(
-            icon = Icons.Default.Settings,
-            title = "Watchlist API Port",
-            subtitle = "Port for the LAN watchlist server",
-            value = watchlistApiPort.toString(),
-            isFocused = focusedIndex == addons.size + 5 + webhookUrls.size,
-            onClick = onWatchlistPortClick,
-            modifier = Modifier.settingsFocusSlot(addons.size + 5 + webhookUrls.size)
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        SettingsRow(
             icon = Icons.Default.CheckCircle,
             title = "Watched Threshold",
             subtitle = "Mark as watched at this progress %",
             value = "${webhookCompletionPercent}%",
-            isFocused = focusedIndex == addons.size + 6 + webhookUrls.size,
+            isFocused = focusedIndex == addons.size + 4 + webhookUrls.size,
             onClick = onCompletionPercentClick,
-            modifier = Modifier.settingsFocusSlot(addons.size + 6 + webhookUrls.size)
+            modifier = Modifier.settingsFocusSlot(addons.size + 4 + webhookUrls.size)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -8071,9 +8072,9 @@ private fun StremioAddonsSettings(
             title = "Frigate NVR URL",
             subtitle = if (frigateUrl.isNotBlank()) frigateUrl else "Not configured — Cameras tab hidden",
             value = if (frigateUrl.isNotBlank()) "Configured" else "—",
-            isFocused = focusedIndex == addons.size + 7 + webhookUrls.size,
+            isFocused = focusedIndex == addons.size + 5 + webhookUrls.size,
             onClick = onFrigateUrlClick,
-            modifier = Modifier.settingsFocusSlot(addons.size + 7 + webhookUrls.size)
+            modifier = Modifier.settingsFocusSlot(addons.size + 5 + webhookUrls.size)
         )
 
     }
@@ -9789,6 +9790,16 @@ private fun UiModeWarningDialog(
     }
 }
 
+private fun lanSyncRelativeTime(ts: Long): String {
+    val diff = System.currentTimeMillis() - ts
+    return when {
+        diff < 60_000L -> "just now"
+        diff < 3_600_000L -> "${diff / 60_000L}m ago"
+        diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
+        else -> "${diff / 86_400_000L}d ago"
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun WatchlistApiPortDialog(
@@ -9815,10 +9826,10 @@ private fun WatchlistApiPortDialog(
                 .background(BackgroundElevated)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-                Text(text = "Watchlist API Port", style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Text(text = "LAN Sync Port", style = ArflixTypography.sectionTitle, color = TextPrimary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Port for the watchlist HTTP server (1024–65535).",
+                    text = "Port for the LAN sync server (1024–65535).",
                     style = ArflixTypography.caption,
                     color = TextSecondary
                 )

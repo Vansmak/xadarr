@@ -198,11 +198,25 @@ class MainActivity : ComponentActivity() {
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
+    val navigateToSignal = kotlinx.coroutines.flow.MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 1)
     private var wasInBackground = false
 
     private val goHomeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: android.content.Intent) {
             navigateHomeSignal.value++
+        }
+    }
+
+    private val goSettingsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: android.content.Intent) {
+            navigateSettingsSignal.value++
+        }
+    }
+
+    private val navigateToReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: android.content.Intent) {
+            val dest = intent.dataString ?: intent.getStringExtra("destination") ?: return
+            navigateToSignal.tryEmit(dest)
         }
     }
 
@@ -241,11 +255,19 @@ class MainActivity : ComponentActivity() {
         val goHomeFilter = IntentFilter("com.arflix.tv.ACTION_GO_HOME").apply {
             addAction("com.xadarr.tv.ACTION_GO_HOME")
         }
+        val goSettingsFilter = IntentFilter("com.xadarr.tv.OPEN_SETTINGS")
+        val navigateToFilter = IntentFilter("com.xadarr.tv.NAVIGATE")
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             registerReceiver(goHomeReceiver, goHomeFilter, Context.RECEIVER_EXPORTED)
+            registerReceiver(goSettingsReceiver, goSettingsFilter, Context.RECEIVER_EXPORTED)
+            registerReceiver(navigateToReceiver, navigateToFilter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(goHomeReceiver, goHomeFilter)
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(goSettingsReceiver, goSettingsFilter)
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(navigateToReceiver, navigateToFilter)
         }
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
         window.decorView.setBackgroundColor(android.graphics.Color.BLACK)
@@ -401,6 +423,7 @@ class MainActivity : ComponentActivity() {
                         notificationPollManager = notificationPollManager,
                         navigateHomeSignal = navigateHomeSignal,
                         navigateSettingsSignal = navigateSettingsSignal,
+                        navigateToSignal = navigateToSignal,
                     )
                 }
             }
@@ -455,8 +478,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // Prevent onResume from also incrementing — onNewIntent handles this resume.
         wasInBackground = false
+        if (intent.action == "com.xadarr.tv.OPEN_SETTINGS") {
+            navigateSettingsSignal.value++
+            return
+        }
         pendingLauncherRequest = parseLauncherRequest(intent)
         if (pendingLauncherRequest == null) {
             navigateHomeSignal.value++
@@ -479,16 +505,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(goHomeReceiver) }
+        runCatching { unregisterReceiver(goSettingsReceiver) }
+        runCatching { unregisterReceiver(navigateToReceiver) }
         jankStats?.isTrackingEnabled = false
         jankStats = null
         super.onDestroy()
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (event.keyCode == android.view.KeyEvent.KEYCODE_SETTINGS &&
-            event.action == android.view.KeyEvent.ACTION_UP) {
-            navigateSettingsSignal.value++
-            return true
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            val isSettingsKey = event.keyCode == android.view.KeyEvent.KEYCODE_SETTINGS ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_UNKNOWN
+            if (isSettingsKey) {
+                navigateSettingsSignal.value++
+                return true
+            }
         }
         return super.dispatchKeyEvent(event)
     }
@@ -627,6 +658,7 @@ fun ArflixApp(
     notificationPollManager: NotificationPollManager? = null,
     navigateHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
     navigateSettingsSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
+    navigateToSignal: kotlinx.coroutines.flow.SharedFlow<String> = kotlinx.coroutines.flow.MutableSharedFlow(),
 ) {
     val context = LocalContext.current
     val authState by authRepository.authState.collectAsStateWithLifecycle()
@@ -688,6 +720,22 @@ fun ArflixApp(
                 navController.navigate(Screen.Settings.route) {
                     launchSingleTop = true
                 }
+            }
+        }
+    }
+    LaunchedEffect(navController) {
+        navigateToSignal.collect { destination ->
+            val route = when (destination) {
+                "live_tv" -> "tv"
+                "cameras" -> Screen.Cameras.route
+                "discover" -> Screen.Discover.route
+                "search" -> Screen.Search.route
+                "home" -> Screen.Home.route
+                "settings" -> Screen.Settings.route
+                else -> null
+            }
+            route?.let {
+                navController.navigate(it) { launchSingleTop = true }
             }
         }
     }

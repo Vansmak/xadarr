@@ -18,6 +18,8 @@ import com.arflix.tv.data.repository.WEBHOOK_INTERVAL_KEY
 import com.arflix.tv.data.repository.WEBHOOK_COMPLETION_PERCENT_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
+import com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY
+import com.arflix.tv.data.repository.LAN_SYNC_LAST_MODIFIED_KEY
 import com.arflix.tv.data.repository.FRIGATE_URL_KEY
 import com.arflix.tv.data.repository.EPISEERR_URL_KEY
 import com.arflix.tv.network.OkHttpProvider
@@ -217,9 +219,11 @@ class CloudSyncRepository @Inject constructor(
      * Returns true if the payload was applied successfully.
      */
     suspend fun applyIncomingSnapshot(payload: String): Boolean = cloudSyncMutex.withLock {
+        if (!shouldApplyLanPayload(payload)) return@withLock false
         runCatching {
             invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
             markCloudPayloadApplied(payload)
+            updateLanSyncTimestamp(payload)
             true
         }.getOrDefault(false)
     }
@@ -257,11 +261,15 @@ class CloudSyncRepository @Inject constructor(
     }
 
     private suspend fun clearLocalDirtyAfterSuccessfulPush() {
+        val pushedAt = latestLocalDirtyAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         latestLocalDirtyAt = 0L
         isPushDirty = false
         context.settingsDataStore.edit { prefs ->
             prefs.remove(cloudSyncLocalDirtyAtKey)
             prefs[cloudSyncLastPushAtKey] = System.currentTimeMillis()
+            // Persist the timestamp of what we just pushed so shouldApplyLanPayload
+            // can reject older snapshots from peers after latestLocalDirtyAt is cleared.
+            prefs[LAN_SYNC_LAST_MODIFIED_KEY] = pushedAt.toString()
         }
     }
 
@@ -277,6 +285,30 @@ class CloudSyncRepository @Inject constructor(
         val cloudUpdatedAt = runCatching { JSONObject(payload).optLong("updatedAt", 0L) }.getOrDefault(0L)
         context.settingsDataStore.edit { prefs ->
             prefs[cloudSyncLastAppliedAtKey] = cloudUpdatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+        }
+    }
+
+    // Returns true if the incoming LAN payload should be applied on this device.
+    // Master device always wins. Without a master, last-change-wins by timestamp.
+    // Only used for LAN peer sync — server and Drive pulls always apply.
+    private suspend fun shouldApplyLanPayload(payload: String): Boolean {
+        val root = runCatching { JSONObject(payload) }.getOrNull() ?: return true
+        if (root.optBoolean("lan_sync_is_master", false)) return true
+        val localPrefs = context.settingsDataStore.data.first()
+        if (localPrefs[LAN_SYNC_MASTER_KEY] == true) return false
+        val incomingTs = root.optLong("lan_sync_last_modified", 0L)
+        val localTs = latestLocalDirtyAt.takeIf { it > 0L }
+            ?: localPrefs[LAN_SYNC_LAST_MODIFIED_KEY]?.toLongOrNull()
+            ?: 0L
+        return incomingTs >= localTs
+    }
+
+    // After applying a LAN peer's payload, store the incoming timestamp so future
+    // peers with older data are rejected.
+    private suspend fun updateLanSyncTimestamp(payload: String) {
+        val ts = runCatching { JSONObject(payload).optLong("lan_sync_last_modified", 0L) }.getOrDefault(0L)
+        if (ts > 0L) {
+            context.settingsDataStore.edit { it[LAN_SYNC_LAST_MODIFIED_KEY] = ts.toString() }
         }
     }
 
@@ -524,6 +556,11 @@ class CloudSyncRepository @Inject constructor(
         root.put("webhook_enabled", prefs[WEBHOOK_ENABLED_KEY] ?: false)
         root.put("watchlist_api_enabled", prefs[WATCHLIST_API_ENABLED_KEY] ?: false)
         prefs[WATCHLIST_API_PORT_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("watchlist_api_port", it) }
+        root.put("lan_sync_is_master", prefs[LAN_SYNC_MASTER_KEY] ?: false)
+        val lanTs = latestLocalDirtyAt.takeIf { it > 0L }
+            ?: prefs[LAN_SYNC_LAST_MODIFIED_KEY]?.toLongOrNull()
+            ?: System.currentTimeMillis()
+        root.put("lan_sync_last_modified", lanTs)
         prefs[FRIGATE_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("frigate_url", it) }
         prefs[EPISEERR_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("episeerr_url", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
@@ -842,8 +879,9 @@ class CloudSyncRepository @Inject constructor(
         for (peer in lanPeers) {
             val peerPayload = lanSyncService.pullFromPeer(peer)
             if (!peerPayload.isNullOrBlank()) {
+                if (!shouldApplyLanPayload(peerPayload)) continue
                 AppLogger.breadcrumb(tag = "CloudSync", message = "pull_from_lan_peer ${peer.host}:${peer.port}", severity = "info")
-                return@withLock applyPayloadLocked(peerPayload)
+                return@withLock applyPayloadLocked(peerPayload).also { updateLanSyncTimestamp(peerPayload) }
             }
         }
 

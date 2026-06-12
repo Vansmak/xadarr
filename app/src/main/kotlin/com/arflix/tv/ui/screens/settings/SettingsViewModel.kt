@@ -193,9 +193,12 @@ data class SettingsUiState(
     val webhookEnabled: Boolean = false,
     val webhookUrls: List<com.arflix.tv.data.repository.WebhookUrlConfig> = emptyList(),
     val webhookIntervalSeconds: Int = 30,
-    // Watchlist API server
+    // LAN Sync
     val watchlistApiEnabled: Boolean = false,
     val watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
+    val lanSyncMaster: Boolean = false,
+    val lanSyncPeerCount: Int = 0,
+    val lanSyncLastSyncedAt: Long = 0L,
     val webhookCompletionPercent: Int = 90,
     // Xadarr sync server URL — xadarr-server instance for full settings sync
     val syncServerUrl: String = "",
@@ -233,6 +236,7 @@ class SettingsViewModel @Inject constructor(
     private val apkDownloader: ApkDownloader,
     private val updateStatusManager: com.arflix.tv.updater.UpdateStatusManager,
     private val webAppServer: com.arflix.tv.server.WebAppServer,
+    private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
     private val driveSyncRepository: DriveSyncRepository,
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
@@ -375,6 +379,7 @@ class SettingsViewModel @Inject constructor(
         observeCatalogs()
         initializeUpdaterState()
         checkForAppUpdates(force = false, showNoUpdateFeedback = false)
+        observeLanSyncPeers()
     }
 
     private fun initializeUpdaterState() {
@@ -491,6 +496,8 @@ class SettingsViewModel @Inject constructor(
             val isCwHidden = prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false
             val watchlistApiEnabled = prefs[watchlistApiEnabledKey] ?: false
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
+            val lanSyncMaster = prefs[com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY] ?: false
+            val lanSyncLastSyncedAt = prefs[com.arflix.tv.data.repository.LAN_SYNC_LAST_MODIFIED_KEY]?.toLongOrNull() ?: 0L
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
             val pinnedApps = prefs[com.arflix.tv.data.repository.PINNED_APPS_KEY]
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
@@ -565,6 +572,8 @@ class SettingsViewModel @Inject constructor(
                 webhookIntervalSeconds = webhookIntervalSeconds,
                 watchlistApiEnabled = watchlistApiEnabled,
                 watchlistApiPort = watchlistApiPort,
+                lanSyncMaster = lanSyncMaster,
+                lanSyncLastSyncedAt = lanSyncLastSyncedAt,
                 webhookCompletionPercent = webhookCompletionPercent,
                 syncServerUrl = syncServerUrl,
                 episeerrUrl = episeerrUrl,
@@ -1329,15 +1338,30 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private fun observeLanSyncPeers() {
+        viewModelScope.launch {
+            lanSyncService.peers.collect { peers ->
+                _uiState.value = _uiState.value.copy(lanSyncPeerCount = peers.size)
+            }
+        }
+    }
+
     fun setWatchlistApiEnabled(enabled: Boolean) {
         viewModelScope.launch {
             context.settingsDataStore.edit { it[watchlistApiEnabledKey] = enabled }
             _uiState.value = _uiState.value.copy(watchlistApiEnabled = enabled)
             if (enabled) {
-                webAppServer.start(_uiState.value.watchlistApiPort)
+                lanSyncService.start(_uiState.value.watchlistApiPort)
             } else {
-                webAppServer.stop()
+                lanSyncService.stop()
             }
+        }
+    }
+
+    fun setLanSyncMaster(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY] = enabled }
+            _uiState.value = _uiState.value.copy(lanSyncMaster = enabled)
         }
     }
 
@@ -1378,8 +1402,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[watchlistApiPortKey] = clamped.toString() }
             _uiState.value = _uiState.value.copy(watchlistApiPort = clamped)
+            webAppServer.start(clamped)
             if (_uiState.value.watchlistApiEnabled) {
-                webAppServer.start(clamped)
+                lanSyncService.start(clamped)
             }
         }
     }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -36,6 +37,20 @@ class CloudSyncCoordinator @Inject constructor(
                     // Auth check stays only in scheduleFlush to gate the debounced background push.
                     cloudSyncRepository.markLocalStateDirtyNow()
                     scheduleFlush(invalidation)
+                }
+            }
+            // When a new LAN peer appears, push our current settings to it.
+            // The receiving device's conflict check (master / last-change-wins) decides whether to apply.
+            scope.launch {
+                var prevPeerCount = 0
+                lanSyncService.peers.collect { peers ->
+                    val newCount = peers.size
+                    if (newCount > prevPeerCount) {
+                        delay(500L) // let mDNS resolve settle
+                        runCatching { cloudSyncRepository.pushToCloud() }
+                            .onFailure { Log.w("CloudSyncCoordinator", "Post-discovery push failed: ${it.message}") }
+                    }
+                    prevPeerCount = newCount
                 }
             }
         }

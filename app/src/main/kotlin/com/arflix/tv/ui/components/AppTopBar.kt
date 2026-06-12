@@ -18,10 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -168,7 +173,7 @@ fun AppTopBar(
                 }
             }
 
-            // ── RIGHT: Settings gear + clock ──
+            // ── RIGHT: Settings gear + network + clock ──
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -179,6 +184,8 @@ fun AppTopBar(
                     isSelected = settingsSelected,
                     hasBadge = hasUpdateBadge
                 )
+
+                TopBarNetworkStatus()
 
                 Text(
                     text = currentTime,
@@ -433,4 +440,45 @@ private fun topBarCurrentTime(clockFormat: String): String {
     }
     val sdf = SimpleDateFormat(pattern, Locale.getDefault())
     return sdf.format(Date())
+}
+
+private enum class NetworkType { WIFI, ETHERNET, NONE }
+
+@Composable
+private fun TopBarNetworkStatus() {
+    val context = LocalContext.current
+    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    var networkType by remember { mutableStateOf(currentNetworkType(cm)) }
+
+    DisposableEffect(Unit) {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { networkType = currentNetworkType(cm) }
+            override fun onLost(network: Network) { networkType = currentNetworkType(cm) }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                networkType = currentNetworkType(cm)
+            }
+        }
+        val request = NetworkRequest.Builder().build()
+        cm.registerNetworkCallback(request, callback)
+        onDispose { cm.unregisterNetworkCallback(callback) }
+    }
+
+    val connected = networkType != NetworkType.NONE
+    Box(
+        modifier = Modifier
+            .size(7.dp)
+            .clip(CircleShape)
+            .background(if (connected) Color(0xFF22C55E) else Color(0xFFDC2626))
+    )
+}
+
+private fun currentNetworkType(cm: ConnectivityManager): NetworkType {
+    val network = cm.activeNetwork ?: return NetworkType.NONE
+    val caps = cm.getNetworkCapabilities(network) ?: return NetworkType.NONE
+    return when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.WIFI
+        else -> NetworkType.NONE
+    }
 }

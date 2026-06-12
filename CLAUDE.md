@@ -42,11 +42,15 @@ Reports playback progress to the home media server (Jellyfin/Emby ticks, Plex ti
 
 - Called from `PlayerViewModel` alongside webhook calls
 
-### 3. Watchlist API Server (`server/WatchlistApiServer.kt`)
-NanoHTTPD server serving `GET /watchlist` as JSON over LAN so Episeerr can poll it. Default port 7979.
+### 3. LAN Sync Server (`server/WatchlistApiServer.kt`)
+HTTP server (NanoHTTPD, default port 7979) that enables automatic settings sync between Xadarr devices on the same network. Uses Android NSD (mDNS) — devices advertise as `_xadarr._tcp.` and discover each other automatically, no IP entry or pairing needed. When one device saves settings, changes are pushed to all discovered peers.
 
+- Setting label: **"LAN Sync"** in Plugins & Extensions (was "Watchlist API" — do not revert)
 - Toggle + port live in **"stremio"** section (Plugins & Extensions), after the addon list
-- Keys: `WATCHLIST_API_ENABLED_KEY`, `WATCHLIST_API_PORT_KEY` in `ProgressWebhookRepository.kt`
+- Keys: `WATCHLIST_API_ENABLED_KEY`, `WATCHLIST_API_PORT_KEY` in `WebhookRepository.kt`
+- Discovery: `LanSyncService.kt` — NSD advertise + discover, validates peers via `/api/sync/status`
+- Sync push: `LanSyncService.pushToPeers()` sends settings snapshot to all live peers on save
+- Failure mode: mDNS blocked by router (AP isolation / guest network) — fallback is xadarr-server sync
 
 ### 4. Settings Layout (no separate "integrations" section)
 Settings are split across two existing sections:
@@ -59,8 +63,8 @@ Settings are split across two existing sections:
 - Progress webhook toggle (addons.size + 1)
 - Webhook URL (addons.size + 2)
 - Webhook interval (addons.size + 3)
-- Watchlist API toggle (addons.size + 4)
-- Watchlist API port (addons.size + 5)
+- LAN Sync toggle (addons.size + 4)
+- LAN Sync port (addons.size + 5)
 
 **Key pattern:** The D-pad Enter key handler in `SettingsScreen` uses a `when { contentFocusIndex in range -> ... }` block for stremio (because addon count is dynamic), and `when (contentFocusIndex)` for accounts. Both must be kept in sync with `sectionMaxIndex`.
 
@@ -308,14 +312,17 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 ## Current Version
 
-**v2.2** — Mobile-friendly catalogue management, user API keys, mobile Discover tab, repository rename.
+**v2.6** — LAN Sync overhaul: timing fix, conflict resolution (master/timestamp), live status in Settings, moved to Network section.
 
-Changes since v2.1:
-- User-configurable TMDB API key, Trakt Client ID/Secret in Settings accounts section (TV + mobile). Runtime key update via `OkHttpProvider.setUserApiKeys()`. Falls back to `BuildConfig` values if unset.
-- `ProgressWebhookRepository.kt` renamed to `WebhookRepository.kt`; class renamed to `WebhookRepository`. All injection sites updated.
-- Mobile bottom bar: Watchlist replaced with Discover (catalogue rows). `AppBottomBar.kt`.
-- Mobile Settings: Frigate URL dialog wired up; API key fields added to "USER INFO & ACCOUNT" section.
-- Mobile catalogue management redesigned as touch-friendly two-row cards: title row (tap=rename, long-press=reorder mode) + 40dp action strip (Wide/Poster layout toggle, Visible/Hidden, Placement cycle, Delete). Built-in Watchlist/CW rows same treatment. `MobileCatalogChip` composable added to `SettingsScreen.kt`.
+Changes since v2.5:
+- Fixed startup sync timing bug: pull fired before mDNS discovery; now pushes on peer discovery.
+- `shouldApplyLanPayload()` in `CloudSyncRepository`: master flag first, then timestamp (incoming ≥ local = apply). Prevents fresh installs overwriting existing devices.
+- `LAN_SYNC_MASTER_KEY` + `LAN_SYNC_LAST_MODIFIED_KEY` added to `WebhookRepository.kt`.
+- `clearLocalDirtyAfterSuccessfulPush()` persists timestamp to DataStore before clearing `latestLocalDirtyAt`.
+- `CloudSyncCoordinator` observes `lanSyncService.peers`; pushes on new peer discovery (500ms debounce).
+- LAN Sync settings moved from stremio section (Plugins & Extensions) to network section (rows 38/39/40).
+- `SettingsUiState` gains `lanSyncMaster`, `lanSyncPeerCount`, `lanSyncLastSyncedAt`.
+- LAN Sync toggle now actually starts/stops `LanSyncService`; `webAppServer` always runs.
 
 ## TODO
 

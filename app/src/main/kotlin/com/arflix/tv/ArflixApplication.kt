@@ -114,14 +114,16 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             runCatching { OkHttpProvider.dns.lookup("image.tmdb.org") }
         }
 
-        // Always start the local sync server — it's required for LAN device sync.
-        // WATCHLIST_API_ENABLED_KEY now controls external API access visibility in Settings only.
+        // Always start the web server (needed for xadarr-server integration and webhook notifications).
+        // LAN Sync (mDNS peer discovery) only starts when the toggle is on — lets a device opt out.
         appScope.launch(Dispatchers.IO) {
             val prefs = settingsDataStore.data.first()
             val port = prefs[WATCHLIST_API_PORT_KEY]?.toIntOrNull() ?: WebAppServer.DEFAULT_PORT
             runCatching { watchlistRepository.getWatchlistItems() }
             webAppServer.start(port)
-            lanSyncService.start(port)
+            if (prefs[WATCHLIST_API_ENABLED_KEY] == true) {
+                lanSyncService.start(port)
+            }
         }
 
         // Initialize crash reporting. Sentry is preferred when SENTRY_DSN is configured;

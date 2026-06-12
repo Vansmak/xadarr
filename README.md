@@ -49,7 +49,7 @@ Xadarr does not compete with Sonarr, Radarr, or Jellyfin. It sits in front of th
 
 ### No server, same network
 
-Install the APK on two devices. They find each other automatically over Wi-Fi via LAN sync. Watchlist and settings stay in sync with no configuration.
+Install the APK on two devices. Enable **LAN Sync** in Settings → Network on each one. They find each other automatically over Wi-Fi — watchlist and settings stay in sync with no further configuration.
 
 ### No server, different networks
 
@@ -128,7 +128,14 @@ Three tiers, in priority order:
 
 **xadarr-server** — full sync including IPTV credentials and server connections. Requires running the server container. This is the path if you have Docker already.
 
-**LAN peer-to-peer** — devices on the same Wi-Fi find each other automatically via mDNS (`_xadarr._tcp`). Full sync, no configuration, no server needed.
+**LAN Sync** — peer-to-peer sync over Wi-Fi with no server required.
+
+- Enable in Settings → Network → **LAN Sync** on each device that should participate. A device with LAN Sync off is completely independent — it won't sync with anything on the network.
+- Discovery is automatic via mDNS (`_xadarr._tcp`). No IP addresses, no pairing prompts. When a new peer appears, settings are pushed immediately without waiting for a manual change.
+- **Conflict resolution** — two modes, set per device:
+  - **Master** (Settings → LAN Sync Master): this device always wins. Any time it connects to a peer, the peer adopts its settings. Useful for a primary TV you treat as the source of truth.
+  - **No master** (default): last change wins. Each snapshot is timestamped; whichever device made a change most recently takes precedence. If two devices change settings at the same time, whichever push arrives last wins.
+- The LAN Sync row in Settings shows live status: number of discovered peers and time since last sync.
 
 **Google Drive** — syncs watchlist, catalogues, settings, and IPTV favourites. IPTV playlist URLs, server credentials, and passwords are intentionally excluded from Drive backups — they stay on device. Useful for new device setup when you are not on your home network.
 
@@ -151,6 +158,26 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 **Automatic downloads via Trakt:** Connect Trakt in Settings → Accounts. Radarr and Sonarr can monitor your Trakt watchlist natively — anything you add in Xadarr flows through to your download stack automatically, no extra configuration needed.
 
 `progress` fires at a configurable interval (default 30 s). No retry on failure.
+
+---
+
+## Changelog
+
+### v2.6
+- **LAN Sync overhaul** — fixed a timing bug where the startup sync pull fired before mDNS peer discovery completed, causing initial sync to silently fail. Devices now push to peers immediately when a new peer is discovered, with no manual trigger needed.
+- **LAN Sync conflict resolution** — two modes: **Master** (this device always wins; set in Settings → Network → LAN Sync Master) and **last-change-wins** (default, no master set). Each snapshot is timestamped; the most recently changed snapshot wins when no master is designated. Prevents a freshly installed device from overwriting an established device's settings.
+- **LAN Sync status indicator** — the LAN Sync row in Settings → Network shows live peer count and time since last successful sync.
+- **LAN Sync settings moved** — from Plugins & Extensions to the Network section, where they belong.
+- LAN Sync toggle now actually starts/stops the peer-to-peer service; previously the toggle was cosmetic and the service ran regardless.
+
+### v2.5
+- Remote settings button navigates directly to Settings screen
+- Android Settings row added to Settings screen
+
+### v2.2
+- User-configurable TMDB API key and Trakt Client ID/Secret
+- Mobile Discover tab (replaces Watchlist in bottom nav)
+- Mobile catalogue management redesigned as touch-friendly cards
 
 ---
 
