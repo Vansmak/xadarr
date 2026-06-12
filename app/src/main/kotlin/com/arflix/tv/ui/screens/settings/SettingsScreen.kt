@@ -856,8 +856,8 @@ fun SettingsScreen(
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
                                                 38 -> viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled)
-                                                39 -> showWatchlistApiPortDialog = true
-                                                40 -> viewModel.setLanSyncMaster(!uiState.lanSyncMaster)
+                                                39 -> viewModel.setLanSyncMaster(!uiState.lanSyncMaster)
+                                                40 -> showWatchlistApiPortDialog = true
                                                 37 -> context.startActivity(
                                                     android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
                                                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -4607,7 +4607,7 @@ private fun tvSettingsPanelFacts(
             "DNS" to uiState.dnsProvider,
             "Loading stats" to if (uiState.showLoadingStats) "On" else "Off",
             "User-Agent" to formatUserAgentPreview(uiState.customUserAgent, 40),
-            "LAN Sync" to if (uiState.watchlistApiEnabled) "Port ${uiState.watchlistApiPort}" else "Off"
+            "LAN Sync" to if (uiState.watchlistApiEnabled) "On · port ${uiState.watchlistApiPort}" else "Off"
         )
         "iptv" -> listOf(
             "Playlists" to "${uiState.iptvPlaylists.size}/3",
@@ -4881,8 +4881,8 @@ private fun TvGeneralSettingsRows(
                     }
                     SettingsRow(Icons.Default.Cloud, "LAN Sync", lanSubtitle, if (watchlistApiEnabled) "On :$watchlistApiPort" else "Off", focusedIndex == localIndex, onToggleLanSync, Modifier.settingsFocusSlot(localIndex))
                 }
-                39 -> SettingsRow(Icons.Default.Settings, "LAN Sync Port", "Port for the LAN sync server", watchlistApiPort.toString(), focusedIndex == localIndex, onLanSyncPortClick, Modifier.settingsFocusSlot(localIndex))
-                40 -> SettingsRow(Icons.Default.CloudSync, "LAN Sync Master", "This device always wins. Without a master, last change wins.", if (lanSyncMaster) "Master" else "Off", focusedIndex == localIndex, onToggleLanSyncMaster, Modifier.settingsFocusSlot(localIndex))
+                39 -> SettingsRow(Icons.Default.CloudSync, "LAN Sync Master", "This device always wins. Without a master, last change wins.", if (lanSyncMaster) "Master" else "Off", focusedIndex == localIndex, onToggleLanSyncMaster, Modifier.settingsFocusSlot(localIndex))
+                40 -> SettingsRow(Icons.Default.Settings, "Local Server Port", "Port for the local API server — used by xadarr-server and LAN sync peers", watchlistApiPort.toString(), focusedIndex == localIndex, onLanSyncPortClick, Modifier.settingsFocusSlot(localIndex))
             }
         }
     }
