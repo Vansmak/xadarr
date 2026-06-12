@@ -132,9 +132,9 @@ Three tiers, in priority order:
 
 - Enable in Settings → Network → **LAN Sync** on each device that should participate. A device with LAN Sync off is completely independent — it won't sync with anything on the network.
 - Discovery is automatic via mDNS (`_xadarr._tcp`). No IP addresses, no pairing prompts. When a new peer appears, settings are pushed immediately without waiting for a manual change.
-- **Conflict resolution** — two modes, set per device:
-  - **Master** (Settings → LAN Sync Master): this device always wins. Any time it connects to a peer, the peer adopts its settings. Useful for a primary TV you treat as the source of truth.
-  - **No master** (default): last change wins. Each snapshot is timestamped; whichever device made a change most recently takes precedence. If two devices change settings at the same time, whichever push arrives last wins.
+- **Conflict resolution** — two modes:
+  - **No master** (default, recommended): last change wins. Each snapshot is timestamped; whichever device made a change most recently takes precedence. Works well for most setups — just make changes on any device and they propagate everywhere.
+  - **Master**: designate exactly one device as master (Settings → Network → LAN Sync Master). That device always wins — any peer that connects will adopt its settings regardless of when it last changed. Only set this on one device. If two devices are both set to master, whichever push arrives last wins and the master flag loses its meaning.
 - The LAN Sync row in Settings shows live status: number of discovered peers and time since last sync.
 
 **Google Drive** — syncs watchlist, catalogues, settings, and IPTV favourites. IPTV playlist URLs, server credentials, and passwords are intentionally excluded from Drive backups — they stay on device. Useful for new device setup when you are not on your home network.
