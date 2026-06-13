@@ -851,6 +851,7 @@ img { display: block; }
 .server-card-info { flex: 1; min-width: 0; }
 .server-card-name { font-size: 13px; font-weight: 600; }
 .server-card-url  { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.server-name-input { font-size: 13px; font-weight: 600; background: var(--surface); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); padding: 2px 6px; width: 100%; outline: none; }
 
 /* Addon list */
 .addon-item {

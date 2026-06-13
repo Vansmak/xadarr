@@ -875,7 +875,18 @@
               <div class="server-card">
                 <span class="server-badge" x-text="srv.serverKind"></span>
                 <div class="server-card-info">
-                  <div class="server-card-name" x-text="srv.displayName || srv.serverName"></div>
+                  <template x-if="editingServerId === srv.connectionId">
+                    <input class="server-name-input"
+                      :id="'server-rename-' + srv.connectionId"
+                      x-model="editingServerName"
+                      @keydown.enter="commitRenameServer()"
+                      @keydown.escape="editingServerId = null"
+                      @blur="commitRenameServer()">
+                  </template>
+                  <template x-if="editingServerId !== srv.connectionId">
+                    <div class="server-card-name" title="Click to rename" style="cursor:pointer"
+                      @click="startRenameServer(srv)" x-text="srv.displayName || srv.serverName"></div>
+                  </template>
                   <div class="server-card-url" x-text="srv.serverUrl"></div>
                 </div>
                 <button class="btn btn-ghost btn-xs" @click="removeServer(srv.connectionId)">✕</button>

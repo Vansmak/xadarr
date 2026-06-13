@@ -835,6 +835,21 @@ def setup_connect_server():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/setup/servers/<connection_id>", methods=["PATCH"])
+def setup_rename_server(connection_id):
+    body = request.get_json(force=True) or {}
+    display_name = body.get("displayName", "").strip()
+    blob = _get_blob()
+    connections = _get_connections(blob)
+    for c in connections:
+        if c.get("connectionId") == connection_id:
+            c["displayName"] = display_name
+            break
+    _set_connections(blob, connections)
+    _save_blob(blob)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/setup/servers/<connection_id>", methods=["DELETE"])
 def setup_delete_server(connection_id):
     blob = _get_blob()

@@ -76,6 +76,8 @@ function xadarr() {
     addonUrlInput: '',
     catalogues: [],
     showServerForm: false,
+    editingServerId: null,
+    editingServerName: '',
 
     // Known service/genre titles — used to classify COLLECTION items under COLLECTION_RAIL rows
     _SERVICE_TITLES: new Set([
@@ -615,6 +617,26 @@ function xadarr() {
     async removeServer(connectionId) {
       if (!confirm('Remove this server?')) return;
       await fetch(`/api/setup/servers/${encodeURIComponent(connectionId)}`, { method: 'DELETE' });
+      await this.loadServers();
+    },
+
+    startRenameServer(srv) {
+      this.editingServerId = srv.connectionId;
+      this.editingServerName = srv.displayName || srv.serverName || '';
+      this.$nextTick(() => {
+        const el = document.getElementById('server-rename-' + srv.connectionId);
+        if (el) { el.focus(); el.select(); }
+      });
+    },
+
+    async commitRenameServer() {
+      if (!this.editingServerId) return;
+      await fetch(`/api/setup/servers/${encodeURIComponent(this.editingServerId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: this.editingServerName }),
+      });
+      this.editingServerId = null;
       await this.loadServers();
     },
 

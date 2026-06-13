@@ -189,7 +189,8 @@ internal object HomeServerMatcher {
 class HomeServerRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
         const val ADDON_ID = "home_server"
@@ -585,6 +586,7 @@ class HomeServerRepository @Inject constructor(
                 HomeServerProfileConfig(connections = connections.map { it.sanitized().withEncryptedTokens() })
             )
         }
+        invalidationBus.markDirty(CloudSyncScope.PROFILE_SETTINGS, profileId, "home server connection")
     }
 
     private fun connectionKeyFor(profileId: String) =
@@ -597,11 +599,24 @@ class HomeServerRepository @Inject constructor(
     }
 
     suspend fun importCloudConnectionsJsonForProfile(profileId: String, json: String?) {
-        if (json.isNullOrBlank()) {
-            context.settingsDataStore.edit { prefs -> prefs.remove(connectionKeyFor(profileId)) }
-            return
+        if (json.isNullOrBlank()) return // cloud has no connections — don't wipe local
+        val incoming = parseConnections(json)
+        if (incoming.isEmpty()) return
+        val local = currentConnectionsForProfile(profileId, migratePlainTokens = false)
+        val localByIdentity = local.associateBy { connectionIdentity(it) }
+        // Merge: for matching servers, prefer the local KeyStore-encrypted token (if available).
+        // Incoming plain-text tokens (from web UI or another device's export) are preserved for
+        // new servers where local has no token yet — decryptToken already passes them through.
+        val merged = incoming.map { incomingConn ->
+            val localMatch = localByIdentity[connectionIdentity(incomingConn)]
+                ?: local.firstOrNull { it.serverUrl == incomingConn.serverUrl && it.serverKind == incomingConn.serverKind }
+            if (localMatch != null && localMatch.accessToken.isNotBlank()) {
+                incomingConn.copy(accessToken = localMatch.accessToken, accountToken = localMatch.accountToken)
+            } else {
+                incomingConn
+            }
         }
-        saveConnectionsForProfile(profileId, parseConnections(json))
+        saveConnectionsForProfile(profileId, merged)
     }
 
     private suspend fun currentConnectionsForProfile(
@@ -730,6 +745,7 @@ class HomeServerRepository @Inject constructor(
     private fun decryptToken(value: String): String {
         val trimmed = value.trim()
         if (trimmed.isBlank()) return ""
+        if (!trimmed.startsWith(SECURE_TOKEN_PREFIX)) return trimmed // plain-text token from export or web UI
         return SecureStorage.decrypt(trimmed, HOME_SERVER_TOKEN_KEY_ALIAS).orEmpty()
     }
 

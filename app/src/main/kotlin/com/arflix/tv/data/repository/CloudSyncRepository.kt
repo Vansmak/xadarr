@@ -476,6 +476,20 @@ class CloudSyncRepository @Inject constructor(
         val profiles = profileRepository.getProfiles()
         val globalDnsProvider = prefs[globalDnsProviderKey] ?: prefs[dnsProviderKey()] ?: "system"
 
+        // Fetch existing server payload up-front so we can use it as a fallback when
+        // building the snapshot (e.g., preserve home server connections and avatar images
+        // that were set via the web UI or another device and haven't reached this device yet).
+        val existingServerRoot = syncServerLoadPayload()
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { payload -> runCatching { JSONObject(payload) }.getOrNull() }
+        val existingServerProfileSettings = existingServerRoot?.let {
+            runCatching { it.optJSONObject("profileSettingsById") }.getOrNull()
+        }
+        val existingAvatarImagesById = existingServerRoot?.let {
+            runCatching { it.optJSONObject("profileAvatarImagesById") }.getOrNull()
+        }
+
         // Per-profile settings
         val profileSettingsById = buildMap<String, CloudProfileSettings> {
             profiles.forEach { profile ->
@@ -506,7 +520,15 @@ class CloudSyncRepository @Inject constructor(
                         iptvGroupOrder = prefs[iptvGroupOrderKeyFor(profile.id)] ?: "",
                         secondarySubtitle = prefs[secondarySubtitleKeyFor(profile.id)] ?: "Off",
                         filterSubtitlesByLanguage = prefs[filterSubtitlesByLanguageKeyFor(profile.id)] ?: true,
-                        homeServerConnectionJson = homeServerRepository.exportCloudConnectionsJsonForProfile(profile.id),
+                        homeServerConnectionJson = homeServerRepository.exportCloudConnectionsJsonForProfile(profile.id).ifBlank {
+                            // Local has no connections: preserve what's on the server so the push
+                            // never wipes a home server connection that was set via the web UI or
+                            // another device before this device's startup push fires.
+                            existingServerProfileSettings
+                                ?.optJSONObject(profile.id)
+                                ?.optString("homeServerConnectionJson")
+                                ?.takeIf { it.isNotBlank() }
+                        },
                         torrServerBaseUrl = streamRepository.exportTorrServerBaseUrlForProfile(profile.id),
                         catalogueRowLayoutModes = catalogueRowLayoutModesForProfile(prefs, profile.id),
                         cardLayoutMode = normalizeCardLayoutMode(
@@ -565,14 +587,6 @@ class CloudSyncRepository @Inject constructor(
         prefs[EPISEERR_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("episeerr_url", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
-        val existingAvatarImagesById = syncServerLoadPayload()
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { payload ->
-                runCatching {
-                    JSONObject(payload).optJSONObject("profileAvatarImagesById")
-                }.getOrNull()
-            }
         root.put(
             "profileAvatarImagesById",
             profileAvatarImageManager.buildInlineAvatarImagesJson(profiles, existingAvatarImagesById)
@@ -1070,9 +1084,9 @@ class CloudSyncRepository @Inject constructor(
                         if (state.iptvGroupOrder.isNotBlank()) prefs[iptvGroupOrderKeyFor(profileId)] = state.iptvGroupOrder
                         prefs[secondarySubtitleKeyFor(profileId)] = state.secondarySubtitle.ifBlank { "Off" }
                         prefs[filterSubtitlesByLanguageKeyFor(profileId)] = state.filterSubtitlesByLanguage
-                        // Home server connections are device-specific — never apply from cloud.
-                        // The token was exported as plain text but decrypt() expects ciphertext,
-                        // so re-importing would blank the token. Connections are managed locally.
+                        state.homeServerConnectionJson?.takeIf { it.isNotBlank() }?.let { connJson ->
+                            homeServerConnectionsToImport[profileId] = connJson
+                        }
                         state.torrServerBaseUrl?.let { torrServerBaseUrl ->
                             torrServerUrlsToImport[profileId] = torrServerBaseUrl
                         }
