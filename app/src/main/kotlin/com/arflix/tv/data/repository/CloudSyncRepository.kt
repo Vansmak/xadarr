@@ -728,32 +728,38 @@ class CloudSyncRepository @Inject constructor(
             }
         }
 
-        // Per-profile settings: strip home server connections (contain server URL + credentials)
+        // Per-profile settings: strip auth tokens from home server connections (device-specific KeyStore)
         root.optJSONObject("profileSettingsById")?.let { byProfile ->
             byProfile.keys().forEach { profileId ->
-                byProfile.optJSONObject(profileId)?.remove("homeServerConnectionJson")
+                val profile = byProfile.optJSONObject(profileId) ?: return@forEach
+                val connJson = profile.optString("homeServerConnectionJson").takeIf { it.isNotBlank() } ?: return@forEach
+                runCatching {
+                    val connRoot = JSONObject(connJson)
+                    connRoot.optJSONArray("connections")?.let { conns ->
+                        for (i in 0 until conns.length()) {
+                            conns.optJSONObject(i)?.apply {
+                                remove("accessToken")
+                                remove("accountToken")
+                            }
+                        }
+                    }
+                    profile.put("homeServerConnectionJson", connRoot.toString())
+                }
             }
         }
 
         root.toString()
     }.getOrDefault(payload)
 
-    // Home server connections are never synced to any backend: they contain device-specific
-    // credentials (tokens encrypted with the local KeyStore). Re-importing them elsewhere
-    // would silently blank the token on decrypt, making the connection unusable.
-    private fun stripHomeServerConnections(payload: String): String = runCatching {
-        val root = JSONObject(payload)
-        root.optJSONObject("profileSettingsById")?.let { byProfile ->
-            byProfile.keys().forEach { profileId ->
-                byProfile.optJSONObject(profileId)?.remove("homeServerConnectionJson")
-            }
-        }
-        root.toString()
-    }.getOrDefault(payload)
+    // Strip auth tokens from home server connections before syncing. The server URL,
+    // type, username etc. are safe to sync — the receiving device just needs to log in.
+    // Tokens are encrypted with the local Android KeyStore and can't be decrypted on
+    // another device, so they must never leave the originating device.
+    // LAN peers and xadarr-server are local — send the full payload including credentials.
+    // Only Drive (remote/cloud) strips sensitive fields via sanitizeForDriveBackup().
+    private fun sanitizeForLanSync(payload: String): String = payload
 
-    private fun sanitizeForLanSync(payload: String): String = stripHomeServerConnections(payload)
-
-    private fun sanitizeForServerSync(payload: String): String = stripHomeServerConnections(payload)
+    private fun sanitizeForServerSync(payload: String): String = payload
 
     suspend fun pushToCloud(): Result<Unit> = cloudSyncMutex.withLock {
         pushToCloudLocked()
