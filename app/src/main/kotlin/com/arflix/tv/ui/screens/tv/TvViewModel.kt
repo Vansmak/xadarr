@@ -2,6 +2,7 @@
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvSnapshot
 import com.arflix.tv.data.repository.CloudSyncRepository
@@ -40,7 +41,8 @@ data class TvUiState(
     val iptvPreferencesLoaded: Boolean = false,
     val tvSessionLoaded: Boolean = false,
     val favoritesOnly: Boolean = false,
-    val query: String = ""
+    val query: String = "",
+    val groupBlacklistEnabled: Boolean = false
 ) {
     val isConfigured: Boolean get() =
         config.m3uUrl.isNotBlank() ||
@@ -101,6 +103,7 @@ class TvViewModel @Inject constructor(
 
     init {
         observeConfigAndFavorites()
+        observeGroupBlacklistEnabled()
         observeTvSession()
         observeFavoriteSortModeInternal()
         viewModelScope.launch {
@@ -205,13 +208,25 @@ class TvViewModel @Inject constructor(
             combine(
                 combine(iptvRepository.observeConfig(), iptvRepository.observeFavoriteGroups(), iptvRepository.observeFavoriteChannels()) { a, b, c -> Triple(a, b, c) },
                 iptvRepository.observeHiddenGroups(),
-                iptvRepository.observeGroupOrder()
-            ) { triple, hiddenGroups, groupOrder ->
-                Triple(triple, hiddenGroups, groupOrder)
+                iptvRepository.observeGroupOrder(),
+                iptvRepository.observeNewGroups(),
+                iptvRepository.observeRemovedGroups()
+            ) { triple, hiddenGroups, groupOrder, newGroups, removedGroups ->
+                object {
+                    val triple = triple
+                    val hiddenGroups = hiddenGroups
+                    val groupOrder = groupOrder
+                    val newGroups = newGroups
+                    val removedGroups = removedGroups
+                }
             }
                 .distinctUntilChanged()
-                .collect { (triple, hiddenGroups, groupOrder) ->
-                val (config, favoriteGroups, favoriteChannels) = triple
+                .collect { data ->
+                val (config, favoriteGroups, favoriteChannels) = data.triple
+                val hiddenGroups = data.hiddenGroups
+                val groupOrder = data.groupOrder
+                val newGroups = data.newGroups
+                val removedGroups = data.removedGroups
                 val newConfigSignature = config.syncSignature()
                 val configChanged = lastObservedConfigSignature != null &&
                     lastObservedConfigSignature != newConfigSignature
@@ -220,6 +235,8 @@ class TvViewModel @Inject constructor(
                     favoriteGroups = favoriteGroups,
                     favoriteChannels = favoriteChannels,
                     hiddenGroups = hiddenGroups,
+                    newGroups = newGroups,
+                    removedGroups = removedGroups,
                     groupOrder = groupOrder
                 )
                 setUiState(
@@ -243,6 +260,16 @@ class TvViewModel @Inject constructor(
                     cachedEnrichedChannels = null
                     cachedChannelsSignature = null
                     refresh(force = true, showLoading = false, forceEpg = false)
+                }
+            }
+        }
+    }
+
+    private fun observeGroupBlacklistEnabled() {
+        viewModelScope.launch {
+            iptvRepository.observeGroupBlacklistEnabled().collect { enabled ->
+                if (_uiState.value.groupBlacklistEnabled != enabled) {
+                    _uiState.value = _uiState.value.copy(groupBlacklistEnabled = enabled)
                 }
             }
         }
@@ -634,6 +661,8 @@ class TvViewModel @Inject constructor(
                     favoriteGroups = current.snapshot.favoriteGroups,
                     favoriteChannels = current.snapshot.favoriteChannels,
                     hiddenGroups = current.snapshot.hiddenGroups,
+                    newGroups = current.snapshot.newGroups,
+                    removedGroups = current.snapshot.removedGroups,
                     groupOrder = current.snapshot.groupOrder,
                 )
                 setUiState(current.copy(snapshot = mergedSnapshot))
@@ -676,6 +705,10 @@ class TvViewModel @Inject constructor(
 
     fun toggleHiddenGroup(groupName: String) {
         viewModelScope.launch { iptvRepository.toggleHiddenGroup(groupName); scheduleIptvCloudSync() }
+    }
+
+    fun setGroupState(groupName: String, state: GroupState) {
+        viewModelScope.launch { iptvRepository.setGroupState(groupName, state); scheduleIptvCloudSync() }
     }
 
     fun prefetchVisibleCategoryEpg(
@@ -808,7 +841,7 @@ class TvViewModel @Inject constructor(
 
     private fun currentVisiblePlaylistGroups(): List<String> {
         val snapshot = _uiState.value.snapshot
-        val hidden = snapshot.hiddenGroups.mapTo(HashSet()) { it.trim() }
+        val hidden = (snapshot.hiddenGroups + snapshot.newGroups + snapshot.removedGroups).mapTo(HashSet()) { it.trim() }
         return snapshot.grouped.keys
             .asSequence()
             .map { it.trim() }
@@ -889,6 +922,8 @@ class TvViewModel @Inject constructor(
             previousSnapshot.favoriteChannels == nextSnapshot.favoriteChannels &&
             previousSnapshot.favoriteGroups == nextSnapshot.favoriteGroups &&
             previousSnapshot.hiddenGroups == nextSnapshot.hiddenGroups &&
+            previousSnapshot.newGroups == nextSnapshot.newGroups &&
+            previousSnapshot.removedGroups == nextSnapshot.removedGroups &&
             previousSnapshot.groupOrder == nextSnapshot.groupOrder
     }
 
@@ -1016,7 +1051,7 @@ private fun setPreparedContent(state: TvUiState): TvUiState {
 
 private fun buildPreparedGroups(snapshot: IptvSnapshot): List<String> {
     val dynamicGroups = snapshot.grouped.keys.toList()
-    val hiddenSet = snapshot.hiddenGroups.toHashSet()
+    val hiddenSet = (snapshot.hiddenGroups + snapshot.newGroups + snapshot.removedGroups).toHashSet()
     val visibleGroups = dynamicGroups.filterNot { hiddenSet.contains(it) }
     val favorites = snapshot.favoriteGroups.filter { visibleGroups.contains(it) }
     val others = visibleGroups.filterNot { snapshot.favoriteGroups.contains(it) }

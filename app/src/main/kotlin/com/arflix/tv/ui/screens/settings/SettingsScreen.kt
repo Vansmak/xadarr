@@ -93,6 +93,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.QrCode
@@ -366,6 +367,7 @@ fun SettingsScreen(
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var showFrigateUrlDialog by remember { mutableStateOf(false) }
+    var showBlacklistPathDialog by remember { mutableStateOf(false) }
     var showTmdbApiKeyDialog by remember { mutableStateOf(false) }
     var showTraktClientIdDialog by remember { mutableStateOf(false) }
     var showTraktClientSecretDialog by remember { mutableStateOf(false) }
@@ -405,7 +407,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
-            "stremio" -> stremioAddons.size + 5 + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + add-URL button
+            "stremio" -> stremioAddons.size + 5 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Frigate + optional blacklist path
             "accounts" -> 9
             else -> 0
         }
@@ -640,6 +642,7 @@ fun SettingsScreen(
         showSyncServerUrlDialog ||
         showEpiseerrUrlDialog ||
         showFrigateUrlDialog ||
+        showBlacklistPathDialog ||
         showTmdbApiKeyDialog ||
         showTraktClientIdDialog ||
         showTraktClientSecretDialog ||
@@ -1048,6 +1051,7 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 3 + uiState.webhookUrls.size -> viewModel.cycleWebhookInterval()
                                                 contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
                                                 contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
+                                                contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showBlacklistPathDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1146,6 +1150,7 @@ fun SettingsScreen(
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
                 onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
                 onShowFrigateUrlDialog = { showFrigateUrlDialog = true },
+                onShowBlacklistPathDialog = { showBlacklistPathDialog = true },
                 onShowTmdbApiKeyDialog = { showTmdbApiKeyDialog = true },
                 onShowTraktClientIdDialog = { showTraktClientIdDialog = true },
                 onShowTraktClientSecretDialog = { showTraktClientSecretDialog = true },
@@ -1481,6 +1486,9 @@ fun SettingsScreen(
                             onCompletionPercentClick = { showWebhookCompletionDialog = true },
                             frigateUrl = uiState.frigateUrl,
                             onFrigateUrlClick = { showFrigateUrlDialog = true },
+                            groupBlacklistEnabled = uiState.groupBlacklistEnabled,
+                            blacklistPath = uiState.blacklistPath,
+                            onBlacklistPathClick = { showBlacklistPathDialog = true },
                         )
                         "accounts" -> AccountsSettings(
                             isTraktAuthenticated = uiState.isTraktAuthenticated,
@@ -1586,6 +1594,18 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (showBlacklistPathDialog) {
+            ApiKeyDialog(
+                title = "Dispatcharr Blacklist Path",
+                currentValue = uiState.blacklistPath.ifBlank { "/data/dispatcharr_blacklist.txt" },
+                onSave = { path ->
+                    viewModel.saveBlacklistPath(path)
+                    showBlacklistPathDialog = false
+                },
+                onDismiss = { showBlacklistPathDialog = false }
             )
         }
 
@@ -2078,6 +2098,18 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showBlacklistPathDialog) {
+            ApiKeyDialog(
+                title = "Dispatcharr Blacklist Path",
+                currentValue = uiState.blacklistPath.ifBlank { "/data/dispatcharr_blacklist.txt" },
+                onSave = { path ->
+                    viewModel.saveBlacklistPath(path)
+                    showBlacklistPathDialog = false
+                },
+                onDismiss = { showBlacklistPathDialog = false }
             )
         }
 
@@ -3388,6 +3420,7 @@ private fun MobileSettingsLayout(
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
     onShowFrigateUrlDialog: () -> Unit = {},
+    onShowBlacklistPathDialog: () -> Unit = {},
     onShowTmdbApiKeyDialog: () -> Unit = {},
     onShowTraktClientIdDialog: () -> Unit = {},
     onShowTraktClientSecretDialog: () -> Unit = {},
@@ -3481,6 +3514,7 @@ private fun MobileSettingsLayout(
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
                 onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
                 onShowFrigateUrlDialog = onShowFrigateUrlDialog,
+                onShowBlacklistPathDialog = onShowBlacklistPathDialog,
             )
         }
     }
@@ -3681,6 +3715,7 @@ private fun MobileSettingsSubPage(
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowFrigateUrlDialog: () -> Unit = {},
+    onShowBlacklistPathDialog: () -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -3917,6 +3952,9 @@ private fun MobileSettingsSubPage(
                     onCompletionPercentClick = onShowWebhookCompletionDialog,
                     frigateUrl = uiState.frigateUrl,
                     onFrigateUrlClick = onShowFrigateUrlDialog,
+                    groupBlacklistEnabled = uiState.groupBlacklistEnabled,
+                    blacklistPath = uiState.blacklistPath,
+                    onBlacklistPathClick = onShowBlacklistPathDialog,
                 )
             }
             "Catalogs" -> {
@@ -7934,6 +7972,9 @@ private fun StremioAddonsSettings(
     onCompletionPercentClick: () -> Unit = {},
     frigateUrl: String = "",
     onFrigateUrlClick: () -> Unit = {},
+    groupBlacklistEnabled: Boolean = false,
+    blacklistPath: String = "",
+    onBlacklistPathClick: () -> Unit = {},
 ) {
     Column {
         Text(
@@ -8113,6 +8154,27 @@ private fun StremioAddonsSettings(
             onClick = onFrigateUrlClick,
             modifier = Modifier.settingsFocusSlot(addons.size + 5 + webhookUrls.size)
         )
+
+        if (groupBlacklistEnabled) {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "DISPATCHARR",
+                style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+                color = TextSecondary,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+
+            SettingsRow(
+                icon = Icons.Default.Block,
+                title = "Group Blacklist Path",
+                subtitle = if (blacklistPath.isNotBlank()) blacklistPath else "Default: /data/dispatcharr_blacklist.txt",
+                value = "Edit",
+                isFocused = focusedIndex == addons.size + 6 + webhookUrls.size,
+                onClick = onBlacklistPathClick,
+                modifier = Modifier.settingsFocusSlot(addons.size + 6 + webhookUrls.size)
+            )
+        }
 
     }
 }

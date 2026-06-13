@@ -7,6 +7,7 @@ import android.util.Base64
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
@@ -321,6 +322,16 @@ class IptvRepository @Inject constructor(
     fun observeGroupOrder(): Flow<List<String>> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
             decodeGroupOrder(prefs)
+        }
+
+    fun observeNewGroups(): Flow<List<String>> =
+        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
+            decodeNewGroups(prefs)
+        }
+
+    fun observeRemovedGroups(): Flow<List<String>> =
+        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
+            decodeRemovedGroups(prefs)
         }
 
     fun observeTvSessionState(): Flow<IptvTvSessionState> =
@@ -854,6 +865,49 @@ class IptvRepository @Inject constructor(
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle hidden group")
     }
 
+    suspend fun setGroupState(groupName: String, state: GroupState) {
+        val trimmed = groupName.trim()
+        if (trimmed.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val hidden = decodeHiddenGroups(prefs).toMutableList()
+            val new = decodeNewGroups(prefs).toMutableList()
+            val removed = decodeRemovedGroups(prefs).toMutableList()
+            val known = decodeKnownGroups(prefs).toMutableSet()
+            hidden.remove(trimmed)
+            new.remove(trimmed)
+            removed.remove(trimmed)
+            known.add(trimmed)
+            when (state) {
+                GroupState.Show -> { /* already cleared */ }
+                GroupState.Hide -> hidden.add(trimmed)
+                GroupState.Remove -> removed.add(trimmed)
+            }
+            prefs[hiddenGroupsKey()] = gson.toJson(hidden)
+            prefs[newGroupsKey()] = gson.toJson(new)
+            prefs[removedGroupsKey()] = gson.toJson(removed)
+            prefs[knownGroupsKey()] = gson.toJson(known.toList())
+        }
+        writeBlacklistFile()
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "set group state")
+    }
+
+    fun observeGroupBlacklistEnabled(): Flow<Boolean> =
+        context.settingsDataStore.data.map { prefs -> prefs[GROUP_BLACKLIST_ENABLED_KEY] == true }
+
+    private suspend fun writeBlacklistFile() {
+        val prefs = context.settingsDataStore.data.first()
+        if (prefs[GROUP_BLACKLIST_ENABLED_KEY] != true) return
+        val removed = decodeRemovedGroups(prefs)
+        val path = prefs[DISPATCHARR_BLACKLIST_PATH_KEY].orEmpty().ifBlank { "/data/dispatcharr_blacklist.txt" }
+        runCatching {
+            val file = File(path)
+            file.parentFile?.mkdirs()
+            file.writeText(removed.joinToString("\n"))
+        }.onFailure {
+            System.err.println("[IPTV] Failed to write blacklist file at $path: ${it.message}")
+        }
+    }
+
     suspend fun moveGroupUp(groupName: String, currentGroups: List<String> = emptyList()) {
         val target = groupName.trim()
         if (target.isEmpty()) return
@@ -1258,6 +1312,36 @@ class IptvRepository @Inject constructor(
             val hiddenGroups = observeHiddenGroups().first()
             val groupOrder = observeGroupOrder().first()
 
+            // Auto-hide new groups: groups not in knownGroups are added to newGroups.
+            // Migration: if knownGroups is empty on first launch, seed it from all current
+            // groups without auto-hiding anything (preserves existing visible groups on upgrade).
+            val removedGroups = observeRemovedGroups().first()
+            val newGroups: List<String>
+            context.settingsDataStore.edit { prefs ->
+                val knownGroups = decodeKnownGroups(prefs).toMutableSet()
+                val existingNew = decodeNewGroups(prefs).toMutableSet()
+                val removedSet = removedGroups.toHashSet()
+                val hiddenSet = hiddenGroups.toHashSet()
+                val allCurrentGroups = grouped.keys.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                if (knownGroups.isEmpty() && allCurrentGroups.isNotEmpty()) {
+                    // First run after upgrade: mark all current groups known, no auto-hiding
+                    knownGroups.addAll(allCurrentGroups)
+                    prefs[knownGroupsKey()] = gson.toJson(knownGroups.toList())
+                } else {
+                    val unknownGroups = allCurrentGroups.filter {
+                        it !in knownGroups && it !in removedSet && it !in hiddenSet
+                    }
+                    if (unknownGroups.isNotEmpty()) {
+                        existingNew.addAll(unknownGroups)
+                        knownGroups.addAll(unknownGroups)
+                        prefs[newGroupsKey()] = gson.toJson(existingNew.toList())
+                        prefs[knownGroupsKey()] = gson.toJson(knownGroups.toList())
+                    }
+                }
+                // Re-read after potential mutation
+            }
+            newGroups = observeNewGroups().first()
+
             IptvSnapshot(
                 channels = channels,
                 grouped = grouped,
@@ -1265,6 +1349,8 @@ class IptvRepository @Inject constructor(
                 favoriteGroups = favoriteGroups,
                 favoriteChannels = favoriteChannels,
                 hiddenGroups = hiddenGroups,
+                newGroups = newGroups,
+                removedGroups = removedGroups,
                 groupOrder = groupOrder,
                 epgWarning = epgWarning,
                 loadedAt = loadedAtInstant
@@ -1742,6 +1828,9 @@ class IptvRepository @Inject constructor(
     private fun hiddenGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_hidden_groups")
     private fun hiddenGroupsKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_hidden_groups")
+    private fun newGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_new_groups")
+    private fun removedGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_removed_groups")
+    private fun knownGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_known_groups")
     private fun groupOrderKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_group_order")
     private fun groupOrderKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_group_order")
@@ -1767,6 +1856,33 @@ class IptvRepository @Inject constructor(
             val type = TypeToken.getParameterized(List::class.java, String::class.java).type
             gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
         }.getOrDefault(emptyList())
+    }
+
+    private fun decodeNewGroups(prefs: Preferences): List<String> {
+        val raw = prefs[newGroupsKey()].orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun decodeRemovedGroups(prefs: Preferences): List<String> {
+        val raw = prefs[removedGroupsKey()].orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun decodeKnownGroups(prefs: Preferences): Set<String> {
+        val raw = prefs[knownGroupsKey()].orEmpty()
+        if (raw.isBlank()) return emptySet()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.toHashSet() ?: emptySet()
+        }.getOrDefault(emptySet())
     }
 
     private fun mergedGroupOrder(savedOrder: List<String>, currentGroups: List<String>): MutableList<String> {

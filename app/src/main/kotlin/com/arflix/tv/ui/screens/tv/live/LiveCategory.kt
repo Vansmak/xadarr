@@ -281,6 +281,8 @@ data class LiveCategory(
     val flagEmoji: String? = null,
     val children: List<LiveCategory> = emptyList(),
     val playlistGroupName: String? = null,
+    val isNew: Boolean = false,      // auto-hidden on first appearance
+    val isRemoved: Boolean = false,  // marked for Dispatcharr blacklist
 ) {
     val isGroup: Boolean get() = children.isNotEmpty()
 }
@@ -295,6 +297,7 @@ data class LiveCategoryTree(
     val countries: LiveSection,
     val adult: LiveSection,
     val hidden: LiveSection = LiveSection("hidden", "HIDDEN", emptyList()),
+    val removed: LiveSection = LiveSection("removed", "REMOVED", emptyList()),
 ) {
     val allSections: List<LiveSection> = listOf(global, countries, adult)
     fun byId(id: String): LiveCategory? {
@@ -335,6 +338,8 @@ fun buildCategoryTree(
     favoritesCount: Int,
     recentCount: Int,
     hiddenGroups: Set<String> = emptySet(),
+    newGroups: Set<String> = emptySet(),
+    removedGroups: Set<String> = emptySet(),
     groupOrder: List<String> = emptyList(),
 ): LiveCategoryTree {
     data class CountryAccumulator(
@@ -362,12 +367,21 @@ fun buildCategoryTree(
     val countryAccumulators = LinkedHashMap<String, CountryAccumulator>()
     val playlistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
     val hiddenPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val newPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val removedPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
     val hiddenPlaylistGroups = hiddenGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
+    val newPlaylistGroups = newGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
+    val removedPlaylistGroups = removedGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
 
     channels.forEach { channel ->
         val groupLabel = playlistGroupLabel(channel.source.group)
         val groupId = playlistGroupCategoryId(channel.source.group)
-        val targetCounts = if (groupLabel in hiddenPlaylistGroups) hiddenPlaylistGroupCounts else playlistGroupCounts
+        val targetCounts = when {
+            groupLabel in removedPlaylistGroups -> removedPlaylistGroupCounts
+            groupLabel in newPlaylistGroups -> newPlaylistGroupCounts
+            groupLabel in hiddenPlaylistGroups -> hiddenPlaylistGroupCounts
+            else -> playlistGroupCounts
+        }
         val groupCount = targetCounts[groupId]?.second ?: 0
         targetCounts[groupId] = groupLabel to (groupCount + 1)
 
@@ -479,12 +493,19 @@ fun buildCategoryTree(
     val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
+    val newGroupsList = newPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
+    }
+    val removedGroupsList = removedPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
+    }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())
     val adult = LiveSection("adult", "ADULT", emptyList())
-    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList)
+    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList + newGroupsList)
+    val removed = LiveSection("removed", "REMOVED", removedGroupsList)
 
-    return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden)
+    return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden, removed = removed)
 }
 
 fun buildCategoryTree(
@@ -492,6 +513,8 @@ fun buildCategoryTree(
     favorites: Set<String>,
     recents: Set<String>,
     hiddenGroups: Set<String> = emptySet(),
+    newGroups: Set<String> = emptySet(),
+    removedGroups: Set<String> = emptySet(),
     groupOrder: List<String> = emptyList(),
 ): LiveCategoryTree {
     data class RawCountryAccumulator(
@@ -519,13 +542,22 @@ fun buildCategoryTree(
     val countryAccumulators = LinkedHashMap<String, RawCountryAccumulator>()
     val playlistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
     val hiddenPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val newPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
+    val removedPlaylistGroupCounts = LinkedHashMap<String, Pair<String, Int>>()
     val hiddenPlaylistGroups = hiddenGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
+    val newPlaylistGroups = newGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
+    val removedPlaylistGroups = removedGroups.mapTo(HashSet()) { playlistGroupLabel(it) }
 
     channels.forEach { channel ->
         val traits = channel.traits()
         val groupLabel = playlistGroupLabel(channel.group)
         val groupId = playlistGroupCategoryId(channel.group)
-        val targetCounts = if (groupLabel in hiddenPlaylistGroups) hiddenPlaylistGroupCounts else playlistGroupCounts
+        val targetCounts = when {
+            groupLabel in removedPlaylistGroups -> removedPlaylistGroupCounts
+            groupLabel in newPlaylistGroups -> newPlaylistGroupCounts
+            groupLabel in hiddenPlaylistGroups -> hiddenPlaylistGroupCounts
+            else -> playlistGroupCounts
+        }
         val groupCount = targetCounts[groupId]?.second ?: 0
         targetCounts[groupId] = groupLabel to (groupCount + 1)
 
@@ -633,12 +665,19 @@ fun buildCategoryTree(
     val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
+    val newGroupsList = newPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
+    }
+    val removedGroupsList = removedPlaylistGroupCounts.map { (id, value) ->
+        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
+    }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())
     val adult = LiveSection("adult", "ADULT", emptyList())
-    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList)
+    val hidden = LiveSection("hidden", "HIDDEN", hiddenGroupsList + newGroupsList)
+    val removed = LiveSection("removed", "REMOVED", removedGroupsList)
 
-    return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden)
+    return LiveCategoryTree(top = top, global = global, countries = countries, adult = adult, hidden = hidden, removed = removed)
 }
 
 private fun orderPlaylistGroups(

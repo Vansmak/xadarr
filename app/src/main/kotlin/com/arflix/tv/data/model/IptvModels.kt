@@ -43,6 +43,9 @@ data class IptvProgram(
     fun startsInMinutes(atUtcMillis: Long): Long = ((startUtcMillis - atUtcMillis) / 60_000L).coerceAtLeast(0L)
 }
 
+/** Three-state visibility for M3U provider groups. */
+enum class GroupState { Show, Hide, Remove }
+
 /**
  * Loaded IPTV snapshot used by UI.
  */
@@ -53,6 +56,8 @@ data class IptvSnapshot(
     val favoriteGroups: List<String> = emptyList(),
     val favoriteChannels: List<String> = emptyList(),
     val hiddenGroups: List<String> = emptyList(),
+    val newGroups: List<String> = emptyList(),      // auto-hidden on first appearance
+    val removedGroups: List<String> = emptyList(),  // marked for Dispatcharr blacklist
     val groupOrder: List<String> = emptyList(),
     val epgWarning: String? = null,
     val loadedAt: Instant = Instant.now()

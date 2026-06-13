@@ -2881,6 +2881,7 @@ private fun MobileHomeRowsLayer(
             key = { _, category -> category.id },
             contentType = { _, _ -> "mobile_home_category_row" }
         ) { _, category ->
+            if (category.id == HomeViewModel.APPS_CATEGORY_ID) return@itemsIndexed
             val isContinueWatching = category.id == "continue_watching"
             val isRanked = category.title.contains("Top 10", ignoreCase = true)
             val isCollectionRow = category.id.startsWith("collection_row_")
@@ -3201,7 +3202,7 @@ private fun TvHomeRowsLayer(
                         usePosterCards = focusedRowUsePosterCards
                     ),
                     enter = fadeIn(tween(60)),
-                    exit = fadeOut(tween(60))
+                    exit = fadeOut(tween(0))
                 ) {
                     HomeViewportRailFocusOverlay(
                         category = focusedCategory,

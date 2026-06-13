@@ -217,7 +217,8 @@ data class AddonManifest(
     val resources: List<AddonResource> = emptyList(),
     val catalogs: List<AddonCatalog> = emptyList(),
     val idPrefixes: List<String>? = null,          // ["tt"] for IMDB, ["kitsu:"] for Kitsu
-    val behaviorHints: AddonBehaviorHints? = null
+    val behaviorHints: AddonBehaviorHints? = null,
+    val xadarr: XadarrExtensions? = null
 ) : Serializable
 
 /**
@@ -251,6 +252,15 @@ data class AddonBehaviorHints(
     val p2p: Boolean = false,
     val configurable: Boolean = false,
     val configurationRequired: Boolean = false
+) : Serializable
+
+data class XadarrExtensions(
+    val extensions: List<String> = emptyList(),
+    val groupBlacklist: GroupBlacklistExtension? = null
+) : Serializable
+
+data class GroupBlacklistExtension(
+    val defaultPath: String = "/data/dispatcharr_blacklist.txt"
 ) : Serializable
 
 /**

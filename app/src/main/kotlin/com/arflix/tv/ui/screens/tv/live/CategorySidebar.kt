@@ -42,6 +42,10 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.FiberNew
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,6 +79,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.arflix.tv.data.model.GroupState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -91,11 +96,13 @@ fun CategorySidebar(
     selectedId: String,
     expanded: Boolean,
     favoriteSortMode: FavoriteSortMode = FavoriteSortMode.DateAdded,
+    groupBlacklistEnabled: Boolean = false,
     onFavoriteSortToggle: () -> Unit = {},
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onHideCategory: (String) -> Unit = {},
     onUnhideCategory: (String) -> Unit = {},
+    onSetGroupState: (String, GroupState) -> Unit = { _, _ -> },
     onMoveCategoryUp: (String) -> Unit = {},
     onMoveCategoryToTop: (String) -> Unit = {},
     onMoveCategoryDown: (String) -> Unit = {},
@@ -117,6 +124,7 @@ fun CategorySidebar(
     var expandedCountry by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedAll by rememberSaveable { mutableStateOf(false) }
     var menuForGroup by rememberSaveable { mutableStateOf<String?>(null) }
+    var groupEditMode by rememberSaveable { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val firstCategoryFocusRequester = remember { FocusRequester() }
     val activeCategoryFocusRequester = remember(selectedId) { FocusRequester() }
@@ -284,16 +292,20 @@ fun CategorySidebar(
                         expanded = expanded,
                         showMenu = menuForGroup == cat.playlistGroupName,
                         canHide = cat.playlistGroupName != null,
+                        canRemove = cat.playlistGroupName != null && groupBlacklistEnabled,
                         canMove = cat.playlistGroupName != null,
                         onFocused = { onTopBoundaryFocusChanged(false) },
-                        onLongClick = {
-                            menuForGroup = cat.playlistGroupName
-                        },
+                        onLongClick = { menuForGroup = cat.playlistGroupName },
                         onDismissMenu = { menuForGroup = null },
                         onHide = {
                             val groupName = cat.playlistGroupName ?: return@SidebarRow
                             menuForGroup = null
                             onHideCategory(groupName)
+                        },
+                        onRemove = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            menuForGroup = null
+                            onSetGroupState(groupName, GroupState.Remove)
                         },
                         onMoveUp = {
                             val groupName = cat.playlistGroupName ?: return@SidebarRow
@@ -311,6 +323,19 @@ fun CategorySidebar(
                             onMoveCategoryDown(groupName)
                         },
                         onClick = { onSelect(cat.id) },
+                    )
+                }
+                // Edit groups toggle — at the end of the PLAYLIST section
+                item {
+                    SidebarRow(
+                        label = if (groupEditMode) "Done editing" else "Edit groups",
+                        count = 0,
+                        icon = if (groupEditMode) Icons.Filled.DoneAll else Icons.Filled.Edit,
+                        active = false,
+                        expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = { groupEditMode = !groupEditMode },
+                        labelSize = 10.sp,
                     )
                 }
             }
@@ -372,19 +397,61 @@ fun CategorySidebar(
                     )
                 }
             }
-            if (tree.hidden.categories.isNotEmpty()) {
+            if (groupEditMode && tree.hidden.categories.isNotEmpty()) {
                 item { SectionHeader(tree.hidden.label, expanded) }
                 items(tree.hidden.categories, key = { "hidden:${it.id}" }) { cat ->
                     SidebarRow(
                         label = cat.label,
                         count = cat.count,
-                        icon = Icons.Filled.VisibilityOff,
+                        icon = if (cat.isNew) Icons.Filled.FiberNew else Icons.Filled.VisibilityOff,
                         active = false,
                         expanded = expanded,
+                        badge = if (cat.isNew && expanded) "NEW" else null,
+                        showMenu = menuForGroup == cat.playlistGroupName,
+                        canUnhide = cat.playlistGroupName != null,
+                        canRemove = cat.playlistGroupName != null && groupBlacklistEnabled,
                         onFocused = { onTopBoundaryFocusChanged(false) },
+                        onLongClick = { menuForGroup = cat.playlistGroupName },
+                        onDismissMenu = { menuForGroup = null },
+                        onUnhide = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            menuForGroup = null
+                            onSetGroupState(groupName, GroupState.Show)
+                        },
+                        onRemove = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            menuForGroup = null
+                            onSetGroupState(groupName, GroupState.Remove)
+                        },
                         onClick = {
                             val groupName = cat.playlistGroupName ?: return@SidebarRow
-                            onUnhideCategory(groupName)
+                            onSetGroupState(groupName, GroupState.Show)
+                        },
+                    )
+                }
+            }
+            if (groupEditMode && tree.removed.categories.isNotEmpty()) {
+                item { SectionHeader(tree.removed.label, expanded) }
+                items(tree.removed.categories, key = { "removed:${it.id}" }) { cat ->
+                    SidebarRow(
+                        label = cat.label,
+                        count = cat.count,
+                        icon = Icons.Filled.Block,
+                        active = false,
+                        expanded = expanded,
+                        showMenu = menuForGroup == cat.playlistGroupName,
+                        canRestore = cat.playlistGroupName != null,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onLongClick = { menuForGroup = cat.playlistGroupName },
+                        onDismissMenu = { menuForGroup = null },
+                        onRestore = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            menuForGroup = null
+                            onSetGroupState(groupName, GroupState.Show)
+                        },
+                        onClick = {
+                            val groupName = cat.playlistGroupName ?: return@SidebarRow
+                            onSetGroupState(groupName, GroupState.Show)
                         },
                     )
                 }
@@ -492,10 +559,15 @@ private fun SidebarRow(
     showMenu: Boolean = false,
     canHide: Boolean = false,
     canUnhide: Boolean = false,
+    canRemove: Boolean = false,
+    canRestore: Boolean = false,
     canMove: Boolean = false,
+    badge: String? = null,
     onDismissMenu: () -> Unit = {},
     onHide: () -> Unit = {},
     onUnhide: () -> Unit = {},
+    onRemove: () -> Unit = {},
+    onRestore: () -> Unit = {},
     onMoveUp: () -> Unit = {},
     onMoveToTop: () -> Unit = {},
     onMoveDown: () -> Unit = {},
@@ -633,6 +705,16 @@ private fun SidebarRow(
                         style = LiveType.NumberMono.copy(color = LiveColors.FgMute, fontSize = 7.sp),
                     )
                 }
+                if (badge != null) {
+                    Text(
+                        text = badge,
+                        style = LiveType.NumberMono.copy(
+                            color = Color(0xFFFF8C00),
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    )
+                }
                 if (hasChildren) {
                     Icon(
                         imageVector = if (isOpenGroup)
@@ -644,14 +726,18 @@ private fun SidebarRow(
                 }
             }
         }
-        if (showMenu && (canHide || canUnhide || canMove)) {
+        if (showMenu && (canHide || canUnhide || canRemove || canRestore || canMove)) {
             CategoryContextMenu(
                 onDismiss = onDismissMenu,
                 canHide = canHide,
                 canUnhide = canUnhide,
+                canRemove = canRemove,
+                canRestore = canRestore,
                 canMove = canMove,
                 onHide = onHide,
                 onUnhide = onUnhide,
+                onRemove = onRemove,
+                onRestore = onRestore,
                 onMoveUp = onMoveUp,
                 onMoveToTop = onMoveToTop,
                 onMoveDown = onMoveDown,
@@ -666,9 +752,13 @@ private fun CategoryContextMenu(
     onDismiss: () -> Unit,
     canHide: Boolean,
     canUnhide: Boolean,
+    canRemove: Boolean = false,
+    canRestore: Boolean = false,
     canMove: Boolean,
     onHide: () -> Unit,
     onUnhide: () -> Unit,
+    onRemove: () -> Unit = {},
+    onRestore: () -> Unit = {},
     onMoveUp: () -> Unit,
     onMoveToTop: () -> Unit,
     onMoveDown: () -> Unit,
@@ -680,10 +770,16 @@ private fun CategoryContextMenu(
             add(CategoryMenuAction("Move down", Icons.Filled.KeyboardArrowDown, onMoveDown))
         }
         if (canHide) {
-            add(CategoryMenuAction("Hide category", Icons.Filled.VisibilityOff, onHide))
+            add(CategoryMenuAction("Hide group", Icons.Filled.VisibilityOff, onHide))
         }
         if (canUnhide) {
-            add(CategoryMenuAction("Unhide category", Icons.Filled.Visibility, onUnhide))
+            add(CategoryMenuAction("Show group", Icons.Filled.Visibility, onUnhide))
+        }
+        if (canRemove) {
+            add(CategoryMenuAction("Remove group", Icons.Filled.Block, onRemove))
+        }
+        if (canRestore) {
+            add(CategoryMenuAction("Restore group", Icons.Filled.Visibility, onRestore))
         }
     }
     if (actions.isEmpty()) return

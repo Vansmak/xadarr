@@ -2337,6 +2337,11 @@ class HomeViewModel @Inject constructor(
                                             hasMore = result.hasMore && !isHardCappedTop10Catalog(cfg.id)
                                         )
                                         category
+                                    } else if (cfg.sourceType == com.arflix.tv.data.model.CatalogSourceType.ADDON ||
+                                        cfg.sourceType == com.arflix.tv.data.model.CatalogSourceType.HOME_SERVER) {
+                                        // Keep addon/server rows in allById even when empty so the
+                                        // resolved-list step can decide to keep them visible.
+                                        Category(id = cfg.id, title = cfg.title, items = emptyList())
                                     } else null
                                 } catch (_: Exception) { null }
                             }
@@ -2394,7 +2399,14 @@ class HomeViewModel @Inject constructor(
                             return@mapNotNull null
                         }
                         val cat = allById[cfg.id]
-                        if (cat == null || cat.items.isEmpty()) return@mapNotNull null
+                        if (cat == null) return@mapNotNull null
+                        // Preinstalled rows (Trending, Top 10, etc.) are hidden when empty.
+                        // Addon and home-server rows are kept even when empty so they stay
+                        // visible rather than silently disappearing when the addon is
+                        // unreachable or items can't resolve to TMDB.
+                        val isUserConfiguredRow = cfg.sourceType == com.arflix.tv.data.model.CatalogSourceType.ADDON ||
+                            cfg.sourceType == com.arflix.tv.data.model.CatalogSourceType.HOME_SERVER
+                        if (cat.items.isEmpty() && !isUserConfiguredRow) return@mapNotNull null
                         if (!cfg.isPreinstalled &&
                             cat.title.trim().lowercase(Locale.US) in serviceTitleBlocklist
                         ) return@mapNotNull null

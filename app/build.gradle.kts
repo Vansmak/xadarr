@@ -30,8 +30,8 @@ android {
         // Fire TV devices can be as low as Android 7.1 (API 25) or lower depending on model/OS.
         minSdk = 23
         targetSdk = 35
-        versionCode = 328
-        versionName = "2.6.2"
+        versionCode = 329
+        versionName = "2.7"
         buildConfigField("String", "GITHUB_OWNER", "\"Vansmak\"")
         buildConfigField("String", "GITHUB_REPO", "\"xadarr\"")
 
@@ -111,6 +111,12 @@ android {
             isDebuggable = true
             // applicationIdSuffix = ".debug" // Disabled to preserve settings between debug/release
             versionNameSuffix = "-debug"
+
+            // Use release signing if configured so sideload APKs stay update-compatible.
+            // Falls back to debug keystore if keystore.properties is absent.
+            val releaseSigningConfig = signingConfigs.findByName("release")
+            signingConfig = if (releaseSigningConfig?.storeFile != null) releaseSigningConfig
+                            else signingConfigs.getByName("debug")
 
             // Build config fields for debug
             buildConfigField("Boolean", "ENABLE_CRASH_REPORTING", "false")

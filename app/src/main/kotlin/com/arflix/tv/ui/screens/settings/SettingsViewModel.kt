@@ -206,6 +206,8 @@ data class SettingsUiState(
     val driveAccountName: String? = null,
     val driveAvailableAccounts: List<String> = emptyList(),
     val frigateUrl: String = "",
+    val blacklistPath: String = "",
+    val groupBlacklistEnabled: Boolean = false,
     val tmdbApiKey: String = "",
     val traktClientId: String = "",
     val traktClientSecret: String = "",
@@ -481,6 +483,8 @@ class SettingsViewModel @Inject constructor(
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
+            val blacklistPath = prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY].orEmpty().trim()
+            val groupBlacklistEnabled = prefs[com.arflix.tv.data.repository.GROUP_BLACKLIST_ENABLED_KEY] ?: false
             val tmdbApiKey = prefs[com.arflix.tv.data.repository.USER_TMDB_API_KEY].orEmpty()
             val traktClientId = prefs[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_ID].orEmpty()
             val traktClientSecret = prefs[com.arflix.tv.data.repository.USER_TRAKT_CLIENT_SECRET].orEmpty()
@@ -578,6 +582,8 @@ class SettingsViewModel @Inject constructor(
                 syncServerUrl = syncServerUrl,
                 episeerrUrl = episeerrUrl,
                 frigateUrl = frigateUrl,
+                blacklistPath = blacklistPath,
+                groupBlacklistEnabled = groupBlacklistEnabled,
                 tmdbApiKey = tmdbApiKey,
                 traktClientId = traktClientId,
                 traktClientSecret = traktClientSecret,
@@ -633,6 +639,19 @@ class SettingsViewModel @Inject constructor(
                 }
                 if (_uiState.value.addons != addons) {
                     _uiState.value = _uiState.value.copy(addons = addons)
+                }
+                val enabled = addons.any { it.isEnabled && it.manifest?.xadarr?.extensions?.contains("group_blacklist") == true }
+                context.settingsDataStore.edit { it[com.arflix.tv.data.repository.GROUP_BLACKLIST_ENABLED_KEY] = enabled }
+                if (enabled) {
+                    val defaultPath = addons.firstOrNull { it.isEnabled && it.manifest?.xadarr?.extensions?.contains("group_blacklist") == true }
+                        ?.manifest?.xadarr?.groupBlacklist?.defaultPath
+                    if (!defaultPath.isNullOrBlank()) {
+                        context.settingsDataStore.edit { prefs ->
+                            if (prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY].isNullOrBlank()) {
+                                prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY] = defaultPath
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1308,6 +1327,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.FRIGATE_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(frigateUrl = url.trim())
+        }
+    }
+
+    fun saveBlacklistPath(path: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY] = path.trim() }
+            _uiState.value = _uiState.value.copy(blacklistPath = path.trim())
         }
     }
 

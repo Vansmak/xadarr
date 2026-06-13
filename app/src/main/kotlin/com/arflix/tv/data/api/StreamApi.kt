@@ -119,7 +119,17 @@ data class StremioManifestResponse(
     val resources: List<Any>? = null,  // Can be String or StremioResourceDescriptor
     val catalogs: List<StremioCatalog>? = null,
     val idPrefixes: List<String>? = null,
-    val behaviorHints: StremioAddonBehaviorHints? = null
+    val behaviorHints: StremioAddonBehaviorHints? = null,
+    val xadarr: StremioXadarrExtensions? = null
+)
+
+data class StremioXadarrExtensions(
+    val extensions: List<String>? = null,
+    val groupBlacklist: StremioGroupBlacklistExtension? = null
+)
+
+data class StremioGroupBlacklistExtension(
+    val defaultPath: String? = null
 )
 
 data class StremioResourceDescriptor(

@@ -70,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.data.model.Profile
@@ -174,7 +175,11 @@ fun LiveTvScreen(
     val favoriteSortMode by viewModel.favoriteSortMode.collectAsStateWithLifecycle()
     val recents = remember { mutableStateOf<LinkedHashSet<String>>(LinkedHashSet()) }
     val favSet = remember(state.snapshot.favoriteChannels) { state.snapshot.favoriteChannels.toSet() }
-    val hiddenGroupSet = remember(state.snapshot.hiddenGroups) { state.snapshot.hiddenGroups.toSet() }
+    val hiddenGroupSet = remember(state.snapshot.hiddenGroups, state.snapshot.newGroups, state.snapshot.removedGroups) {
+        (state.snapshot.hiddenGroups + state.snapshot.newGroups + state.snapshot.removedGroups).toSet()
+    }
+    val newGroupSet = remember(state.snapshot.newGroups) { state.snapshot.newGroups.toSet() }
+    val removedGroupSet = remember(state.snapshot.removedGroups) { state.snapshot.removedGroups.toSet() }
     var seededRecentSessionChannel by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.tvSession.lastChannelId) {
         if (!seededRecentSessionChannel && state.tvSession.lastChannelId.isNotBlank()) {
@@ -221,7 +226,9 @@ fun LiveTvScreen(
                 channels = initialChannels,
                 favoritesCount = favSet.count { it in initialIndex.byId },
                 recentCount = recents.value.count { it in initialIndex.byId },
-                hiddenGroups = hiddenGroupSet,
+                hiddenGroups = state.snapshot.hiddenGroups.toSet(),
+                newGroups = newGroupSet,
+                removedGroups = removedGroupSet,
                 groupOrder = state.snapshot.groupOrder,
             )
         }
@@ -239,7 +246,9 @@ fun LiveTvScreen(
                 channels = enriched,
                 favoritesCount = favSet.count { it in index.byId },
                 recentCount = recents.value.count { it in index.byId },
-                hiddenGroups = hiddenGroupSet,
+                hiddenGroups = state.snapshot.hiddenGroups.toSet(),
+                newGroups = newGroupSet,
+                removedGroups = removedGroupSet,
                 groupOrder = state.snapshot.groupOrder,
             )
         }
@@ -248,8 +257,8 @@ fun LiveTvScreen(
         viewModel.cachedEnrichedChannels = value
         viewModel.cachedChannelsSignature = signature
     }
-    // Re-evaluate only dynamic counts when favorites/recents change.
-    LaunchedEffect(favSet, hiddenGroupSet, state.snapshot.groupOrder, recents.value, enrichedState.value.all) {
+    // Re-evaluate only dynamic counts when favorites/recents/hidden change.
+    LaunchedEffect(favSet, hiddenGroupSet, newGroupSet, removedGroupSet, state.snapshot.groupOrder, recents.value, enrichedState.value.all) {
         val current = enrichedState.value
         if (current === EnrichedChannels.Empty) return@LaunchedEffect
         val byId = current.index.byId
@@ -258,7 +267,9 @@ fun LiveTvScreen(
                 channels = current.all,
                 favoritesCount = favSet.count { it in byId },
                 recentCount = recents.value.count { it in byId },
-                hiddenGroups = hiddenGroupSet,
+                hiddenGroups = state.snapshot.hiddenGroups.toSet(),
+                newGroups = newGroupSet,
+                removedGroups = removedGroupSet,
                 groupOrder = state.snapshot.groupOrder,
             )
         }
@@ -918,15 +929,20 @@ fun LiveTvScreen(
                         selectedId = selectedCategoryId,
                         expanded = sidebarExpanded,
                         favoriteSortMode = favoriteSortMode,
+                        groupBlacklistEnabled = state.groupBlacklistEnabled,
                         onFavoriteSortToggle = { viewModel.cycleFavoriteSortMode() },
                         onSelect = { id -> selectedCategoryId = id },
                         onOpenSearch = { searchOpen = true },
                         onHideCategory = { groupName ->
                             selectedCategoryId = "all"
-                            viewModel.toggleHiddenGroup(groupName)
+                            viewModel.setGroupState(groupName, GroupState.Hide)
                         },
                         onUnhideCategory = { groupName ->
-                            viewModel.toggleHiddenGroup(groupName)
+                            viewModel.setGroupState(groupName, GroupState.Show)
+                        },
+                        onSetGroupState = { groupName, newState ->
+                            if (newState == GroupState.Hide) selectedCategoryId = "all"
+                            viewModel.setGroupState(groupName, newState)
                         },
                         onMoveCategoryUp = { groupName ->
                             viewModel.moveGroupUp(groupName)

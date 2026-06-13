@@ -38,6 +38,7 @@ object SecureStorage {
         if (value.isNullOrBlank()) return null
         if (!value.startsWith(PREFIX)) return value
         return runCatching {
+            val key = getExistingKey(alias) ?: return null
             val payload = value.removePrefix(PREFIX)
             val parts = payload.split(':', limit = 2)
             if (parts.size != 2) return null
@@ -45,9 +46,16 @@ object SecureStorage {
             val data = Base64.decode(parts[1], Base64.NO_WRAP)
             if (iv.size != IV_LENGTH) return null
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(alias), GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH, iv))
             String(cipher.doFinal(data), StandardCharsets.UTF_8)
         }.getOrNull()
+    }
+
+    // Returns null if the key doesn't exist — never creates a new key during decrypt,
+    // because a newly generated key can't decrypt ciphertext from the original key.
+    private fun getExistingKey(alias: String): SecretKey? {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        return keyStore.getKey(alias, null) as? SecretKey
     }
 
     private fun getOrCreateKey(alias: String): SecretKey {

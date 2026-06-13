@@ -639,6 +639,16 @@ class StreamRepository @Inject constructor(
                     configurable = it.configurable ?: false,
                     configurationRequired = it.configurationRequired ?: false
                 )
+            },
+            xadarr = manifest.xadarr?.let { x ->
+                com.arflix.tv.data.model.XadarrExtensions(
+                    extensions = x.extensions ?: emptyList(),
+                    groupBlacklist = x.groupBlacklist?.let { gb ->
+                        com.arflix.tv.data.model.GroupBlacklistExtension(
+                            defaultPath = gb.defaultPath ?: "/data/dispatcharr_blacklist.txt"
+                        )
+                    }
+                )
             }
         )
     }

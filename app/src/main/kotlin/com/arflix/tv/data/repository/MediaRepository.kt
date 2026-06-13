@@ -1495,7 +1495,9 @@ class MediaRepository @Inject constructor(
         val effectiveMaxItems = if (catalog.isTop10Catalog()) maxItems.coerceAtMost(10) else maxItems
         if (catalog.sourceType == CatalogSourceType.HOME_SERVER) {
             val page = loadHomeServerCatalogPage(catalog, offset = 0, limit = effectiveMaxItems)
-            return@coroutineScope if (page.items.isEmpty()) null else Category(catalog.id, catalog.title, page.items)
+            // Keep home-server rows even when empty — connection may be temporarily
+            // unreachable and the row should stay visible rather than silently disappear.
+            return@coroutineScope Category(catalog.id, catalog.title, page.items)
         }
         val mediaRefs = when (catalog.sourceType) {
             CatalogSourceType.TRAKT -> loadTraktCatalogRefs(catalog.sourceUrl, catalog.sourceRef)
@@ -1504,7 +1506,13 @@ class MediaRepository @Inject constructor(
             CatalogSourceType.PREINSTALLED -> emptyList()
             CatalogSourceType.HOME_SERVER -> emptyList()
         }
-        if (mediaRefs.isEmpty()) return@coroutineScope null
+        // For addon catalogs, keep the row even when refs are empty so it stays
+        // visible instead of silently disappearing when the addon is unreachable.
+        if (mediaRefs.isEmpty()) {
+            return@coroutineScope if (catalog.sourceType == CatalogSourceType.ADDON)
+                Category(catalog.id, catalog.title, emptyList())
+            else null
+        }
 
         val semaphore = Semaphore(6)
         val jobs = mediaRefs.distinct().take(effectiveMaxItems).map { (type, tmdbId) ->
@@ -1520,7 +1528,8 @@ class MediaRepository @Inject constructor(
             }
         }
         val items = jobs.mapNotNull { it.await() }
-        if (items.isEmpty()) return@coroutineScope null
+        // For addon catalogs, keep the row even when TMDB resolution yields nothing.
+        if (items.isEmpty() && catalog.sourceType != CatalogSourceType.ADDON) return@coroutineScope null
         Category(
             id = catalog.id,
             title = catalog.title,

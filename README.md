@@ -163,6 +163,19 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 
 ## Changelog
 
+### v2.7
+- **IPTV group management** — three-state per group: Show / Hide / Remove. Long-press "Edit groups" in the TV guide category sidebar to manage all groups. New groups that appear in an M3U sync are automatically hidden and badged "NEW" until you explicitly show them.
+- **Dispatcharr integration** — install the Dispatcharr Bridge addon (`http://your-xadarr-server:7979/dispatcharr-bridge`) to unlock group removal. Groups marked Remove are written to a blacklist file that Dispatcharr's maintenance script reads on the next sync run.
+- **Empty catalogue rows stay visible** — addon and home-server rows no longer silently disappear when the addon is temporarily unreachable or returns no results. The row stays in place so you know it exists and can tell when it comes back.
+- **Consistent APK signing** — sideload builds now use a stable release keystore so updates install over existing copies without forcing an uninstall.
+- **SecureStorage decrypt fix** — decrypting a value no longer silently generates a new key, which would make the ciphertext permanently unreadable. Decrypt now returns null when the original key is absent.
+
+### v2.6.2
+- **Fix: home server credentials wiped on sync** — Jellyfin/Plex connection tokens are device-specific and can't be transferred. They are now stripped from all outgoing sync payloads (xadarr-server, LAN, Drive) and ignored on incoming ones. Previously, syncing a settings blob from another device silently blanked the token, requiring re-entry of server credentials.
+
+### v2.6.1
+- Network section added to mobile/tablet Settings (LAN Sync rows).
+
 ### v2.6
 - **LAN Sync overhaul** — fixed a timing bug where the startup sync pull fired before mDNS peer discovery completed, causing initial sync to silently fail. Devices now push to peers immediately when a new peer is discovered, with no manual trigger needed.
 - **LAN Sync conflict resolution** — two modes: **Master** (this device always wins; set in Settings → Network → LAN Sync Master) and **last-change-wins** (default, no master set). Each snapshot is timestamped; the most recently changed snapshot wins when no master is designated. Prevents a freshly installed device from overwriting an established device's settings.
