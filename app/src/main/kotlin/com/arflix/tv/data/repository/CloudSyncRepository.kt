@@ -708,9 +708,7 @@ class CloudSyncRepository @Inject constructor(
 
     /**
      * Strips IPTV playlist credentials and home server connections from a snapshot before
-     * uploading to Google Drive. LAN and xadarr-server sync always get the full payload.
-     * On Drive pull, absent fields are skipped (not overwritten), so existing local
-     * credentials are never wiped.
+     * uploading to Google Drive.
      */
     private fun sanitizeForDriveBackup(payload: String): String = runCatching {
         val root = JSONObject(payload)
@@ -739,6 +737,23 @@ class CloudSyncRepository @Inject constructor(
 
         root.toString()
     }.getOrDefault(payload)
+
+    // Home server connections are never synced to any backend: they contain device-specific
+    // credentials (tokens encrypted with the local KeyStore). Re-importing them elsewhere
+    // would silently blank the token on decrypt, making the connection unusable.
+    private fun stripHomeServerConnections(payload: String): String = runCatching {
+        val root = JSONObject(payload)
+        root.optJSONObject("profileSettingsById")?.let { byProfile ->
+            byProfile.keys().forEach { profileId ->
+                byProfile.optJSONObject(profileId)?.remove("homeServerConnectionJson")
+            }
+        }
+        root.toString()
+    }.getOrDefault(payload)
+
+    private fun sanitizeForLanSync(payload: String): String = stripHomeServerConnections(payload)
+
+    private fun sanitizeForServerSync(payload: String): String = stripHomeServerConnections(payload)
 
     suspend fun pushToCloud(): Result<Unit> = cloudSyncMutex.withLock {
         pushToCloudLocked()
@@ -778,7 +793,8 @@ class CloudSyncRepository @Inject constructor(
             repositoryScope.launch { driveSyncRepository.push(drivePayload) }
         }
         if (lanPeers.isNotEmpty()) {
-            repositoryScope.launch { lanSyncService.pushToPeers(payload) }
+            val lanPayload = sanitizeForLanSync(payload)
+            repositoryScope.launch { lanSyncService.pushToPeers(lanPayload) }
         }
 
         if (!hasServer) {
@@ -793,7 +809,7 @@ class CloudSyncRepository @Inject constructor(
             return Result.success(Unit)
         }
 
-        val result = syncServerSavePayload(payload)
+        val result = syncServerSavePayload(sanitizeForServerSync(payload))
         if (result.isSuccess) {
             clearLocalDirtyAfterSuccessfulPush()
             AppLogger.breadcrumb(
@@ -1048,9 +1064,9 @@ class CloudSyncRepository @Inject constructor(
                         if (state.iptvGroupOrder.isNotBlank()) prefs[iptvGroupOrderKeyFor(profileId)] = state.iptvGroupOrder
                         prefs[secondarySubtitleKeyFor(profileId)] = state.secondarySubtitle.ifBlank { "Off" }
                         prefs[filterSubtitlesByLanguageKeyFor(profileId)] = state.filterSubtitlesByLanguage
-                        state.homeServerConnectionJson?.let { homeServerConnectionJson ->
-                            homeServerConnectionsToImport[profileId] = homeServerConnectionJson
-                        }
+                        // Home server connections are device-specific — never apply from cloud.
+                        // The token was exported as plain text but decrypt() expects ciphertext,
+                        // so re-importing would blank the token. Connections are managed locally.
                         state.torrServerBaseUrl?.let { torrServerBaseUrl ->
                             torrServerUrlsToImport[profileId] = torrServerBaseUrl
                         }
