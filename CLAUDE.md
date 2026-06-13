@@ -312,17 +312,16 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 ## Current Version
 
-**v2.6** — LAN Sync overhaul: timing fix, conflict resolution (master/timestamp), live status in Settings, moved to Network section.
+**v2.6.2** — Fix Jellyfin/Plex credentials wiped by cloud sync.
 
-Changes since v2.5:
-- Fixed startup sync timing bug: pull fired before mDNS discovery; now pushes on peer discovery.
-- `shouldApplyLanPayload()` in `CloudSyncRepository`: master flag first, then timestamp (incoming ≥ local = apply). Prevents fresh installs overwriting existing devices.
-- `LAN_SYNC_MASTER_KEY` + `LAN_SYNC_LAST_MODIFIED_KEY` added to `WebhookRepository.kt`.
-- `clearLocalDirtyAfterSuccessfulPush()` persists timestamp to DataStore before clearing `latestLocalDirtyAt`.
-- `CloudSyncCoordinator` observes `lanSyncService.peers`; pushes on new peer discovery (500ms debounce).
-- LAN Sync settings moved from stremio section (Plugins & Extensions) to network section (rows 38/39/40).
-- `SettingsUiState` gains `lanSyncMaster`, `lanSyncPeerCount`, `lanSyncLastSyncedAt`.
-- LAN Sync toggle now actually starts/stops `LanSyncService`; `webAppServer` always runs.
+Changes since v2.6.1:
+- `homeServerConnectionJson` is now stripped from all outgoing sync payloads (xadarr-server, LAN, Drive already did this). Home server tokens are device-specific (Android KeyStore) and can't be decrypted on another device or re-imported — doing so silently blanked the token, making the connection unusable and requiring re-entry of credentials.
+- Apply path in `CloudSyncRepository` also ignores `homeServerConnectionJson` from incoming payloads, so stale values already stored on xadarr-server can't cause a recurrence.
+- Key invariant: **home server connections are always local-only**. Never sync `homeServerConnectionJson` anywhere.
+
+Changes since v2.6:
+- v2.6.1: Network section added to mobile/tablet settings (LAN Sync rows 38/39/40).
+- v2.6: LAN Sync overhaul: timing fix, conflict resolution (master/timestamp), live status in Settings, moved to Network section.
 
 ## TODO
 
