@@ -83,7 +83,7 @@ Download the latest APK from [Releases](https://github.com/Vansmak/xadarr/releas
 
 **Downloader app URL:**
 ```
-https://github.com/Vansmak/xadarr/releases/latest/download/app-sideload-debug.apk
+https://github.com/Vansmak/xadarr/releases/latest/download/xadarr-latest.apk
 ```
 
 The app checks for updates itself. Settings → Accounts → App Update.
