@@ -256,11 +256,16 @@ data class AddonBehaviorHints(
 
 data class XadarrExtensions(
     val extensions: List<String> = emptyList(),
-    val groupBlacklist: GroupBlacklistExtension? = null
+    val groupBlacklist: GroupBlacklistExtension? = null,
+    val episeerrSync: EpiseerrSyncConfig? = null
 ) : Serializable
 
 data class GroupBlacklistExtension(
     val defaultPath: String = "/data/dispatcharr_blacklist.txt"
+) : Serializable
+
+data class EpiseerrSyncConfig(
+    val syncPrefix: String? = null
 ) : Serializable
 
 /**

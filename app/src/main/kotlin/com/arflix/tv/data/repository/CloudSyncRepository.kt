@@ -102,13 +102,26 @@ class CloudSyncRepository @Inject constructor(
     private suspend fun syncServerBaseUrl(): String =
         context.settingsDataStore.data.first()[SYNC_SERVER_URL_KEY].orEmpty().trim().trimEnd('/')
 
+    /**
+     * Returns the sync API prefix to use for all sync server calls.
+     * If an installed addon declares xadarr.episeerrSync.syncPrefix, that value
+     * is used — allowing an Episeerr addon manifest to advertise its endpoint prefix.
+     * Falls back to /api/integration/xadarr (the xadarr-server default).
+     */
+    private suspend fun syncApiPrefix(): String =
+        streamRepository.installedAddons.first()
+            .firstNotNullOfOrNull { addon ->
+                addon.manifest?.xadarr?.episeerrSync?.syncPrefix?.takeIf { it.isNotBlank() }
+            } ?: "/api/integration/xadarr"
+
     private suspend fun syncServerSavePayload(payload: String): Result<Unit> {
         val base = syncServerBaseUrl()
         if (base.isBlank()) return Result.failure(IllegalStateException("Sync server URL not configured"))
+        val prefix = syncApiPrefix()
         return withContext(Dispatchers.IO) {
             runCatching {
                 val body = payload.toRequestBody("application/json".toMediaType())
-                val req = Request.Builder().url("$base/api/integration/xadarr/settings").put(body).build()
+                val req = Request.Builder().url("$base$prefix/settings").put(body).build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) throw IllegalStateException("Sync server PUT failed: ${resp.code}")
                 }
@@ -119,9 +132,10 @@ class CloudSyncRepository @Inject constructor(
     private suspend fun syncServerLoadPayload(): Result<String?> {
         val base = syncServerBaseUrl()
         if (base.isBlank()) return Result.failure(IllegalStateException("Sync server URL not configured"))
+        val prefix = syncApiPrefix()
         return withContext(Dispatchers.IO) {
             runCatching {
-                val req = Request.Builder().url("$base/api/integration/xadarr/settings").get().build()
+                val req = Request.Builder().url("$base$prefix/settings").get().build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (resp.code == 404) return@runCatching null
                     if (!resp.isSuccessful) throw IllegalStateException("Sync server GET failed: ${resp.code}")
@@ -136,16 +150,17 @@ class CloudSyncRepository @Inject constructor(
         syncServerBaseUrl().isNotBlank()
 
     /**
-     * Verifies [url] is a reachable Xadarr-compatible sync server by calling
-     * /api/integration/xadarr/status.
-     * Returns true if the server responds with HTTP 200.
+     * Verifies [url] is a reachable Xadarr-compatible sync server.
+     * Uses the addon-derived prefix if an Episeerr addon is installed; otherwise
+     * falls back to /api/integration/xadarr.
      */
     suspend fun verifySyncServer(url: String): Boolean {
         val base = url.trim().trimEnd('/')
         if (base.isBlank()) return false
+        val prefix = syncApiPrefix()
         return withContext(Dispatchers.IO) {
             runCatching {
-                val req = Request.Builder().url("$base/api/integration/xadarr/status").get().build()
+                val req = Request.Builder().url("$base$prefix/status").get().build()
                 okHttpClient.newCall(req).execute().use { resp -> resp.isSuccessful }
             }.getOrDefault(false)
         }
