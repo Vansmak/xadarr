@@ -479,13 +479,6 @@ fun buildCategoryTree(
     val top = listOf(
         LiveCategory("fav", "Favorites", favoritesCount, CategoryIcon.Favorite),
         LiveCategory("recent", "Recent", recentCount, CategoryIcon.Recent),
-        LiveCategory(
-            id = "all",
-            label = "All Channels",
-            count = allCount,
-            iconToken = CategoryIcon.All,
-            children = autoGlobal + countryCategories + adultCategories,
-        ),
     )
     val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
@@ -651,13 +644,6 @@ fun buildCategoryTree(
     val top = listOf(
         LiveCategory("fav", "Favorites", favorites.count { it in channelIds }, CategoryIcon.Favorite),
         LiveCategory("recent", "Recent", recents.count { it in channelIds }, CategoryIcon.Recent),
-        LiveCategory(
-            id = "all",
-            label = "All Channels",
-            count = allCount,
-            iconToken = CategoryIcon.All,
-            children = autoGlobal + countryCategories + adultCategories,
-        ),
     )
     val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
         LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)

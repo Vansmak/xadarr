@@ -176,6 +176,8 @@ def _load_server_config() -> dict:
         "server_name": "Xadarr Server",
         "port": int(os.environ.get("PORT", 7979)),
         "episeerr_url": "",
+        "dispatcharr_url": "http://dispatcharr:9191",
+        "dispatcharr_api_key": "",
     }
     cfg = _load_json(SERVER_CONFIG_FILE, {})
     return {**defaults, **cfg}
@@ -485,6 +487,20 @@ def sync_get_settings():
 @app.route("/api/integration/xadarr/settings", methods=["PUT"])
 def sync_put_settings():
     data = request.get_json(force=True) or {}
+    # Preserve homeServerConnectionJson for each profile if the incoming blob omits or nulls it.
+    # This prevents a device that lost its Keystore from wiping credentials for all clients.
+    existing = _load_json(SETTINGS_FILE, {})
+    existing_profiles = existing.get("profileSettingsById") or {}
+    incoming_profiles = data.get("profileSettingsById") or {}
+    for pid, existing_ps in existing_profiles.items():
+        existing_conn = existing_ps.get("homeServerConnectionJson") if isinstance(existing_ps, dict) else None
+        if not existing_conn:
+            continue
+        incoming_ps = incoming_profiles.get(pid)
+        if not isinstance(incoming_ps, dict):
+            continue
+        if not incoming_ps.get("homeServerConnectionJson"):
+            incoming_ps["homeServerConnectionJson"] = existing_conn
     _save_json(SETTINGS_FILE, data)
     return jsonify({"ok": True})
 
@@ -1756,6 +1772,129 @@ def legacy_watchlist():
     blob = _get_blob()
     _migrate_watchlist_to_blob(blob)
     return jsonify(_watchlist_to_web(_get_watchlist(blob)))
+
+
+# ── Dispatcharr group-visibility sync ────────────────────────────────────────
+#
+# Watches /data/dispatcharr_blacklist.txt (written by the Xadarr Android app
+# when a group is marked Remove in the TV guide). Whenever the file changes,
+# sets hidden_from_output=true in Dispatcharr for blacklisted groups and
+# hidden_from_output=false for groups that were removed from the blacklist
+# (i.e. restored to Show in Xadarr). No Android app changes required — the
+# blacklist file is the bridge.
+
+DISPATCHARR_BLACKLIST_FILE = DATA_DIR / "dispatcharr_blacklist.txt"
+
+_dc_blacklist_cache: list[str] = []
+_dc_blacklist_mtime: float = -1.0
+_dc_lock = threading.Lock()
+
+
+def _dc_session() -> requests.Session | None:
+    cfg = _load_server_config()
+    url = cfg.get("dispatcharr_url", "").rstrip("/")
+    key = cfg.get("dispatcharr_api_key", "")
+    if not url or not key:
+        return None
+    s = requests.Session()
+    s.headers.update({"X-API-Key": key})
+    s.base_url = url
+    return s
+
+
+def _dc_channel_ids_for_group(s, group_name: str) -> list[int]:
+    try:
+        r = s.get(
+            f"{s.base_url}/api/channels/channels/",
+            params={"channel_group": group_name, "limit": 10000},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        rows = data if isinstance(data, list) else data.get("results", [])
+        return [ch["id"] for ch in rows]
+    except Exception:
+        return []
+
+
+def _dc_set_hidden(s, channel_ids: list[int], hidden: bool):
+    if not channel_ids:
+        return
+    try:
+        s.patch(
+            f"{s.base_url}/api/channels/channels/edit/bulk",
+            json=[{"id": cid, "hidden_from_output": hidden} for cid in channel_ids],
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+
+def dispatcharr_sync_blacklist() -> dict:
+    """
+    Read the blacklist file, diff against last applied state, and push
+    hidden_from_output changes to Dispatcharr. Returns a status dict.
+    """
+    global _dc_blacklist_cache
+
+    s = _dc_session()
+    if s is None:
+        return {"ok": False, "reason": "dispatcharr_url or dispatcharr_api_key not configured"}
+
+    if DISPATCHARR_BLACKLIST_FILE.exists():
+        lines = DISPATCHARR_BLACKLIST_FILE.read_text().splitlines()
+        new_blacklist = [ln.strip() for ln in lines if ln.strip()]
+    else:
+        new_blacklist = []
+
+    with _dc_lock:
+        old = _dc_blacklist_cache
+        to_hide = [g for g in new_blacklist if g not in old]
+        to_show = [g for g in old if g not in new_blacklist]
+
+        hidden_count = 0
+        shown_count = 0
+        for group in to_hide:
+            ids = _dc_channel_ids_for_group(s, group)
+            _dc_set_hidden(s, ids, True)
+            hidden_count += len(ids)
+        for group in to_show:
+            ids = _dc_channel_ids_for_group(s, group)
+            _dc_set_hidden(s, ids, False)
+            shown_count += len(ids)
+
+        _dc_blacklist_cache = new_blacklist
+
+    return {
+        "ok": True,
+        "blacklisted_groups": new_blacklist,
+        "groups_hidden": to_hide,
+        "channels_hidden": hidden_count,
+        "groups_restored": to_show,
+        "channels_restored": shown_count,
+    }
+
+
+def _dispatcharr_watcher():
+    global _dc_blacklist_mtime
+    while True:
+        try:
+            mtime = DISPATCHARR_BLACKLIST_FILE.stat().st_mtime if DISPATCHARR_BLACKLIST_FILE.exists() else 0.0
+            if mtime != _dc_blacklist_mtime:
+                _dc_blacklist_mtime = mtime
+                dispatcharr_sync_blacklist()
+        except Exception:
+            pass
+        time.sleep(10)
+
+
+@app.route("/api/dispatcharr/sync-blacklist", methods=["POST"])
+def dispatcharr_sync_blacklist_endpoint():
+    result = dispatcharr_sync_blacklist()
+    return jsonify(result), (200 if result["ok"] else 503)
+
+
+threading.Thread(target=_dispatcharr_watcher, daemon=True, name="dispatcharr-watcher").start()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
