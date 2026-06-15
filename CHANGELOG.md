@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.8] - 2026-06-14
+
+### Fixed
+- **Continue Watching row position** — CW row now respects its configured sort order on Home instead of always inserting at position 0. Startup race between DataStore observer and preloaded data resolved by reading prefs directly in `setPreloadedData`.
+- **IPTV URL preservation during sync** — devices with no IPTV URL configured no longer overwrite the sync server's stored URL on push. Both per-profile and root-level IPTV URLs are preserved from the server when local values are blank.
+- **Home server export** — connections with blank access tokens are excluded from cloud export, preventing valid credentials from being silently overwritten with empty entries.
+- **xadarr-server: IPTV URL fallback** — `GET /api/iptv` returns root-level `iptvM3uUrl`/`iptvEpgUrl` as fallback when the per-profile entry is absent.
+- **xadarr-server: connection preservation on sync** — incoming sync payloads with home server entries missing valid access tokens no longer overwrite stored connections.
+- **xadarr-server: Cancel button resets form** — clicking Cancel on the Connect Server form now clears all fields.
+
+### Changed
+- **Sync server URL triggers immediate pull** — entering the sync server URL on a new device now pulls cloud state immediately (IPTV, watchlist, settings) without a manual restore step.
+- **xadarr-server: smart server display name** — Home rows show a human-readable server name (display name → server name → server type) instead of a raw UUID.
+- **xadarr-server: reconnect button** — server cards now have a ↺ button to re-authenticate without removing and re-adding the server.
+
 ## [2.5] - 2026-06-11
 
 ### Added

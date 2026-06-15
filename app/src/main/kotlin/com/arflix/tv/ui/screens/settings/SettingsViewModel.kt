@@ -1319,7 +1319,12 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.EPISEERR_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(episeerrUrl = url.trim())
-            syncLocalStateToCloud(silent = true)
+            if (url.isNotBlank()) {
+                // Pull from the sync server when the URL is configured so a new device
+                // immediately receives IPTV, watchlist, and other settings. pullFromCloud()
+                // pushes local state first if dirty, so existing devices don't lose changes.
+                syncCloudStateToLocal(silent = true)
+            }
         }
     }
 

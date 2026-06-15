@@ -695,9 +695,22 @@ class CloudSyncRepository @Inject constructor(
         root.put("hiddenHomeServerByProfile", JSONObject(gson.toJson(hiddenHomeServerByProfile)))
 
         // IPTV config per profile (including favorites)
+        val existingServerIptvByProfile = existingServerRoot?.let {
+            runCatching { it.optJSONObject("iptvByProfile") }.getOrNull()
+        }
         val iptvByProfile = buildMap<String, IptvCloudProfileState> {
             profiles.forEach { profile ->
-                put(profile.id, iptvRepository.exportCloudConfigForProfile(profile.id))
+                val local = iptvRepository.exportCloudConfigForProfile(profile.id)
+                // If this device has no IPTV URL, preserve whatever the server has (set via web UI
+                // or another device) so a dirty push from a fresh device doesn't wipe it.
+                val state = if (local.m3uUrl.isBlank() && local.epgUrl.isBlank()) {
+                    val serverIptv = existingServerIptvByProfile?.optJSONObject(profile.id)
+                    val serverM3u = serverIptv?.optString("m3uUrl").orEmpty()
+                    val serverEpg = serverIptv?.optString("epgUrl").orEmpty()
+                    if (serverM3u.isNotBlank() || serverEpg.isNotBlank()) local.copy(m3uUrl = serverM3u, epgUrl = serverEpg)
+                    else local
+                } else local
+                put(profile.id, state)
             }
         }
         root.put("iptvByProfile", JSONObject(gson.toJson(iptvByProfile)))
@@ -718,8 +731,10 @@ class CloudSyncRepository @Inject constructor(
             JSONArray(gson.toJson(catalogRepository.getHiddenPreinstalledCatalogIdsForActiveProfile()))
         )
         val iptvConfig = iptvRepository.observeConfig().first()
-        root.put("iptvM3uUrl", iptvConfig.m3uUrl)
-        root.put("iptvEpgUrl", iptvConfig.epgUrl)
+        val iptvM3u = iptvConfig.m3uUrl.ifBlank { existingServerRoot?.optString("iptvM3uUrl").orEmpty() }
+        val iptvEpg = iptvConfig.epgUrl.ifBlank { existingServerRoot?.optString("iptvEpgUrl").orEmpty() }
+        root.put("iptvM3uUrl", iptvM3u)
+        root.put("iptvEpgUrl", iptvEpg)
         root.put("iptvFavoriteGroups", JSONArray(gson.toJson(iptvRepository.observeFavoriteGroups().first())))
         root.put("iptvFavoriteChannels", JSONArray(gson.toJson(iptvRepository.observeFavoriteChannels().first())))
 

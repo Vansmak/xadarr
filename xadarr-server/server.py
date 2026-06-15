@@ -192,6 +192,22 @@ def _get_episeerr_url() -> str:
     return url.rstrip("/")
 
 
+def _push_to_episeerr(blob: dict) -> None:
+    url = _get_episeerr_url()
+    if not url:
+        return
+    def _do():
+        try:
+            requests.put(
+                f"{url}/api/integration/xadarr/settings",
+                json=blob,
+                timeout=5,
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_do, daemon=True).start()
+
+
 def _append_webhook_log(entry: dict, max_entries: int = 100):
     log = _load_json(WEBHOOK_LOG_FILE, [])
     log.insert(0, entry)
@@ -220,6 +236,7 @@ def _get_blob() -> dict:
 
 def _save_blob(blob: dict):
     _save_json(SETTINGS_FILE, blob)
+    _push_to_episeerr(blob)
 
 
 def _get_connections(blob: dict) -> list:
@@ -242,7 +259,10 @@ def _set_connections(blob: dict, connections: list):
 
 def _get_iptv(blob: dict) -> dict:
     pid = _active_profile_id(blob)
-    return blob.get("iptvByProfile", {}).get(pid, {"m3uUrl": "", "epgUrl": ""})
+    profile_iptv = blob.get("iptvByProfile", {}).get(pid, {})
+    m3u = profile_iptv.get("m3uUrl") or blob.get("iptvM3uUrl", "")
+    epg = profile_iptv.get("epgUrl") or blob.get("iptvEpgUrl", "")
+    return {"m3uUrl": m3u, "epgUrl": epg}
 
 
 def _set_iptv(blob: dict, m3u_url: str, epg_url: str):
@@ -499,8 +519,16 @@ def sync_put_settings():
         incoming_ps = incoming_profiles.get(pid)
         if not isinstance(incoming_ps, dict):
             continue
-        if not incoming_ps.get("homeServerConnectionJson"):
+        incoming_conn = incoming_ps.get("homeServerConnectionJson")
+        if not incoming_conn:
             incoming_ps["homeServerConnectionJson"] = existing_conn
+        else:
+            try:
+                conns = json.loads(incoming_conn).get("connections", [])
+                if conns and not any(c.get("accessToken") for c in conns):
+                    incoming_ps["homeServerConnectionJson"] = existing_conn
+            except Exception:
+                pass
     _save_json(SETTINGS_FILE, data)
     return jsonify({"ok": True})
 
@@ -1068,6 +1096,7 @@ def post_settings():
     existing = _load_json(SETTINGS_FILE, {})
     existing.update(data)
     _save_json(SETTINGS_FILE, existing)
+    _push_to_episeerr(existing)
     return jsonify({"ok": True})
 
 

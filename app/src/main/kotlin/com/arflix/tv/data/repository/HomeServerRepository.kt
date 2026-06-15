@@ -594,6 +594,7 @@ class HomeServerRepository @Inject constructor(
 
     suspend fun exportCloudConnectionsJsonForProfile(profileId: String): String {
         val connections = currentConnectionsForProfile(profileId, migratePlainTokens = true)
+            .filter { it.accessToken.isNotBlank() || it.accountToken.isNotBlank() }
         if (connections.isEmpty()) return ""
         return gson.toJson(HomeServerProfileConfig(connections = connections.map { it.sanitized() }))
     }
