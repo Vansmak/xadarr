@@ -62,6 +62,7 @@ sealed class Screen(val route: String) {
     object Discover : Screen("discover")
     object Settings : Screen("settings")
     object Cameras : Screen("cameras")
+    object SmartHome : Screen("smart_home")
     object CameraPlayer : Screen("camera_player?streamUrl={streamUrl}&cameraName={cameraName}") {
         fun createRoute(streamUrl: String, cameraName: String): String {
             val encUrl = java.net.URLEncoder.encode(streamUrl, "UTF-8")
@@ -354,6 +355,7 @@ fun AppNavigation(
                 onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
+                onNavigateToSmartHome = { navController.navigate(Screen.SmartHome.route) },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {
@@ -581,6 +583,11 @@ fun AppNavigation(
                 },
                 onBack = goBack,
             )
+        }
+
+        // Smart Home status/control screen
+        composable(Screen.SmartHome.route) {
+            com.arflix.tv.ui.screens.smarthome.SmartHomeScreen(onBack = goBack)
         }
 
         // All Apps grid — full alphabetical list of installed apps.

@@ -64,6 +64,14 @@ fun RulePickerScreen(
     episeerrRepository: EpiseerrRepository,
     syncServerUrl: String,
     episeerrUrl: String = "",
+    // Already-assigned rule name, if any — swaps the header copy from
+    // "Select a rule" to "Change the assigned rule" for library-browser items.
+    currentRuleName: String? = null,
+    // Overrides how a rule gets assigned. Used by the library browser to assign
+    // directly to an already-tracked Sonarr series or Radarr movie instead of
+    // the default pending-request flow (episeerrRepository.assignRule, which
+    // requires the item to be in the Episeerr pending queue).
+    onAssignRule: (suspend (ruleName: String) -> Boolean)? = null,
     onDismiss: () -> Unit,
     onRuleAssigned: () -> Unit,
 ) {
@@ -141,7 +149,7 @@ fun RulePickerScreen(
                                 if (!isAssigning) {
                                     isAssigning = true
                                     scope.launch {
-                                        val ok = episeerrRepository.assignRule(
+                                        val ok = onAssignRule?.invoke(rule.name) ?: episeerrRepository.assignRule(
                                             tmdbId = pendingItem.tmdbId ?: return@launch,
                                             ruleName = rule.name
                                         )
@@ -182,7 +190,12 @@ fun RulePickerScreen(
                 }
                 Column {
                     Text(pendingItem.title, color = textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("Select a rule to start watching", color = textSecondary, fontSize = 14.sp)
+                    Text(
+                        if (currentRuleName != null) "Currently: $currentRuleName — pick a new rule to change it"
+                        else "Select a rule to start watching",
+                        color = textSecondary,
+                        fontSize = 14.sp
+                    )
                 }
             }
 

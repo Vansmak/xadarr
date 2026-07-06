@@ -31,6 +31,9 @@ val USER_TRAKT_CLIENT_ID = stringPreferencesKey("user_trakt_client_id")
 val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
 val FRIGATE_URL_KEY = stringPreferencesKey("frigate_url")
+val HA_URL_KEY = stringPreferencesKey("ha_url")
+val HA_TOKEN_KEY = stringPreferencesKey("ha_token")
+val HA_EXPOSED_ENTITIES_KEY = stringPreferencesKey("ha_exposed_entities") // JSON array of entity_ids; empty = show all
 val DISPATCHARR_BLACKLIST_PATH_KEY = stringPreferencesKey("dispatcharr_blacklist_path")
 val GROUP_BLACKLIST_ENABLED_KEY = booleanPreferencesKey("group_blacklist_enabled")
 val WATCHLIST_PLACEMENT_KEY = stringPreferencesKey("watchlist_placement")

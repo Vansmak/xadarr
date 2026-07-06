@@ -194,10 +194,14 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var notificationPollManager: NotificationPollManager
 
+    @Inject
+    lateinit var homeServerRepository: Lazy<com.arflix.tv.data.repository.HomeServerRepository>
+
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
+    val navigateSmartHomeSignal = MutableStateFlow(0)
     val navigateToSignal = kotlinx.coroutines.flow.MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 1)
     private var wasInBackground = false
 
@@ -423,7 +427,9 @@ class MainActivity : ComponentActivity() {
                         notificationPollManager = notificationPollManager,
                         navigateHomeSignal = navigateHomeSignal,
                         navigateSettingsSignal = navigateSettingsSignal,
+                        navigateSmartHomeSignal = navigateSmartHomeSignal,
                         navigateToSignal = navigateToSignal,
+                        onEpisodeReady = { runCatching { homeServerRepository.get().invalidateEpisodeCache() } },
                     )
                 }
             }
@@ -518,6 +524,12 @@ class MainActivity : ComponentActivity() {
                 event.keyCode == android.view.KeyEvent.KEYCODE_UNKNOWN
             if (isSettingsKey) {
                 navigateSettingsSignal.value++
+                return true
+            }
+            // Shield remote's Menu button — quick-access popup for Smart Home.
+            // Other remotes rarely send this keycode, which is fine.
+            if (event.keyCode == android.view.KeyEvent.KEYCODE_MENU) {
+                navigateSmartHomeSignal.value++
                 return true
             }
         }
@@ -658,7 +670,9 @@ fun ArflixApp(
     notificationPollManager: NotificationPollManager? = null,
     navigateHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
     navigateSettingsSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
+    navigateSmartHomeSignal: kotlinx.coroutines.flow.StateFlow<Int> = kotlinx.coroutines.flow.MutableStateFlow(0),
     navigateToSignal: kotlinx.coroutines.flow.SharedFlow<String> = kotlinx.coroutines.flow.MutableSharedFlow(),
+    onEpisodeReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val authState by authRepository.authState.collectAsStateWithLifecycle()
@@ -692,6 +706,11 @@ fun ArflixApp(
     var activeAppNotification by remember { mutableStateOf<AppNotification?>(null) }
     LaunchedEffect(notificationPollManager) {
         notificationPollManager?.notificationEvents?.collect { notification ->
+            // When a new episode lands in the library, drop the stale JF source cache
+            // so the next play attempt queries Jellyfin fresh instead of finding nothing.
+            if (notification.type == "ready" || notification.type == "episode.ready") {
+                runCatching { onEpisodeReady() }
+            }
             activeAppNotification = notification
             delay(4_000L)
             activeAppNotification = null
@@ -718,6 +737,17 @@ fun ArflixApp(
             if (count > seen) {
                 seen = count
                 navController.navigate(Screen.Settings.route) {
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+    LaunchedEffect(navController) {
+        var seen = navigateSmartHomeSignal.value
+        navigateSmartHomeSignal.collect { count ->
+            if (count > seen) {
+                seen = count
+                navController.navigate(Screen.SmartHome.route) {
                     launchSingleTop = true
                 }
             }

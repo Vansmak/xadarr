@@ -96,7 +96,9 @@ data class HomeServerCatalogItem(
     val title: String,
     val mediaType: MediaType,
     val year: Int?,
-    val providerIds: Map<String, String>
+    val providerIds: Map<String, String>,
+    val nextSeason: Int? = null,
+    val nextEpisodeNum: Int? = null
 )
 
 data class HomeServerCatalogPage(
@@ -215,6 +217,12 @@ class HomeServerRepository @Inject constructor(
                     collection.id,
                     collection.type
                 ).joinToString("|") { urlEncodeStatic(it) }
+        }
+
+        fun buildCatalogSourceRefParts(serverKey: String, collectionId: String, collectionType: String): String {
+            return CATALOG_SOURCE_REF_PREFIX +
+                listOf(serverKey, collectionId, collectionType)
+                    .joinToString("|") { java.net.URLEncoder.encode(it, "UTF-8") }
         }
 
         fun parseCatalogSourceRef(sourceRef: String?): Triple<String, String, String>? {
@@ -603,21 +611,12 @@ class HomeServerRepository @Inject constructor(
         if (json.isNullOrBlank()) return // cloud has no connections — don't wipe local
         val incoming = parseConnections(json)
         if (incoming.isEmpty()) return
-        val local = currentConnectionsForProfile(profileId, migratePlainTokens = false)
-        val localByIdentity = local.associateBy { connectionIdentity(it) }
-        // Merge: for matching servers, prefer the local KeyStore-encrypted token (if available).
-        // Incoming plain-text tokens (from web UI or another device's export) are preserved for
-        // new servers where local has no token yet — decryptToken already passes them through.
-        val merged = incoming.map { incomingConn ->
-            val localMatch = localByIdentity[connectionIdentity(incomingConn)]
-                ?: local.firstOrNull { it.serverUrl == incomingConn.serverUrl && it.serverKind == incomingConn.serverKind }
-            if (localMatch != null && localMatch.accessToken.isNotBlank()) {
-                incomingConn.copy(accessToken = localMatch.accessToken, accountToken = localMatch.accountToken)
-            } else {
-                incomingConn
-            }
-        }
-        saveConnectionsForProfile(profileId, merged)
+        // Cloud is the authoritative source for home server tokens. Always use the incoming
+        // (cloud) token — it is stored as plain text in the blob so it survives APK updates,
+        // device reinstalls, and KeyStore key changes that would make a locally-encrypted token
+        // unreadable. The push always exports the current decrypted token before saving to the
+        // blob, so the cloud version is never stale as long as the push succeeded at least once.
+        saveConnectionsForProfile(profileId, incoming)
     }
 
     private suspend fun currentConnectionsForProfile(
@@ -817,6 +816,42 @@ class HomeServerRepository @Inject constructor(
         synchronized(sourceCacheLock) {
             sourceCache.clear()
         }
+    }
+
+    fun invalidateEpisodeCache() {
+        clearSourceCache()
+    }
+
+    suspend fun getSeasonFileEpisodes(
+        tmdbId: Int,
+        title: String,
+        seasonNumber: Int
+    ): Set<Int> = withContext(Dispatchers.IO) {
+        val connections = currentConnections().filter { it.isUsable }
+        for (connection in connections) {
+            if (connection.serverKind == HomeServerKind.PLEX) continue
+            val nums = runCatching {
+                val series = findBestSeries(connection, null, title, null, tmdbId, null)
+                    ?: return@runCatching emptySet()
+                getJson(
+                    buildUrl(
+                        connection.serverUrl,
+                        "/Shows/${series.id}/Episodes",
+                        mapOf(
+                            "UserId" to connection.userId,
+                            "Season" to seasonNumber.toString(),
+                            "Fields" to "MediaSources"
+                        )
+                    ),
+                    connection
+                ).items()
+                    .filter { it.indexNumber != null && it.mediaSources.isNotEmpty() }
+                    .mapNotNull { it.indexNumber }
+                    .toSet()
+            }.getOrDefault(emptySet<Int>())
+            if (nums.isNotEmpty()) return@withContext nums
+        }
+        emptySet()
     }
 
     private fun normalizeServerUrl(rawUrl: String): String {
@@ -1502,7 +1537,16 @@ class HomeServerRepository @Inject constructor(
         offset: Int,
         limit: Int
     ): HomeServerCatalogPage {
-        val isShows = collectionType.lowercase(Locale.US) in setOf("show", "shows", "series", "tvshows")
+        val browseAll = collectionType.endsWith("_all", ignoreCase = true)
+        val effectiveType = if (browseAll) collectionType.dropLast(4) else collectionType
+        val isShows = effectiveType.lowercase(Locale.US) in setOf("show", "shows", "series", "tvshows")
+        if (isShows) {
+            return if (browseAll) {
+                loadJellyfinAllSeriesItems(connection, collectionId, offset, limit)
+            } else {
+                loadJellyfinShowsRowItems(connection, collectionId, offset, limit)
+            }
+        }
         val parentId = collectionId.removePrefix("collection:").trim()
         val response = getJson(
             buildUrl(
@@ -1511,9 +1555,9 @@ class HomeServerRepository @Inject constructor(
                 mapOf(
                     "ParentId" to parentId,
                     "Recursive" to "true",
-                    "IncludeItemTypes" to "Movie,Series",
+                    "IncludeItemTypes" to "Movie",
                     "Fields" to itemFields(),
-                    "SortBy" to if (isShows) "DateLastContentAdded" else "DateCreated",
+                    "SortBy" to "DateCreated",
                     "SortOrder" to "Descending",
                     "StartIndex" to offset.toString(),
                     "Limit" to limit.toString()
@@ -1527,6 +1571,140 @@ class HomeServerRepository @Inject constructor(
             items = items,
             hasMore = offset + items.size < total
         )
+    }
+
+    private fun loadJellyfinAllSeriesItems(
+        connection: HomeServerConnection,
+        collectionId: String,
+        offset: Int,
+        limit: Int
+    ): HomeServerCatalogPage {
+        val parentId = collectionId.removePrefix("collection:").trim()
+        val params = mutableMapOf(
+            "Recursive" to "true",
+            "IncludeItemTypes" to "Series",
+            "Fields" to itemFields(),
+            "SortBy" to "SortName",
+            "SortOrder" to "Ascending",
+            "StartIndex" to offset.toString(),
+            "Limit" to limit.toString()
+        )
+        if (parentId.isNotBlank()) params["ParentId"] = parentId
+        val response = getJson(
+            buildUrl(connection.serverUrl, "/Users/${connection.userId}/Items", params),
+            connection
+        )
+        val total = response.int("TotalRecordCount") ?: response.items().size
+        val items = response.items().mapNotNull { it.toCatalogItem() }
+        return HomeServerCatalogPage(items = items, hasMore = offset + items.size < total)
+    }
+
+    // Home "Shows" row: active (in-progress) shows first, then recently-added
+    // shows filling the rest — NOT solely NextUp, which drops any show with no
+    // unwatched episode (fully caught-up or finished series never show up there).
+    private fun loadJellyfinShowsRowItems(
+        connection: HomeServerConnection,
+        collectionId: String,
+        offset: Int,
+        limit: Int
+    ): HomeServerCatalogPage {
+        val fetchLimit = (offset + limit).coerceAtLeast(50)
+        val active = fetchJellyfinNextUpRaw(connection, fetchLimit)
+        val seen = active.mapNotNull { it.providerIds["tmdb"] }.toMutableSet()
+        val recent = fetchJellyfinRecentSeriesRaw(connection, collectionId, fetchLimit)
+            .filter { candidate ->
+                val tmdbId = candidate.providerIds["tmdb"]
+                if (tmdbId != null) seen.add(tmdbId) else true
+            }
+        val allItems = active + recent
+        val page = allItems.drop(offset).take(limit)
+        return HomeServerCatalogPage(
+            items = page,
+            hasMore = offset + page.size < allItems.size
+        )
+    }
+
+    private fun fetchJellyfinNextUpRaw(
+        connection: HomeServerConnection,
+        fetchLimit: Int
+    ): List<HomeServerCatalogItem> {
+        val response = getJson(
+            buildUrl(
+                connection.serverUrl,
+                "/Shows/NextUp",
+                mapOf(
+                    "UserId" to connection.userId,
+                    "Limit" to fetchLimit.toString(),
+                    "Fields" to "ProviderIds,SeriesInfo",
+                    "EnableImages" to "false"
+                )
+            ),
+            connection
+        )
+        val rawItems = response.itemsArray().mapNotNull { it.asJsonObjectOrNull() }
+
+        // Batch-fetch series TMDB IDs
+        val seriesIds = rawItems.mapNotNull {
+            it.string("SeriesId").takeIf { id -> id.isNotBlank() }
+        }.distinct()
+        val seriesTmdbIds: Map<String, Int> = if (seriesIds.isNotEmpty()) {
+            runCatching {
+                getJson(
+                    buildUrl(
+                        connection.serverUrl,
+                        "/Users/${connection.userId}/Items",
+                        mapOf("Ids" to seriesIds.joinToString(","), "Fields" to "ProviderIds")
+                    ),
+                    connection
+                ).itemsArray()
+                    .mapNotNull { it.asJsonObjectOrNull() }
+                    .mapNotNull { series ->
+                        val sid = series.string("Id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val tmdb = series.obj("ProviderIds")?.string("Tmdb")?.toIntOrNull()
+                            ?: return@mapNotNull null
+                        sid to tmdb
+                    }.toMap()
+            }.getOrDefault(emptyMap())
+        } else emptyMap()
+
+        val seen = mutableSetOf<Int>()
+        return rawItems.mapNotNull { item ->
+            val seriesId = item.string("SeriesId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val tmdbId = seriesTmdbIds[seriesId] ?: return@mapNotNull null
+            if (!seen.add(tmdbId)) return@mapNotNull null
+            HomeServerCatalogItem(
+                id = seriesId,
+                title = item.string("SeriesName").ifBlank { item.string("Name") },
+                mediaType = MediaType.TV,
+                year = null,
+                providerIds = mapOf("tmdb" to tmdbId.toString()),
+                nextSeason = item.int("ParentIndexNumber"),
+                nextEpisodeNum = item.int("IndexNumber")
+            )
+        }
+    }
+
+    private fun fetchJellyfinRecentSeriesRaw(
+        connection: HomeServerConnection,
+        collectionId: String,
+        fetchLimit: Int
+    ): List<HomeServerCatalogItem> {
+        val parentId = collectionId.removePrefix("collection:").trim()
+        val params = mutableMapOf(
+            "Recursive" to "true",
+            "IncludeItemTypes" to "Series",
+            "Fields" to itemFields(),
+            "SortBy" to "DateCreated",
+            "SortOrder" to "Descending",
+            "Limit" to fetchLimit.toString()
+        )
+        if (parentId.isNotBlank()) params["ParentId"] = parentId
+        return runCatching {
+            getJson(
+                buildUrl(connection.serverUrl, "/Users/${connection.userId}/Items", params),
+                connection
+            ).items().mapNotNull { it.toCatalogItem() }
+        }.getOrDefault(emptyList())
     }
 
     private fun findBestMovie(

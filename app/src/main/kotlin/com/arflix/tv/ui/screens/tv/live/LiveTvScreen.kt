@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -163,10 +164,12 @@ fun LiveTvScreen(
     val compactTouchLayout = isTouchDevice && configuration.screenWidthDp < 900
     val showTopBar = !isTouchDevice
     val contentTopPadding = if (showTopBar) AppTopBarHeight else 0.dp
-    val guideClockMillis by produceState(initialValue = System.currentTimeMillis()) {
+    var guideClockMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var epgScrollToNowSignal by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
         while (true) {
             delay(30_000L)
-            value = System.currentTimeMillis()
+            guideClockMillis = System.currentTimeMillis()
         }
     }
     var selectedCategoryId by rememberSaveable { mutableStateOf(if (!isTouchDevice) "fav" else "all") }
@@ -561,6 +564,8 @@ fun LiveTvScreen(
                 // Process-level backgrounding is handled by LiveTvPlayerViewModel's
                 // ProcessLifecycleOwner observer.
                 Lifecycle.Event.ON_RESUME -> {
+                    guideClockMillis = System.currentTimeMillis()
+                    epgScrollToNowSignal++
                     // Resume if the ViewModel still has an active stream
                     if (playingChannelId != null && playerViewModel.state.value.isActive) {
                         exoPlayer.play()
@@ -814,6 +819,7 @@ fun LiveTvScreen(
                         selectedChannelId = focusedChannelId ?: playingChannelId,
                         focusSelectedChannelSignal = focusSelectedChannelSignal,
                         focusEpgSignal = focusEpgSignal,
+                        scrollToNowSignal = epgScrollToNowSignal,
                         focusMode = if (focusZone == LiveTvFocusZone.EPG) {
                             EpgGridFocusMode.Epg
                         } else {
@@ -874,6 +880,7 @@ fun LiveTvScreen(
                             selectedChannelId = focusedChannelId ?: playingChannelId,
                             focusSelectedChannelSignal = focusSelectedChannelSignal,
                             focusEpgSignal = focusEpgSignal,
+                            scrollToNowSignal = epgScrollToNowSignal,
                             focusMode = if (focusZone == LiveTvFocusZone.EPG) {
                                 EpgGridFocusMode.Epg
                             } else {

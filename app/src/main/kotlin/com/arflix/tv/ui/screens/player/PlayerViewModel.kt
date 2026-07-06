@@ -2501,9 +2501,10 @@ class PlayerViewModel @Inject constructor(
                             season = cwSeason,
                             episode = nextEpisode,
                             episodeTitle = null,
-                            progress = 3, // meets MIN_PROGRESS_THRESHOLD to avoid filter
-                            positionSeconds = 0L, // next episode: no resume position yet
-                            durationSeconds = 0L  // next episode: unknown duration
+                            progress = 0,
+                            positionSeconds = 0L,
+                            durationSeconds = 0L,
+                            isUpNext = true
                         )
                     } catch (_: Exception) {
                         // Best-effort: don't let CW save failure affect playback

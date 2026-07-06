@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.graphics.Bitmap
 import android.os.Build
+import androidx.datastore.preferences.core.edit
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
@@ -136,6 +137,27 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
 
         appScope.launch {
+            // Migrate legacy webhook URLs — one-time, silent
+            runCatching {
+                val prefs = settingsDataStore.data.first()
+                var single = prefs[com.arflix.tv.data.repository.WEBHOOK_URL_KEY].orEmpty()
+                var multi  = prefs[com.arflix.tv.data.repository.WEBHOOK_URLS_KEY].orEmpty()
+                var changed = false
+                // arvio → xadarr path prefix
+                if (single.contains("/arvio/")) { single = single.replace("/arvio/", "/xadarr/"); changed = true }
+                if (multi.contains("/arvio/"))  { multi  = multi.replace("/arvio/", "/xadarr/");  changed = true }
+                // long API path → short /xadarr/webhook
+                val longPath = "/api/integration/xadarr/webhook"
+                val shortPath = "/xadarr/webhook"
+                if (single.contains(longPath)) { single = single.replace(longPath, shortPath); changed = true }
+                if (multi.contains(longPath))  { multi  = multi.replace(longPath, shortPath);  changed = true }
+                if (changed) {
+                    settingsDataStore.edit { p ->
+                        p[com.arflix.tv.data.repository.WEBHOOK_URL_KEY]  = single
+                        p[com.arflix.tv.data.repository.WEBHOOK_URLS_KEY] = multi
+                    }
+                }
+            }
             runCatching { profileManager.initialize() }
             // Preload watchlist cache in background for instant display
             runCatching { watchlistRepository.getWatchlistItems() }

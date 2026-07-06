@@ -50,6 +50,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Language
@@ -288,6 +290,7 @@ fun SettingsScreen(
     onNavigateToWatchlist: () -> Unit = {},
     onNavigateToDiscover: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
+    onNavigateToSmartHome: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
@@ -367,6 +370,8 @@ fun SettingsScreen(
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var showFrigateUrlDialog by remember { mutableStateOf(false) }
+    var showHaUrlDialog by remember { mutableStateOf(false) }
+    var showHaTokenDialog by remember { mutableStateOf(false) }
     var showBlacklistPathDialog by remember { mutableStateOf(false) }
     var showTmdbApiKeyDialog by remember { mutableStateOf(false) }
     var showTraktClientIdDialog by remember { mutableStateOf(false) }
@@ -407,7 +412,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
-            "stremio" -> stremioAddons.size + 5 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Frigate + optional blacklist path
+            "stremio" -> stremioAddons.size + 8 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Frigate + HA url/token + Smart Home link + optional blacklist path
             "accounts" -> 9
             else -> 0
         }
@@ -642,6 +647,8 @@ fun SettingsScreen(
         showSyncServerUrlDialog ||
         showEpiseerrUrlDialog ||
         showFrigateUrlDialog ||
+        showHaUrlDialog ||
+        showHaTokenDialog ||
         showBlacklistPathDialog ||
         showTmdbApiKeyDialog ||
         showTraktClientIdDialog ||
@@ -1051,7 +1058,10 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 3 + uiState.webhookUrls.size -> viewModel.cycleWebhookInterval()
                                                 contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
                                                 contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
-                                                contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showBlacklistPathDialog = true
+                                                contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showHaUrlDialog = true
+                                                contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showHaTokenDialog = true
+                                                contentFocusIndex == stremioAddons.size + 8 + uiState.webhookUrls.size -> onNavigateToSmartHome()
+                                                contentFocusIndex == stremioAddons.size + 9 + uiState.webhookUrls.size -> showBlacklistPathDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1150,6 +1160,8 @@ fun SettingsScreen(
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
                 onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
                 onShowFrigateUrlDialog = { showFrigateUrlDialog = true },
+                onShowHaUrlDialog = { showHaUrlDialog = true },
+                onShowHaTokenDialog = { showHaTokenDialog = true },
                 onShowBlacklistPathDialog = { showBlacklistPathDialog = true },
                 onShowTmdbApiKeyDialog = { showTmdbApiKeyDialog = true },
                 onShowTraktClientIdDialog = { showTraktClientIdDialog = true },
@@ -1486,6 +1498,11 @@ fun SettingsScreen(
                             onCompletionPercentClick = { showWebhookCompletionDialog = true },
                             frigateUrl = uiState.frigateUrl,
                             onFrigateUrlClick = { showFrigateUrlDialog = true },
+                            haUrl = uiState.haUrl,
+                            onHaUrlClick = { showHaUrlDialog = true },
+                            haToken = uiState.haToken,
+                            onHaTokenClick = { showHaTokenDialog = true },
+                            onOpenSmartHomeClick = onNavigateToSmartHome,
                             groupBlacklistEnabled = uiState.groupBlacklistEnabled,
                             blacklistPath = uiState.blacklistPath,
                             onBlacklistPathClick = { showBlacklistPathDialog = true },
@@ -1594,6 +1611,31 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (showHaUrlDialog) {
+            ApiKeyDialog(
+                title = "Home Assistant URL",
+                currentValue = uiState.haUrl,
+                onSave = { url ->
+                    viewModel.saveHaUrl(url)
+                    showHaUrlDialog = false
+                },
+                onDismiss = { showHaUrlDialog = false }
+            )
+        }
+
+        if (showHaTokenDialog) {
+            ApiKeyDialog(
+                title = "Home Assistant Token",
+                currentValue = uiState.haToken,
+                isPassword = true,
+                onSave = { token ->
+                    viewModel.saveHaToken(token)
+                    showHaTokenDialog = false
+                },
+                onDismiss = { showHaTokenDialog = false }
             )
         }
 
@@ -2098,6 +2140,31 @@ fun SettingsScreen(
                     showFrigateUrlDialog = false
                 },
                 onDismiss = { showFrigateUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showHaUrlDialog) {
+            ApiKeyDialog(
+                title = "Home Assistant URL",
+                currentValue = uiState.haUrl,
+                onSave = { url ->
+                    viewModel.saveHaUrl(url)
+                    showHaUrlDialog = false
+                },
+                onDismiss = { showHaUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showHaTokenDialog) {
+            ApiKeyDialog(
+                title = "Home Assistant Token",
+                currentValue = uiState.haToken,
+                isPassword = true,
+                onSave = { token ->
+                    viewModel.saveHaToken(token)
+                    showHaTokenDialog = false
+                },
+                onDismiss = { showHaTokenDialog = false }
             )
         }
 
@@ -3420,6 +3487,8 @@ private fun MobileSettingsLayout(
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
     onShowFrigateUrlDialog: () -> Unit = {},
+    onShowHaUrlDialog: () -> Unit = {},
+    onShowHaTokenDialog: () -> Unit = {},
     onShowBlacklistPathDialog: () -> Unit = {},
     onShowTmdbApiKeyDialog: () -> Unit = {},
     onShowTraktClientIdDialog: () -> Unit = {},
@@ -3514,6 +3583,8 @@ private fun MobileSettingsLayout(
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
                 onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
                 onShowFrigateUrlDialog = onShowFrigateUrlDialog,
+                onShowHaUrlDialog = onShowHaUrlDialog,
+                onShowHaTokenDialog = onShowHaTokenDialog,
                 onShowBlacklistPathDialog = onShowBlacklistPathDialog,
             )
         }
@@ -3715,6 +3786,8 @@ private fun MobileSettingsSubPage(
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowFrigateUrlDialog: () -> Unit = {},
+    onShowHaUrlDialog: () -> Unit = {},
+    onShowHaTokenDialog: () -> Unit = {},
     onShowBlacklistPathDialog: () -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
@@ -3952,6 +4025,10 @@ private fun MobileSettingsSubPage(
                     onCompletionPercentClick = onShowWebhookCompletionDialog,
                     frigateUrl = uiState.frigateUrl,
                     onFrigateUrlClick = onShowFrigateUrlDialog,
+                    haUrl = uiState.haUrl,
+                    onHaUrlClick = onShowHaUrlDialog,
+                    haToken = uiState.haToken,
+                    onHaTokenClick = onShowHaTokenDialog,
                     groupBlacklistEnabled = uiState.groupBlacklistEnabled,
                     blacklistPath = uiState.blacklistPath,
                     onBlacklistPathClick = onShowBlacklistPathDialog,
@@ -7972,6 +8049,11 @@ private fun StremioAddonsSettings(
     onCompletionPercentClick: () -> Unit = {},
     frigateUrl: String = "",
     onFrigateUrlClick: () -> Unit = {},
+    haUrl: String = "",
+    onHaUrlClick: () -> Unit = {},
+    haToken: String = "",
+    onHaTokenClick: () -> Unit = {},
+    onOpenSmartHomeClick: () -> Unit = {},
     groupBlacklistEnabled: Boolean = false,
     blacklistPath: String = "",
     onBlacklistPathClick: () -> Unit = {},
@@ -8155,6 +8237,49 @@ private fun StremioAddonsSettings(
             modifier = Modifier.settingsFocusSlot(addons.size + 5 + webhookUrls.size)
         )
 
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "HOME ASSISTANT",
+            style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+            color = TextSecondary,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        SettingsRow(
+            icon = Icons.Default.Home,
+            title = "Home Assistant URL",
+            subtitle = if (haUrl.isNotBlank()) haUrl else "Not configured — Smart Home hidden",
+            value = if (haUrl.isNotBlank()) "Configured" else "—",
+            isFocused = focusedIndex == addons.size + 6 + webhookUrls.size,
+            onClick = onHaUrlClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 6 + webhookUrls.size)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow(
+            icon = Icons.Default.VpnKey,
+            title = "Home Assistant Token",
+            subtitle = if (haToken.isNotBlank()) "••••••••" else "Long-lived access token from your HA profile",
+            value = if (haToken.isNotBlank()) "Configured" else "—",
+            isFocused = focusedIndex == addons.size + 7 + webhookUrls.size,
+            onClick = onHaTokenClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 7 + webhookUrls.size)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow(
+            icon = Icons.Default.ChevronRight,
+            title = "Open Smart Home Status",
+            subtitle = "Preview screen — entry point will move to a quick panel later",
+            value = "View",
+            isFocused = focusedIndex == addons.size + 8 + webhookUrls.size,
+            onClick = onOpenSmartHomeClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 8 + webhookUrls.size)
+        )
+
         if (groupBlacklistEnabled) {
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -8170,9 +8295,9 @@ private fun StremioAddonsSettings(
                 title = "Group Blacklist Path",
                 subtitle = if (blacklistPath.isNotBlank()) blacklistPath else "Default: /data/dispatcharr_blacklist.txt",
                 value = "Edit",
-                isFocused = focusedIndex == addons.size + 6 + webhookUrls.size,
+                isFocused = focusedIndex == addons.size + 9 + webhookUrls.size,
                 onClick = onBlacklistPathClick,
-                modifier = Modifier.settingsFocusSlot(addons.size + 6 + webhookUrls.size)
+                modifier = Modifier.settingsFocusSlot(addons.size + 9 + webhookUrls.size)
             )
         }
 

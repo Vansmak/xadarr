@@ -206,6 +206,8 @@ data class SettingsUiState(
     val driveAccountName: String? = null,
     val driveAvailableAccounts: List<String> = emptyList(),
     val frigateUrl: String = "",
+    val haUrl: String = "",
+    val haToken: String = "",
     val blacklistPath: String = "",
     val groupBlacklistEnabled: Boolean = false,
     val tmdbApiKey: String = "",
@@ -483,6 +485,8 @@ class SettingsViewModel @Inject constructor(
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val frigateUrl = prefs[com.arflix.tv.data.repository.FRIGATE_URL_KEY].orEmpty().trim()
+            val haUrl = prefs[com.arflix.tv.data.repository.HA_URL_KEY].orEmpty().trim()
+            val haToken = prefs[com.arflix.tv.data.repository.HA_TOKEN_KEY].orEmpty().trim()
             val blacklistPath = prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY].orEmpty().trim()
             val groupBlacklistEnabled = prefs[com.arflix.tv.data.repository.GROUP_BLACKLIST_ENABLED_KEY] ?: false
             val tmdbApiKey = prefs[com.arflix.tv.data.repository.USER_TMDB_API_KEY].orEmpty()
@@ -582,6 +586,8 @@ class SettingsViewModel @Inject constructor(
                 syncServerUrl = syncServerUrl,
                 episeerrUrl = episeerrUrl,
                 frigateUrl = frigateUrl,
+                haUrl = haUrl,
+                haToken = haToken,
                 blacklistPath = blacklistPath,
                 groupBlacklistEnabled = groupBlacklistEnabled,
                 tmdbApiKey = tmdbApiKey,
@@ -1332,6 +1338,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.FRIGATE_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(frigateUrl = url.trim())
+        }
+    }
+
+    fun saveHaUrl(url: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.HA_URL_KEY] = url.trim() }
+            _uiState.value = _uiState.value.copy(haUrl = url.trim())
+        }
+    }
+
+    fun saveHaToken(token: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.HA_TOKEN_KEY] = token.trim() }
+            _uiState.value = _uiState.value.copy(haToken = token.trim())
         }
     }
 

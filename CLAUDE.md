@@ -2,7 +2,14 @@
 
 ## Core Architecture Principle
 
-xadarr-server is the single source of truth for all state — watchlist, catalogue configuration, settings, activity history, API keys. All clients (Android TV app, mobile, web UI) read from and write to xadarr-server. No client owns its own state independently. A change made on any device or surface is immediately reflected everywhere else. The experience is seamless regardless of which device you pick up.
+**All Xadarr surfaces are equals.** Android TV APK, mobile APK, xadarr-server web UI, and the Episeerr-embedded web UI all share the same settings blob. A change on any one (watchlist, catalogues, group hide/remove, theme) is immediately reflected on all others. No client owns state independently.
+
+The sync server (Episeerr in Joe's setup, xadarr-server for other users) is the single source of truth: watchlist, catalogue configuration, settings, activity history, API keys.
+
+**The UI shell differs, but state is identical:**
+- **TV APK + mobile APK** — native Android/TV experience
+- **xadarr-server web UI** — "Xadarr in a browser": same dark theme, card layout, and navigation as the APK
+- **Episeerr-embedded** (`/xadarr/*` routes in episeerr_custom) — Xadarr sections blended into Episeerr's own sidebar and chrome; different shell, same underlying state
 
 ## Web UI Design Principle
 
@@ -129,7 +136,7 @@ Full integration with Episeerr for media management awareness on the TV.
 
 - **`EpiseerrRepository.kt`** — `getPendingItems()`, `getRules()`, `assignRule()`, `getRecentEpiseerrEvents()`
 - **`EpiseerrPollManager`** — singleton, 60s polling loop, exposes `pendingTmdbIds: StateFlow` and `toastEvents: SharedFlow`
-- **Toast notifications** — `EpiseerrActivityToast` overlay in `ArflixApp`, slides in from top, auto-dismisses 4s, colour-coded by event type. Shows anywhere in app, not just during playback. Events: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`
+- **Toast notifications** — `EpiseerrActivityToast` overlay in `ArflixApp`, slides in from top, auto-dismisses 4s, colour-coded by event type. Shows anywhere in app, not just during playback. Events: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`, `channel.failover` (orange — fired by Dispatcharr stream failover)
 - **Watchlist pending badge** — `LocalEpiseerrPendingIds` CompositionLocal; `isPending` param on `MediaCard` shows amber stripe + ring border for items awaiting rule selection in Episeerr
 - **Rule picker** — `RulePickerScreen` full-screen D-pad composable with poster, rules list, assign + Advanced (webview to Episeerr) buttons; tapping a pending watchlist card opens it; `RulePickerViewModel` for Hilt injection
 - **Server catalogue rule badge** — JF/Plex/Emby catalogue row cards show assigned Episeerr rule name as small badge
@@ -256,12 +263,12 @@ To watch an event: open TV guide → D-pad left to category sidebar → long-pre
 
 ### Maintenance script
 
-**Location:** `/home/joe/config/dispatcharr/scripts/` (outside the project tree — config volume, not source)
+**Location:** `~/projects/episeerr_custom/scripts/dispatcharr/maintenance.sql` (live source — read by `dispatcharr.py` at runtime)
 
 **Run:**
 ```bash
 docker exec -i dispatcharr psql -U postgres -d dispatcharr \
-    < /home/joe/config/dispatcharr/scripts/maintenance.sql
+    < ~/projects/episeerr_custom/scripts/dispatcharr/maintenance.sql
 ```
 
 **Trigger:** Dispatcharr fires a webhook after every M3U refresh → Episeerr receives it and runs the script automatically. Safe to run manually at any time — fully idempotent.
@@ -279,12 +286,11 @@ docker exec -i dispatcharr psql -U postgres -d dispatcharr \
 
 ### Blacklist file
 
-Written by Xadarr's `writeBlacklistFile()` when a group is marked Remove in the TV guide sidebar.
+Written by Xadarr's `writeBlacklistFile()` when a group is marked Remove in the TV guide sidebar. The write path comes from the Dispatcharr Bridge addon config — no xadarr-server involved.
 
-- **Host path:** `/home/joe/config/xadarr-server/data/dispatcharr_blacklist.txt`
-- **Mounted into dispatcharr container as:** `/blacklist.txt` (via `:/blacklist.txt:ro` volume in dispatcharr compose)
-- **Mounted into xadarr-server container as:** `/data/dispatcharr_blacklist.txt`
-- The Dispatcharr Bridge marker addon (`http://xadarr-server:7979/dispatcharr-bridge`) must be installed in Xadarr for the DISPATCHARR section to appear in Settings. Without the addon, no blacklist path is configurable and no Remove option appears in the TV guide.
+- **Host path:** `/home/joe/config/dispatcharr/dispatcharr_blacklist.txt`
+- **Mounted into Dispatcharr container as:** `/data/dispatcharr_blacklist.txt`
+- The Dispatcharr Bridge marker addon must be installed in Xadarr for the DISPATCHARR section to appear in Settings. Without it, no blacklist path is configurable and no Remove option appears in the TV guide.
 
 ## Episeerr Integration
 
@@ -318,10 +324,18 @@ Watchlist sync was removed from arvio.py in 2.0.20. Trakt handles watchlist nati
 ### Episeerr xadarr webhook integration
 File: `episeerr_custom/integrations/xadarr.py`
 
-- `fire_xadarr_webhook()` — background thread helper, derives URL from stored xadarr service URL
+- `fire_xadarr_webhook()` — background thread helper, derives URL from stored xadarr service URL (used when xadarr-server is the sync server)
+- `broadcast_episeerr_event(entry: dict)` — module-level function; pushes a named `event: episeerr` SSE frame directly to all Xadarr TV clients connected to Episeerr's `/xadarr/api/player/events` stream. Used by Joe's setup (Episeerr as sync server) to deliver toasts without going through xadarr-server.
 - `/api/integration/xadarr/pending` — returns `episeerr_select` pending items with TMDB poster
-- Fires to Xadarr webhook system on: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`
-- `episeerr_select` tagged series in Sonarr → auto-added to xadarr-server watchlist
+- Fires `episeerr` SSE events on: `episode.grabbed`, `episode.ready`, `rule.triggered`, `rule.assigned`, `watchlist.requested`, `channel.failover` (orange — fired by Dispatcharr webhook on stream failover)
+- `episeerr_select` tagged series in Sonarr → auto-added to watchlist
+
+### Sync server options
+Xadarr supports two sync server backends — both serve the same `/api/integration/xadarr/` routes:
+- **Episeerr** (`episeerr_custom`) — Joe's personal setup. TV app points at Episeerr URL. SSE toasts delivered via `broadcast_episeerr_event`.
+- **xadarr-server** (`~/projects/xadarr/xadarr-server/`) — standalone Python/Flask server, valid for users without Episeerr. Has its own `_broadcast_episeerr_event` over the same SSE path.
+
+When working on Xadarr toast events, edit `integrations/xadarr_static/app.js` (Episeerr) and `xadarr-server/web/app.js` (xadarr-server) in parallel so both backends stay consistent.
 
 ## xadarr-server
 
@@ -417,4 +431,4 @@ The **dispatcharr-bridge** addon (`http://192.168.254.205:7979/dispatcharr-bridg
 
 - **dispatcharr-bridge xadarr extension** — parse `manifest.xadarr.groupBlacklist.defaultPath` on addon install and pre-fill the Dispatcharr blacklist path in Settings if currently blank
 - **Camera live stream (infra)** — web UI HLS player is ready; requires exposing port `1984:1984` in the Frigate docker-compose so go2rtc is reachable from the browser. Without it, fullscreen falls back to 3s snapshot refresh.
-- **Contribute features to arvio-fork** — port Xadarr's new features (webhook, cameras, themes, TV guide fixes, catalogue placement, Discover tab, etc.) to `arvio-fork` repo (separate from xadarr). Must use Arvio naming throughout (`ArvioSkin`, `ArvioTheme`, etc. — NOT Xadarr names). Strip all Episeerr-specific code. Reference commit `9a22108` on xadarr main — that is the last commit before the Xadarr rename, so the code still uses Arvio naming and is the cleanest starting point for porting.
+- **arvio-fork** — do not work on unless explicitly asked. When the time comes: port universal Xadarr features (webhook, cameras, themes, TV guide fixes, catalogue placement, Discover tab, etc.) with Episeerr-specific code and the Dispatcharr maintenance script stripped out. Use Arvio naming throughout (`ArvioSkin`, `ArvioTheme`, etc. — NOT Xadarr names). Reference commit `9a22108` on xadarr main — last commit before the Xadarr rename, code still uses Arvio naming.

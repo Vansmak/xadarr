@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,6 +23,15 @@ class FrigateRepository @Inject constructor(
         val displayName: String,
         val snapshotUrl: String,
         val streamUrl: String
+    )
+
+    data class FrigateEvent(
+        val id: String,
+        val camera: String,
+        val label: String,
+        val startTimeMs: Long,
+        val thumbnailUrl: String,
+        val clipUrl: String
     )
 
     suspend fun baseUrl(): String {
@@ -58,5 +68,31 @@ class FrigateRepository @Inject constructor(
             Log.e("Cameras", "getCameras failed: ${it.message}", it)
             emptyList()
         }
+    }
+
+    suspend fun getRecentEvents(limit: Int = 20): List<FrigateEvent> = withContext(Dispatchers.IO) {
+        val url = baseUrl()
+        if (url.isBlank()) return@withContext emptyList()
+        runCatching {
+            val request = Request.Builder()
+                .url("$url/api/events?limit=$limit&has_clip=1")
+                .build()
+            val body = OkHttpProvider.client.newCall(request).execute().use { it.body?.string() }
+                ?: return@withContext emptyList()
+            val array = JSONArray(body)
+            (0 until array.length()).mapNotNull { i ->
+                val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = obj.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val camera = obj.optString("camera").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FrigateEvent(
+                    id = id,
+                    camera = camera,
+                    label = obj.optString("label").ifBlank { "Motion" },
+                    startTimeMs = (obj.optDouble("start_time") * 1000).toLong(),
+                    thumbnailUrl = "$url/api/events/$id/thumbnail.jpg",
+                    clipUrl = "$url/api/events/$id/clip.mp4"
+                )
+            }
+        }.getOrElse { emptyList() }
     }
 }

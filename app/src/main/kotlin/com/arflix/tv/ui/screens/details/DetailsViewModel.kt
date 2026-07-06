@@ -18,6 +18,9 @@ import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
+import com.arflix.tv.data.repository.SonarrEpisodeInfo
+import com.arflix.tv.data.repository.SonarrEpisodeStatus
+import com.arflix.tv.data.repository.SonarrRepository
 import com.arflix.tv.data.repository.StreamRepository
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.WatchHistoryRepository
@@ -91,7 +94,9 @@ data class DetailsUiState(
     val collectionId: Int? = null,
     val collectionName: String? = null,
     val collectionItems: List<MediaItem> = emptyList(),
-    val collectionPosterPath: String? = null
+    val collectionPosterPath: String? = null,
+    // Sonarr episode statuses for the current season (key = episode number)
+    val sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
 )
 
 data class StreamingServiceUi(
@@ -174,7 +179,9 @@ class DetailsViewModel @Inject constructor(
     private val watchHistoryRepository: WatchHistoryRepository,
     private val watchlistRepository: WatchlistRepository,
     private val cloudSyncRepository: CloudSyncRepository,
-    private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository
+    private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
+    private val homeServerRepository: HomeServerRepository,
+    private val sonarrRepository: SonarrRepository,
 ) : ViewModel() {
 
     companion object {
@@ -193,6 +200,7 @@ class DetailsViewModel @Inject constructor(
     private var focusedStreamPrewarmJob: kotlinx.coroutines.Job? = null
     private var streamListPrewarmJob: kotlinx.coroutines.Job? = null
     private var lastStreamListPrewarmKey: String = ""
+    private var sonarrFetchJob: kotlinx.coroutines.Job? = null
     /** Set to true after loadDetails() child coroutines finish populating episodes/seasons. */
     @Volatile private var initialLoadComplete = false
     private fun autoPlaySingleSourceKey() = profileManager.profileBooleanKey("auto_play_single_source")
@@ -465,6 +473,9 @@ class DetailsViewModel @Inject constructor(
                     } else if (tvdbId != null) {
                         updateState { state -> state.copy(tvdbId = tvdbId) }
                     }
+                    if (mediaType == MediaType.TV && tvdbId != null) {
+                        fetchSonarrStatuses(seasonToLoad)
+                    }
                 }
 
                 // Logo URL was fetched concurrently with details via logoDeferred
@@ -650,6 +661,7 @@ class DetailsViewModel @Inject constructor(
                             )
                         }
                     }
+                    launchHasFileDecoration(seasonToLoad)
                     initialLoadComplete = true
                 }
 
@@ -823,8 +835,11 @@ class DetailsViewModel @Inject constructor(
 
                     _uiState.value = _uiState.value.copy(
                         episodes = decoratedEpisodes,
-                        currentSeason = seasonNumber
+                        currentSeason = seasonNumber,
+                        sonarrEpisodeStatuses = emptyMap()
                     )
+                    launchHasFileDecoration(seasonNumber)
+                    fetchSonarrStatuses(seasonNumber)
                 } else {
                     // If no episodes returned, keep current and show error
                     _uiState.value = _uiState.value.copy(
@@ -837,6 +852,97 @@ class DetailsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     toastMessage = "Failed to load Season $seasonNumber",
                     toastType = ToastType.ERROR
+                )
+            }
+        }
+    }
+
+    private fun launchHasFileDecoration(seasonNumber: Int) {
+        val title = _uiState.value.item?.title ?: return
+        viewModelScope.launch {
+            val fileEps = runCatching {
+                homeServerRepository.getSeasonFileEpisodes(currentMediaId, title, seasonNumber)
+            }.getOrDefault(emptySet())
+            if (fileEps.isEmpty()) return@launch
+            val current = _uiState.value
+            if (current.currentSeason != seasonNumber) return@launch
+            _uiState.value = current.copy(
+                episodes = current.episodes.map { ep ->
+                    if (ep.episodeNumber in fileEps) ep.copy(hasFile = true) else ep
+                }
+            )
+        }
+    }
+
+    private fun fetchSonarrStatuses(season: Int) {
+        if (currentMediaType != MediaType.TV) return
+        val tvdbId = _uiState.value.tvdbId?.toString() ?: return
+        sonarrFetchJob?.cancel()
+        sonarrFetchJob = viewModelScope.launch {
+            // Sonarr won't push us updates, so while anything on this season is still
+            // missing/downloading, keep polling in the background — this is what makes
+            // the "Missing" badge flip to "Available" without leaving and reopening the
+            // season. Stops on its own once nothing is pending.
+            while (true) {
+                val statuses = runCatching {
+                    sonarrRepository.getEpisodeStatuses(tvdbId, season)
+                }.getOrDefault(emptyMap())
+                if (_uiState.value.currentSeason != season) return@launch
+                if (statuses.isNotEmpty()) {
+                    val previous = _uiState.value.sonarrEpisodeStatuses
+                    val justArrived = statuses.filter { (epNum, info) ->
+                        info.status == SonarrEpisodeStatus.AVAILABLE &&
+                            previous[epNum]?.status?.let { it != SonarrEpisodeStatus.AVAILABLE } == true
+                    }.keys
+                    _uiState.value = _uiState.value.copy(sonarrEpisodeStatuses = statuses)
+                    if (justArrived.isNotEmpty()) {
+                        val epLabel = justArrived.sorted().joinToString(", ") { "E${it.toString().padStart(2, '0')}" }
+                        _uiState.value = _uiState.value.copy(
+                            toastMessage = "S${season.toString().padStart(2, '0')} $epLabel ready to watch"
+                        )
+                    }
+                }
+                val stillPending = statuses.values.any {
+                    it.status == SonarrEpisodeStatus.MISSING || it.status == SonarrEpisodeStatus.QUEUED
+                }
+                if (!stillPending) return@launch
+                delay(20_000L)
+            }
+        }
+    }
+
+    fun triggerSonarrSearch(episodeNumber: Int) {
+        val tvdbId = _uiState.value.tvdbId?.toString() ?: return
+        val season = _uiState.value.currentSeason
+        viewModelScope.launch {
+            val ok = runCatching {
+                sonarrRepository.triggerEpisodeSearch(tvdbId, season, episodeNumber)
+            }.getOrDefault(false)
+            if (ok) {
+                _uiState.value = _uiState.value.copy(
+                    toastMessage = "Search triggered for S${season.toString().padStart(2, '0')}E${episodeNumber.toString().padStart(2, '0')}"
+                )
+            }
+        }
+    }
+
+    fun deleteSonarrEpisodeFile(episodeNumber: Int) {
+        val tvdbId = _uiState.value.tvdbId?.toString() ?: return
+        val season = _uiState.value.currentSeason
+        viewModelScope.launch {
+            val ok = runCatching {
+                sonarrRepository.deleteEpisodeFile(tvdbId, season, episodeNumber)
+            }.getOrDefault(false)
+            if (ok) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    episodes = current.episodes.map { ep ->
+                        if (ep.episodeNumber == episodeNumber) ep.copy(hasFile = false) else ep
+                    },
+                    sonarrEpisodeStatuses = current.sonarrEpisodeStatuses + (
+                        episodeNumber to SonarrEpisodeInfo(SonarrEpisodeStatus.MISSING)
+                    ),
+                    toastMessage = "Deleted S${season.toString().padStart(2, '0')}E${episodeNumber.toString().padStart(2, '0')}"
                 )
             }
         }

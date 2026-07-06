@@ -170,6 +170,8 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.formatGenreName
+import com.arflix.tv.data.repository.SonarrEpisodeInfo
+import com.arflix.tv.data.repository.SonarrEpisodeStatus
 import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
 import java.text.SimpleDateFormat
@@ -235,9 +237,11 @@ fun DetailsScreen(
     // Episode Context Menu state
     var showEpisodeContextMenu by remember { mutableStateOf(false) }
     var contextMenuEpisode by remember { mutableStateOf<Episode?>(null) }
+    var deleteConfirmEpisode by remember { mutableStateOf<Episode?>(null) }
     var showSeasonContextMenu by remember { mutableStateOf(false) }
     var contextMenuSeason by remember { mutableIntStateOf(1) }
     var seasonSelectDownAtMs by remember { mutableLongStateOf(0L) }
+    var episodeSelectDownAtMs by remember { mutableLongStateOf(0L) }
     var ignoreFirstResumeRefresh by remember(mediaType, mediaId, initialSeason, initialEpisode) { mutableStateOf(true) }
 
     // Spoiler blur setting
@@ -546,6 +550,12 @@ fun DetailsScreen(
                                 }
                                 return@onPreviewKeyEvent true
                             }
+                            if (!isSidebarFocused && focusedSection == FocusSection.EPISODES) {
+                                if (episodeSelectDownAtMs == 0L) {
+                                    episodeSelectDownAtMs = SystemClock.elapsedRealtime()
+                                }
+                                return@onPreviewKeyEvent true
+                            }
                             if (isSidebarFocused) {
                                 if (hasProfile && sidebarFocusIndex == 0) {
                                     onSwitchProfile()
@@ -624,19 +634,11 @@ fun DetailsScreen(
                                         }
                                     }
                                 }
-                                FocusSection.EPISODES -> {
-                                    val ep = uiState.episodes.getOrNull(episodeIndex)
-                                    if (ep != null) {
-                                        onNavigateToPlayer(
-                                            mediaType, mediaId,
-                                            ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null
-                                        )
-                                    }
-                                }
                                 FocusSection.SEASONS -> {
                                     episodeIndex = 0
                                     viewModel.loadSeason(seasonIndex + 1)
                                 }
+                                FocusSection.EPISODES -> Unit // handled on key-up (short/long press)
                                 FocusSection.CAST -> {
                                     val member = uiState.cast.getOrNull(castIndex)
                                     if (member != null) {
@@ -683,8 +685,28 @@ fun DetailsScreen(
                             viewModel.loadSeason(seasonIndex + 1)
                         }
                         true
+                    } else if (!isSidebarFocused && focusedSection == FocusSection.EPISODES && episodeSelectDownAtMs > 0L) {
+                        val heldMs = SystemClock.elapsedRealtime() - episodeSelectDownAtMs
+                        episodeSelectDownAtMs = 0L
+                        val ep = uiState.episodes.getOrNull(episodeIndex)
+                        if (ep != null) {
+                            if (heldMs >= 900L) {
+                                // Always open the menu and let the user explicitly pick
+                                // Search/Delete — a silent auto-fire on hold was too easy
+                                // to trigger by accident and gave no chance to back out.
+                                contextMenuEpisode = ep
+                                showEpisodeContextMenu = true
+                            } else {
+                                onNavigateToPlayer(
+                                    mediaType, mediaId,
+                                    ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null
+                                )
+                            }
+                        }
+                        true
                     } else {
                         seasonSelectDownAtMs = 0L
+                        episodeSelectDownAtMs = 0L
                         false
                     }
                 } else false
@@ -738,6 +760,8 @@ fun DetailsScreen(
                     usePosterCards = usePosterCards,
                     isMobile = isMobile,
                     spoilerBlurEnabled = spoilerBlurEnabled,
+                    sonarrEpisodeStatuses = uiState.sonarrEpisodeStatuses,
+                    onSonarrSearch = { epNum -> viewModel.triggerSonarrSearch(epNum) },
                     onBack = onBack,
                     onButtonClick = { idx ->
                         when (idx) {
@@ -934,6 +958,14 @@ fun DetailsScreen(
                 episodeName = episode.name,
                 seasonEpisode = "S${episode.seasonNumber}:E${episode.episodeNumber}",
                 isWatched = episode.isWatched,
+                showSonarrSearch = uiState.sonarrEpisodeStatuses[episode.episodeNumber]?.status == SonarrEpisodeStatus.MISSING,
+                showDeleteEpisode = uiState.sonarrEpisodeStatuses[episode.episodeNumber]?.status == SonarrEpisodeStatus.AVAILABLE,
+                onSearchSonarr = {
+                    viewModel.triggerSonarrSearch(episode.episodeNumber)
+                },
+                onDeleteEpisode = {
+                    deleteConfirmEpisode = episode
+                },
                 onPlay = {
                     showEpisodeContextMenu = false
                     onNavigateToPlayer(
@@ -957,6 +989,20 @@ fun DetailsScreen(
                     showEpisodeContextMenu = false
                     contextMenuEpisode = null
                 }
+            )
+        }
+
+        deleteConfirmEpisode?.let { episode ->
+            com.arflix.tv.ui.components.ConfirmDialog(
+                title = "Delete Episode",
+                message = "Delete the downloaded file for S${episode.seasonNumber}:E${episode.episodeNumber} \"${episode.name}\"? This can't be undone from here.",
+                confirmLabel = "Delete",
+                isDestructive = true,
+                onConfirm = {
+                    viewModel.deleteSonarrEpisodeFile(episode.episodeNumber)
+                    deleteConfirmEpisode = null
+                },
+                onDismiss = { deleteConfirmEpisode = null },
             )
         }
 
@@ -1157,6 +1203,8 @@ private fun DetailsContent(
     onEpisodeClick: (Int) -> Unit = {},
     onCastClick: (Int) -> Unit = {},
     spoilerBlurEnabled: Boolean = false,
+    sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
+    onSonarrSearch: (Int) -> Unit = {},
     onSimilarClick: (Int) -> Unit = {},
     onCollectionClick: (Int) -> Unit = {}
 ) {
@@ -2052,6 +2100,8 @@ private fun DetailsContent(
             seasonProgress = seasonProgress,
             usePosterCards = usePosterCards,
             spoilerBlurEnabled = spoilerBlurEnabled,
+            sonarrEpisodeStatuses = sonarrEpisodeStatuses,
+            onSonarrSearch = onSonarrSearch,
             contentRowHeight = contentRowHeight,
             contentRowBottomPadding = contentRowBottomPadding,
             configuration = configuration,
@@ -2097,7 +2147,9 @@ private fun DetailsTvRows(
     onEpisodeClick: (Int) -> Unit,
     onCastClick: (Int) -> Unit,
     onSimilarClick: (Int) -> Unit,
-    onCollectionClick: (Int) -> Unit = {}
+    onCollectionClick: (Int) -> Unit = {},
+    sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
+    onSonarrSearch: (Int) -> Unit = {}
 ) {
     val contentScrollState = rememberTvLazyListState()
     val detailsStackOffsetPx = remember { Animatable(0f) }
@@ -2232,6 +2284,8 @@ private fun DetailsTvRows(
                     contentStartPadding = contentStartPadding,
                     contentOuterStartPadding = contentOuterStartPadding,
                     spoilerBlurEnabled = spoilerBlurEnabled,
+                    sonarrEpisodeStatuses = sonarrEpisodeStatuses,
+                    onSonarrSearch = onSonarrSearch,
                     onEpisodeClick = onEpisodeClick
                 )
             }
@@ -2377,6 +2431,8 @@ private fun DetailsEpisodeRail(
     contentStartPadding: Dp,
     contentOuterStartPadding: Dp,
     spoilerBlurEnabled: Boolean,
+    sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
+    onSonarrSearch: (Int) -> Unit = {},
     onEpisodeClick: (Int) -> Unit
 ) {
     val episodeCardWidth = if (configuration.screenWidthDp < 1400) 292.dp else 300.dp
@@ -2428,6 +2484,8 @@ private fun DetailsEpisodeRail(
                     cardWidth = episodeCardWidth,
                     isFocused = isFocused && !episodeFixedFocus,
                     spoilerBlurEnabled = spoilerBlurEnabled,
+                    sonarrInfo = sonarrEpisodeStatuses[episode.episodeNumber],
+                    onSonarrSearch = { onSonarrSearch(episode.episodeNumber) },
                     onClick = onClickForEpisode
                 )
             }
@@ -3223,6 +3281,8 @@ private fun EpisodeCard(
     cardWidth: androidx.compose.ui.unit.Dp = 300.dp,
     isFocused: Boolean,
     spoilerBlurEnabled: Boolean = false,
+    sonarrInfo: SonarrEpisodeInfo? = null,
+    onSonarrSearch: () -> Unit = {},
     onClick: () -> Unit = {}
 ) {
     val aspectRatio = 16f / 9f
@@ -3447,29 +3507,118 @@ private fun EpisodeCard(
                 )
             }
 
-            if (episode.isWatched) {
+            if (sonarrInfo != null &&
+                sonarrInfo.status != SonarrEpisodeStatus.AVAILABLE &&
+                sonarrInfo.status != SonarrEpisodeStatus.UNMONITORED) {
+                val bgColor = when (sonarrInfo.status) {
+                    SonarrEpisodeStatus.QUEUED       -> Color(0xFF1565C0)
+                    SonarrEpisodeStatus.MISSING      -> Color(0xFFB71C1C)
+                    SonarrEpisodeStatus.MONITORED    -> Color(0xFF37474F)
+                    SonarrEpisodeStatus.UNMONITORED  -> Color(0xFF212121)
+                    else -> Color.Transparent
+                }
+                val borderColor = when (sonarrInfo.status) {
+                    SonarrEpisodeStatus.QUEUED       -> Color(0xFF42A5F5)
+                    SonarrEpisodeStatus.MISSING      -> Color(0xFFEF5350)
+                    SonarrEpisodeStatus.MONITORED    -> Color(0xFF78909C)
+                    SonarrEpisodeStatus.UNMONITORED  -> Color(0xFF424242)
+                    else -> Color.Transparent
+                }
+                val badgeText = when (sonarrInfo.status) {
+                    SonarrEpisodeStatus.QUEUED       ->
+                        if (sonarrInfo.downloadProgress > 0f) "${sonarrInfo.downloadProgress.toInt()}%" else "DL"
+                    SonarrEpisodeStatus.MISSING      -> "Missing"
+                    SonarrEpisodeStatus.MONITORED    -> "Monitored"
+                    SonarrEpisodeStatus.UNMONITORED  -> "—"
+                    else -> ""
+                }
+                val badgeIcon: ImageVector? = when (sonarrInfo.status) {
+                    SonarrEpisodeStatus.QUEUED   -> Icons.Default.Schedule
+                    SonarrEpisodeStatus.MISSING  -> Icons.Default.Close
+                    else -> null
+                }
+                val clickable = sonarrInfo.status == SonarrEpisodeStatus.MISSING
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 8.dp, end = 8.dp)
-                        .size(16.dp)
-                        .background(
-                            color = XadarrSkin.colors.watchedGreen.copy(alpha = 0.22f),
-                            shape = CircleShape
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = XadarrSkin.colors.watchedGreen,
-                            shape = CircleShape
-                        ),
+                        .align(Alignment.BottomStart)
+                        .padding(start = 8.dp, bottom = 8.dp)
+                        .background(bgColor, RoundedCornerShape(4.dp))
+                        .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+                        .then(if (clickable) Modifier.clickable { onSonarrSearch() } else Modifier)
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        tint = XadarrSkin.colors.watchedGreen,
-                        modifier = Modifier.size(9.dp)
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (badgeIcon != null) {
+                            Icon(
+                                imageVector = badgeIcon,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(8.dp)
+                            )
+                        }
+                        Text(
+                            text = badgeText,
+                            style = XadarrSkin.typography.caption.copy(
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 8.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (episode.hasFile && !episode.isWatched) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(
+                                color = Color(0xFF2196F3).copy(alpha = 0.18f),
+                                shape = CircleShape
+                            )
+                            .border(1.dp, Color(0xFF2196F3), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(Color(0xFF2196F3), CircleShape)
+                        )
+                    }
+                }
+                if (episode.isWatched) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(
+                                color = XadarrSkin.colors.watchedGreen.copy(alpha = 0.22f),
+                                shape = CircleShape
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = XadarrSkin.colors.watchedGreen,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = XadarrSkin.colors.watchedGreen,
+                            modifier = Modifier.size(9.dp)
+                        )
+                    }
                 }
             }
         }

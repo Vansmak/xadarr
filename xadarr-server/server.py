@@ -744,6 +744,8 @@ def _episeerr_proxy(path: str, method: str = "GET", body: dict | None = None, ti
         url = f"{base}{path}"
         if method == "GET":
             r = requests.get(url, timeout=timeout)
+        elif method == "DELETE":
+            r = requests.delete(url, timeout=timeout)
         else:
             r = requests.post(url, json=body, timeout=timeout)
         r.raise_for_status()
@@ -793,6 +795,57 @@ def episeerr_rules():
 def episeerr_assign():
     body = request.get_json(force=True) or {}
     return _episeerr_proxy("/api/assign-pending-rule", method="POST", body=body)
+
+
+@app.route("/api/sonarr/series-status", methods=["GET"])
+def sonarr_series_status():
+    tvdb_id = request.args.get("tvdbId", "")
+    season  = request.args.get("season", "")
+    return _episeerr_proxy(f"/api/sonarr/series-status?tvdbId={tvdb_id}&season={season}")
+
+
+@app.route("/api/sonarr/episode-search", methods=["POST"])
+def sonarr_episode_search():
+    body = request.get_json(force=True) or {}
+    return _episeerr_proxy("/api/sonarr/episode-search", method="POST", body=body)
+
+
+@app.route("/api/sonarr/calendar", methods=["GET"])
+def sonarr_calendar():
+    days = request.args.get("days", "90")
+    return _episeerr_proxy(f"/api/sonarr/calendar?days={days}")
+
+
+@app.route("/api/sonarr/episode-delete", methods=["POST"])
+def sonarr_episode_delete():
+    body = request.get_json(force=True) or {}
+    return _episeerr_proxy("/api/sonarr/episode-delete", method="POST", body=body)
+
+
+@app.route("/api/sonarr/series", methods=["GET"])
+def sonarr_all_series():
+    return _episeerr_proxy("/api/sonarr/series")
+
+
+@app.route("/api/sonarr/series/<int:series_id>", methods=["DELETE"])
+def sonarr_delete_series(series_id):
+    return _episeerr_proxy(f"/api/sonarr/series/{series_id}", method="DELETE")
+
+
+@app.route("/api/radarr/movies", methods=["GET"])
+def radarr_all_movies():
+    return _episeerr_proxy("/api/radarr/movies")
+
+
+@app.route("/api/radarr/movie/<int:movie_id>", methods=["DELETE"])
+def radarr_delete_movie(movie_id):
+    return _episeerr_proxy(f"/api/radarr/movie/{movie_id}", method="DELETE")
+
+
+@app.route("/api/movie-rules/assign", methods=["POST"])
+def movie_rules_assign():
+    body = request.get_json(force=True) or {}
+    return _episeerr_proxy("/api/movie-rules/assign", method="POST", body=body)
 
 
 # ── Setup: home servers ───────────────────────────────────────────────────────

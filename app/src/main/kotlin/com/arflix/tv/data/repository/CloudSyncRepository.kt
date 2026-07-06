@@ -22,6 +22,9 @@ import com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY
 import com.arflix.tv.data.repository.LAN_SYNC_LAST_MODIFIED_KEY
 import com.arflix.tv.data.repository.FRIGATE_URL_KEY
 import com.arflix.tv.data.repository.EPISEERR_URL_KEY
+import com.arflix.tv.data.repository.HA_URL_KEY
+import com.arflix.tv.data.repository.HA_TOKEN_KEY
+import com.arflix.tv.data.repository.HA_EXPOSED_ENTITIES_KEY
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
 import com.arflix.tv.ui.components.catalogueRowLayoutKeyFromPreferenceName
@@ -600,6 +603,9 @@ class CloudSyncRepository @Inject constructor(
         root.put("lan_sync_last_modified", lanTs)
         prefs[FRIGATE_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("frigate_url", it) }
         prefs[EPISEERR_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("episeerr_url", it) }
+        prefs[HA_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_url", it) }
+        prefs[HA_TOKEN_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_token", it) }
+        prefs[HA_EXPOSED_ENTITIES_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_exposed_entities", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
         root.put(
@@ -701,15 +707,26 @@ class CloudSyncRepository @Inject constructor(
         val iptvByProfile = buildMap<String, IptvCloudProfileState> {
             profiles.forEach { profile ->
                 val local = iptvRepository.exportCloudConfigForProfile(profile.id)
-                // If this device has no IPTV URL, preserve whatever the server has (set via web UI
-                // or another device) so a dirty push from a fresh device doesn't wipe it.
-                val state = if (local.m3uUrl.isBlank() && local.epgUrl.isBlank()) {
-                    val serverIptv = existingServerIptvByProfile?.optJSONObject(profile.id)
+                // Preserve server values for any field this device has empty — prevents a
+                // fresh install or reinstall from wiping URLs, favorites, or hidden groups
+                // that were set on another device or via the web UI.
+                val serverIptv = existingServerIptvByProfile?.optJSONObject(profile.id)
+                var state = local
+                if (local.m3uUrl.isBlank() && local.epgUrl.isBlank()) {
                     val serverM3u = serverIptv?.optString("m3uUrl").orEmpty()
                     val serverEpg = serverIptv?.optString("epgUrl").orEmpty()
-                    if (serverM3u.isNotBlank() || serverEpg.isNotBlank()) local.copy(m3uUrl = serverM3u, epgUrl = serverEpg)
-                    else local
-                } else local
+                    if (serverM3u.isNotBlank() || serverEpg.isNotBlank())
+                        state = state.copy(m3uUrl = serverM3u, epgUrl = serverEpg)
+                }
+                if (local.favoriteGroups.isEmpty() && local.favoriteChannels.isEmpty()) {
+                    val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                    val serverFavGroups = serverIptv?.optJSONArray("favoriteGroups")?.toString()
+                        ?.let { runCatching { gson.fromJson<List<String>>(it, listType) }.getOrNull() }.orEmpty()
+                    val serverFavChannels = serverIptv?.optJSONArray("favoriteChannels")?.toString()
+                        ?.let { runCatching { gson.fromJson<List<String>>(it, listType) }.getOrNull() }.orEmpty()
+                    if (serverFavGroups.isNotEmpty() || serverFavChannels.isNotEmpty())
+                        state = state.copy(favoriteGroups = serverFavGroups, favoriteChannels = serverFavChannels)
+                }
                 put(profile.id, state)
             }
         }
@@ -900,7 +917,10 @@ class CloudSyncRepository @Inject constructor(
                 severity = "info"
             )
             val pushResult = pushToCloudLocked()
-            // Only abort pull on server push failure — Drive/LAN failures are fire-and-forget
+            // Log push failure but continue the pull regardless — the pull restores home server
+            // connections and other critical state from the blob even when the push fails.
+            // Aborting the pull on push failure means a transient send error permanently prevents
+            // the app from healing itself (e.g. after an APK update or token decryption failure).
             if (pushResult.isFailure && syncServerBaseUrl().isNotBlank()) {
                 AppLogger.recordException(
                     throwable = pushResult.exceptionOrNull() ?: IllegalStateException("Pending local cloud push failed"),
@@ -909,7 +929,7 @@ class CloudSyncRepository @Inject constructor(
                         "cloud_flow" to "pull_pre_push_pending_local"
                     )
                 )
-                return@withLock RestoreResult.FAILED
+                // fall through to the pull
             }
         }
 
@@ -1244,9 +1264,12 @@ class CloudSyncRepository @Inject constructor(
         val watchlistPort   = root.optString("watchlist_api_port", "")
         val frigateUrl      = root.optString("frigate_url", "")
         val episeerrUrl     = root.optString("episeerr_url", "")
+        val haUrl           = root.optString("ha_url", "")
+        val haToken         = root.optString("ha_token", "")
+        val haExposedIds    = root.optString("ha_exposed_entities", "")
         if (webhookUrl.isNotBlank() || webhookEnabled != null || webhookInterval.isNotBlank() ||
             watchlistEnabled != null || watchlistPort.isNotBlank() || frigateUrl.isNotBlank() ||
-            episeerrUrl.isNotBlank()) {
+            episeerrUrl.isNotBlank() || haUrl.isNotBlank() || haToken.isNotBlank() || haExposedIds.isNotBlank()) {
             context.settingsDataStore.edit { prefs ->
                 if (webhookUrl.isNotBlank())      prefs[WEBHOOK_URL_KEY]           = webhookUrl
                 val webhookUrls = root.optJSONArray("webhook_urls")?.toString()?.takeIf { it != "null" }
@@ -1259,6 +1282,9 @@ class CloudSyncRepository @Inject constructor(
                 if (watchlistPort.isNotBlank())   prefs[WATCHLIST_API_PORT_KEY]    = watchlistPort
                 if (frigateUrl.isNotBlank())      prefs[FRIGATE_URL_KEY]           = frigateUrl
                 if (episeerrUrl.isNotBlank())     prefs[EPISEERR_URL_KEY]          = episeerrUrl
+                if (haUrl.isNotBlank())           prefs[HA_URL_KEY]                = haUrl
+                if (haToken.isNotBlank())         prefs[HA_TOKEN_KEY]              = haToken
+                if (haExposedIds.isNotBlank())    prefs[HA_EXPOSED_ENTITIES_KEY]   = haExposedIds
             }
         }
 

@@ -7,6 +7,7 @@ import com.arflix.tv.data.repository.EpiseerrPendingItem
 import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.EpiseerrRule
 import com.arflix.tv.data.repository.EPISEERR_URL_KEY
+import com.arflix.tv.data.repository.RadarrRepository
 import com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +23,7 @@ import javax.inject.Inject
 class RulePickerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     val episeerrRepository: EpiseerrRepository,
+    val radarrRepository: RadarrRepository,
 ) : ViewModel() {
 
     private val _rules = MutableStateFlow<List<EpiseerrRule>>(emptyList())

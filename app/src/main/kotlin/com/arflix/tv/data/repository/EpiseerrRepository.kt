@@ -112,6 +112,30 @@ class EpiseerrRepository @Inject constructor(
         }
     }
 
+    // Direct assign for an already-tracked series (library browser) — unlike
+    // assignRule(), this does not require the series to be in the Episeerr
+    // pending-request queue.
+    suspend fun assignRuleToSeries(seriesId: Int, ruleName: String): Boolean = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext false }
+        try {
+            val payload = JSONObject().apply {
+                put("series_id", seriesId)
+                put("rule_name", ruleName)
+            }.toString()
+            val body = payload.toRequestBody("application/json".toMediaType())
+            val req = Request.Builder()
+                .url("$base/api/episeerr/assign-series")
+                .post(body)
+                .build()
+            val resp = http.newCall(req).execute()
+            val respBody = resp.use { it.body?.string() ?: "{}" }
+            JSONObject(respBody).optBoolean("success", false)
+        } catch (e: Exception) {
+            Log.d(tag, "assignRuleToSeries failed: ${e.message}")
+            false
+        }
+    }
+
     /** Returns recent episeerr activity events from xadarr-server history for toast notifications. */
     suspend fun getRecentEpiseerrEvents(sinceTimestamp: String?): List<JSONObject> = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext emptyList() }

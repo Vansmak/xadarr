@@ -444,7 +444,21 @@ class WatchlistRepository @Inject constructor(
         }
         invalidationBus.markDirty(CloudSyncScope.WATCHLIST, safeProfileId, "import watchlist")
         if (profileManager.getProfileIdSync() == safeProfileId) {
-            clearWatchlistCache()
+            // Populate _watchlistItems from imported data instead of clearing to empty.
+            // Clearing emits emptyList() which wipes the home row; the subsequent
+            // syncFromSyncServer call may fail (e.g. wrong URL), leaving items empty.
+            cacheMutex.withLock {
+                itemsCache.clear()
+                keyCache.clear()
+                items.forEach { raw ->
+                    val type = if (raw.mediaType == "tv") MediaType.TV else MediaType.MOVIE
+                    keyCache.add(cacheKey(type, raw.tmdbId))
+                }
+                if (items.isNotEmpty()) {
+                    _watchlistItems.value = items.map { it.toBasicMediaItem() }
+                }
+                cacheLoaded = true
+            }
         }
     }
 

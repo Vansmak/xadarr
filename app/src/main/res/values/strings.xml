@@ -94,6 +94,9 @@
     <string name="retry">Retry</string>
     <string name="delete">Delete</string>
     <string name="add">Add</string>
+    <string name="assign_rule">Assign Rule</string>
+    <string name="change_rule">Change Rule</string>
+    <string name="delete_from_library">Delete from Library</string>
     <string name="refresh">Refresh</string>
     <string name="selected">selected</string>
     <string name="sign_in">Sign In</string>

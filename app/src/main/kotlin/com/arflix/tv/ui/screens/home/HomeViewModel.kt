@@ -17,6 +17,7 @@ import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogKind
 import com.arflix.tv.data.model.CatalogPlacement
 import com.arflix.tv.data.model.CollectionGroupKind
+import com.arflix.tv.data.model.LibraryBrowseEntry
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.MediaRepository
@@ -144,6 +145,8 @@ class HomeViewModel @Inject constructor(
     private val updateStatusManager: com.arflix.tv.updater.UpdateStatusManager,
     private val youTubeExtractor: com.arflix.tv.data.api.InAppYouTubeExtractor,
     private val cwHolder: com.arflix.tv.data.repository.ContinueWatchingHolder,
+    private val sonarrRepository: com.arflix.tv.data.repository.SonarrRepository,
+    private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
@@ -171,6 +174,8 @@ class HomeViewModel @Inject constructor(
     private val iptvNowNextMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvNowNext>()
     // Frigate cameras — maps MediaItem.id (camera name hash) to FrigateCamera
     private val cameraMap = mutableMapOf<Int, FrigateRepository.FrigateCamera>()
+    // Frigate events — maps MediaItem.id to clip URL
+    private val frigateEventClipMap = mutableMapOf<Int, String>()
     // Last successfully built On Now category — used as fallback when loadHomeData()
     // races with a snapshot refresh and buildFavoriteTvCategory() transiently returns null.
     @Volatile private var lastFavoriteTvCategory: Category? = null
@@ -180,10 +185,17 @@ class HomeViewModel @Inject constructor(
         const val WATCHLIST_CATEGORY_ID = "my_watchlist"
         const val APPS_CATEGORY_ID = "installed_apps"
         const val CAMERAS_CATEGORY_ID = "cameras"
+        const val FRIGATE_EVENTS_CATEGORY_ID = "frigate_events"
+        /** Target Continue Watching row length - Sonarr-calendar filler tops it up to this when real CW items fall short. */
+        const val CW_TARGET_ROW_SIZE = 15
+        /** Chunk size for progressively resolving the Sonarr/Radarr "All Shows"/"All Movies" library browse list. */
+        const val LIBRARY_BROWSE_CHUNK_SIZE = 16
         /** Prefix used in MediaItem.status to identify IPTV items. */
         const val IPTV_STATUS_PREFIX = "iptv:"
         const val CAMERA_STATUS_PREFIX = "camera:"
+        const val FRIGATE_EVENT_STATUS_PREFIX = "frigate_event:"
         private const val TOP_10_ITEM_LIMIT = 10
+        private const val HOME_ROW_ITEM_CAP = 15
         private val HARD_CAPPED_TOP_10_CATALOG_IDS = setOf(
             "top10_movies_today",
             "top10_shows_today"
@@ -196,8 +208,10 @@ class HomeViewModel @Inject constructor(
     fun isCollectionItem(item: MediaItem): Boolean = item.status?.startsWith("collection:") == true
 
     fun isCameraItem(item: MediaItem): Boolean = item.status?.startsWith(CAMERA_STATUS_PREFIX) == true
+    fun isFrigateEventItem(item: MediaItem): Boolean = item.status?.startsWith(FRIGATE_EVENT_STATUS_PREFIX) == true
 
     fun getCameraStreamUrl(itemId: Int): String? = cameraMap[itemId]?.streamUrl
+    fun getFrigateEventClipUrl(itemId: Int): String? = frigateEventClipMap[itemId]
     fun getCameraName(item: MediaItem): String? =
         item.status?.removePrefix(CAMERA_STATUS_PREFIX)
             ?.takeIf { item.status?.startsWith(CAMERA_STATUS_PREFIX) == true && it.isNotBlank() }
@@ -837,6 +851,27 @@ class HomeViewModel @Inject constructor(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     val cardLogoUrls = mutableStateMapOf<String, String>()
 
+    private val _browseItems = MutableStateFlow<List<MediaItem>>(emptyList())
+    val browseItems: StateFlow<List<MediaItem>> = _browseItems.asStateFlow()
+    private val _isBrowseLoading = MutableStateFlow(false)
+    val isBrowseLoading: StateFlow<Boolean> = _isBrowseLoading.asStateFlow()
+    // Extra per-item metadata for the "All Shows"/"All Movies" library browser,
+    // keyed the same way as cardLogoUrls ("${mediaType}_${tmdbId}"). Only
+    // populated when browsing is sourced from Sonarr/Radarr instead of the
+    // home server's file listing — empty for the ordinary Jellyfin/Plex/Emby path.
+    private val _browseLibraryMeta = MutableStateFlow<Map<String, LibraryBrowseEntry>>(emptyMap())
+    val browseLibraryMeta: StateFlow<Map<String, LibraryBrowseEntry>> = _browseLibraryMeta.asStateFlow()
+    // True while the current browse-all category is being sourced from Sonarr/
+    // Radarr. The overlay uses this to skip its "instant preview list" fallback
+    // (category.items, which is the old Jellyfin-file-based row) for this case —
+    // that preview's item 0 is a different title than the Sonarr/Radarr list's
+    // item 0, and swapping between them mid-load is what breaks the overlay's
+    // focus/nav (the swap can dispose the composable a focus requester points
+    // at). Skipping the mismatched preview removes the swap entirely instead of
+    // trying to out-race it.
+    private val _isLibrarySourcedBrowse = MutableStateFlow(false)
+    val isLibrarySourcedBrowse: StateFlow<Boolean> = _isLibrarySourcedBrowse.asStateFlow()
+
     // Debounce job for hero updates (Phase 6.1)
     private var heroUpdateJob: Job? = null
     private var heroDetailsJob: Job? = null
@@ -1228,8 +1263,9 @@ class HomeViewModel @Inject constructor(
         // Reactive On Now row builder — runs independently of loadHomeData().
         launchOnNowRowObserver()
 
-        // Load Frigate cameras and insert the row independently of main catalog load.
+        // Load Frigate cameras and recent events independently of main catalog load.
         launchCamerasRow()
+        launchFrigateEventsRow()
 
         // Reactively inject the watchlist row whenever watchlist items change.
         viewModelScope.launch {
@@ -1304,10 +1340,23 @@ class HomeViewModel @Inject constructor(
         }
 
         // Pre-load watchlist items: sync from server first (server is source of truth),
-        // then enrich with TMDB data so posters appear.
+        // then enrich with TMDB data so posters appear. If Trakt is connected and local
+        // state is empty after server sync, pull from Trakt so the home row shows without
+        // requiring the user to visit the Watchlist/Discover screen first.
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { watchlistRepository.syncFromSyncServer() }
             runCatching { watchlistRepository.getWatchlistItems() }
+            if (watchlistRepository.watchlistItems.value.isEmpty()) {
+                runCatching {
+                    val (hasTrakt, syncResult) = traktRepository.getWatchlistSyncResultWithAuthState()
+                    if (hasTrakt) {
+                        val items = syncResult?.items.orEmpty()
+                        if (items.isNotEmpty()) {
+                            watchlistRepository.syncFromTraktOrder(items)
+                        }
+                    }
+                }
+            }
         }
 
         // Load top-level UI preferences used on Home
@@ -1889,10 +1938,19 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun publishContinueWatching(items: List<ContinueWatchingItem>) {
+        val baseItems = items.map { it.toMediaItem() }
+        val fillerNeeded = (CW_TARGET_ROW_SIZE - baseItems.size).coerceAtLeast(0)
+        val fillerItems = if (fillerNeeded > 0) {
+            runCatching {
+                buildUpcomingFillerItems(excludeTmdbIds = items.map { it.id }.toSet(), limit = fillerNeeded)
+            }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
         val continueWatchingCategory = Category(
             id = "continue_watching",
             title = "Continue Watching",
-            items = items.map { it.toMediaItem() }
+            items = baseItems + fillerItems
         )
         continueWatchingCategory.items.forEach { mediaRepository.cacheItem(it) }
         lastContinueWatchingItems = continueWatchingCategory.items
@@ -1942,10 +2000,11 @@ class HomeViewModel @Inject constructor(
      *
      * loadHomeData() only *preserves* the row, never builds or removes it.
      */
-    private fun launchCamerasRow() {
+    private fun launchCamerasRow(delayMs: Long = 1_000L) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Small delay so the main home data appears first
-            delay(1_000L)
+            if (delayMs > 0L) delay(delayMs)
+            val cfg = savedCatalogById[CAMERAS_CATEGORY_ID]
+            if (cfg?.isHidden == true || cfg?.placement == CatalogPlacement.DISCOVER) return@launch
             val category = runCatching { buildCamerasCategory() }.getOrNull() ?: return@launch
             withContext(Dispatchers.Main) {
                 val current = _uiState.value.categories.toMutableList()
@@ -1964,6 +2023,146 @@ class HomeViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(categories = current)
             }
         }
+    }
+
+    private suspend fun buildFrigateEventsCategory(): Category? {
+        val url = frigateRepository.baseUrl()
+        if (url.isBlank()) return null
+        val events = frigateRepository.getRecentEvents(20)
+        if (events.isEmpty()) return null
+        val nowMs = System.currentTimeMillis()
+        val items = events.map { event ->
+            val itemId = event.id.hashCode().let { h -> if (h >= 0) -(h + 1) else h }
+            frigateEventClipMap[itemId] = event.clipUrl
+            val displayName = event.camera.replace('_', ' ')
+                .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercaseChar() } }
+            val diff = nowMs - event.startTimeMs
+            val timeAgo = when {
+                diff < 60_000L -> "Just now"
+                diff < 3_600_000L -> "${diff / 60_000}m ago"
+                diff < 86_400_000L -> "${diff / 3_600_000}h ago"
+                else -> "${diff / 86_400_000}d ago"
+            }
+            val label = event.label.replaceFirstChar { it.uppercaseChar() }
+            com.arflix.tv.data.model.MediaItem(
+                id = itemId,
+                title = displayName,
+                subtitle = "$label • $timeAgo",
+                status = "$FRIGATE_EVENT_STATUS_PREFIX${event.id}",
+                image = event.thumbnailUrl,
+                mediaType = com.arflix.tv.data.model.MediaType.MOVIE,
+            )
+        }
+        if (items.isEmpty()) return null
+        return Category(id = FRIGATE_EVENTS_CATEGORY_ID, title = "Recent Events", items = items)
+    }
+
+    private fun launchFrigateEventsRow(delayMs: Long = 1_500L) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (delayMs > 0L) delay(delayMs)
+            val cfg = savedCatalogById[FRIGATE_EVENTS_CATEGORY_ID]
+            if (cfg?.isHidden == true || cfg?.placement == CatalogPlacement.DISCOVER) return@launch
+            val category = runCatching { buildFrigateEventsCategory() }.getOrNull() ?: return@launch
+            withContext(Dispatchers.Main) {
+                val current = _uiState.value.categories.toMutableList()
+                val existing = current.indexOfFirst { it.id == FRIGATE_EVENTS_CATEGORY_ID }
+                if (existing >= 0) {
+                    current[existing] = category
+                } else {
+                    val afterIdx = listOf(
+                        current.indexOfFirst { it.id == CAMERAS_CATEGORY_ID },
+                        current.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID },
+                        current.indexOfFirst { it.id == WATCHLIST_CATEGORY_ID },
+                        current.indexOfFirst { it.id == "continue_watching" },
+                    ).filter { it >= 0 }.maxOrNull() ?: -1
+                    current.add(if (afterIdx >= 0) afterIdx + 1 else 0, category)
+                }
+                _uiState.value = _uiState.value.copy(categories = current)
+            }
+        }
+    }
+
+    private fun formatUpcomingAirDate(iso8601: String): String {
+        return try {
+            val instant = java.time.Instant.parse(iso8601)
+            java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US)
+                .withZone(java.time.ZoneId.systemDefault())
+                .format(instant)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun com.arflix.tv.data.repository.SonarrCalendarEntry.toUpcomingMediaItem(
+        tmdbId: Int?,
+        tmdbPoster: String?,
+        tmdbBackdrop: String?,
+    ): com.arflix.tv.data.model.MediaItem {
+        val dateLabel = formatUpcomingAirDate(airDate)
+        return com.arflix.tv.data.model.MediaItem(
+            id = tmdbId ?: tvdbId ?: seriesId,
+            title = title,
+            subtitle = episodeTitle.takeIf { it.isNotBlank() && !it.equals("TBA", ignoreCase = true) }
+                ?: "Season $season · Episode $episode",
+            mediaType = com.arflix.tv.data.model.MediaType.TV,
+            // Prefer TMDB art (matches the rest of the app, and Sonarr/TheTVDB's own
+            // cached poster has been seen serving flat-out mismatched artwork for a
+            // given series) - Sonarr's poster is only a last-resort fallback.
+            image = tmdbPoster ?: poster ?: "",
+            backdrop = tmdbBackdrop ?: tmdbPoster ?: poster,
+            badge = dateLabel.takeIf { it.isNotBlank() }?.let { "Airs $it" },
+        )
+    }
+
+    /**
+     * Continue Watching overflow filler: shows with a real next-episode-to-air date
+     * (Sonarr's calendar) that aren't already represented by a real Continue Watching
+     * entry. Not a separate row - `publishContinueWatching()` appends the result of
+     * this to the end of the real CW items, only enough to top the row up to
+     * [CW_TARGET_ROW_SIZE], sorted soonest-air-date-first. This is how "next episode
+     * ready now" (real CW), "airs in a few days" (weekly show, caught up), and
+     * "premieres in a couple months" (a show finished long ago, renewed) end up as one
+     * prioritized row instead of three separate concepts.
+     */
+    private suspend fun buildUpcomingFillerItems(
+        excludeTmdbIds: Set<Int>,
+        limit: Int,
+    ): List<com.arflix.tv.data.model.MediaItem> = coroutineScope {
+        if (limit <= 0) return@coroutineScope emptyList()
+        if (!sonarrRepository.isConfigured()) return@coroutineScope emptyList()
+        val entries = runCatching { sonarrRepository.getCalendar() }.getOrDefault(emptyList())
+        if (entries.isEmpty()) return@coroutineScope emptyList()
+        // One card per series - the soonest upcoming episode, not every episode in range.
+        val soonestPerSeries = entries
+            .groupBy { it.seriesId }
+            .mapNotNull { (_, eps) -> eps.minByOrNull { it.airDate } }
+            .sortedBy { it.airDate }
+
+        val resolved = soonestPerSeries.map { entry ->
+            async {
+                val tmdbId = entry.tvdbId?.let { tvdbId ->
+                    runCatching {
+                        mediaRepository.resolveTvdbToTmdbRef(tvdbId, com.arflix.tv.data.model.MediaType.TV)
+                    }.getOrNull()?.second
+                }
+                entry to tmdbId
+            }
+        }.awaitAll()
+
+        resolved
+            .filter { (_, tmdbId) -> tmdbId == null || tmdbId !in excludeTmdbIds }
+            .sortedBy { (entry, _) -> entry.airDate }
+            .take(limit)
+            .map { (entry, tmdbId) ->
+                val tmdbItem = tmdbId?.let { id ->
+                    runCatching { mediaRepository.getTvDetails(id) }.getOrNull()
+                }
+                entry.toUpcomingMediaItem(
+                    tmdbId = tmdbId,
+                    tmdbPoster = tmdbItem?.image?.takeIf { it.isNotBlank() },
+                    tmdbBackdrop = tmdbItem?.backdrop,
+                )
+            }
     }
 
     private fun launchOnNowRowObserver() {
@@ -2220,10 +2419,9 @@ class HomeViewModel @Inject constructor(
                     .firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }
                     ?.takeIf { it.items.isNotEmpty() }
                     ?: lastFavoriteTvCategory
-                // Cameras row is managed by launchCamerasRow() — preserve existing data.
-                val preservedCameras = currentBaseCategories
-                    .firstOrNull { it.id == CAMERAS_CATEGORY_ID }
-                    ?.takeIf { it.items.isNotEmpty() }
+                // Cameras and events rows are managed by their own launchers.
+                // Preservation is done fresh inside withContext so a fast home reload doesn't
+                // capture a null snapshot before the 1.5s launcher has had a chance to fire.
 
                 var categories = withContext(networkDispatcher) {
                     val baseCategories = runCatching {
@@ -2239,7 +2437,23 @@ class HomeViewModel @Inject constructor(
                         // If neither exists, omit — launchOnNowRowObserver() will insert
                         // it once the IPTV snapshot is populated.
                         put(APPS_CATEGORY_ID, buildInstalledAppsCategory())
-                        preservedCameras?.let { put(CAMERAS_CATEGORY_ID, it) }
+                        // Read cameras/events from the CURRENT state (not the snapshot taken at
+                        // the start of loadHomeData) so a fast reload doesn't wipe rows that
+                        // the 1-1.5s launchers already injected. Gate on catalog config so
+                        // hiding or moving to Discover in settings takes effect immediately.
+                        val latestCats = _uiState.value.categories
+                        val cameraCfg = savedCatalogById[CAMERAS_CATEGORY_ID]
+                        if (cameraCfg?.isHidden != true && cameraCfg?.placement != CatalogPlacement.DISCOVER) {
+                            latestCats.firstOrNull { it.id == CAMERAS_CATEGORY_ID }
+                                ?.takeIf { it.items.isNotEmpty() }
+                                ?.let { put(CAMERAS_CATEGORY_ID, it) }
+                        }
+                        val eventsCfg = savedCatalogById[FRIGATE_EVENTS_CATEGORY_ID]
+                        if (eventsCfg?.isHidden != true && eventsCfg?.placement != CatalogPlacement.DISCOVER) {
+                            latestCats.firstOrNull { it.id == FRIGATE_EVENTS_CATEGORY_ID }
+                                ?.takeIf { it.items.isNotEmpty() }
+                                ?.let { put(FRIGATE_EVENTS_CATEGORY_ID, it) }
+                        }
                     }
 
                     // Split preinstalled into TMDB-based and MDBList-based
@@ -2699,6 +2913,10 @@ class HomeViewModel @Inject constructor(
                 replaceCardLogoState(snapshotLogoCache())
                 refreshWatchedBadges()
                 scheduleStartupCatalogImageWarmup(categories)
+                // Re-inject cameras and events rows immediately (no delay) so they're present
+                // even when loadHomeData completes before the init-time launchers have fired.
+                launchCamerasRow(delayMs = 0L)
+                launchFrigateEventsRow(delayMs = 0L)
 
                 // Persist the real categories to disk so the next app launch
                 // shows them immediately without waiting for TMDB API calls.
@@ -2974,10 +3192,10 @@ class HomeViewModel @Inject constructor(
 
     private fun loadNextPageForCategory(categoryId: String) {
         if (isHardCappedTop10Catalog(categoryId)) return
+        val currentCount = _uiState.value.categories.firstOrNull { it.id == categoryId }?.items?.size ?: 0
+        if (currentCount >= HOME_ROW_ITEM_CAP) return
         val pagination = categoryPaginationStates.getOrPut(categoryId) {
-            CategoryPaginationState(
-                loadedCount = _uiState.value.categories.firstOrNull { it.id == categoryId }?.items?.size ?: 0
-            )
+            CategoryPaginationState(loadedCount = currentCount)
         }
         if (!pagination.hasMore || pagination.isLoading) return
 
@@ -3020,7 +3238,9 @@ class HomeViewModel @Inject constructor(
 
                 val updatedCategories = currentCategories.map { category ->
                     if (category.id == categoryId) {
-                        category.copy(items = category.items + uniqueNewItems)
+                        val merged = (category.items + uniqueNewItems).take(HOME_ROW_ITEM_CAP)
+                        if (merged.size >= HOME_ROW_ITEM_CAP) pagination.hasMore = false
+                        category.copy(items = merged)
                     } else {
                         category
                     }
@@ -3061,6 +3281,201 @@ class HomeViewModel @Inject constructor(
                 pagination.isLoading = false
             }
         }
+    }
+
+    fun loadAllPagesForCategory(categoryId: String) {
+        if (isHardCappedTop10Catalog(categoryId)) return
+        viewModelScope.launch {
+            var pagesLoaded = 0
+            while (pagesLoaded < 50) {
+                val pagination = categoryPaginationStates[categoryId]
+                if (pagination != null && !pagination.hasMore) break
+                if (pagination?.isLoading == true) {
+                    delay(200)
+                    continue
+                }
+                loadNextPageForCategory(categoryId)
+                pagesLoaded++
+                delay(200) // give isLoading a moment to flip before re-checking
+            }
+        }
+    }
+
+    private enum class LibraryBrowseKind { SHOWS, MOVIES }
+
+    private fun detectLibraryBrowseKind(catalog: CatalogConfig): LibraryBrowseKind? {
+        if (catalog.sourceType != com.arflix.tv.data.model.CatalogSourceType.HOME_SERVER) return null
+        val sourceRef = catalog.sourceRef ?: return null
+        val parsed = HomeServerRepository.parseCatalogSourceRef(sourceRef) ?: return null
+        val (_, _, collectionType) = parsed
+        val type = collectionType.lowercase(java.util.Locale.US)
+        return when {
+            type in setOf("show", "shows", "series", "tvshows") -> LibraryBrowseKind.SHOWS
+            type in setOf("movie", "movies") -> LibraryBrowseKind.MOVIES
+            else -> null
+        }
+    }
+
+    fun deleteLibraryItem(item: MediaItem, entry: LibraryBrowseEntry, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(networkDispatcher) {
+            val ok = when {
+                entry.sonarrSeriesId != null -> sonarrRepository.deleteSeries(entry.sonarrSeriesId)
+                entry.radarrMovieId != null -> radarrRepository.deleteMovie(entry.radarrMovieId)
+                else -> false
+            }
+            if (ok) {
+                val key = "${item.mediaType}_${item.id}"
+                _browseItems.value = _browseItems.value.filterNot { "${it.mediaType}_${it.id}" == key }
+                _browseLibraryMeta.value = _browseLibraryMeta.value - key
+            }
+            withContext(Dispatchers.Main) { onDone(ok) }
+        }
+    }
+
+    fun startBrowseAll(categoryId: String) {
+        _browseItems.value = emptyList()
+        _browseLibraryMeta.value = emptyMap()
+        val catalog = savedCatalogById[categoryId]
+        // Preinstalled/in-memory catalogs (watchlist, CW) have items already in the category;
+        // overlay falls back to category.items when _browseItems is empty — no network load needed.
+        if (catalog == null || catalog.sourceType == com.arflix.tv.data.model.CatalogSourceType.PREINSTALLED) {
+            _isLibrarySourcedBrowse.value = false
+            return
+        }
+        val libraryKind = detectLibraryBrowseKind(catalog)
+        // Set optimistically, synchronously, before Sonarr/Radarr configuration is
+        // even confirmed on IO — so the overlay never renders the mismatched
+        // Jellyfin preview for this category, not even for one frame. Corrected
+        // below once configuration is confirmed (falls back to false if neither
+        // is actually configured).
+        _isLibrarySourcedBrowse.value = libraryKind != null
+        _isBrowseLoading.value = true
+        viewModelScope.launch(networkDispatcher) {
+            try {
+                val usedLibrarySource = when (libraryKind) {
+                    LibraryBrowseKind.SHOWS -> if (sonarrRepository.isConfigured()) {
+                        loadShowsFromSonarr(); true
+                    } else false
+                    LibraryBrowseKind.MOVIES -> if (radarrRepository.isConfigured()) {
+                        loadMoviesFromRadarr(); true
+                    } else false
+                    null -> false
+                }
+                _isLibrarySourcedBrowse.value = usedLibrarySource
+                if (usedLibrarySource) return@launch
+
+                val effectiveCatalog = getBrowseCatalog(catalog)
+                var offset = 0
+                val pageSize = 50
+                while (true) {
+                    val page = try {
+                        mediaRepository.loadCustomCatalogPage(effectiveCatalog, offset, pageSize)
+                    } catch (_: Exception) { break }
+                    if (page.items.isEmpty()) break
+                    _browseItems.value = _browseItems.value + page.items
+                    if (!page.hasMore) break
+                    offset += page.items.size
+                    if (offset >= 5000) break
+                }
+            } finally {
+                _isBrowseLoading.value = false
+            }
+        }
+    }
+
+    // Sonarr tracks every series regardless of file presence, unlike Jellyfin
+    // which can only show what's actually on disk — this is the primary source
+    // for "All Shows" when Sonarr is configured, so fully-watched/cleaned-up
+    // shows (zero files) still appear instead of silently vanishing.
+    //
+    // Resolved in chunks rather than one giant batch: each series needs a TMDB
+    // tvdb-lookup + details call, so a full ~90-series library can take several
+    // seconds end to end. Populating _browseItems progressively means the user
+    // sees content quickly instead of staring at "Loading…", and it also avoids
+    // one single disruptive late list-swap that would otherwise fight with
+    // whatever they've already navigated to (see the browse overlay's own focus
+    // comments for why a late swap is a real problem, not just cosmetic).
+    private suspend fun loadShowsFromSonarr() {
+        val allSeries = sonarrRepository.getAllSeries()
+        val semaphore = Semaphore(4)
+        allSeries.chunked(LIBRARY_BROWSE_CHUNK_SIZE).forEach { chunk ->
+            val resolved = coroutineScope {
+                chunk.map { series ->
+                    async(networkDispatcher) {
+                        semaphore.withPermit {
+                            val tvdbId = series.tvdbId ?: return@withPermit null
+                            val ref = runCatching {
+                                mediaRepository.resolveTvdbToTmdbRef(tvdbId, com.arflix.tv.data.model.MediaType.TV)
+                            }.getOrNull() ?: return@withPermit null
+                            val item = runCatching { mediaRepository.getTvDetails(ref.second) }.getOrNull()
+                                ?: return@withPermit null
+                            series to item
+                        }
+                    }
+                }.mapNotNull { it.await() }
+            }
+            if (resolved.isEmpty()) return@forEach
+            _browseItems.value = _browseItems.value + resolved.map { it.second }
+            _browseLibraryMeta.value = _browseLibraryMeta.value + resolved.associate { (series, item) ->
+                "${item.mediaType}_${item.id}" to com.arflix.tv.data.model.LibraryBrowseEntry(
+                    sonarrSeriesId = series.seriesId,
+                    statusLabel = series.status,
+                    fileStateLabel = when {
+                        series.totalEpisodeCount <= 0 -> null
+                        series.episodeFileCount >= series.totalEpisodeCount -> "Available"
+                        series.episodeFileCount > 0 -> "Partial"
+                        else -> "Missing"
+                    },
+                    assignedRule = series.assignedRule,
+                    episodeFileCount = series.episodeFileCount,
+                    totalEpisodeCount = series.totalEpisodeCount,
+                )
+            }
+        }
+    }
+
+    // Radarr already returns tmdbId directly (no tvdb-style resolution needed),
+    // and — same rationale as Sonarr above — tracks every movie regardless of
+    // file presence, so this is the primary source for "All Movies" when configured.
+    // Chunked for the same progressive-population reason as loadShowsFromSonarr.
+    private suspend fun loadMoviesFromRadarr() {
+        val allMovies = radarrRepository.getAllMovies()
+        val semaphore = Semaphore(4)
+        allMovies.chunked(LIBRARY_BROWSE_CHUNK_SIZE).forEach { chunk ->
+            val resolved = coroutineScope {
+                chunk.map { movie ->
+                    async(networkDispatcher) {
+                        semaphore.withPermit {
+                            val tmdbId = movie.tmdbId ?: return@withPermit null
+                            val item = runCatching { mediaRepository.getMovieDetails(tmdbId) }.getOrNull()
+                                ?: return@withPermit null
+                            movie to item
+                        }
+                    }
+                }.mapNotNull { it.await() }
+            }
+            if (resolved.isEmpty()) return@forEach
+            _browseItems.value = _browseItems.value + resolved.map { it.second }
+            _browseLibraryMeta.value = _browseLibraryMeta.value + resolved.associate { (movie, item) ->
+                "${item.mediaType}_${item.id}" to com.arflix.tv.data.model.LibraryBrowseEntry(
+                    radarrMovieId = movie.movieId,
+                    statusLabel = movie.status,
+                    fileStateLabel = if (movie.hasFile) "Available" else "Missing",
+                    assignedRule = movie.assignedRule,
+                )
+            }
+        }
+    }
+
+    private fun getBrowseCatalog(catalog: CatalogConfig): CatalogConfig {
+        if (catalog.sourceType != com.arflix.tv.data.model.CatalogSourceType.HOME_SERVER) return catalog
+        val sourceRef = catalog.sourceRef ?: return catalog
+        val parsed = HomeServerRepository.parseCatalogSourceRef(sourceRef) ?: return catalog
+        val (serverKey, collectionId, collectionType) = parsed
+        val isShows = collectionType.lowercase(java.util.Locale.US) in setOf("show", "shows", "series", "tvshows")
+        if (!isShows) return catalog
+        val browseRef = HomeServerRepository.buildCatalogSourceRefParts(serverKey, collectionId, "${collectionType}_all")
+        return catalog.copy(sourceRef = browseRef)
     }
 
     private fun buildProfileSkeletonCategories(
@@ -3551,8 +3966,13 @@ class HomeViewModel @Inject constructor(
                 dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
             }
             .filter { item ->
-                if (isTraktAuthenticated) true else item.progress in 1..99 || item.resumePositionSeconds > 0L
+                if (isTraktAuthenticated) true
+                else item.isUpNext || item.progress in 1..99 || item.resumePositionSeconds > 0L
             }
+            .sortedWith(
+                compareBy<ContinueWatchingItem> { if (it.isUpNext) 0 else 1 }
+                    .thenByDescending { it.updatedAtMs }
+            )
             .take(Constants.MAX_CONTINUE_WATCHING)
     }
 
@@ -3590,8 +4010,13 @@ class HomeViewModel @Inject constructor(
                 dismissedContinueWatchingKeys.contains(showKey) || persistedDismissedKeys.contains(showKey)
             }
             .filter { item ->
-                if (isTraktAuthenticated) true else item.progress in 1..99 || item.resumePositionSeconds > 0L
+                if (isTraktAuthenticated) true
+                else item.isUpNext || item.progress in 1..99 || item.resumePositionSeconds > 0L
             }
+            .sortedWith(
+                compareBy<ContinueWatchingItem> { if (it.isUpNext) 0 else 1 }
+                    .thenByDescending { it.updatedAtMs }
+            )
             .take(Constants.MAX_CONTINUE_WATCHING)
     }
 

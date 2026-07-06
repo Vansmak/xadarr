@@ -601,6 +601,11 @@ function xadarr() {
     async connectServer() {
       this.serverConnecting = true;
       this.serverError = '';
+      if (this.serverForm.kind !== 'PLEX' && !this.serverForm.password) {
+        this.serverError = 'Password is required';
+        this.serverConnecting = false;
+        return;
+      }
       const body = {
         kind: this.serverForm.kind,
         url: this.serverForm.url,

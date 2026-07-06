@@ -35,6 +35,7 @@ import com.arflix.tv.util.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -122,6 +123,12 @@ class MediaRepository @Inject constructor(
     private val seasonEpisodesCache = mutableMapOf<String, CacheEntry<List<Episode>>>()
     private val imdbIdCache = ConcurrentHashMap<String, String>()
     private val addonImdbToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
+    // tvdbId <-> tmdbId mappings are effectively permanent (unlike addon catalog
+    // data), so this cache uses a much longer TTL than CACHE_TTL_MS — otherwise
+    // every "All Shows" library-browser open would re-resolve the whole Sonarr
+    // catalog (~90+ series) against TMDB every 5 minutes.
+    private val TVDB_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24h
+    private val tvdbToTmdbCache = ConcurrentHashMap<Int, CacheEntry<Pair<MediaType, Int>?>>()
     private val addonTitleToTmdbCache = ConcurrentHashMap<String, CacheEntry<Pair<MediaType, Int>?>>()
     private val collectionRefsCache = ConcurrentHashMap<String, CacheEntry<List<Pair<MediaType, Int>>>>()
 
@@ -150,6 +157,16 @@ class MediaRepository @Inject constructor(
 
     private fun cacheAddonImdbLookup(imdbId: String, value: Pair<MediaType, Int>?) {
         addonImdbToTmdbCache[imdbId] = CacheEntry(value, System.currentTimeMillis())
+    }
+
+    private fun getTvdbLookupEntry(tvdbId: Int): CacheEntry<Pair<MediaType, Int>?>? {
+        val entry = tvdbToTmdbCache[tvdbId] ?: return null
+        return if (System.currentTimeMillis() - entry.timestamp < TVDB_CACHE_TTL_MS) {
+            entry
+        } else {
+            tvdbToTmdbCache.remove(tvdbId)
+            null
+        }
     }
 
     private fun getAddonTitleLookupEntry(key: String): CacheEntry<Pair<MediaType, Int>?>? {
@@ -363,6 +380,7 @@ class MediaRepository @Inject constructor(
                 CatalogConfig("coming_soon", "Coming Soon", CatalogSourceType.MDBLIST, isPreinstalled = true, sourceUrl = "https://mdblist.com/lists/snoak/upcoming-movies", sourceRef = "mdblist:https://mdblist.com/lists/snoak/upcoming-movies"),
                 CatalogConfig("installed_apps", "Apps", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
                 CatalogConfig("cameras", "Cameras", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
+                CatalogConfig("frigate_events", "Recent Events", CatalogSourceType.PREINSTALLED, isPreinstalled = true),
             )
 
             fun addonCollectionSource(addonId: String?, type: String, id: String) = CollectionSourceConfig(
@@ -1635,26 +1653,49 @@ class MediaRepository @Inject constructor(
     }
 
     private suspend fun resolveHomeServerCatalogItem(item: HomeServerCatalogItem): MediaItem? {
+        val resolved = resolveHomeServerCatalogItemToMediaItem(item) ?: return null
+        if (item.nextSeason != null && item.nextEpisodeNum != null) {
+            return resolved.copy(
+                nextEpisode = com.arflix.tv.data.model.NextEpisode(
+                    id = 0,
+                    seasonNumber = item.nextSeason,
+                    episodeNumber = item.nextEpisodeNum,
+                    name = "",
+                    overview = ""
+                )
+            )
+        }
+        return resolved
+    }
+
+    private suspend fun resolveHomeServerCatalogItemToMediaItem(item: HomeServerCatalogItem): MediaItem? {
         val providers = item.providerIds.mapKeys { it.key.lowercase(Locale.US) }
         providers["tmdb"]?.toIntOrNull()?.let { tmdbId ->
-            return runCatching {
-                when (item.mediaType) {
+            resolveByTmdbIdWithRetry(item.mediaType, tmdbId)?.let { return it }
+        }
+        providers["imdb"]?.takeIf { it.startsWith("tt", ignoreCase = true) }?.let { imdbId ->
+            resolveImdbToTmdbRef(imdbId, item.mediaType)?.let { (type, tmdbId) ->
+                resolveByTmdbIdWithRetry(type, tmdbId)?.let { return it }
+            }
+        }
+        return resolveHomeServerCatalogItemByTitle(item)
+    }
+
+    // A single TMDB hiccup (timeout, transient rate-limit) must not permanently
+    // drop an item that has a perfectly valid tmdbId — retry once before giving
+    // up and falling through to the title-search fallback.
+    private suspend fun resolveByTmdbIdWithRetry(mediaType: MediaType, tmdbId: Int): MediaItem? {
+        repeat(2) { attempt ->
+            val result = runCatching {
+                when (mediaType) {
                     MediaType.MOVIE -> getMovieDetails(tmdbId)
                     MediaType.TV -> getTvDetails(tmdbId)
                 }
             }.getOrNull()
+            if (result != null) return result
+            if (attempt == 0) delay(300L)
         }
-        providers["imdb"]?.takeIf { it.startsWith("tt", ignoreCase = true) }?.let { imdbId ->
-            resolveImdbToTmdbRef(imdbId, item.mediaType)?.let { (type, tmdbId) ->
-                return runCatching {
-                    when (type) {
-                        MediaType.MOVIE -> getMovieDetails(tmdbId)
-                        MediaType.TV -> getTvDetails(tmdbId)
-                    }
-                }.getOrNull()
-            }
-        }
-        return resolveHomeServerCatalogItemByTitle(item)
+        return null
     }
 
     private suspend fun resolveHomeServerCatalogItemByTitle(item: HomeServerCatalogItem): MediaItem? {
@@ -2340,6 +2381,53 @@ class MediaRepository @Inject constructor(
         }
 
         cacheAddonImdbLookup(normalizedImdb, resolved)
+        return resolved
+    }
+
+    // Sonarr series only carry tvdbId natively (no tmdbId), but the app is
+    // TMDB-id-keyed throughout — used by the "All Shows" library browser to turn
+    // a raw Sonarr series into a displayable MediaItem. Radarr movies need no
+    // equivalent resolver since Radarr's API already returns tmdbId directly.
+    suspend fun resolveTvdbToTmdbRef(
+        tvdbId: Int,
+        mediaTypeHint: MediaType?
+    ): Pair<MediaType, Int>? {
+        getTvdbLookupEntry(tvdbId)?.let { cached -> return cached.data }
+
+        val findResponse = runCatching {
+            tmdbApi.findByExternalId(
+                externalId = tvdbId.toString(),
+                apiKey = apiKey,
+                externalSource = "tvdb_id"
+            )
+        }.getOrNull()
+
+        val resolved = findResponse?.let { response ->
+            val movies = response.movieResults
+            val series = response.tvResults
+            when (mediaTypeHint) {
+                MediaType.MOVIE -> movies.maxByOrNull { it.popularity }?.id?.let { MediaType.MOVIE to it }
+                MediaType.TV -> series.maxByOrNull { it.popularity }?.id?.let { MediaType.TV to it }
+                else -> {
+                    val movie = movies.maxByOrNull { it.popularity }
+                    val tv = series.maxByOrNull { it.popularity }
+                    when {
+                        movie == null && tv == null -> null
+                        movie != null && tv == null -> MediaType.MOVIE to movie.id
+                        movie == null && tv != null -> MediaType.TV to tv.id
+                        else -> {
+                            if ((movie?.popularity ?: 0f) >= (tv?.popularity ?: 0f)) {
+                                MediaType.MOVIE to movie!!.id
+                            } else {
+                                MediaType.TV to tv!!.id
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tvdbToTmdbCache[tvdbId] = CacheEntry(resolved, System.currentTimeMillis())
         return resolved
     }
 

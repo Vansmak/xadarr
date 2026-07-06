@@ -23,6 +23,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -89,7 +91,11 @@ fun MediaCard(
     onClick: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     isPending: Boolean = false,
+    // "All Shows"/"All Movies" library-browser status — file availability +
+    // assigned Episeerr rule, when the overlay is sourced from Sonarr/Radarr.
+    libraryBadge: com.arflix.tv.data.model.LibraryBrowseEntry? = null,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
 ) {
     // If this is a placeholder card, show skeleton only
     if (item.isPlaceholder) {
@@ -188,7 +194,8 @@ fun MediaCard(
         XadarrFocusableSurface(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(aspectRatio),
+                .aspectRatio(aspectRatio)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
             shape = shape,
             backgroundColor = XadarrSkin.colors.surface,
             outlineColor = XadarrSkin.colors.focusOutline,
@@ -344,6 +351,102 @@ fun MediaCard(
                     )
                 }
 
+                // Library-browser file-state badge — only shown for Missing/Partial
+                // (an "Available" show/movie looks the same as any other card, no
+                // need to clutter every single card with a green checkmark-equivalent).
+                if (libraryBadge != null && libraryBadge.fileStateLabel in setOf("Missing", "Partial")) {
+                    val badgeColor = if (libraryBadge.fileStateLabel == "Missing") {
+                        androidx.compose.ui.graphics.Color(0xDDDC2626)
+                    } else {
+                        androidx.compose.ui.graphics.Color(0xDDCA8A04)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(badgeColor)
+                            .padding(vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.tv.material3.Text(
+                            libraryBadge.fileStateLabel.orEmpty(),
+                            fontSize = 9.sp,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                // Assigned Episeerr rule chip, top-left.
+                if (libraryBadge?.assignedRule != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(XadarrSkin.spacing.x2)
+                            .background(
+                                color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
+                            )
+                            .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
+                    ) {
+                        Text(
+                            text = libraryBadge.assignedRule,
+                            style = XadarrSkin.typography.badge,
+                            color = XadarrSkin.colors.textPrimary,
+                        )
+                    }
+                }
+
+                // Generic item badge (e.g. "Airs Aug 12" on the Upcoming row), top-left.
+                // Skipped when the Episeerr rule chip already claims that corner.
+                if (libraryBadge?.assignedRule == null && !item.badge.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(XadarrSkin.spacing.x2)
+                            .background(
+                                color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.85f),
+                                shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
+                            )
+                            .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
+                    ) {
+                        Text(
+                            text = item.badge,
+                            style = XadarrSkin.typography.badge,
+                            color = XadarrSkin.colors.textPrimary,
+                        )
+                    }
+                }
+
+                // Continuing/ended status chip, top-right (skip when a rule chip
+                // already occupies top-left and progress badges own top-right).
+                if (libraryBadge != null && !showProgress) {
+                    val statusText = when (libraryBadge.statusLabel?.lowercase()) {
+                        "continuing" -> "Continuing"
+                        "ended" -> "Ended"
+                        "upcoming" -> "Upcoming"
+                        else -> null
+                    }
+                    if (statusText != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(XadarrSkin.spacing.x2)
+                                .background(
+                                    color = XadarrSkin.colors.surfaceRaised.copy(alpha = 0.62f),
+                                    shape = rememberXadarrCardShape(XadarrSkin.radius.sm),
+                                )
+                                .padding(horizontal = XadarrSkin.spacing.x2, vertical = XadarrSkin.spacing.x1),
+                        ) {
+                            Text(
+                                text = statusText,
+                                style = XadarrSkin.typography.badge,
+                                color = XadarrSkin.colors.textPrimary,
+                            )
+                        }
+                    }
+                }
+
                 // Subtle green watched badge
                 if (item.isWatched) {
                     Box(
@@ -395,7 +498,7 @@ fun MediaCard(
                 if (showProgress) {
                     // Top-right: time remaining or "New Episode" badge
                     val topRightLabel = item.timeRemainingLabel
-                        ?: if (item.mediaType == MediaType.TV && item.progress == 0 && !item.isWatched) "New Episode" else null
+                        ?: if (item.mediaType == MediaType.TV && item.progress == 0 && !item.isWatched) "Up Next" else null
                     if (topRightLabel != null) {
                         Box(
                             modifier = Modifier

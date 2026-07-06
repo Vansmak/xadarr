@@ -4,6 +4,26 @@ import androidx.compose.runtime.Immutable
 import java.io.Serializable
 
 /**
+ * Extra per-item metadata for the "All Shows"/"All Movies" library browser
+ * when it's sourced directly from Sonarr/Radarr instead of the home server's
+ * file listing — carries the ids needed for library-browser actions (assign
+ * rule, search, delete) plus status badges, since MediaItem itself has no
+ * concept of a Sonarr/Radarr id or tracking status.
+ */
+@Immutable
+data class LibraryBrowseEntry(
+    val sonarrSeriesId: Int? = null,
+    val radarrMovieId: Int? = null,
+    val statusLabel: String? = null,       // "continuing" / "ended" / etc (raw Sonarr/Radarr value)
+    val fileStateLabel: String? = null,    // "Available" / "Partial" / "Missing"
+    val assignedRule: String? = null,
+    // Shows only (Radarr movies just use fileStateLabel) — raw counts for a
+    // more informative library-browser menu than a single Available/Partial/Missing word.
+    val episodeFileCount: Int? = null,
+    val totalEpisodeCount: Int? = null,
+)
+
+/**
  * Media item - represents a movie or TV show
  * Matches webapp's MediaItem type
  */
@@ -87,7 +107,8 @@ data class Episode(
     val voteAverage: Float = 0f,
     val runtime: Int = 0,
     val airDate: String = "",
-    val isWatched: Boolean = false
+    val isWatched: Boolean = false,
+    val hasFile: Boolean = false
 ) : Serializable
 
 /**

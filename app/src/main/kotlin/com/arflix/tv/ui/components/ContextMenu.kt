@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
@@ -86,6 +87,8 @@ object ContextActions {
     val viewDetails = ContextAction("view_details", "View Details", Icons.Default.Info, TextPrimary)
     val markSeasonWatched = ContextAction("mark_season_watched", "Mark Season Watched", Icons.Default.Check, Color(0xFF22C55E))
     val markSeasonUnwatched = ContextAction("mark_season_unwatched", "Mark Season Unwatched", Icons.Default.Clear, TextSecondary)
+    val searchSonarr = ContextAction("search_sonarr", "Search", Icons.Default.Search, Color(0xFFEF5350))
+    val deleteEpisodeFile = ContextAction("delete_episode_file", "Delete Episode", Icons.Default.Close, Color(0xFFDC2626))
 }
 
 /**
@@ -419,17 +422,23 @@ fun EpisodeContextMenu(
     episodeName: String,
     seasonEpisode: String,
     isWatched: Boolean,
+    showSonarrSearch: Boolean = false,
+    showDeleteEpisode: Boolean = false,
     onPlay: () -> Unit,
     onSelectSource: () -> Unit,
     onToggleWatched: () -> Unit,
+    onSearchSonarr: () -> Unit = {},
+    onDeleteEpisode: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    val actions = listOf(
+    val actions = listOfNotNull(
         ContextActions.play,
         ContextActions.selectSource,
-        if (isWatched) ContextActions.markUnwatched else ContextActions.markWatched
+        if (isWatched) ContextActions.markUnwatched else ContextActions.markWatched,
+        if (showSonarrSearch) ContextActions.searchSonarr else null,
+        if (showDeleteEpisode) ContextActions.deleteEpisodeFile else null
     )
-    
+
     ContextMenu(
         isVisible = isVisible,
         title = episodeName,
@@ -440,6 +449,8 @@ fun EpisodeContextMenu(
                 "play" -> onPlay()
                 "sources" -> onSelectSource()
                 "mark_watched", "mark_unwatched" -> onToggleWatched()
+                "search_sonarr" -> onSearchSonarr()
+                "delete_episode_file" -> onDeleteEpisode()
             }
             onDismiss()
         },

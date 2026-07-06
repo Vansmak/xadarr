@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
@@ -78,7 +77,6 @@ fun MediaContextMenu(
     isWatched: Boolean,
     isContinueWatching: Boolean = false,
     onPlay: () -> Unit,
-    onViewDetails: () -> Unit,
     onToggleWatchlist: () -> Unit,
     onToggleWatched: () -> Unit,
     onRemoveFromContinueWatching: (() -> Unit)? = null,
@@ -96,11 +94,6 @@ fun MediaContextMenu(
             icon = Icons.Default.PlayArrow,
             labelRes = R.string.play,
             action = onPlay
-        ))
-        add(MenuItem(
-            icon = Icons.Default.Info,
-            labelRes = R.string.details,
-            action = onViewDetails
         ))
         add(MenuItem(
             icon = if (isInWatchlist) Icons.Default.Remove else Icons.Default.Add,
@@ -384,6 +377,110 @@ private data class MenuItem(
     @StringRes val labelRes: Int,
     val action: () -> Unit
 )
+
+/**
+ * Context menu for "All Shows"/"All Movies" library-browser cards (Sonarr/Radarr
+ * sourced). Same minimal fixed-list D-pad pattern as [LiveTvContextMenu].
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun LibraryItemContextMenu(
+    isVisible: Boolean,
+    title: String,
+    // e.g. "Continuing • 12/24 episodes • Rule: gracewatched" — replaces a
+    // whole-series "Search" action, which force-searches every missing episode
+    // at once and isn't something you'd want to trigger by accident from a
+    // library browse list; per-episode search already exists in Details.
+    statusDetail: String,
+    hasAssignedRule: Boolean,
+    onAssignRule: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    var focusedIndex by remember { mutableIntStateOf(0) }
+    val cardBg = XadarrTheme.colors.backgroundCard
+    val borderColor = XadarrTheme.colors.borderLight
+
+    val menuItems = listOf(
+        MenuItem(
+            icon = Icons.Default.Check,
+            labelRes = if (hasAssignedRule) R.string.change_rule else R.string.assign_rule,
+            action = onAssignRule
+        ),
+        MenuItem(icon = Icons.Default.Close, labelRes = R.string.delete_from_library, action = onDelete),
+    )
+
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            focusedIndex = 0
+            focusRequester.requestFocus()
+        }
+    }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn() + scaleIn(initialScale = 0.9f),
+        exit = fadeOut() + scaleOut(targetScale = 0.9f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(160f)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.DirectionUp -> { if (focusedIndex > 0) focusedIndex--; true }
+                            Key.DirectionDown -> { if (focusedIndex < menuItems.size - 1) focusedIndex++; true }
+                            Key.Enter, Key.DirectionCenter -> { menuItems[focusedIndex].action(); onDismiss(); true }
+                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            else -> false
+                        }
+                    } else false
+                },
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(top = 110.dp)
+                    .width(320.dp)
+                    .background(cardBg, RoundedCornerShape(14.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = title, style = ArflixTypography.sectionTitle, color = TextPrimary, maxLines = 2)
+                if (statusDetail.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = statusDetail, style = ArflixTypography.caption, color = TextSecondary, maxLines = 2)
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    menuItems.forEachIndexed { index, item ->
+                        ContextMenuItem(
+                            icon = item.icon,
+                            label = stringResource(item.labelRes),
+                            isFocused = index == focusedIndex,
+                            onClick = { item.action(); onDismiss() }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.press_back_to_close),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
 
 /**
  * Minimal 2-item context menu for live TV cards in the On Now home row.

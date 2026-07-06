@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -27,6 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -110,6 +114,7 @@ import javax.inject.Inject
 
 data class CamerasUiState(
     val cameras: List<FrigateRepository.FrigateCamera> = emptyList(),
+    val events: List<FrigateRepository.FrigateEvent> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
 )
@@ -130,10 +135,11 @@ class CamerasViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = CamerasUiState(isLoading = true)
             val cameras = frigateRepository.getCameras()
+            val events = runCatching { frigateRepository.getRecentEvents(20) }.getOrDefault(emptyList())
             _uiState.value = if (cameras.isEmpty()) {
-                CamerasUiState(isLoading = false, error = "No cameras found. Check Frigate URL in settings.")
+                CamerasUiState(isLoading = false, events = events, error = "No cameras found. Check Frigate URL in settings.")
             } else {
-                CamerasUiState(cameras = cameras, isLoading = false)
+                CamerasUiState(cameras = cameras, events = events, isLoading = false)
             }
         }
     }
@@ -141,7 +147,7 @@ class CamerasViewModel @Inject constructor(
 
 // ── Focus zones ───────────────────────────────────────────────────────────────
 
-private enum class FocusZone { TOPBAR, GRID, PLAYER }
+private enum class FocusZone { TOPBAR, GRID, EVENTS, PLAYER }
 
 // ── Cameras grid screen ───────────────────────────────────────────────────────
 
@@ -167,6 +173,7 @@ fun CamerasScreen(
     val hasProfile = currentProfile != null
 
     val cameras = uiState.cameras
+    val events = uiState.events
     val colCount = when (cameras.size) {
         0 -> 3
         1 -> 1
@@ -183,9 +190,11 @@ fun CamerasScreen(
     }
     val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
     var focusedCameraIndex by remember { mutableIntStateOf(0) }
+    var focusedEventIndex by remember { mutableIntStateOf(0) }
 
-    // Which camera is playing fullscreen
-    var playerCamera by remember { mutableStateOf<FrigateRepository.FrigateCamera?>(null) }
+    // Which stream is playing fullscreen (URL + display name — covers cameras and event clips)
+    var playerUrl by remember { mutableStateOf<String?>(null) }
+    var playerDisplayName by remember { mutableStateOf("") }
     val playerFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
 
@@ -219,20 +228,20 @@ fun CamerasScreen(
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> if (playerCamera != null) embeddedPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> if (playerCamera != null) embeddedPlayer.play()
+                Lifecycle.Event.ON_PAUSE -> if (playerUrl != null) embeddedPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> if (playerUrl != null) embeddedPlayer.play()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
-    LaunchedEffect(playerCamera) {
-        if (playerCamera != null) {
-            android.util.Log.d("Cameras", "playing stream: ${playerCamera!!.streamUrl}")
+    LaunchedEffect(playerUrl) {
+        if (playerUrl != null) {
+            android.util.Log.d("Cameras", "playing: $playerUrl")
             embeddedPlayer.stop()
             embeddedPlayer.clearMediaItems()
-            embeddedPlayer.setMediaItem(MediaItem.fromUri(playerCamera!!.streamUrl))
+            embeddedPlayer.setMediaItem(MediaItem.fromUri(playerUrl!!))
             embeddedPlayer.prepare()
             embeddedPlayer.play()
             focusZone = FocusZone.PLAYER
@@ -251,7 +260,7 @@ fun CamerasScreen(
     }
 
     BackHandler {
-        if (playerCamera != null) playerCamera = null else onBack()
+        if (playerUrl != null) playerUrl = null else onBack()
     }
 
     Box(
@@ -264,11 +273,17 @@ fun CamerasScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Back, Key.Escape -> {
-                        if (playerCamera != null) { playerCamera = null; true }
+                        if (playerUrl != null) { playerUrl = null; true }
                         else { onBack(); true }
                     }
                     Key.DirectionUp -> when {
                         focusZone == FocusZone.PLAYER -> false
+                        focusZone == FocusZone.EVENTS -> {
+                            focusZone = FocusZone.GRID
+                            val bottomRowStart = ((cameras.size - 1) / colCount) * colCount
+                            focusedCameraIndex = bottomRowStart.coerceIn(0, (cameras.size - 1).coerceAtLeast(0))
+                            true
+                        }
                         focusZone == FocusZone.GRID &&
                             (focusedCameraIndex < colCount || event.nativeKeyEvent.repeatCount >= 1) -> {
                             focusZone = FocusZone.TOPBAR
@@ -283,6 +298,7 @@ fun CamerasScreen(
                     }
                     Key.DirectionDown -> when {
                         focusZone == FocusZone.PLAYER -> false
+                        focusZone == FocusZone.EVENTS -> false
                         focusZone == FocusZone.TOPBAR -> {
                             focusZone = FocusZone.GRID
                             focusedCameraIndex = 0
@@ -290,6 +306,11 @@ fun CamerasScreen(
                         }
                         focusZone == FocusZone.GRID && focusedCameraIndex + colCount < cameras.size -> {
                             focusedCameraIndex += colCount
+                            true
+                        }
+                        focusZone == FocusZone.GRID && events.isNotEmpty() -> {
+                            focusZone = FocusZone.EVENTS
+                            focusedEventIndex = 0
                             true
                         }
                         else -> false
@@ -302,6 +323,9 @@ fun CamerasScreen(
                         focusZone == FocusZone.GRID && focusedCameraIndex % colCount > 0 -> {
                             focusedCameraIndex--; true
                         }
+                        focusZone == FocusZone.EVENTS && focusedEventIndex > 0 -> {
+                            focusedEventIndex--; true
+                        }
                         else -> false
                     }
                     Key.DirectionRight -> when {
@@ -313,6 +337,9 @@ fun CamerasScreen(
                             && focusedCameraIndex % colCount < colCount - 1
                             && focusedCameraIndex + 1 < cameras.size -> {
                             focusedCameraIndex++; true
+                        }
+                        focusZone == FocusZone.EVENTS && focusedEventIndex < events.size - 1 -> {
+                            focusedEventIndex++; true
                         }
                         else -> false
                     }
@@ -331,7 +358,17 @@ fun CamerasScreen(
                             true
                         }
                         focusZone == FocusZone.GRID && focusedCameraIndex < cameras.size -> {
-                            playerCamera = cameras[focusedCameraIndex]
+                            val cam = cameras[focusedCameraIndex]
+                            playerUrl = cam.streamUrl
+                            playerDisplayName = cam.displayName
+                            true
+                        }
+                        focusZone == FocusZone.EVENTS && focusedEventIndex < events.size -> {
+                            val ev = events[focusedEventIndex]
+                            playerUrl = ev.clipUrl
+                            playerDisplayName = ev.camera.replace('_', ' ')
+                                .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercaseChar() } } +
+                                " · ${ev.label.replaceFirstChar { it.uppercaseChar() }}"
                             true
                         }
                         else -> false
@@ -340,46 +377,58 @@ fun CamerasScreen(
                 }
             }
     ) {
-        // ── Grid / loading / error ─────────────────────────────────────────
-        when {
-            uiState.isLoading -> {
-                Box(
-                    Modifier.fillMaxSize().padding(top = AppTopBarContentTopInset),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = Pink)
-                }
-            }
-            uiState.error != null -> {
-                Column(
-                    Modifier.fillMaxSize().padding(top = AppTopBarContentTopInset + 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text(uiState.error!!, color = Color.White.copy(0.6f), fontSize = 14.sp)
-                    Spacer(Modifier.height(16.dp))
+        // ── Grid / loading / error + events row ───────────────────────────
+        val eventsRowHeight = if (events.isNotEmpty()) 185.dp else 0.dp
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = AppTopBarContentTopInset),
+        ) {
+            when {
+                uiState.isLoading -> {
                     Box(
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Pink.copy(0.15f))
-                            .border(1.dp, Pink.copy(0.4f), RoundedCornerShape(8.dp))
-                            .clickable { viewModel.loadCameras() }
-                            .padding(horizontal = 20.dp, vertical = 10.dp),
-                    ) { Text("Retry", color = Pink, fontSize = 14.sp) }
+                        Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = Pink)
+                    }
+                }
+                uiState.error != null -> {
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth().padding(top = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(uiState.error!!, color = Color.White.copy(0.6f), fontSize = 14.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Pink.copy(0.15f))
+                                .border(1.dp, Pink.copy(0.4f), RoundedCornerShape(8.dp))
+                                .clickable { viewModel.loadCameras() }
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                        ) { Text("Retry", color = Pink, fontSize = 14.sp) }
+                    }
+                }
+                else -> {
+                    CameraGrid(
+                        cameras = cameras,
+                        colCount = colCount,
+                        rowCount = rowCount,
+                        focusZone = focusZone,
+                        focusedIndex = focusedCameraIndex,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
                 }
             }
-            else -> {
-                CameraGrid(
-                    cameras = cameras,
-                    colCount = colCount,
-                    rowCount = rowCount,
-                    focusZone = focusZone,
-                    focusedIndex = focusedCameraIndex,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = AppTopBarContentTopInset),
+            if (events.isNotEmpty()) {
+                CameraEventsRow(
+                    events = events,
+                    focusedIndex = if (focusZone == FocusZone.EVENTS) focusedEventIndex else -1,
+                    modifier = Modifier.fillMaxWidth().height(eventsRowHeight),
                 )
             }
         }
@@ -395,12 +444,13 @@ fun CamerasScreen(
         }
 
         // Embedded fullscreen player — drawn on top, covers AppTopBar
-        if (playerCamera != null) {
+        if (playerUrl != null) {
             EmbeddedCameraPlayer(
-                camera = playerCamera!!,
+                streamUrl = playerUrl!!,
+                displayName = playerDisplayName,
                 player = embeddedPlayer,
                 focusRequester = playerFocusRequester,
-                onBack = { playerCamera = null },
+                onBack = { playerUrl = null },
                 modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
@@ -549,7 +599,8 @@ private fun CameraGridCard(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun EmbeddedCameraPlayer(
-    camera: FrigateRepository.FrigateCamera,
+    streamUrl: String,
+    displayName: String,
     player: ExoPlayer,
     focusRequester: FocusRequester,
     onBack: () -> Unit,
@@ -591,7 +642,7 @@ private fun EmbeddedCameraPlayer(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.8f), modifier = Modifier.size(18.dp))
-                Text(camera.displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
 
@@ -605,6 +656,140 @@ private fun EmbeddedCameraPlayer(
                 .padding(10.dp),
         ) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+// ── Recent events row ─────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CameraEventsRow(
+    events: List<FrigateRepository.FrigateEvent>,
+    focusedIndex: Int,
+    modifier: Modifier = Modifier,
+) {
+    val nowMs = remember { System.currentTimeMillis() }
+    Column(
+        modifier = modifier
+            .background(Color(0xFF0A0A10))
+            .padding(horizontal = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Accent.copy(0.7f), modifier = Modifier.size(13.dp))
+            Text(
+                text = "Recent Events",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        val listState = rememberLazyListState()
+        LaunchedEffect(focusedIndex) {
+            if (focusedIndex >= 0) listState.animateScrollToItem(focusedIndex)
+        }
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(end = 12.dp),
+        ) {
+            itemsIndexed(events) { index, event ->
+                val diff = nowMs - event.startTimeMs
+                val timeAgo = when {
+                    diff < 60_000L -> "Just now"
+                    diff < 3_600_000L -> "${diff / 60_000}m ago"
+                    diff < 86_400_000L -> "${diff / 3_600_000}h ago"
+                    else -> "${diff / 86_400_000}d ago"
+                }
+                val camName = event.camera.replace('_', ' ')
+                    .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercaseChar() } }
+                CameraEventCard(
+                    thumbnailUrl = event.thumbnailUrl,
+                    cameraName = camName,
+                    label = event.label.replaceFirstChar { it.uppercaseChar() },
+                    timeAgo = timeAgo,
+                    isFocused = index == focusedIndex,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CameraEventCard(
+    thumbnailUrl: String,
+    cameraName: String,
+    label: String,
+    timeAgo: String,
+    isFocused: Boolean,
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1f,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        label = "event_scale",
+    )
+    val borderColor = if (isFocused) Pink.copy(alpha = 0.9f) else Color.White.copy(0.06f)
+
+    Column(
+        modifier = Modifier
+            .scale(scale)
+            .width(175.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(Color(0xFF0E0E14)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(98.dp)
+                .background(Color(0xFF111118)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = thumbnailUrl,
+                    contentDescription = cameraName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(32.dp))
+            }
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(0.25f))
+                    )
+                )
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0A0A10))
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "$label · $cameraName",
+                color = Color.White.copy(if (isFocused) 1f else 0.75f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = timeAgo,
+                color = Color.White.copy(0.45f),
+                fontSize = 9.sp,
+            )
         }
     }
 }

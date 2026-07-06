@@ -1873,18 +1873,23 @@ class TraktRepository @Inject constructor(
         streamKey: String? = null,
         streamAddonId: String? = null,
         streamTitle: String? = null,
-        year: String = ""
+        year: String = "",
+        isUpNext: Boolean = false
     ) {
         ensureProfileCacheScope()
         val hasMeaningfulPosition = positionSeconds >= 60L
 
-        // Keep accidental taps out, but still keep real partial sessions on long content
-        // where percent can be low while position is already meaningful.
-        if ((progress < Constants.MIN_PROGRESS_THRESHOLD && !hasMeaningfulPosition) || progress >= Constants.WATCHED_THRESHOLD) {
-            // If watched (>= threshold), remove from Continue Watching
-            if (progress >= Constants.WATCHED_THRESHOLD) {
-                removeFromLocalContinueWatching(tmdbId, season, episode)
+        // Up-next placeholders (progress=0, no position) are always allowed through.
+        // Normal saves require progress >= MIN_PROGRESS_THRESHOLD or a meaningful position.
+        if (!isUpNext) {
+            if ((progress < Constants.MIN_PROGRESS_THRESHOLD && !hasMeaningfulPosition) || progress >= Constants.WATCHED_THRESHOLD) {
+                if (progress >= Constants.WATCHED_THRESHOLD) {
+                    removeFromLocalContinueWatching(tmdbId, season, episode)
+                }
+                return
             }
+        } else if (progress >= Constants.WATCHED_THRESHOLD) {
+            removeFromLocalContinueWatching(tmdbId, season, episode)
             return
         }
 
@@ -1904,6 +1909,7 @@ class TraktRepository @Inject constructor(
             streamAddonId = streamAddonId,
             streamTitle = streamTitle,
             year = year,
+            isUpNext = isUpNext,
             updatedAtMs = System.currentTimeMillis()
         )
 

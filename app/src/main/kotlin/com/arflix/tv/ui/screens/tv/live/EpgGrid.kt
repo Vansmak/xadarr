@@ -82,6 +82,7 @@ fun EpgGrid(
     selectedChannelId: String?,
     focusSelectedChannelSignal: Int,
     focusEpgSignal: Int = 0,
+    scrollToNowSignal: Int = 0,
     focusMode: EpgGridFocusMode = EpgGridFocusMode.ChannelList,
     onChannelSelect: (EnrichedChannel, IptvProgram?) -> Unit,
     onProgramSelect: (EnrichedChannel, IptvProgram?) -> Unit = onChannelSelect,
@@ -124,10 +125,10 @@ fun EpgGrid(
     }
     val slots = remember(windowStartMillis, slotCount) { buildHalfHourSlots(windowStartMillis, slotCount) }
 
-    // Shared horizontal scroll state — initialised at "now" so programs appear at current time
-    // on first render even when epgReady defers program composition by one frame.
+    // Shared horizontal scroll state — always use System.currentTimeMillis() here, not
+    // clockTickMillis, because clockTickMillis can be stale after device sleep.
     val nowScrollPx = with(density) {
-        val nowOffsetMin = ((clockTickMillis - windowStartMillis) / 60_000L).coerceAtLeast(0L).toInt()
+        val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).coerceAtLeast(0L).toInt()
         ((nowOffsetMin * pxPerMin).dp.roundToPx() - 30.dp.roundToPx()).coerceAtLeast(0)
     }
     val hScroll = rememberScrollState(initial = nowScrollPx)
@@ -237,8 +238,20 @@ fun EpgGrid(
         activeChannelFocusId = id
         pendingChannelFocusId = id
         channelListState.scrollToItem(idx)
-        delay(32L)
-        runCatching { selectedChannelFocusRequester.requestFocus() }
+        // A single delayed attempt can lose the race against this row's own layout
+        // pass right after switching categories (new channel list, freshly composed
+        // rows) — that's what left the row looking focused (forceFocused/isActive
+        // styling) while no row actually held real input focus, so up/down did
+        // nothing until another left/right re-triggered this signal. Retry instead
+        // of guessing one delay, same fix as the browse-overlay focus bug.
+        repeat(6) { attempt ->
+            delay(if (attempt == 0) 32L else 24L)
+            if (runCatching { selectedChannelFocusRequester.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+        }
+        // All retries exhausted — clear pending so future onFocused calls aren't blocked.
+        if (pendingChannelFocusId == id) pendingChannelFocusId = null
     }
 
     LaunchedEffect(focusEpgSignal, selectedChannelId, channels, windowStartMillis) {
@@ -246,7 +259,7 @@ fun EpgGrid(
         val id = selectedChannelId ?: return@LaunchedEffect
         val idx = channels.indexOfFirst { it.id == id }
         if (idx < 0) return@LaunchedEffect
-        val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
+        val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
         repeat(6) {
             if (requestNearestProgramFocus(idx, nowMin)) return@LaunchedEffect
             delay(50L)
@@ -259,9 +272,32 @@ fun EpgGrid(
         // Wait for maxValue > 0 so scrollTo doesn't reset the initial nowScrollPx to 0.
         snapshotFlow { hScroll.maxValue }.first { it > 0 }
         with(density) {
-            val nowOffsetMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
+            // Use System.currentTimeMillis() directly — clockTickMillis may be stale after sleep.
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
             val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
             hScroll.scrollTo(targetPx.coerceAtLeast(0))
+        }
+    }
+
+    // Snap back to "now" when exiting EPG mode (user navigated into future programs then came back).
+    LaunchedEffect(focusMode) {
+        if (focusMode != EpgGridFocusMode.ChannelList) return@LaunchedEffect
+        snapshotFlow { hScroll.maxValue }.first { it > 0 }
+        with(density) {
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+            val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
+            hScroll.animateScrollTo(targetPx.coerceAtLeast(0))
+        }
+    }
+
+    // Fired on screen resume (wake from sleep) to re-anchor the guide to current time.
+    LaunchedEffect(scrollToNowSignal) {
+        if (scrollToNowSignal == 0) return@LaunchedEffect
+        snapshotFlow { hScroll.maxValue }.first { it > 0 }
+        with(density) {
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
+            val targetPx = (nowOffsetMin * pxPerMin).dp.toPx().toInt() - 30.dp.toPx().toInt()
+            hScroll.animateScrollTo(targetPx.coerceAtLeast(0))
         }
     }
 
@@ -426,7 +462,7 @@ fun EpgGrid(
                                 },
                                 onMoveLeft = onMoveLeftFromChannels,
                                 onMoveRight = {
-                                    val nowMin = ((clockTickMillis - windowStartMillis) / 60_000L).toInt()
+                                    val nowMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000L).toInt()
                                     onEnterEpg(ch)
                                     if (requestNearestProgramFocus(idx, nowMin)) {
                                         true

@@ -166,6 +166,9 @@ import com.arflix.tv.util.isInCinema
 import com.arflix.tv.util.parseRatingValue
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.tv.foundation.lazy.grid.TvGridCells
+import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
+import androidx.tv.foundation.lazy.grid.itemsIndexed as tvGridItemsIndexed
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -236,6 +239,10 @@ private class HomeFocusState(
     var currentItemIndex by mutableIntStateOf(initialItemIndex)
     var lastNavEventTime by mutableLongStateOf(0L)
     var userHasNavigated by mutableStateOf(false)
+    // True when focus has moved left of the row's first card onto the row title
+    // itself — pressing Select there jumps straight to the "See All" browse view
+    // instead of requiring the user to scroll all the way right past every item.
+    var isTitleFocused by mutableStateOf(false)
     // Per-row item indices — when pressing D-pad Down, we save the current item
     // index for the current row so pressing Up later returns to the same position.
     // Netflix preserves horizontal scroll position across rows; without this,
@@ -353,6 +360,7 @@ private fun isActionableHomeItem(item: MediaItem?): Boolean {
     if (item == null || item.isPlaceholder) return false
     if (item.status?.startsWith("app:") == true) return true
     if (item.status?.startsWith("camera:") == true) return true
+    if (item.status?.startsWith("frigate_event:") == true) return true
     return item.id > 0
 }
 
@@ -586,6 +594,11 @@ fun HomeScreen(
     // ViewModel's TMDB/Trakt refresh pushes don't drive recompositions behind
     // an invisible UI.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val browseItems by viewModel.browseItems.collectAsStateWithLifecycle()
+    val isBrowseLoading by viewModel.isBrowseLoading.collectAsStateWithLifecycle()
+    val browseLibraryMeta by viewModel.browseLibraryMeta.collectAsStateWithLifecycle()
+    val isLibrarySourcedBrowse by viewModel.isLibrarySourcedBrowse.collectAsStateWithLifecycle()
+    var browseCatId by remember { mutableStateOf<String?>(null) }
     // Per-card logo reads now come from a stable snapshotStateMap so a single
     // logo arriving no longer recomposes the full home surface.
     val cardLogoUrls = viewModel.cardLogoUrls
@@ -711,6 +724,9 @@ fun HomeScreen(
     var contextMenuIsInWatchlist by remember { mutableStateOf(false) }
 
     var rulePickerItem by remember { mutableStateOf<MediaItem?>(null) }
+    var libraryRulePickerTarget by remember {
+        mutableStateOf<Pair<MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry>?>(null)
+    }
 
     BackHandler(enabled = showContextMenu) {
         showContextMenu = false
@@ -1169,6 +1185,7 @@ fun HomeScreen(
             onNavigateToCameras = onNavigateToCameras,
             onNavigateToCameraPlayer = onNavigateToCameraPlayer,
             getCameraStreamUrl = { itemId -> viewModel.getCameraStreamUrl(itemId) },
+            getFrigateEventClipUrl = { itemId -> viewModel.getFrigateEventClipUrl(itemId) },
             getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) },
             onNavigateToSettings = onNavigateToSettings,
             onSwitchProfile = onSwitchProfile,
@@ -1191,10 +1208,16 @@ fun HomeScreen(
             onPendingItemClick = { item -> rulePickerItem = item },
             launcherModeEnabled = uiState.launcherModeEnabled,
             onNavigateToAllApps = onNavigateToAllApps,
+            onBrowseCategory = { categoryId ->
+                browseCatId = categoryId
+                viewModel.startBrowseAll(categoryId)
+            },
+            onCloseBrowseOverlay = { browseCatId = null },
+            isBrowseOverlayOpen = browseCatId != null,
         )
         } // end trailer-dim wrapper
 
-        if (showCinematicHomeLayer) {
+        if (showCinematicHomeLayer && browseCatId == null) {
             Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }) {
             HomeHeroLayer(
                 heroItem = displayHeroItem,
@@ -1245,6 +1268,26 @@ fun HomeScreen(
             }
         }
 
+        // Category browse overlay — rendered above HeroLayer and all home content
+        val browseCat = browseCatId?.let { id -> displayCategories.firstOrNull { it.id == id } }
+        if (browseCatId != null) {
+            CategoryBrowseOverlay(
+                category = browseCat,
+                overrideItems = if (isLibrarySourcedBrowse) browseItems else browseItems.takeIf { it.isNotEmpty() },
+                isLoading = isBrowseLoading && browseItems.isEmpty(),
+                cardLogoUrls = cardLogoUrls,
+                libraryMeta = browseLibraryMeta,
+                onItemClick = { item ->
+                    browseCatId = null
+                    onNavigateToDetails(item.mediaType, item.id, null, null)
+                },
+                onAssignRule = { item, entry -> libraryRulePickerTarget = item to entry },
+                onDeleteItem = { item, entry, onDone -> viewModel.deleteLibraryItem(item, entry, onDone) },
+                isModalOpen = libraryRulePickerTarget != null,
+                onDismiss = { browseCatId = null },
+            )
+        }
+
         // Context menu
         contextMenuItem?.let { item ->
             Box(
@@ -1259,13 +1302,6 @@ fun HomeScreen(
                     isWatched = item.isWatched,
                     isContinueWatching = contextMenuIsContinueWatching,
                     onPlay = {
-                        if (viewModel.isIptvItem(item)) {
-                            onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
-                        } else {
-                            onNavigateToDetails(item.mediaType, item.id, item.nextEpisode?.seasonNumber, item.nextEpisode?.episodeNumber)
-                        }
-                    },
-                    onViewDetails = {
                         if (viewModel.isIptvItem(item)) {
                             onNavigateToTv(viewModel.getIptvChannelId(item), viewModel.getIptvStreamUrl(item.id))
                         } else {
@@ -1365,6 +1401,42 @@ fun HomeScreen(
                 episeerrUrl = episeerrUrl,
                 onDismiss = { rulePickerItem = null },
                 onRuleAssigned = { rulePickerItem = null },
+            )
+        }
+
+        // Library-browser rule picker — direct assign on an already-tracked
+        // Sonarr series or Radarr movie (no pending-request queue involved),
+        // unlike the pending-item picker above.
+        libraryRulePickerTarget?.let { (mediaItem, entry) ->
+            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                androidx.hilt.navigation.compose.hiltViewModel()
+            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val episeerrUrl by rulePickerVm.episeerrUrl.collectAsState()
+            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id = mediaItem.id.toString(),
+                seriesId = entry.sonarrSeriesId,
+                title = mediaItem.title,
+                tmdbId = mediaItem.id.toString(),
+                tvdbId = null,
+                poster = mediaItem.image.takeIf { it.isNotBlank() },
+            )
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem = pendingItem,
+                episeerrRepository = rulePickerVm.episeerrRepository,
+                syncServerUrl = syncServerUrl,
+                episeerrUrl = episeerrUrl,
+                currentRuleName = entry.assignedRule,
+                onAssignRule = { ruleName ->
+                    when {
+                        entry.sonarrSeriesId != null ->
+                            rulePickerVm.episeerrRepository.assignRuleToSeries(entry.sonarrSeriesId, ruleName)
+                        entry.radarrMovieId != null ->
+                            rulePickerVm.radarrRepository.assignRuleToMovie(entry.radarrMovieId, ruleName)
+                        else -> false
+                    }
+                },
+                onDismiss = { libraryRulePickerTarget = null },
+                onRuleAssigned = { libraryRulePickerTarget = null },
             )
         }
     }
@@ -2353,6 +2425,7 @@ private fun HomeInputLayer(
     onNavigateToCameras: () -> Unit = {},
     onNavigateToCameraPlayer: (streamUrl: String, cameraName: String) -> Unit = { _, _ -> },
     getCameraStreamUrl: (itemId: Int) -> String? = { null },
+    getFrigateEventClipUrl: (itemId: Int) -> String? = { null },
     getIptvStreamUrl: (itemId: Int) -> String?,
     onNavigateToSettings: () -> Unit,
     onSwitchProfile: () -> Unit,
@@ -2366,6 +2439,9 @@ private fun HomeInputLayer(
     onPendingItemClick: ((MediaItem) -> Unit)? = null,
     launcherModeEnabled: Boolean = false,
     onNavigateToAllApps: () -> Unit = {},
+    onBrowseCategory: ((String) -> Unit)? = null,
+    onCloseBrowseOverlay: (() -> Unit)? = null,
+    isBrowseOverlayOpen: Boolean = false,
 ) {
     val context = LocalContext.current
     val latestDismissMiniPlayer = androidx.compose.runtime.rememberUpdatedState(onDismissMiniPlayer)
@@ -2388,10 +2464,10 @@ private fun HomeInputLayer(
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
-    LaunchedEffect(rootHasFocus, isContextMenuOpen, isMobile) {
-        if (isMobile || isContextMenuOpen || rootHasFocus) return@LaunchedEffect
+    LaunchedEffect(rootHasFocus, isContextMenuOpen, isMobile, isBrowseOverlayOpen) {
+        if (isMobile || isContextMenuOpen || rootHasFocus || isBrowseOverlayOpen) return@LaunchedEffect
         delay(focusRecoveryDelayMs)
-        if (!rootHasFocus && !isContextMenuOpen) {
+        if (!rootHasFocus && !isContextMenuOpen && !isBrowseOverlayOpen) {
             runCatching { focusRequester.requestFocus() }
         }
     }
@@ -2445,10 +2521,14 @@ private fun HomeInputLayer(
         }
 
         // Clamp item index if it's beyond the current row's bounds.
+        // Allow one extra position for "See All" virtual card on eligible rows.
         // Do NOT reset to 0 or jump rows — that's what caused the trip.
-        val currentRowItems = categories.getOrNull(focusState.currentRowIndex)?.items.orEmpty()
-        if (currentRowItems.isNotEmpty() && focusState.currentItemIndex > currentRowItems.lastIndex) {
-            focusState.currentItemIndex = currentRowItems.lastIndex
+        val currentRowCat = categories.getOrNull(focusState.currentRowIndex)
+        val currentRowItems = currentRowCat?.items.orEmpty()
+        val maxValidIdx = if (currentRowCat != null && categoryHasSeeAll(currentRowCat))
+            currentRowItems.size else currentRowItems.lastIndex
+        if (currentRowItems.isNotEmpty() && focusState.currentItemIndex > maxValidIdx) {
+            focusState.currentItemIndex = maxValidIdx
         }
     }
 
@@ -2458,7 +2538,9 @@ private fun HomeInputLayer(
             if (focusState.currentItemIndex != 0) focusState.currentItemIndex = 0
             return@LaunchedEffect
         }
-        val maxItemIndex = focusedRowItemCount - 1
+        val focusedCatForClamp = categories.getOrNull(focusState.currentRowIndex)
+        val maxItemIndex = if (focusedCatForClamp != null && categoryHasSeeAll(focusedCatForClamp))
+            focusedRowItemCount else focusedRowItemCount - 1
         if (focusState.currentItemIndex > maxItemIndex) {
             focusState.currentItemIndex = maxItemIndex
         }
@@ -2470,6 +2552,15 @@ private fun HomeInputLayer(
         Modifier.onPreviewKeyEvent { event ->
             if (isContextMenuOpen) {
                 return@onPreviewKeyEvent false
+            }
+            // When the browse overlay is open (rendered above HomeInputLayer in HomeScreen),
+            // block all key events so home rows don't react. Back still closes the overlay.
+            if (isBrowseOverlayOpen) {
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)) {
+                    onCloseBrowseOverlay?.invoke()
+                }
+                return@onPreviewKeyEvent true
             }
             if (trailerIsPlaying && event.type == KeyEventType.KeyDown &&
                 (isXadarrDpadNavigationKey(event.key) || event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.Back)
@@ -2524,7 +2615,21 @@ private fun HomeInputLayer(
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
                         if (!focusState.isSidebarFocused) {
-                            if (focusState.currentItemIndex == 0) {
+                            val leftCat = categories.getOrNull(focusState.currentRowIndex)
+                            if (focusState.isTitleFocused) {
+                                true
+                            } else if (event.nativeKeyEvent.repeatCount >= 1 && leftCat != null && categoryHasSeeAll(leftCat)) {
+                                // Held Left: jump straight to the title from anywhere in the row —
+                                // scanning back one card at a time to bail out to "See All" is
+                                // painful on a long row. Mirrors the held-Up-jumps-to-sidebar shortcut.
+                                focusState.isTitleFocused = true
+                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                                true
+                            } else if (focusState.currentItemIndex == 0) {
+                                if (leftCat != null && categoryHasSeeAll(leftCat)) {
+                                    focusState.isTitleFocused = true
+                                    focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                                }
                                 true
                             } else {
                                 focusState.currentItemIndex--
@@ -2549,9 +2654,15 @@ private fun HomeInputLayer(
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             }
                             true
+                        } else if (focusState.isTitleFocused) {
+                            focusState.isTitleFocused = false
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
                         } else {
-                            val maxItems = categories.getOrNull(focusState.currentRowIndex)?.items?.size ?: 0
-                            if (focusState.currentItemIndex < maxItems - 1) {
+                            val rightCat = categories.getOrNull(focusState.currentRowIndex)
+                            val maxItems = rightCat?.items?.size ?: 0
+                            val maxRightIdx = if (rightCat != null && categoryHasSeeAll(rightCat)) maxItems else maxItems - 1
+                            if (focusState.currentItemIndex < maxRightIdx) {
                                 focusState.currentItemIndex++
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             }
@@ -2564,6 +2675,7 @@ private fun HomeInputLayer(
                         focusState.userHasNavigated = true
                         if (event.nativeKeyEvent.repeatCount >= 1 && !focusState.isSidebarFocused) {
                             focusState.isSidebarFocused = true
+                            focusState.isTitleFocused = false
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else if (focusState.isSidebarFocused) {
@@ -2574,10 +2686,12 @@ private fun HomeInputLayer(
                             focusState.currentRowIndex--
                             // Restore saved position for the target row (or 0 if never visited)
                             focusState.currentItemIndex = focusState.rowItemIndices[focusState.currentRowIndex] ?: 0
+                            focusState.isTitleFocused = false
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else {
                             focusState.isSidebarFocused = true
+                            focusState.isTitleFocused = false
                             true
                         }
                     }
@@ -2596,6 +2710,7 @@ private fun HomeInputLayer(
                             focusState.currentRowIndex++
                             // Restore saved position for the target row (or 0 if never visited)
                             focusState.currentItemIndex = focusState.rowItemIndices[focusState.currentRowIndex] ?: 0
+                            focusState.isTitleFocused = false
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else {
@@ -2619,7 +2734,7 @@ private fun HomeInputLayer(
                         Key.Menu, Key.Info -> {
                             selectPressedInHome = false
                             selectDownAtMs = 0L
-                            if (!focusState.isSidebarFocused) {
+                            if (!focusState.isSidebarFocused && !focusState.isTitleFocused) {
                                 val currentItem = getFocusedItem(
                                     categories,
                                     focusState.currentRowIndex,
@@ -2647,6 +2762,25 @@ private fun HomeInputLayer(
                         Key.Enter, Key.DirectionCenter -> {
                             if (selectPressedInHome && !focusState.isSidebarFocused) {
                                 val holdMs = SystemClock.elapsedRealtime() - selectDownAtMs
+                                if (focusState.isTitleFocused) {
+                                    val titleCat = categories.getOrNull(focusState.currentRowIndex)
+                                    if (titleCat != null && holdMs < 500L) {
+                                        onBrowseCategory?.invoke(titleCat.id)
+                                    }
+                                    selectPressedInHome = false
+                                    selectDownAtMs = 0L
+                                    return@onPreviewKeyEvent true
+                                }
+                                // "See All" virtual card at index == items.size (short press only)
+                                val seeAllCat = categories.getOrNull(focusState.currentRowIndex)
+                                val isSeeAll = seeAllCat != null && categoryHasSeeAll(seeAllCat) &&
+                                    focusState.currentItemIndex == seeAllCat.items.size
+                                if (isSeeAll && holdMs < 500L) {
+                                    onBrowseCategory?.invoke(seeAllCat!!.id)
+                                    selectPressedInHome = false
+                                    selectDownAtMs = 0L
+                                    return@onPreviewKeyEvent true
+                                }
                                 val currentItem = getFocusedItem(
                                     categories,
                                     focusState.currentRowIndex,
@@ -2676,11 +2810,17 @@ private fun HomeInputLayer(
                                         val collectionId = item.status?.removePrefix("collection:")
                                             ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                                         val isCameraItem = item.status?.startsWith("camera:") == true
+                                        val isFrigateEvent = item.status?.startsWith("frigate_event:") == true
                                         if (item.status == "all_apps") {
                                             onNavigateToAllApps()
                                         } else if (appPackage != null) {
                                             latestDismissMiniPlayer.value?.invoke()
                                             launchApp(context, appPackage)
+                                        } else if (isFrigateEvent) {
+                                            val clipUrl = getFrigateEventClipUrl(item.id).orEmpty()
+                                            if (clipUrl.isNotBlank()) {
+                                                onNavigateToCameraPlayer(clipUrl, item.title)
+                                            }
                                         } else if (isCameraItem) {
                                             val streamUrl = getCameraStreamUrl(item.id).orEmpty()
                                             if (streamUrl.isNotBlank()) {
@@ -2764,7 +2904,11 @@ private fun HomeInputLayer(
                 val iptvId = item.status?.removePrefix("iptv:")?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
                 val collectionId = item.status?.removePrefix("collection:")?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                 val isCameraItem = item.status?.startsWith("camera:") == true
-                if (isCameraItem) {
+                val isFrigateEvent = item.status?.startsWith("frigate_event:") == true
+                if (isFrigateEvent) {
+                    val clipUrl = getFrigateEventClipUrl(item.id).orEmpty()
+                    if (clipUrl.isNotBlank()) onNavigateToCameraPlayer(clipUrl, item.title)
+                } else if (isCameraItem) {
                     val streamUrl = getCameraStreamUrl(item.id).orEmpty()
                     if (streamUrl.isNotBlank()) onNavigateToCameraPlayer(streamUrl, item.title)
                 } else if (iptvId != null) {
@@ -2787,7 +2931,9 @@ private fun HomeInputLayer(
             },
             onCameraClick = { streamUrl, name -> onNavigateToCameraPlayer(streamUrl, name) },
             onPendingItemClick = onPendingItemClick,
+            onBrowseCategory = onBrowseCategory,
         )
+
     }
 }
 
@@ -2816,6 +2962,7 @@ private fun HomeRowsLayer(
     getCameraStreamUrl: (Int) -> String? = { null },
     onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
     onPendingItemClick: ((MediaItem) -> Unit)? = null,
+    onBrowseCategory: ((String) -> Unit)? = null,
 ) {
     if (isMobile) {
         MobileHomeRowsLayer(
@@ -2825,7 +2972,8 @@ private fun HomeRowsLayer(
             usePosterCards = usePosterCards,
             onNavigateToDetails = onNavigateToDetails,
             onItemClick = onItemClick,
-            onItemLongClick = onItemLongClick
+            onItemLongClick = onItemLongClick,
+            onBrowseCategory = onBrowseCategory,
         )
     } else {
         TvHomeRowsLayer(
@@ -2845,6 +2993,7 @@ private fun HomeRowsLayer(
             getCameraStreamUrl = getCameraStreamUrl,
             onCameraClick = onCameraClick,
             onPendingItemClick = onPendingItemClick,
+            onBrowseCategory = onBrowseCategory,
         )
     }
 }
@@ -2858,7 +3007,8 @@ private fun MobileHomeRowsLayer(
     usePosterCards: Boolean,
     onNavigateToDetails: (MediaType, Int, Int?, Int?) -> Unit = { _, _, _, _ -> },
     onItemClick: (MediaItem) -> Unit,
-    onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null
+    onItemLongClick: ((MediaItem, Boolean) -> Unit)? = null,
+    onBrowseCategory: ((String) -> Unit)? = null,
 ) {
     val mobileItemSpacing = 10.dp
 
@@ -2890,12 +3040,17 @@ private fun MobileHomeRowsLayer(
             val rowMobileItemWidth = if (rowUsePosterCards) 124.dp else 200.dp
 
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
-                // Section title
+                // Section title — tapping it jumps straight to the full "See All"
+                // browse view instead of requiring a scroll past every card in the row.
+                val rowHasSeeAll = categoryHasSeeAll(category)
                 Row(
-                    modifier = Modifier.padding(
-                        start = contentStartPadding,
-                        bottom = 8.dp
-                    ),
+                    modifier = Modifier
+                        .padding(start = contentStartPadding, bottom = 8.dp)
+                        .then(
+                            if (rowHasSeeAll && onBrowseCategory != null) {
+                                Modifier.clickable { onBrowseCategory(category.id) }
+                            } else Modifier
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -2907,6 +3062,13 @@ private fun MobileHomeRowsLayer(
                         ),
                         color = Color.White
                     )
+                    if (rowHasSeeAll && onBrowseCategory != null) {
+                        Text(
+                            text = "See All ›",
+                            style = ArflixTypography.sectionTitle.copy(fontSize = 13.sp),
+                            color = Color.White.copy(alpha = 0.55f)
+                        )
+                    }
                 }
 
                 // Horizontal card row with touch scrolling
@@ -3000,6 +3162,7 @@ private fun TvHomeRowsLayer(
     getCameraStreamUrl: (Int) -> String? = { null },
     onCameraClick: ((streamUrl: String, cameraName: String) -> Unit)? = null,
     onPendingItemClick: ((MediaItem) -> Unit)? = null,
+    onBrowseCategory: ((String) -> Unit)? = null,
 ) {
     // ── Focus-row stabilizer ──
     // Track the focused row by its category ID (stable) rather than integer
@@ -3164,16 +3327,22 @@ private fun TvHomeRowsLayer(
                             startPadding = contentStartPadding,
                             focusedItemIndex = if (rowIsFocused) focusState.currentItemIndex else -1,
                             isFastScrolling = rowIsFocused && isFastScrolling,
-                            useViewportFocusOverlay = rowIsFocused && homeViewportFocusOverlayActive(
+                            useViewportFocusOverlay = rowIsFocused && !focusState.isTitleFocused && homeViewportFocusOverlayActive(
                                 category = category,
                                 focusedItemIndex = focusState.currentItemIndex,
                                 usePosterCards = rowUsePosterCards
                             ),
+                            showSeeAll = categoryHasSeeAll(category),
+                            isTitleFocused = rowIsFocused && focusState.isTitleFocused,
+                            onTitleClick = if (categoryHasSeeAll(category)) {
+                                { onBrowseCategory?.invoke(category.id) }
+                            } else null,
                             onItemClick = onItemClick,
                             onItemFocused = { item, itemIdx ->
                                 focusState.currentRowIndex = actualRowIndex
                                 focusState.currentItemIndex = itemIdx
                                 focusState.isSidebarFocused = false
+                                focusState.isTitleFocused = false
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             },
                             onBeforeAppLaunch = onBeforeAppLaunch,
@@ -3215,6 +3384,16 @@ private fun TvHomeRowsLayer(
     }
 }
 
+private fun categoryHasSeeAll(category: Category): Boolean {
+    if (category.items.isEmpty()) return false
+    return category.id !in setOf(
+        HomeViewModel.APPS_CATEGORY_ID,
+        HomeViewModel.FAVORITE_TV_CATEGORY_ID,
+        HomeViewModel.CAMERAS_CATEGORY_ID,
+        HomeViewModel.FRIGATE_EVENTS_CATEGORY_ID,
+    ) && !category.id.startsWith("collection_row_")
+}
+
 @Composable
 private fun homeViewportFocusOverlayActive(
     category: Category,
@@ -3224,6 +3403,356 @@ private fun homeViewportFocusOverlayActive(
     if (focusedItemIndex < 0 || category.items.isEmpty()) return false
     if (category.id == HomeViewModel.APPS_CATEGORY_ID) return false
     return category.items.size > 1 && focusedItemIndex <= category.items.lastIndex
+}
+
+@Composable
+private fun SeeAllCard(isFocused: Boolean, width: Dp, posterMode: Boolean) {
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isFocused) XadarrSkin.colors.focusOutline else Color.White.copy(0.12f),
+        animationSpec = tween(150),
+        label = "see_all_border"
+    )
+    val bgColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isFocused) Color(0xFF1A2540) else Color(0xFF0E0E16),
+        animationSpec = tween(150),
+        label = "see_all_bg"
+    )
+    Box(
+        modifier = Modifier
+            .width(width)
+            .aspectRatio(if (posterMode) 2f / 3f else 16f / 9f)
+            .clip(rememberXadarrCardShape(XadarrSkin.radius.md))
+            .border(1.5.dp, borderColor, rememberXadarrCardShape(XadarrSkin.radius.md))
+            .background(bgColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            androidx.tv.material3.Text(
+                text = "→",
+                color = if (isFocused) Color.White else Color.White.copy(0.35f),
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Light,
+            )
+            androidx.tv.material3.Text(
+                text = "See All",
+                color = if (isFocused) Color.White else Color.White.copy(0.45f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CategoryBrowseOverlay(
+    category: Category?,
+    overrideItems: List<MediaItem>? = null,
+    isLoading: Boolean = false,
+    cardLogoUrls: Map<String, String>,
+    libraryMeta: Map<String, com.arflix.tv.data.model.LibraryBrowseEntry> = emptyMap(),
+    onItemClick: (MediaItem) -> Unit,
+    onAssignRule: (MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry) -> Unit = { _, _ -> },
+    onDeleteItem: (MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry, (Boolean) -> Unit) -> Unit =
+        { _, _, cb -> cb(false) },
+    // True while a modal rendered by the parent (the library rule picker) is
+    // showing on top of this overlay. The rule picker has its own BackHandler,
+    // which hooks Android's OnBackPressedDispatcher independently of Compose key
+    // routing — if this overlay's own Box ALSO still holds Compose key focus
+    // while the picker is up, a single Back press fires both handlers at once
+    // (picker closes AND this whole overlay closes, dropping the user back on
+    // Home). Suppressing this overlay's own key handling while a modal is open
+    // avoids that double-dismiss.
+    isModalOpen: Boolean = false,
+    onDismiss: () -> Unit,
+) {
+    val displayItems = overrideItems ?: category?.items ?: emptyList()
+    val outerFocusRequester = remember { FocusRequester() }
+    val firstItemFocusRequester = remember { FocusRequester() }
+    val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
+
+    var libraryMenuTarget by remember {
+        mutableStateOf<Pair<MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry>?>(null)
+    }
+    var deleteConfirmTarget by remember {
+        mutableStateOf<Pair<MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry>?>(null)
+    }
+    var isDeleting by remember { mutableStateOf(false) }
+
+    // MediaCard's onLongClick (combinedClickable) isn't reliable for a D-pad
+    // remote's held-Enter here — the Home grid solves this the same way, with a
+    // manual KeyDown/KeyUp hold timer at the parent level instead of relying on
+    // the card's own long-press gesture detection. focusedItemIndex is tracked
+    // via each card's onFocused callback since this overlay uses native Compose
+    // focus traversal (not the Home grid's fully manual focusState).
+    var focusedItemIndex by remember { mutableStateOf(0) }
+    var selectDownAtMs by remember { mutableStateOf(0L) }
+    val configuration = LocalConfiguration.current
+    val gridColumns = if (usePosterCards) {
+        if (configuration.screenWidthDp >= 1600) 7 else 5
+    } else {
+        if (configuration.screenWidthDp >= 1600) 5 else 4
+    }
+    val cardWidth = if (usePosterCards) 172.dp else 260.dp
+
+    // Capture focus on the outer Box immediately (always succeeds, even before items load).
+    // This ensures Back works and home rows don't steal events.
+    LaunchedEffect(Unit) {
+        delay(40)
+        runCatching { outerFocusRequester.requestFocus() }
+    }
+    // Once items exist, move focus onto the first card so D-pad navigation works.
+    // On a cold first entry into this overlay, the grid's initial layout pass can
+    // still be racing composition — a single delayed attempt sometimes fires before
+    // the first card exists in the tree, leaving nothing focused. Retry across a
+    // few frames instead of guessing one fixed delay.
+    //
+    // Keyed on the identity of item 0 (not just isNotEmpty) because this overlay
+    // renders `category.items` as an instant preview list while the real fetch from
+    // startBrowseAll() is in flight, then swaps to the full `browseItems` list once
+    // it lands. That swap can replace/dispose the composable the requester was
+    // pointed at — this is what caused focus to flash and vanish. Re-running the
+    // attempt whenever item 0 changes catches that swap and refocuses onto the node
+    // that's actually still there.
+    //
+    // Stop the automatic grab as soon as the user has pressed a direction key
+    // themselves (userHasNavigated) — not after a single success. The
+    // Sonarr/Radarr-sourced library path can take several seconds to resolve its
+    // full list (each series/movie needs a TMDB lookup) and now streams in over
+    // several chunks (see loadShowsFromSonarr/loadMoviesFromRadarr), so item 0's
+    // identity — and therefore this effect — can re-fire many times in a row
+    // while the list is still filling in. Retrying aggressively (long budget)
+    // until the user actually starts navigating is what keeps a card focused
+    // through all of that, instead of a short fixed budget that gives up before
+    // a slow chunk finishes loading and leaves nothing focused at all.
+    var userHasNavigated by remember { mutableStateOf(false) }
+    val firstItemKey = displayItems.firstOrNull()?.let { "${it.mediaType}_${it.id}" }
+    LaunchedEffect(firstItemKey) {
+        if (firstItemKey != null) {
+            repeat(40) { attempt ->
+                if (userHasNavigated) return@LaunchedEffect
+                delay(if (attempt == 0) 80L else 120L)
+                if (userHasNavigated) return@LaunchedEffect
+                runCatching { firstItemFocusRequester.requestFocus() }
+            }
+        }
+    }
+
+    // A nested modal (the library rule picker, the context menu, or the delete
+    // confirm dialog) steals Compose focus onto itself while it's showing. When
+    // it's dismissed, that focused node is removed from composition — Compose
+    // does NOT automatically move focus back to anything else, so without this
+    // the grid is left with nothing focused at all and D-pad input does nothing
+    // ("frozen"). Re-request focus onto the grid whenever all three modals have
+    // just closed (transition from open to none-open, not on initial mount —
+    // the effect above already owns that case).
+    // Whether any card in the grid currently holds Compose focus. requestFocus()
+    // not throwing only means the FocusRequester is attached to *some* node — it
+    // does NOT mean the node actually accepted focus (it can silently no-op mid
+    // recomposition, e.g. right after the modal that was focused is torn down).
+    // Trusting that "no throw" as success was the bug: the recovery loop below
+    // would exit after its very first attempt, before the grid had actually
+    // re-laid-out and become focusable again, leaving D-pad input dead. Tracking
+    // real focus state via onFocusChanged and looping until it's actually true
+    // (same pattern as HomeInputLayer's rootHasFocus) fixes that race.
+    var gridHasFocus by remember { mutableStateOf(false) }
+    var wasAnyLibraryModalOpen by remember { mutableStateOf(false) }
+    val isAnyLibraryModalOpen = isModalOpen || libraryMenuTarget != null || deleteConfirmTarget != null
+    LaunchedEffect(isAnyLibraryModalOpen) {
+        if (!isAnyLibraryModalOpen && wasAnyLibraryModalOpen) {
+            repeat(10) { attempt ->
+                if (gridHasFocus) return@LaunchedEffect
+                delay(if (attempt == 0) 20L else 60L)
+                runCatching { firstItemFocusRequester.requestFocus() }
+            }
+        }
+        wasAnyLibraryModalOpen = isAnyLibraryModalOpen
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(150f)
+            .background(Color(0xFF0D0D15))
+            .focusRequester(outerFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                // The rule picker (isModalOpen) is a separate top-level composable with
+                // its own BackHandler, which hooks Android's back dispatcher directly —
+                // that doesn't depend on Compose focus, so it's safe to defer to by not
+                // handling Back here at all.
+                //
+                // LibraryItemContextMenu and the delete ConfirmDialog are different:
+                // they're nested INSIDE this same Box and dismiss themselves via their
+                // own onPreviewKeyEvent, which DOES depend on Compose focus having
+                // actually landed on them. If that focus grab hasn't landed yet (the
+                // same kind of race the rest of this overlay's focus comments describe),
+                // deferring to them like isModalOpen used to do left Back completely
+                // unhandled by any Compose node — it fell through to the Android system
+                // back-press instead, which (with nothing else on the stack) exited the
+                // whole app after enough presses. So for these two, dismiss them
+                // explicitly and directly at this ancestor level instead of hoping the
+                // nested node handles it — that's a guaranteed consume, not a gamble.
+                if (isModalOpen) return@onPreviewKeyEvent false
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)) {
+                    when {
+                        deleteConfirmTarget != null -> { deleteConfirmTarget = null; return@onPreviewKeyEvent true }
+                        libraryMenuTarget != null -> { libraryMenuTarget = null; return@onPreviewKeyEvent true }
+                        else -> { onDismiss(); return@onPreviewKeyEvent true }
+                    }
+                }
+                val focusedEntry = displayItems.getOrNull(focusedItemIndex)?.let { item ->
+                    libraryMeta["${item.mediaType}_${item.id}"]?.let { entry -> item to entry }
+                }
+                when (event.type) {
+                    KeyEventType.KeyDown -> when (event.key) {
+                        Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight -> {
+                            userHasNavigated = true
+                            false // don't consume — native grid focus traversal still handles movement
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            if (selectDownAtMs == 0L) selectDownAtMs = SystemClock.elapsedRealtime()
+                            false // don't consume — let native click still fire on a short press
+                        }
+                        Key.Menu, Key.Info -> {
+                            focusedEntry?.let { libraryMenuTarget = it }
+                            true
+                        }
+                        else -> false
+                    }
+                    KeyEventType.KeyUp -> when (event.key) {
+                        Key.Enter, Key.DirectionCenter -> {
+                            val holdMs = if (selectDownAtMs == 0L) 0L else SystemClock.elapsedRealtime() - selectDownAtMs
+                            selectDownAtMs = 0L
+                            if (holdMs >= 500L && focusedEntry != null) {
+                                libraryMenuTarget = focusedEntry
+                                true // consume — prevent the native click from also firing
+                            } else {
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                    else -> false
+                }
+            },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 36.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = category?.title ?: "",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (isLoading && overrideItems == null) {
+                    Text(
+                        text = "Loading…",
+                        color = Color.White.copy(0.45f),
+                        fontSize = 13.sp,
+                    )
+                } else if (displayItems.isNotEmpty()) {
+                    Text(
+                        text = "${displayItems.size} titles${if (isLoading) "…" else ""}",
+                        color = Color.White.copy(0.45f),
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+            TvLazyVerticalGrid(
+                columns = TvGridCells.Fixed(gridColumns),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onFocusChanged { gridHasFocus = it.hasFocus },
+                contentPadding = PaddingValues(start = 36.dp, end = 36.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                tvGridItemsIndexed(
+                    displayItems,
+                    key = { _, item -> "${item.mediaType}_${item.id}" },
+                ) { index, item ->
+                    val itemKey = "${item.mediaType}_${item.id}"
+                    val logoUrl = cardLogoUrls[itemKey]
+                    val libraryEntry = libraryMeta[itemKey]
+                    XadarrMediaCard(
+                        item = item,
+                        width = cardWidth,
+                        isLandscape = !usePosterCards,
+                        logoImageUrl = logoUrl,
+                        libraryBadge = libraryEntry,
+                        onClick = { onItemClick(item) },
+                        onLongClick = if (libraryEntry != null) {
+                            { libraryMenuTarget = item to libraryEntry }
+                        } else null,
+                        onFocused = { focusedItemIndex = index },
+                        focusRequester = if (index == 0) firstItemFocusRequester else null,
+                    )
+                }
+            }
+        }
+
+        // Library-browser context menu (assign/change rule, delete) — only
+        // reachable on Sonarr/Radarr-sourced cards (libraryMeta non-null).
+        libraryMenuTarget?.let { (item, entry) ->
+            val statusText = when (entry.statusLabel?.lowercase()) {
+                "continuing" -> "Continuing"
+                "ended" -> "Ended"
+                "upcoming" -> "Upcoming"
+                else -> null
+            }
+            val fileText = if (entry.totalEpisodeCount != null && entry.totalEpisodeCount > 0) {
+                "${entry.episodeFileCount ?: 0}/${entry.totalEpisodeCount} episodes"
+            } else entry.fileStateLabel
+            val ruleText = entry.assignedRule?.let { "Rule: $it" }
+            val statusDetail = listOfNotNull(statusText, fileText, ruleText).joinToString(" • ")
+            com.arflix.tv.ui.components.LibraryItemContextMenu(
+                isVisible = true,
+                title = item.title,
+                statusDetail = statusDetail,
+                hasAssignedRule = entry.assignedRule != null,
+                onAssignRule = {
+                    onAssignRule(item, entry)
+                    libraryMenuTarget = null
+                },
+                onDelete = {
+                    deleteConfirmTarget = item to entry
+                    libraryMenuTarget = null
+                },
+                onDismiss = { libraryMenuTarget = null },
+            )
+        }
+
+        deleteConfirmTarget?.let { (item, entry) ->
+            com.arflix.tv.ui.components.ConfirmDialog(
+                title = "Delete from Library",
+                message = "Remove \"${item.title}\" from ${if (entry.sonarrSeriesId != null) "Sonarr" else "Radarr"} and delete its files? This can't be undone from here.",
+                confirmLabel = if (isDeleting) "Deleting…" else "Delete",
+                isDestructive = true,
+                onConfirm = {
+                    if (!isDeleting) {
+                        isDeleting = true
+                        onDeleteItem(item, entry) { _ ->
+                            isDeleting = false
+                            deleteConfirmTarget = null
+                        }
+                    }
+                },
+                onDismiss = { if (!isDeleting) deleteConfirmTarget = null },
+            )
+        }
+    }
 }
 
 @Composable
@@ -3453,6 +3982,9 @@ private fun ContentRow(
     focusedItemIndex: Int,
     isFastScrolling: Boolean,
     useViewportFocusOverlay: Boolean = false,
+    showSeeAll: Boolean = false,
+    isTitleFocused: Boolean = false,
+    onTitleClick: (() -> Unit)? = null,
     onItemClick: (MediaItem) -> Unit,
     onItemFocused: (MediaItem, Int) -> Unit,
     onBeforeAppLaunch: (() -> Unit)? = null,
@@ -3496,7 +4028,7 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val railFocusOverlayActive = !isAppsRow && !useViewportFocusOverlay &&
+    val railFocusOverlayActive = !isAppsRow && !useViewportFocusOverlay && !isTitleFocused &&
         isCurrentRow && isScrollable && focusedItemIndex >= 0 && totalItems > 0 &&
         focusedItemIndex <= maxFirstIndex
     val focusedCardIndex = if (railFocusOverlayActive || useViewportFocusOverlay) {
@@ -3584,9 +4116,22 @@ private fun ContentRow(
         modifier = Modifier
             .padding(bottom = 12.dp)
     ) {
-        // Section title - clean white text, aligned with cards
+        // Section title - clean white text, aligned with cards. When focused (D-pad
+        // left of the row's first card) or tapped (touch), jumps straight to the
+        // full "See All" browse view instead of requiring a scroll past every card.
+        val titleBorderColor by androidx.compose.animation.animateColorAsState(
+            targetValue = if (isTitleFocused) XadarrSkin.colors.focusOutline else Color.Transparent,
+            animationSpec = tween(150),
+            label = "row_title_focus_border"
+        )
         Row(
-            modifier = Modifier.padding(start = startPadding, bottom = 12.dp),
+            modifier = Modifier
+                .padding(start = startPadding, bottom = 12.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.5.dp, titleBorderColor, RoundedCornerShape(8.dp))
+                .background(if (isTitleFocused) Color(0xFF1A2540) else Color.Transparent)
+                .then(if (onTitleClick != null) Modifier.clickable { onTitleClick() } else Modifier)
+                .then(if (isTitleFocused) Modifier.padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -3595,6 +4140,13 @@ private fun ContentRow(
                 style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                 color = Color.White
             )
+            if (isTitleFocused) {
+                Text(
+                    text = "See All →",
+                    style = ArflixTypography.sectionTitle.copy(fontSize = 13.sp),
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            }
         }
 
         // Cards row - clipped to hide previous items when scrolling
@@ -3630,7 +4182,7 @@ private fun ContentRow(
                         }
                     }
                 ) { index, item ->
-                val itemIsFocused = isCurrentRow && index == focusedCardIndex
+                val itemIsFocused = isCurrentRow && !isTitleFocused && index == focusedCardIndex
                 val onCardFocused = remember(item, index) {
                     { latestOnItemFocused.value(item, index) }
                 }
@@ -3763,6 +4315,15 @@ private fun ContentRow(
                         isPending = itemIsPending,
                     )
                 }
+                }
+                if (showSeeAll) {
+                    item(key = "see_all") {
+                        SeeAllCard(
+                            isFocused = isCurrentRow && focusedItemIndex == totalItems,
+                            width = itemWidth,
+                            posterMode = effectivePosterMode,
+                        )
+                    }
                 }
             }
             if (railFocusOverlayActive) {
