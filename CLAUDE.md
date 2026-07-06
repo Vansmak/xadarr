@@ -396,9 +396,23 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 ## Current Version
 
-**v2.8** — CW sort position, IPTV sync preservation, server reconnect.
+**v2.9** — Smart Home screen, Radarr/Sonarr library browser, See All shortcuts.
 
-Changes since v2.7:
+Changes since v2.8:
+- **Smart Home screen** — HA lights/fans/AC/windows; entity picker; fan speed (low/med/high); thermostat mode cycling. Opens via Shield remote Menu key or Settings → Home Assistant
+- **Fix: light/fan toggle sync** — optimistic update + delayed reconcile fixes a refresh() race with HA's actual state report that could look like the toggle silently reverted
+- **Library browser (All Movies/All Shows)** — `RadarrRepository`/`SonarrRepository`, file-state badges, delete-from-library with confirmation, per-episode search/delete
+- **Frigate camera events row** — recent motion clips as their own row on Home/Cameras
+- **Upcoming episodes row** — Sonarr calendar filler cards for series with a known next air date
+- **Catalogue title → See All shortcut** — D-pad left at item 0 (or holding left from anywhere in the row) focuses the title, which jumps to the "See All" browse view; tappable on touch/mobile
+- **xadarr-server: Radarr/Sonarr endpoints** — server-side parity for the library browser
+- **Fix: episode-ready cache invalidation** — stale Jellyfin source cache dropped on new-episode notification
+- **Fix: EPG guide clock re-anchor** — TV guide snaps back to "now" on screen resume instead of drifting
+- **Fix: home server token sync** — cloud-stored token always authoritative on pull, so reinstall/KeyStore changes can't leave a stale local token shadowing a working one
+- Continue Watching threshold lowered from 90% to 80%
+- Legacy webhook URLs migrate automatically on first launch (one-time, silent)
+
+Changes since v2.7 (v2.8):
 - **Fix: Continue Watching row position** — CW row respects configured sort order instead of always inserting at position 0; startup DataStore race fixed in `setPreloadedData`
 - **Fix: IPTV URL preservation during sync** — blank-URL devices no longer wipe the sync server's stored IPTV config on push; per-profile and root-level URLs both preserved
 - **Fix: Home server export** — blank-token connections excluded from cloud export

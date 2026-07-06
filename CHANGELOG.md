@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.9] - 2026-07-06
+
+### Added
+- **Smart Home screen** — control Home Assistant lights, fans, AC (climate), and window sensors from a dedicated screen. An entity picker curates which of your HA entities show up; fans get low/medium/high speed control; climate entities get thermostat mode cycling (heat/cool/auto/off, whatever the entity supports) via D-pad left/right or tap. Opens from the Shield remote's Menu button or Settings → Home Assistant.
+- **Library browser (All Movies / All Shows)** — full Radarr/Sonarr-backed catalog browse, independent of what's actually downloaded on your media server. Shows file-state badges (Available/Partial/Missing) and continuing/ended status chips, and supports deleting an item from the library (with confirmation) or, per-episode, triggering a Sonarr search or deleting just that episode's file.
+- **Frigate camera events row** — recent motion-detected clips appear as their own row on Home/Cameras, playable fullscreen alongside live camera tiles.
+- **Upcoming episodes row** — filler cards for series with a known next air date, sourced from Sonarr's calendar.
+- **Catalogue title → See All shortcut** — pressing D-pad left at a row's first card (or holding left from anywhere in the row) focuses the row title, which jumps straight to the full "See All" browse view instead of requiring a scroll to the end. Row titles are directly tappable on touch/mobile.
+- **xadarr-server: Radarr/Sonarr endpoints** — server-side parity for the library browser (series/movie status, episode search/delete, delete series/movie, rule assignment).
+
+### Changed
+- **Continue Watching threshold** lowered from 90% to 80% complete.
+- **Home server token sync** — the cloud-stored token is now always authoritative on pull, so a reinstall or KeyStore key change can't leave a stale local token shadowing a working one already in the blob.
+- **Up Next placeholders** now carry an explicit flag instead of a synthetic progress value used to dodge the minimum-progress filter.
+- **xadarr-server: Connect Server form** now requires a password for non-Plex servers before submitting.
+- Legacy webhook URLs migrate automatically on first launch (arvio → xadarr path prefix, long API path → short `/xadarr/webhook`) — one-time, silent.
+
+### Fixed
+- **Light/fan toggle sync** — toggling from the Smart Home screen could appear to silently revert due to a race between Home Assistant reporting its actual state and the app's immediate refresh; now applies an optimistic update and reconciles shortly after.
+- **Episode-ready cache invalidation** — a newly-available episode notification now drops the stale Jellyfin source cache so the next play attempt finds the file instead of coming up empty.
+- **EPG guide clock re-anchor** — the TV guide now snaps back to "now" on screen resume (wake from sleep) instead of drifting from a stale clock tick.
+- **IPTV favourite groups/channels** preserved correctly during settings sync.
+- **Watchlist import** no longer momentarily wipes the home row while repopulating from imported data.
+
 ## [2.8] - 2026-06-14
 
 ### Fixed
