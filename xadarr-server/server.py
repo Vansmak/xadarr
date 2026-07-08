@@ -364,6 +364,45 @@ def _set_catalogues(blob: dict, catalogues: list):
     blob.setdefault("catalogsByProfile", {})[pid] = catalogues
 
 
+# ── Nav section blob helpers ──────────────────────────────────────────────────
+# Mirrors NavSectionRepository on the TV app (NavSectionKind, NavSectionConfig) —
+# same "navSectionsByProfile" blob key so a change here shows up on the TV on
+# next sync and vice versa.
+
+_NAV_SECTION_KINDS = ["SEARCH", "HOME", "DISCOVER", "TV", "CAMERAS", "SETTINGS"]
+
+
+def _default_nav_sections() -> list:
+    return [
+        {"kind": kind, "label": None, "iconOnly": False, "visible": True, "order": i}
+        for i, kind in enumerate(_NAV_SECTION_KINDS)
+    ]
+
+
+def _get_nav_sections(blob: dict) -> list:
+    pid = _active_profile_id(blob)
+    stored = blob.get("navSectionsByProfile", {}).get(pid) or []
+    if not stored:
+        return _default_nav_sections()
+    # Merge in any kind not present in an older stored list (e.g. a later
+    # release adds a new destination) so upgrades don't silently drop it.
+    stored_kinds = {s.get("kind") for s in stored}
+    missing = [
+        {"kind": kind, "label": None, "iconOnly": False, "visible": True, "order": len(stored) + i}
+        for i, kind in enumerate(_NAV_SECTION_KINDS) if kind not in stored_kinds
+    ]
+    return sorted(stored + missing, key=lambda s: s.get("order", 0))
+
+
+def _set_nav_sections(blob: dict, sections: list):
+    pid = _active_profile_id(blob)
+    # Settings is never hideable — it's always the standalone gear icon.
+    for s in sections:
+        if s.get("kind") == "SETTINGS":
+            s["visible"] = True
+    blob.setdefault("navSectionsByProfile", {})[pid] = sections
+
+
 # Synthetic catalogue rows managed by the web server (not in the TV blob)
 _SYNTHETIC_CATS = [
     {"id": "continue_watching", "title": "Continue Watching", "kind": "STANDARD", "sourceType": "PREINSTALLED"},
@@ -1697,6 +1736,23 @@ def put_catalogues():
         _save_web_row_visibility(visibility)
     blob = _get_blob()
     _set_catalogues(blob, real)
+    _save_blob(blob)
+    return jsonify({"ok": True})
+
+
+# ── Nav section management ────────────────────────────────────────────────────
+
+@app.route("/api/nav-sections", methods=["GET"])
+def get_nav_sections():
+    blob = _get_blob()
+    return jsonify(_get_nav_sections(blob))
+
+
+@app.route("/api/nav-sections", methods=["PUT"])
+def put_nav_sections():
+    sections = request.get_json(force=True) or []
+    blob = _get_blob()
+    _set_nav_sections(blob, sections)
     _save_blob(blob)
     return jsonify({"ok": True})
 

@@ -935,6 +935,27 @@ img { display: block; }
 .cat-chip:hover { border-color: var(--accent-dim); color: var(--text); }
 .cat-chip.selected { border-color: var(--accent); background: var(--accent); color: #fff; }
 
+/* Navigation bar customization */
+.nav-label-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 3px 6px;
+  margin: -3px -6px;
+  border-radius: 6px;
+}
+.nav-label-input:hover, .nav-label-input:focus { border-color: var(--surface3); background: var(--surface2); }
+.nav-toggle-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.nav-toggle-label { font-size: 10px; color: var(--text-muted); }
+
 /* ── Browse results grid ──────────────────────────────────────────────────── */
 .browse-results-wrap { padding: 4px 0 40px; }
 .browse-section-hd {

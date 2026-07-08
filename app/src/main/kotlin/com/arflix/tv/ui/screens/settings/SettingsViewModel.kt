@@ -242,6 +242,7 @@ class SettingsViewModel @Inject constructor(
     private val webAppServer: com.arflix.tv.server.WebAppServer,
     private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
     private val driveSyncRepository: DriveSyncRepository,
+    private val navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.filter { config ->
@@ -1979,6 +1980,41 @@ class SettingsViewModel @Inject constructor(
     fun setCatalogPlacement(catalogId: String, placement: com.arflix.tv.data.model.CatalogPlacement?) {
         viewModelScope.launch {
             catalogRepository.setCatalogPlacement(catalogId, placement)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleNavSectionVisibility(kind: com.arflix.tv.data.model.NavSectionKind) {
+        viewModelScope.launch {
+            navSectionRepository.toggleVisibleForActiveProfile(kind)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun toggleNavSectionIconOnly(kind: com.arflix.tv.data.model.NavSectionKind) {
+        viewModelScope.launch {
+            navSectionRepository.toggleIconOnlyForActiveProfile(kind)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun renameNavSection(kind: com.arflix.tv.data.model.NavSectionKind, label: String?) {
+        viewModelScope.launch {
+            navSectionRepository.renameForActiveProfile(kind, label)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveNavSectionUp(kind: com.arflix.tv.data.model.NavSectionKind) {
+        viewModelScope.launch {
+            navSectionRepository.reorderForActiveProfile(kind, -1)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    fun moveNavSectionDown(kind: com.arflix.tv.data.model.NavSectionKind) {
+        viewModelScope.launch {
+            navSectionRepository.reorderForActiveProfile(kind, 1)
             syncLocalStateToCloud(silent = true)
         }
     }

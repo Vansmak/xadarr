@@ -55,7 +55,9 @@ import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
 import com.arflix.tv.ui.components.navItems
+import com.arflix.tv.ui.components.navSectionFor
 import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNavSections
 import com.arflix.tv.ui.theme.TextSecondary
 
 /**
@@ -84,7 +86,8 @@ fun Sidebar(
     modifier: Modifier = Modifier
 ) {
     val frigateConfigured = LocalFrigateConfigured.current
-    val centerItems = navItems(frigateConfigured).filter { it != SidebarItem.SETTINGS }
+    val navSections = LocalNavSections.current
+    val centerItems = navItems(frigateConfigured, navSections).filter { it != SidebarItem.SETTINGS }
     val bottomItem = SidebarItem.SETTINGS
     val hasProfile = profile != null
     val centerFocusedIndex = if (hasProfile) focusedIndex - 1 else focusedIndex
@@ -132,6 +135,7 @@ fun Sidebar(
                         item = item,
                         isSelected = item == selectedItem,
                         isFocused = isSidebarFocused && index == centerFocusedIndex,
+                        labelOverride = navSectionFor(item, navSections)?.label,
                     )
                 }
             }
@@ -216,7 +220,8 @@ private fun SidebarIcon(
     item: SidebarItem,
     isSelected: Boolean,
     isFocused: Boolean,
-    hasBadge: Boolean = false
+    hasBadge: Boolean = false,
+    labelOverride: String? = null,
 ) {
     val accent = LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline
     // Animated icon color - accent when focused, dark grey when not
@@ -264,7 +269,7 @@ private fun SidebarIcon(
         ),
         label = "sidebar_indicator_alpha"
     )
-    val label = stringResource(item.labelRes)
+    val label = labelOverride ?: stringResource(item.labelRes)
 
     Box(
         modifier = Modifier

@@ -197,6 +197,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var homeServerRepository: Lazy<com.arflix.tv.data.repository.HomeServerRepository>
 
+    @Inject
+    lateinit var navSectionRepository: Lazy<com.arflix.tv.data.repository.NavSectionRepository>
+
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
@@ -413,6 +416,7 @@ class MainActivity : ComponentActivity() {
                         watchHistoryRepository = watchHistoryRepository.get(),
                         watchlistRepository = watchlistRepository.get(),
                         iptvRepository = iptvRepository.get(),
+                        navSectionRepository = navSectionRepository.get(),
                         launcherContinueWatchingRepository = launcherContinueWatchingRepository.get(),
                         oledBlackBackground = oledBlackBackground,
                         skipProfileSelection = skipProfileSelection,
@@ -656,6 +660,7 @@ fun ArflixApp(
     watchHistoryRepository: WatchHistoryRepository,
     watchlistRepository: WatchlistRepository,
     iptvRepository: com.arflix.tv.data.repository.IptvRepository,
+    navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
     launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
     oledBlackBackground: Boolean = false,
     skipProfileSelection: Boolean? = null,
@@ -795,6 +800,9 @@ fun ArflixApp(
             prefs[FRIGATE_URL_KEY]?.isNotBlank() == true
         }
     }.collectAsStateWithLifecycle(initialValue = false)
+    val navSections by remember(navSectionRepository) {
+        navSectionRepository.observeSectionsForActiveProfile()
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     var iptvFullscreen by remember { mutableStateOf(false) }
@@ -819,6 +827,7 @@ fun ArflixApp(
 
     CompositionLocalProvider(
         LocalFrigateConfigured provides frigateConfigured,
+        com.arflix.tv.util.LocalNavSections provides navSections,
         com.arflix.tv.util.LocalEpiseerrPendingIds provides episeerrPendingIds,
     ) {
     Column(

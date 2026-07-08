@@ -75,6 +75,7 @@ function xadarr() {
     addons: [],
     addonUrlInput: '',
     catalogues: [],
+    navSections: [],
     showServerForm: false,
     editingServerId: null,
     editingServerName: '',
@@ -149,6 +150,7 @@ function xadarr() {
 
       await this.loadSettings();
       await this.loadCatalogues();   // must know visibility before home renders
+      this.loadNavSections();
       this.connectSSE();
       this.loadHome();
       this.loadCameras();
@@ -186,6 +188,7 @@ function xadarr() {
         this.loadIptv();
         this.loadAddons();
         this.loadCatalogues();
+        this.loadNavSections();
       }
     },
 
@@ -848,6 +851,92 @@ function xadarr() {
         kw.some(k => (c.title || '').toLowerCase().includes(k))
       );
       return cat ? (cat.sortOrder ?? 999) : 999;
+    },
+
+    // ── Nav section customization ────────────────────────────────────────
+    // Mirrors NavSectionRepository on the TV app — same "navSectionsByProfile"
+    // blob key, so a change here shows up on the TV on next open and vice versa.
+    _NAV_SECTION_KINDS: ['SEARCH', 'HOME', 'DISCOVER', 'TV', 'CAMERAS', 'SETTINGS'],
+    _NAV_DEFAULT_LABELS: { SEARCH: 'Search', HOME: 'Home', DISCOVER: 'Discover', TV: 'TV', CAMERAS: 'Cameras', SETTINGS: 'Settings' },
+
+    defaultNavLabel(kind) {
+      return this._NAV_DEFAULT_LABELS[kind] || kind;
+    },
+
+    async loadNavSections() {
+      const data = await fetch('/api/nav-sections').then(r => r.json()).catch(() => []);
+      this.navSections = Array.isArray(data) && data.length
+        ? [...data].sort((a, b) => (a.order || 0) - (b.order || 0))
+        : this._NAV_SECTION_KINDS.map((kind, i) => ({ kind, label: null, iconOnly: false, visible: true, order: i }));
+    },
+
+    async saveNavSections() {
+      const toSave = this.navSections.map((s, i) => ({ ...s, order: i }));
+      await fetch('/api/nav-sections', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toSave),
+      });
+    },
+
+    // Settings is excluded from the editable list — it's never hideable/reorderable,
+    // always the standalone gear icon, same as on the TV app.
+    _editableNavSections() {
+      return this.navSections.filter(s => s.kind !== 'SETTINGS');
+    },
+
+    isFirstNavSection(kind) {
+      const v = this._editableNavSections();
+      return v.length === 0 || v[0].kind === kind;
+    },
+
+    isLastNavSection(kind) {
+      const v = this._editableNavSections();
+      return v.length === 0 || v[v.length - 1].kind === kind;
+    },
+
+    moveNavSectionUp(kind) {
+      const vis = this._editableNavSections();
+      const vi = vis.findIndex(s => s.kind === kind);
+      if (vi <= 0) return;
+      const ai = this.navSections.findIndex(s => s.kind === kind);
+      const bi = this.navSections.findIndex(s => s.kind === vis[vi - 1].kind);
+      const secs = [...this.navSections];
+      [secs[ai], secs[bi]] = [secs[bi], secs[ai]];
+      this.navSections = secs;
+      this.saveNavSections();
+    },
+
+    moveNavSectionDown(kind) {
+      const vis = this._editableNavSections();
+      const vi = vis.findIndex(s => s.kind === kind);
+      if (vi < 0 || vi >= vis.length - 1) return;
+      const ai = this.navSections.findIndex(s => s.kind === kind);
+      const bi = this.navSections.findIndex(s => s.kind === vis[vi + 1].kind);
+      const secs = [...this.navSections];
+      [secs[ai], secs[bi]] = [secs[bi], secs[ai]];
+      this.navSections = secs;
+      this.saveNavSections();
+    },
+
+    toggleNavIconOnly(kind) {
+      const sec = this.navSections.find(s => s.kind === kind);
+      if (!sec) return;
+      sec.iconOnly = !sec.iconOnly;
+      this.saveNavSections();
+    },
+
+    // Settings is never hideable, and hiding the last remaining visible item
+    // would leave the nav bar empty — mirrors
+    // NavSectionRepository.toggleVisibleForActiveProfile on the TV app.
+    toggleNavVisibility(kind) {
+      if (kind === 'SETTINGS') return;
+      const sec = this.navSections.find(s => s.kind === kind);
+      if (!sec) return;
+      const visibleCount = this.navSections.filter(s => s.visible && s.kind !== 'SETTINGS').length;
+      if (sec.visible && visibleCount <= 1) return;
+      sec.visible = !sec.visible;
+      this.saveNavSections();
     },
 
     // ── Trakt ─────────────────────────────────────────────────────────────

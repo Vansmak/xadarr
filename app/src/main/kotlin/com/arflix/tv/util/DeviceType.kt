@@ -28,6 +28,13 @@ val LocalFrigateConfigured = compositionLocalOf { false }
 /** Set of TMDB IDs (as strings) currently pending Episeerr rule selection. */
 val LocalEpiseerrPendingIds = compositionLocalOf { emptySet<String>() }
 
+/**
+ * Per-profile nav bar customization (rename/hide/icon-only/reorder) for the active
+ * profile. Empty list means "no customization stored yet" — consumers should fall
+ * back to today's fixed order/labels/visibility exactly.
+ */
+val LocalNavSections = compositionLocalOf { emptyList<com.arflix.tv.data.model.NavSectionConfig>() }
+
 fun deviceHasTouchScreen(context: Context): Boolean {
     return context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
 }

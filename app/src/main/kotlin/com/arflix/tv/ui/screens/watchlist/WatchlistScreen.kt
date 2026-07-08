@@ -125,7 +125,8 @@ fun WatchlistScreen(
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 3 else 2) } // WATCHLIST
     val rootFocusRequester = remember { FocusRequester() }
     val gridFocusRequester = remember { FocusRequester() }
@@ -264,7 +265,7 @@ fun WatchlistScreen(
                                 if (hasProfile && sidebarFocusIndex == 0) {
                                     onSwitchProfile()
                                 } else {
-                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
+                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
                                         SidebarItem.DISCOVER -> { }

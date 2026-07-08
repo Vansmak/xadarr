@@ -1079,7 +1079,7 @@ internal object CollectionTemplateManifest {
         mediaType = type,
         tmdbWatchProviderId = providerId,
         watchRegion = "US",
-        sortBy = "popularity.desc"
+        sortBy = if (type == "movie") "primary_release_date.desc" else "first_air_date.desc"
     )
 
     private fun slugify(value: String): String {

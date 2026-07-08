@@ -225,8 +225,13 @@ class WatchlistRepository @Inject constructor(
     }
 
     /**
-     * Pull watchlist from sync server and make local state match server exactly.
-     * Server is the source of truth: items missing from server are removed locally.
+     * Pull watchlist from the sync server and merge it into local state.
+     * Additive only — items already known locally (e.g. restored from the cloud
+     * backup blob) are kept even if the sync server's own tracked view doesn't
+     * currently include them; this previously replaced local state with
+     * server-only items, which silently truncated the watchlist on every
+     * reconnect whenever the sync server's view was narrower than the full
+     * local/cloud-backed list.
      * Call on startup and after profile restore.
      */
     suspend fun syncFromSyncServer() = withContext(Dispatchers.IO) {
@@ -259,14 +264,18 @@ class WatchlistRepository @Inject constructor(
 
             val existing = loadWatchlistRaw().associateBy { "${it.mediaType}:${it.tmdbId}" }
 
-            // Server is source of truth: build result from server items only,
-            // preserving local metadata (poster, backdrop) where available.
-            val result = serverItems.map { (k, serverItem) ->
-                val local = existing[k]
-                if (local != null) local.copy(
+            // Merge additively: keep everything already known locally and layer
+            // in anything new from the server, preserving local metadata
+            // (poster, backdrop) where available. Never drop a local item just
+            // because the server doesn't currently have it.
+            val merged = LinkedHashMap<String, LocalWatchlistItem>(existing)
+            serverItems.forEach { (k, serverItem) ->
+                val local = merged[k]
+                merged[k] = if (local != null) local.copy(
                     posterPath = local.posterPath ?: serverItem.posterPath
                 ) else serverItem
             }
+            val result = merged.values.toList()
 
             saveWatchlist(result)
             val basicItems = result.map { it.toBasicMediaItem() }

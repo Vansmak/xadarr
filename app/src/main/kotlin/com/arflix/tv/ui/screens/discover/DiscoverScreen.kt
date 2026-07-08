@@ -80,13 +80,14 @@ fun DiscoverScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     val frigateConfigured = LocalFrigateConfigured.current
+    val navSections = com.arflix.tv.util.LocalNavSections.current
     val hasProfile = currentProfile != null
 
     var focusZone by remember { mutableStateOf(DiscoverFocusZone.ROWS) }
     var topBarFocusIndex by remember {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured))
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured, navSections))
     }
-    val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
+    val maxTopBarIndex = remember(hasProfile, frigateConfigured, navSections) { topBarMaxIndex(hasProfile, frigateConfigured, navSections) }
     val rootFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
@@ -123,7 +124,7 @@ fun DiscoverScreen(
                             (focusedRowIndex == 0 || event.nativeKeyEvent.repeatCount >= 1)
                         ) {
                             focusZone = DiscoverFocusZone.TOPBAR
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured)
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured, navSections)
                             runCatching { rootFocusRequester.requestFocus() }
                             true
                         } else false
@@ -147,7 +148,7 @@ fun DiscoverScreen(
                     }
                     Key.Enter, Key.DirectionCenter -> {
                         if (focusZone == DiscoverFocusZone.TOPBAR) {
-                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
+                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                 SidebarItem.HOME -> onNavigateToHome()
                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                 SidebarItem.DISCOVER -> Unit

@@ -226,7 +226,8 @@ fun DetailsScreen(
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 2 else 1) }
     
     // Stream Selector state
@@ -560,7 +561,7 @@ fun DetailsScreen(
                                 if (hasProfile && sidebarFocusIndex == 0) {
                                     onSwitchProfile()
                                 } else {
-                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
+                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
                                         SidebarItem.DISCOVER -> onNavigateToDiscover()

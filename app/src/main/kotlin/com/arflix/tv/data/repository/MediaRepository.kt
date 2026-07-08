@@ -1992,6 +1992,8 @@ class MediaRepository @Inject constructor(
         val providerId = source.tmdbWatchProviderId ?: return emptyList()
         val region = source.watchRegion?.takeIf { it.isNotBlank() } ?: "US"
         val sortBy = source.sortBy ?: "popularity.desc"
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().time)
+        val isDateSort = sortBy.startsWith("primary_release_date") || sortBy.startsWith("first_air_date")
         return when (source.mediaType?.lowercase(Locale.US)) {
             "movie" -> loadPagedTmdbDiscoverRefs(
                 mediaType = MediaType.MOVIE,
@@ -2002,6 +2004,7 @@ class MediaRepository @Inject constructor(
                     watchProviders = providerId,
                     watchRegion = region,
                     sortBy = sortBy,
+                    releaseDateLte = if (isDateSort) today else null,
                     language = contentLanguage,
                     page = page
                 )
@@ -2015,6 +2018,7 @@ class MediaRepository @Inject constructor(
                     watchProviders = providerId,
                     watchRegion = region,
                     sortBy = sortBy,
+                    airDateLte = if (isDateSort) today else null,
                     language = contentLanguage,
                     page = page
                 )

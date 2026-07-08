@@ -152,7 +152,8 @@ fun SearchScreen(
     var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 1 else 0) }
     var isSearchInputFocused by remember { mutableStateOf(false) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
@@ -421,7 +422,7 @@ fun SearchScreen(
                     when (focusZone) {
                         FocusZone.SIDEBAR -> {
                             if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
-                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
+                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
                             true
                         }
                         FocusZone.SEARCH_INPUT -> {

@@ -1015,6 +1015,43 @@
           </div>
         </div>
 
+        <!-- Navigation Bar -->
+        <div class="settings-section">
+          <div class="settings-section-title">Navigation Bar</div>
+          <p class="text-sm text-muted mb-3">Rename, reorder, hide or icon-only the top navigation items. Settings always stays visible. Changes sync to the TV app on next open.</p>
+          <div class="cat-list">
+            <template x-for="sec in _editableNavSections()" :key="sec.kind">
+              <div class="cat-item-wrap">
+                <div class="cat-item">
+                  <div class="cat-reorder">
+                    <button class="cat-arrow" @click="moveNavSectionUp(sec.kind)" :disabled="isFirstNavSection(sec.kind)" title="Move up">↑</button>
+                    <button class="cat-arrow" @click="moveNavSectionDown(sec.kind)" :disabled="isLastNavSection(sec.kind)" title="Move down">↓</button>
+                  </div>
+                  <div class="cat-item-name">
+                    <input type="text" class="nav-label-input" :placeholder="defaultNavLabel(sec.kind)"
+                           x-model="sec.label" @change="saveNavSections()">
+                    <div class="cat-item-sub" x-text="sec.kind"></div>
+                  </div>
+                  <div class="nav-toggle-wrap">
+                    <label class="toggle" :title="sec.iconOnly ? 'Icon only' : 'Icon + label'">
+                      <input type="checkbox" :checked="sec.iconOnly" @change="toggleNavIconOnly(sec.kind)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span class="nav-toggle-label">Icon only</span>
+                  </div>
+                  <div class="nav-toggle-wrap">
+                    <label class="toggle" :title="sec.visible ? 'Visible' : 'Hidden'">
+                      <input type="checkbox" :checked="sec.visible" @change="toggleNavVisibility(sec.kind)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span class="nav-toggle-label">Visible</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- API Keys -->
         <div class="settings-section">
           <div class="settings-section-title">API Keys</div>

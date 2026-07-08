@@ -74,6 +74,7 @@ class CloudSyncRepository @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val profileManager: ProfileManager,
     private val catalogRepository: CatalogRepository,
+    private val navSectionRepository: NavSectionRepository,
     private val iptvRepository: IptvRepository,
     private val streamRepository: StreamRepository,
     private val homeServerRepository: HomeServerRepository,
@@ -668,6 +669,14 @@ class CloudSyncRepository @Inject constructor(
             }
         }
         root.put("catalogsByProfile", JSONObject(gson.toJson(catalogsByProfile)))
+
+        // Nav section customization per profile (rename/hide/icon-only/reorder)
+        val navSectionsByProfile = buildMap<String, List<com.arflix.tv.data.model.NavSectionConfig>> {
+            profiles.forEach { profile ->
+                put(profile.id, navSectionRepository.getSectionsForProfile(profile.id))
+            }
+        }
+        root.put("navSectionsByProfile", JSONObject(gson.toJson(navSectionsByProfile)))
 
         // Hidden preinstalled catalogs per profile.
         // Dynamic rows that are never user-hidden are excluded so they don't get
@@ -1329,6 +1338,15 @@ class CloudSyncRepository @Inject constructor(
                 if (catalogs.isNotEmpty()) {
                     catalogRepository.replaceCatalogsForProfile(activeProfileId, catalogs)
                 }
+            }
+        }
+
+        // ── Nav section customization ──
+        root.optJSONObject("navSectionsByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
+            val type = object : TypeToken<Map<String, List<com.arflix.tv.data.model.NavSectionConfig>>>() {}.type
+            val map: Map<String, List<com.arflix.tv.data.model.NavSectionConfig>> = gson.fromJson(json, type) ?: emptyMap()
+            map.forEach { (profileId, sections) ->
+                navSectionRepository.saveSectionsForProfile(profileId, sections)
             }
         }
 

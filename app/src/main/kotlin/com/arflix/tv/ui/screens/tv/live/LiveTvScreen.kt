@@ -288,10 +288,11 @@ fun LiveTvScreen(
     // Selected category (persist across nav). Defaults to "all".
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxTopBarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxTopBarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.CATEGORY_LIST) }
     var topBarFocusIndex by rememberSaveable {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured).coerceIn(0, maxTopBarIndex))
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections).coerceIn(0, maxTopBarIndex))
     }
 
     // Category switches are served from prebuilt buckets. Favorites and
@@ -698,7 +699,7 @@ fun LiveTvScreen(
                 if (isTouchDevice) onBack()
                 else {
                     guideGroupsVisible = false
-                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
+                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
                         .coerceIn(0, maxTopBarIndex)
                     focusZone = LiveTvFocusZone.TOPBAR
                 }
@@ -741,7 +742,7 @@ fun LiveTvScreen(
                                         if (hasProfile && topBarFocusIndex == 0) {
                                             onSwitchProfile()
                                         } else {
-                                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
+                                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                                 SidebarItem.HOME -> onNavigateToHome()
                                                 SidebarItem.DISCOVER -> onNavigateToDiscover()
@@ -899,7 +900,7 @@ fun LiveTvScreen(
                             onMoveLeftFromChannels = { openSidebar() },
                             onMoveUpFromTopOfChannels = {
                                 guideGroupsVisible = false
-                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
+                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
                                     .coerceIn(0, maxTopBarIndex)
                                 focusZone = LiveTvFocusZone.TOPBAR
                             },
@@ -975,7 +976,7 @@ fun LiveTvScreen(
                             focusChannelList(target)
                         },
                         onMoveUpFromSearch = {
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured)
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
                                 .coerceIn(0, maxTopBarIndex)
                             focusZone = LiveTvFocusZone.TOPBAR
                         },

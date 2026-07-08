@@ -146,6 +146,10 @@
     <string name="delete_iptv">Delete IPTV Playlists</string>
     <string name="add_catalog">Add Catalog</string>
     <string name="rename_catalog">Rename Catalog</string>
+    <string name="nav_customization">Navigation</string>
+    <string name="nav_customization_hint">Reorder, rename, icon-only or hide items in the top navigation bar.</string>
+    <string name="rename_nav_section">Rename Navigation Item</string>
+    <string name="rename_nav_section_desc">Leave blank to use the default: %1$s</string>
     <string name="addons">Addons</string>
     <string name="services">Services</string>
     <string name="genres">Genres</string>

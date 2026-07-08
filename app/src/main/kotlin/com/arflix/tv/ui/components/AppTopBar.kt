@@ -68,27 +68,82 @@ val AppTopBarContentTopInset = 98.dp
 val MobileContentTopInset = 16.dp
 val AppTopBarHorizontalPadding = 28.dp
 
-// Navigation items that appear CENTERED in the top bar.
-// CAMERAS is included only when a Frigate URL is configured.
-// Settings is NOT in this list — it's rendered as a standalone gear icon on the right.
-fun navItems(frigateConfigured: Boolean = true): List<SidebarItem> =
-    SidebarItem.entries.filter { it != SidebarItem.SETTINGS && (it != SidebarItem.CAMERAS || frigateConfigured) }
+fun com.arflix.tv.data.model.NavSectionKind.toSidebarItem(): SidebarItem = when (this) {
+    com.arflix.tv.data.model.NavSectionKind.SEARCH -> SidebarItem.SEARCH
+    com.arflix.tv.data.model.NavSectionKind.HOME -> SidebarItem.HOME
+    com.arflix.tv.data.model.NavSectionKind.DISCOVER -> SidebarItem.DISCOVER
+    com.arflix.tv.data.model.NavSectionKind.TV -> SidebarItem.TV
+    com.arflix.tv.data.model.NavSectionKind.CAMERAS -> SidebarItem.CAMERAS
+    com.arflix.tv.data.model.NavSectionKind.SETTINGS -> SidebarItem.SETTINGS
+}
 
-fun topBarMaxIndex(hasProfile: Boolean, frigateConfigured: Boolean = true): Int {
-    val navCount = navItems(frigateConfigured).size
+private fun SidebarItem.toNavSectionKind(): com.arflix.tv.data.model.NavSectionKind = when (this) {
+    SidebarItem.SEARCH -> com.arflix.tv.data.model.NavSectionKind.SEARCH
+    SidebarItem.HOME -> com.arflix.tv.data.model.NavSectionKind.HOME
+    SidebarItem.DISCOVER -> com.arflix.tv.data.model.NavSectionKind.DISCOVER
+    SidebarItem.TV -> com.arflix.tv.data.model.NavSectionKind.TV
+    SidebarItem.CAMERAS -> com.arflix.tv.data.model.NavSectionKind.CAMERAS
+    SidebarItem.SETTINGS -> com.arflix.tv.data.model.NavSectionKind.SETTINGS
+}
+
+/** Section config for a given nav item, or null if not customized (use defaults). */
+fun navSectionFor(
+    item: SidebarItem,
+    sections: List<com.arflix.tv.data.model.NavSectionConfig>
+): com.arflix.tv.data.model.NavSectionConfig? = sections.firstOrNull { it.kind == item.toNavSectionKind() }
+
+// Navigation items that appear CENTERED in the top bar, in the user's configured
+// order (or declaration order if `sections` is empty, i.e. not yet customized).
+// Icon-only items are grouped at the end of the list — visually and in focus
+// order they sit immediately next to the Settings gear rather than wherever
+// their configured `order` would otherwise place them, so a compacted item
+// doesn't leave an odd gap in the middle of a row of full labeled chips.
+// CAMERAS is included only when a Frigate URL is configured. A section explicitly
+// hidden via customization is excluded regardless of that gate.
+// Settings is NOT in this list — it's rendered as a standalone gear icon on the right.
+fun navItems(
+    frigateConfigured: Boolean = true,
+    sections: List<com.arflix.tv.data.model.NavSectionConfig> = emptyList()
+): List<SidebarItem> {
+    if (sections.isEmpty()) {
+        return SidebarItem.entries.filter { it != SidebarItem.SETTINGS && (it != SidebarItem.CAMERAS || frigateConfigured) }
+    }
+    return sections
+        .filter { it.visible && it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS }
+        .filter { it.kind != com.arflix.tv.data.model.NavSectionKind.CAMERAS || frigateConfigured }
+        .sortedWith(compareBy({ it.iconOnly }, { it.order }))
+        .map { it.kind.toSidebarItem() }
+}
+
+fun topBarMaxIndex(
+    hasProfile: Boolean,
+    frigateConfigured: Boolean = true,
+    sections: List<com.arflix.tv.data.model.NavSectionConfig> = emptyList()
+): Int {
+    val navCount = navItems(frigateConfigured, sections).size
     return if (hasProfile) navCount + 1 else navCount
 }
 
-fun topBarSelectedIndex(selectedItem: SidebarItem, hasProfile: Boolean, frigateConfigured: Boolean = true): Int {
-    val items = navItems(frigateConfigured)
-    if (selectedItem == SidebarItem.SETTINGS) return topBarMaxIndex(hasProfile, frigateConfigured)
+fun topBarSelectedIndex(
+    selectedItem: SidebarItem,
+    hasProfile: Boolean,
+    frigateConfigured: Boolean = true,
+    sections: List<com.arflix.tv.data.model.NavSectionConfig> = emptyList()
+): Int {
+    val items = navItems(frigateConfigured, sections)
+    if (selectedItem == SidebarItem.SETTINGS) return topBarMaxIndex(hasProfile, frigateConfigured, sections)
     val base = items.indexOf(selectedItem)
     if (base < 0) return -1
     return if (hasProfile) base + 1 else base
 }
 
-fun topBarFocusedItem(focusedIndex: Int, hasProfile: Boolean, frigateConfigured: Boolean = true): SidebarItem? {
-    val items = navItems(frigateConfigured)
+fun topBarFocusedItem(
+    focusedIndex: Int,
+    hasProfile: Boolean,
+    frigateConfigured: Boolean = true,
+    sections: List<com.arflix.tv.data.model.NavSectionConfig> = emptyList()
+): SidebarItem? {
+    val items = navItems(frigateConfigured, sections)
     if (hasProfile && focusedIndex == 0) return null // profile avatar focused
     val itemIndex = if (hasProfile) focusedIndex - 1 else focusedIndex
     if (itemIndex == items.size) return SidebarItem.SETTINGS
@@ -114,11 +169,12 @@ fun AppTopBar(
     val showProfile = profile != null
     val hasProfile = showProfile
     val frigateConfigured = LocalFrigateConfigured.current
+    val navSections = com.arflix.tv.util.LocalNavSections.current
     val currentTime = rememberTopBarTime(clockFormat)
-    val selectedIndex = remember(selectedItem, hasProfile, frigateConfigured) {
-        topBarSelectedIndex(selectedItem, hasProfile, frigateConfigured)
+    val selectedIndex = remember(selectedItem, hasProfile, frigateConfigured, navSections) {
+        topBarSelectedIndex(selectedItem, hasProfile, frigateConfigured, navSections)
     }
-    val settingsIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val settingsIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     val settingsFocused = isFocused && focusedIndex == settingsIndex
     val settingsSelected = selectedItem == SidebarItem.SETTINGS
 
@@ -153,6 +209,11 @@ fun AppTopBar(
             }
 
             // ── CENTER: Navigation chips (Search, Home, Watchlist, TV) ──
+            // Labeled (icon+text) chips only — icon-only chips render in the
+            // right-side cluster below, grouped next to Settings instead of
+            // floating in this centered row. Focus index math still comes from
+            // the item's position in the full navItems() list, so D-pad
+            // traversal order is unaffected by which row draws it.
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
@@ -162,22 +223,42 @@ fun AppTopBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    navItems(frigateConfigured).forEachIndexed { index, item ->
+                    navItems(frigateConfigured, navSections).forEachIndexed { index, item ->
+                        val section = navSectionFor(item, navSections)
+                        if (section?.iconOnly == true) return@forEachIndexed
                         val itemFocusIndex = if (hasProfile) index + 1 else index
                         TopBarNavChip(
                             item = item,
                             isFocused = isFocused && focusedIndex == itemFocusIndex,
-                            isSelected = selectedIndex == itemFocusIndex
+                            isSelected = selectedIndex == itemFocusIndex,
+                            labelOverride = section?.label,
+                            iconOnly = false
                         )
                     }
                 }
             }
 
-            // ── RIGHT: Settings gear + network + clock ──
+            // ── RIGHT: Icon-only nav chips + Settings gear + network + clock ──
+            // Icon-only chips are grouped here, right next to Settings, but
+            // still render BEFORE the gear so Settings stays the last
+            // navigable item in the bar, same as always.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                navItems(frigateConfigured, navSections).forEachIndexed { index, item ->
+                    val section = navSectionFor(item, navSections)
+                    if (section?.iconOnly != true) return@forEachIndexed
+                    val itemFocusIndex = if (hasProfile) index + 1 else index
+                    TopBarNavChip(
+                        item = item,
+                        isFocused = isFocused && focusedIndex == itemFocusIndex,
+                        isSelected = selectedIndex == itemFocusIndex,
+                        labelOverride = section?.label,
+                        iconOnly = true
+                    )
+                }
+
                 // Settings gear icon (no text label)
                 TopBarSettingsGear(
                     isFocused = settingsFocused,
@@ -203,7 +284,9 @@ fun AppTopBar(
 private fun TopBarNavChip(
     item: SidebarItem,
     isFocused: Boolean,
-    isSelected: Boolean
+    isSelected: Boolean,
+    labelOverride: String? = null,
+    iconOnly: Boolean = false
 ) {
     val containerColor by animateColorAsState(
         targetValue = when {
@@ -242,7 +325,7 @@ private fun TopBarNavChip(
         animationSpec = tween(AnimationConstants.DURATION_FAST),
         label = "topbar_chip_border"
     )
-    val label = if (item == SidebarItem.TV) {
+    val label = labelOverride ?: if (item == SidebarItem.TV) {
         stringResource(R.string.topbar_tv)
     } else {
         stringResource(item.labelRes)
@@ -267,14 +350,16 @@ private fun TopBarNavChip(
             tint = iconColor,
             modifier = Modifier.size(18.dp)
         )
-        Text(
-            text = label,
-            fontSize = 14.sp,
-            fontWeight = if (isFocused || isSelected) FontWeight.SemiBold else FontWeight.Medium,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (!iconOnly) {
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                fontWeight = if (isFocused || isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

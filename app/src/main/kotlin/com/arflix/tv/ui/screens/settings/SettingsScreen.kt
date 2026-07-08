@@ -99,6 +99,9 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.ShortText
+import androidx.compose.material.icons.filled.Abc
+import androidx.compose.material.icons.filled.ViewSidebar
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -177,6 +180,7 @@ import androidx.compose.material.icons.filled.CropLandscape
 import androidx.compose.material.icons.filled.CropPortrait
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
+import com.arflix.tv.ui.components.toSidebarItem
 import com.arflix.tv.util.LocalFrigateConfigured
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
@@ -228,7 +232,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
-        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36)
+        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41)
         "profiles" -> listOf(19)
         "android_settings" -> listOf(37)
         "network" -> listOf(25, 26, 35, 38, 39, 40)
@@ -313,8 +317,21 @@ fun SettingsScreen(
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
-    var sidebarFocusIndex by remember { mutableIntStateOf(topBarMaxIndex(hasProfile, frigateConfigured)) } // SETTINGS
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    // Rows shown in the "Navigation" settings section: every customizable nav
+    // destination except Settings, which is never hideable/reorderable (it's
+    // always the standalone gear icon). Falls back to declaration order when
+    // no per-profile customization has been saved yet, matching NavSectionRepository.defaultSections().
+    val orderableNavSections = remember(navSections) {
+        val effective = navSections.ifEmpty {
+            com.arflix.tv.data.model.NavSectionKind.entries.mapIndexed { index, kind ->
+                com.arflix.tv.data.model.NavSectionConfig(kind = kind, order = index)
+            }
+        }
+        effective.sortedBy { it.order }.filter { it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS }
+    }
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
+    var sidebarFocusIndex by remember { mutableIntStateOf(topBarMaxIndex(hasProfile, frigateConfigured, navSections)) } // SETTINGS
     var sectionIndex by remember { mutableIntStateOf(0) }
     var mobilePage by remember { mutableStateOf("MAIN") }
     var contentFocusIndex by remember { mutableIntStateOf(0) }
@@ -325,6 +342,8 @@ fun SettingsScreen(
     var addonActionIndex by remember { mutableIntStateOf(0) }
     // Sub-focus for catalog rows: 0 = edit, 1 = up, 2 = down, 3 = layout, 4 = delete
     var catalogActionIndex by remember { mutableIntStateOf(0) }
+    // Navigation Bar customization modal (opened from a row in Appearance)
+    var showNavCustomizationModal by remember { mutableStateOf(false) }
     // Sub-focus for IPTV rows: 0 = enable, 1 = edit, 2 = up, 3 = down, 4 = delete
     var iptvActionIndex by remember { mutableIntStateOf(0) }
     // Rename dialog state
@@ -820,7 +839,7 @@ fun SettingsScreen(
                                     if (hasProfile && sidebarFocusIndex == 0) {
                                         onSwitchProfile()
                                     } else {
-                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
+                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                             SidebarItem.SEARCH -> onNavigateToSearch()
                                             SidebarItem.HOME -> onNavigateToHome()
                                             SidebarItem.TV -> onNavigateToTv()
@@ -875,6 +894,7 @@ fun SettingsScreen(
                                                 27 -> viewModel.cycleVolumeBoost()
                                                 34 -> viewModel.cycleTrailerDelay()
                                                 36 -> viewModel.setLauncherMode(!uiState.launcherModeEnabled)
+                                                41 -> showNavCustomizationModal = true
                                             }
                                         }
                                         "iptv" -> {
@@ -1352,6 +1372,8 @@ fun SettingsScreen(
                             onCustomUserAgentClick = { showCustomUserAgentDialog = true },
                             launcherModeEnabled = uiState.launcherModeEnabled,
                             onLauncherModeToggle = { viewModel.setLauncherMode(it) },
+                            navSectionsSummary = "${orderableNavSections.count { it.visible }}/${orderableNavSections.size} visible",
+                            onNavigationBarClick = { showNavCustomizationModal = true },
                             onAndroidSettingsClick = {
                                 context.startActivity(
                                     android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
@@ -1917,6 +1939,18 @@ fun SettingsScreen(
                 onDismiss = {
                     showCatalogRename = false
                 }
+            )
+        }
+
+        if (showNavCustomizationModal) {
+            NavigationCustomizationModal(
+                sections = orderableNavSections,
+                onMoveUp = { kind -> viewModel.moveNavSectionUp(kind) },
+                onMoveDown = { kind -> viewModel.moveNavSectionDown(kind) },
+                onRename = { kind, label -> viewModel.renameNavSection(kind, label) },
+                onToggleIconOnly = { kind -> viewModel.toggleNavSectionIconOnly(kind) },
+                onToggleVisibility = { kind -> viewModel.toggleNavSectionVisibility(kind) },
+                onDismiss = { showNavCustomizationModal = false }
             )
         }
 
@@ -4668,7 +4702,7 @@ private fun tvSettingsSectionDescription(section: String): String {
         "subtitles" -> "Subtitle language defaults, display style and filtering."
 
         "playback" -> "Autoplay, trailers, source quality, frame-rate matching and audio boost."
-        "appearance" -> "Layout, OLED mode, focus styling and hero metadata."
+        "appearance" -> "Layout, OLED mode, focus styling, hero metadata and navigation bar customization."
         "profiles" -> "Profile startup behavior for this device."
         "network" -> "DNS and loading diagnostic preferences."
         "iptv" -> "Live TV playlists, EPG refresh, channel loading and playlist management."
@@ -4812,7 +4846,10 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             7 -> TvSettingsHelp("Volume boost", "Boosts playback audio output when enabled.")
             else -> TvSettingsHelp("Playback", "Tune source quality, frame-rate matching and playback behavior.")
         }
-        "appearance" -> TvSettingsHelp("Interface", "Control layout, OLED mode, clock and focus styling.")
+        "appearance" -> when (tvGeneralRowsForSection("appearance").getOrNull(focusedIndex)) {
+            41 -> TvSettingsHelp("Navigation Bar", "Reorder, rename, icon-only or hide items in the top navigation bar.")
+            else -> TvSettingsHelp("Interface", "Control layout, OLED mode, clock and focus styling.")
+        }
         "profiles" -> TvSettingsHelp("Profiles", "Control whether this device opens the profile picker on startup.")
         "android_settings" -> TvSettingsHelp("Android Settings", "Opens Android TV system settings — Wi-Fi, apps, display and device options.")
         "network" -> TvSettingsHelp("Network", "DNS and loading diagnostic preferences.")
@@ -4923,6 +4960,8 @@ private fun TvGeneralSettingsRows(
     onCustomUserAgentClick: () -> Unit = {},
     launcherModeEnabled: Boolean = false,
     onLauncherModeToggle: (Boolean) -> Unit = {},
+    navSectionsSummary: String = "",
+    onNavigationBarClick: () -> Unit = {},
     onAndroidSettingsClick: () -> Unit = {},
     watchlistApiEnabled: Boolean = false,
     watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
@@ -5022,6 +5061,15 @@ private fun TvGeneralSettingsRows(
                 34 -> SettingsRow(Icons.Default.Schedule, stringResource(R.string.trailer_delay), stringResource(R.string.trailer_delay_desc), "${trailerDelaySeconds}s", focusedIndex == localIndex, onTrailerDelayClick, Modifier.settingsFocusSlot(localIndex))
                 35 -> SettingsRow(Icons.Default.Language, stringResource(R.string.custom_user_agent), stringResource(R.string.custom_user_agent_desc), formatUserAgentPreview(customUserAgent, 30), focusedIndex == localIndex, onCustomUserAgentClick, Modifier.settingsFocusSlot(localIndex))
                 36 -> SettingsToggleRow("Launcher Mode", "Set Xadarr as the Android TV home screen", launcherModeEnabled, focusedIndex == localIndex, onLauncherModeToggle, Modifier.settingsFocusSlot(localIndex))
+                41 -> SettingsRow(
+                    icon = Icons.Default.ViewSidebar,
+                    title = stringResource(R.string.nav_customization),
+                    subtitle = stringResource(R.string.nav_customization_hint),
+                    value = navSectionsSummary,
+                    isFocused = focusedIndex == localIndex,
+                    onClick = onNavigationBarClick,
+                    modifier = Modifier.settingsFocusSlot(localIndex)
+                )
                 37 -> SettingsRow(Icons.Default.Settings, "Android Settings", "Open Android TV system settings", "", focusedIndex == localIndex, onAndroidSettingsClick, Modifier.settingsFocusSlot(localIndex))
                 38 -> {
                     val lanSubtitle = when {
@@ -7674,6 +7722,169 @@ private fun catalogueLayoutRowKey(catalog: CatalogConfig): String {
 }
 
 @Composable
+private fun defaultNavLabel(kind: com.arflix.tv.data.model.NavSectionKind): String {
+    val item = kind.toSidebarItem()
+    return if (item == SidebarItem.TV) stringResource(R.string.topbar_tv) else stringResource(item.labelRes)
+}
+
+/**
+ * Per-profile customization of the top nav bar: reorder, rename, icon-only and
+ * hide/show. Settings itself never appears here — it's always the standalone
+ * gear icon and NavSectionRepository refuses to hide it.
+ *
+ * Self-contained modal (own Dialog + focus/key handling), same shape as
+ * [ManageAppsModal] — opened from a single row in Appearance rather than
+ * owning a permanent sidebar section, since reordering/hiding 5 items is a
+ * set-once-and-forget config, not something that needs its own nav slot.
+ */
+@Composable
+private fun NavigationCustomizationModal(
+    sections: List<com.arflix.tv.data.model.NavSectionConfig>,
+    onMoveUp: (com.arflix.tv.data.model.NavSectionKind) -> Unit,
+    onMoveDown: (com.arflix.tv.data.model.NavSectionKind) -> Unit,
+    onRename: (com.arflix.tv.data.model.NavSectionKind, String?) -> Unit,
+    onToggleIconOnly: (com.arflix.tv.data.model.NavSectionKind) -> Unit,
+    onToggleVisibility: (com.arflix.tv.data.model.NavSectionKind) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var focusedIdx by remember { mutableIntStateOf(0) }
+    var actionIndex by remember { mutableIntStateOf(0) }
+    var renameKind by remember { mutableStateOf<com.arflix.tv.data.model.NavSectionKind?>(null) }
+    var renameLabel by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A2E))
+                .padding(24.dp)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (renameKind != null) return@onPreviewKeyEvent false
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> { if (focusedIdx > 0) { focusedIdx--; actionIndex = 0 }; true }
+                        Key.DirectionDown -> { if (focusedIdx < sections.lastIndex) { focusedIdx++; actionIndex = 0 }; true }
+                        Key.DirectionLeft -> { if (actionIndex > 0) actionIndex--; true }
+                        Key.DirectionRight -> { if (actionIndex < 4) actionIndex++; true }
+                        Key.Enter, Key.DirectionCenter -> {
+                            val config = sections.getOrNull(focusedIdx)
+                            if (config != null) {
+                                when (actionIndex) {
+                                    0 -> if (focusedIdx > 0) onMoveUp(config.kind)
+                                    1 -> if (focusedIdx < sections.lastIndex) onMoveDown(config.kind)
+                                    2 -> {
+                                        renameKind = config.kind
+                                        renameLabel = config.label.orEmpty()
+                                    }
+                                    3 -> onToggleIconOnly(config.kind)
+                                    4 -> onToggleVisibility(config.kind)
+                                }
+                            }
+                            true
+                        }
+                        Key.Back -> { onDismiss(); true }
+                        else -> false
+                    }
+                }
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.nav_customization),
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                Text(
+                    text = stringResource(R.string.nav_customization_hint),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                sections.forEachIndexed { index, config ->
+                    val isRowFocused = focusedIdx == index
+                    val label = config.label?.takeIf { it.isNotBlank() } ?: defaultNavLabel(config.kind)
+                    val statusText = when {
+                        !config.visible -> "Hidden"
+                        config.iconOnly -> "Icon only"
+                        else -> "Visible"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = label, style = ArflixTypography.body, color = if (isRowFocused) TextPrimary else TextSecondary, maxLines = 1)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = statusText, style = ArflixTypography.caption, color = TextSecondary.copy(alpha = 0.7f), maxLines = 1)
+                        }
+                        CatalogActionChip(
+                            icon = Icons.Default.ArrowUpward,
+                            isFocused = isRowFocused && actionIndex == 0,
+                            enabled = index > 0,
+                            onClick = { onMoveUp(config.kind) }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = Icons.Default.ArrowDownward,
+                            isFocused = isRowFocused && actionIndex == 1,
+                            enabled = index < sections.lastIndex,
+                            onClick = { onMoveDown(config.kind) }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = Icons.Default.Edit,
+                            isFocused = isRowFocused && actionIndex == 2,
+                            onClick = { renameKind = config.kind; renameLabel = config.label.orEmpty() }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = if (config.iconOnly) Icons.Default.ShortText else Icons.Default.Abc,
+                            label = if (config.iconOnly) "Icon" else "Label",
+                            isFocused = isRowFocused && actionIndex == 3,
+                            onClick = { onToggleIconOnly(config.kind) }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CatalogActionChip(
+                            icon = if (config.visible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            isFocused = isRowFocused && actionIndex == 4,
+                            onClick = { onToggleVisibility(config.kind) }
+                        )
+                    }
+                    if (index != sections.lastIndex) Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+
+    if (renameKind != null) {
+        val kind = renameKind!!
+        InputModal(
+            title = stringResource(R.string.rename_nav_section),
+            supportingText = stringResource(R.string.rename_nav_section_desc, defaultNavLabel(kind)),
+            fields = listOf(
+                InputField(label = "Label", value = renameLabel, onValueChange = { renameLabel = it })
+            ),
+            onConfirm = {
+                onRename(kind, renameLabel)
+                renameKind = null
+            },
+            onDismiss = { renameKind = null }
+        )
+    }
+}
+
+@Composable
 private fun ManageAppsModal(
     pinnedApps: List<String>,
     onSave: (List<String>) -> Unit,
@@ -9253,7 +9464,7 @@ private fun InputModalLegacy(
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun InputModal(
+fun InputModal(
     title: String,
     supportingText: String? = null,
     fields: List<InputField>,

@@ -183,12 +183,13 @@ fun CamerasScreen(
     val rowCount = if (cameras.isEmpty()) 0 else (cameras.size + colCount - 1) / colCount
 
     val frigateConfigured = LocalFrigateConfigured.current
+    val navSections = com.arflix.tv.util.LocalNavSections.current
     // Focus state — all navigation is keyboard-driven (no system focus on cards)
     var focusZone by remember { mutableStateOf(FocusZone.GRID) }
     var topBarFocusIndex by remember {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured))
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured, navSections))
     }
-    val maxTopBarIndex = remember(hasProfile, frigateConfigured) { topBarMaxIndex(hasProfile, frigateConfigured) }
+    val maxTopBarIndex = remember(hasProfile, frigateConfigured, navSections) { topBarMaxIndex(hasProfile, frigateConfigured, navSections) }
     var focusedCameraIndex by remember { mutableIntStateOf(0) }
     var focusedEventIndex by remember { mutableIntStateOf(0) }
 
@@ -287,7 +288,7 @@ fun CamerasScreen(
                         focusZone == FocusZone.GRID &&
                             (focusedCameraIndex < colCount || event.nativeKeyEvent.repeatCount >= 1) -> {
                             focusZone = FocusZone.TOPBAR
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured)
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured, navSections)
                             true
                         }
                         focusZone == FocusZone.GRID -> {
@@ -346,7 +347,7 @@ fun CamerasScreen(
                     Key.Enter, Key.DirectionCenter -> when {
                         focusZone == FocusZone.PLAYER -> false
                         focusZone == FocusZone.TOPBAR -> {
-                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured)) {
+                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                 SidebarItem.HOME -> onNavigateToHome()
                                 SidebarItem.DISCOVER -> onNavigateToDiscover()

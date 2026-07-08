@@ -1223,7 +1223,7 @@ class TraktRepository @Inject constructor(
         // local non-Trakt progress and polluting the row.
         if (auth == null) {
             if (hasStoredTraktTokenForCurrentProfile()) {
-                val cached = loadContinueWatchingCache()
+                val cached = filterDismissedContinueWatchingItems(loadContinueWatchingCache())
                 AppLogger.breadcrumb(
                     tag = "Trakt",
                     message = "cw_auth_missing_using_cache count=${cached.size}",
@@ -1233,7 +1233,7 @@ class TraktRepository @Inject constructor(
                 cachedContinueWatchingProfileId = requestProfileId
                 return@coroutineScope cached
             }
-            val localItems = loadLocalContinueWatching()
+            val localItems = filterDismissedContinueWatchingItems(loadLocalContinueWatching())
             cachedContinueWatching = localItems
             cachedContinueWatchingProfileId = requestProfileId
             return@coroutineScope localItems
@@ -1837,7 +1837,7 @@ class TraktRepository @Inject constructor(
         removeFromLocalContinueWatching(showTmdbId, seasonNum, episodeNum)
 
         if (cachedContinueWatching.isEmpty()) {
-            cachedContinueWatching = loadContinueWatchingCache()
+            cachedContinueWatching = filterDismissedContinueWatchingItems(loadContinueWatchingCache())
             cachedContinueWatchingProfileId = profileManager.getProfileIdSync()
         }
 

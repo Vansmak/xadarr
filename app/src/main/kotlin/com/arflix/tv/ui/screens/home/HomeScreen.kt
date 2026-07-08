@@ -149,6 +149,8 @@ import com.arflix.tv.ui.focus.isXadarrDpadNavigationKey
 import com.arflix.tv.ui.focus.rememberXadarrDpadRepeatGate
 import com.arflix.tv.ui.skin.XadarrFocusableSurface
 import com.arflix.tv.ui.skin.XadarrSkin
+import com.arflix.tv.util.rememberDominantColor
+import com.arflix.tv.util.blackTintedWith
 import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -803,9 +805,14 @@ fun HomeScreen(
                 if (categoriesSnapshot.isEmpty() || focusState.isSidebarFocused) return@collectLatest
                 if (focusSnapshot.focusedItemKey.isBlank()) return@collectLatest
                 if (focusSnapshot.focusedItemKey == focusSnapshot.heroItemKey) return@collectLatest
-                // Don't update the hero backdrop when the user is browsing the On Now or Apps rows
+                // Don't update the hero backdrop when the user is browsing the Apps or
+                // Cameras rows — those items aren't real media and have nothing sensible
+                // to show as a hero. On Now/favorite_tv items DO update the hero (falls
+                // back to a plain gradient backdrop for IPTV, see currentBackdrop above,
+                // and the existing hero-video path plays the channel's live stream once
+                // focus settles) so picking a favorite channel here shows what's live.
                 val focusedRowId = categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)?.id
-                if (focusedRowId == "favorite_tv" || focusedRowId == HomeViewModel.APPS_CATEGORY_ID || focusedRowId == HomeViewModel.CAMERAS_CATEGORY_ID) return@collectLatest
+                if (focusedRowId == HomeViewModel.APPS_CATEGORY_ID || focusedRowId == HomeViewModel.CAMERAS_CATEGORY_ID) return@collectLatest
                 categoriesSnapshot.getOrNull(focusSnapshot.rowIndex)
                     ?.items
                     ?.getOrNull(focusSnapshot.itemIndex)
@@ -867,8 +874,7 @@ fun HomeScreen(
         }
     }
 
-    // ── IPTV + service-collection hero player state ──
-    val isHeroIptv = displayHeroItem != null && viewModel.isIptvItem(displayHeroItem)
+    // ── Service-collection hero player state ──
     val isHeroCollection = displayHeroItem != null && viewModel.isCollectionItem(displayHeroItem)
     // Track service-collection "played once" — after the video ends we stop
     // re-spawning the player until the user focuses a *different* service.
@@ -883,10 +889,8 @@ fun HomeScreen(
         !isMobile && !focusState.userHasNavigated -> null
         !heroVideoAllowed -> null
         // Service collection MP4s should start as soon as the card becomes the hero.
-        // Keep the idle gate for heavier IPTV/live playback, but do not delay MP4 previews.
         serviceHeroVideoUrl != null -> serviceHeroVideoUrl
         suppressHeroVideoPlayback -> null
-        isHeroIptv -> displayHeroItem?.let { viewModel.getIptvStreamUrl(it.id) }
         else -> null
     }
 
@@ -982,6 +986,12 @@ fun HomeScreen(
         val currentBackdrop = displayHeroItem?.let { item ->
             if (viewModel.isCollectionItem(item)) {
                 viewModel.getCollectionHeroImageUrl(item) ?: item.image
+            } else if (viewModel.isIptvItem(item)) {
+                // Live channels have no backdrop, only a small logo — cropping
+                // that full-screen blows it up into an ugly, unrecognizable
+                // shape. Fall back to the plain gradient instead (same as the
+                // "no image at all" case) rather than stretching the logo.
+                null
             } else {
                 item.backdrop ?: item.image
             }
@@ -1008,6 +1018,12 @@ fun HomeScreen(
                 settledBackdrop = currentBackdrop
             }
         }
+        // Ambient accent extracted from the settled backdrop — same debounce as the
+        // image itself, so the color glow and the artwork always change together.
+        val dominantColor by rememberDominantColor(
+            imageUrl = settledBackdrop,
+            fallback = XadarrSkin.colors.focusOutline
+        )
         // On mobile, the hero backdrop is rendered inline inside MobileHomeRowsLayer — skip the fixed backdrop.
         // On TV, fill the entire screen with the backdrop.
         if (!isMobile) {
@@ -1077,14 +1093,18 @@ fun HomeScreen(
                         .drawWithCache {
                             val width = size.width
                             val height = size.height
+                            // Ambient glow: the vignette is tinted with the artwork's own
+                            // dominant color instead of flat black, at the same alpha
+                            // stops as before so text contrast is unaffected.
+                            val glow = blackTintedWith(dominantColor, 0.32f)
                             val leftScrim = Brush.horizontalGradient(
                                 colorStops = arrayOf(
-                                    0.0f to Color.Black.copy(alpha = 0.95f),
-                                    0.12f to Color.Black.copy(alpha = 0.88f),
-                                    0.22f to Color.Black.copy(alpha = 0.72f),
-                                    0.32f to Color.Black.copy(alpha = 0.50f),
-                                    0.42f to Color.Black.copy(alpha = 0.30f),
-                                    0.55f to Color.Black.copy(alpha = 0.10f),
+                                    0.0f to glow.copy(alpha = 0.95f),
+                                    0.12f to glow.copy(alpha = 0.88f),
+                                    0.22f to glow.copy(alpha = 0.72f),
+                                    0.32f to glow.copy(alpha = 0.50f),
+                                    0.42f to glow.copy(alpha = 0.30f),
+                                    0.55f to glow.copy(alpha = 0.10f),
                                     0.65f to Color.Transparent,
                                     1.0f to Color.Transparent
                                 ),
@@ -1093,9 +1113,9 @@ fun HomeScreen(
                             )
                             val topScrim = Brush.verticalGradient(
                                 colorStops = arrayOf(
-                                    0.0f to Color.Black.copy(alpha = 0.7f),
-                                    0.06f to Color.Black.copy(alpha = 0.45f),
-                                    0.15f to Color.Black.copy(alpha = 0.15f),
+                                    0.0f to glow.copy(alpha = 0.7f),
+                                    0.06f to glow.copy(alpha = 0.45f),
+                                    0.15f to glow.copy(alpha = 0.15f),
                                     0.25f to Color.Transparent,
                                     1.0f to Color.Transparent
                                 ),
@@ -1106,8 +1126,8 @@ fun HomeScreen(
                                 colorStops = arrayOf(
                                     0.0f to Color.Transparent,
                                     0.85f to Color.Transparent,
-                                    0.92f to Color.Black.copy(alpha = 0.5f),
-                                    1.0f to Color.Black.copy(alpha = 0.85f)
+                                    0.92f to glow.copy(alpha = 0.5f),
+                                    1.0f to glow.copy(alpha = 0.85f)
                                 ),
                                 startY = 0f,
                                 endY = height
@@ -1230,7 +1250,8 @@ fun HomeScreen(
                 onNavigateToTv = { channelId, streamUrl -> onNavigateToTv(channelId, streamUrl) },
                 isIptvItem = { item -> viewModel.isIptvItem(item) },
                 getIptvChannelId = { item -> viewModel.getIptvChannelId(item) },
-                getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) }
+                getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) },
+                getLiveChannelEpg = { itemId -> viewModel.getLiveChannelEpg(itemId) }
             )
             } // end trailer-dim wrapper
         }
@@ -1453,6 +1474,7 @@ private fun HeroSection(
     // `show_budget_on_home` DataStore key and defaults to true so existing
     // users see no behavior change. Issue #72.
     showBudget: Boolean = true,
+    nowNext: com.arflix.tv.data.model.IptvNowNext? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1596,6 +1618,50 @@ private fun HeroSection(
                                     shadow = textShadow
                                 ),
                                 color = Color.White
+                            )
+                        }
+                    }
+
+                    // Current program + progress — same EPG data and formatting
+                    // as the On Now row cards (com.arflix.tv.ui.screens.tv.live).
+                    val nowProgram = nowNext?.now
+                    if (nowProgram != null && nowProgram.title.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = nowProgram.title,
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                shadow = textShadow
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.width(heroTextWidth)
+                        )
+                        val progress = com.arflix.tv.ui.screens.tv.live.progressOf(nowProgram)
+                        val remaining = com.arflix.tv.ui.screens.tv.live.remainingLabel(nowProgram)
+                        if (progress != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .width(heroTextWidth)
+                                    .height(3.dp),
+                                color = AccentRed,
+                                trackColor = Color.White.copy(alpha = 0.25f)
+                            )
+                        }
+                        if (remaining.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = remaining,
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White.copy(alpha = 0.75f)
                             )
                         }
                     }
@@ -1858,7 +1924,8 @@ private fun HomeHeroLayer(
     onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
     isIptvItem: (MediaItem) -> Boolean = { false },
     getIptvChannelId: (MediaItem) -> String? = { null },
-    getIptvStreamUrl: (Int) -> String? = { null }
+    getIptvStreamUrl: (Int) -> String? = { null },
+    getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null }
 ) {
     if (isMobile) {
         // Mobile hero is rendered inline inside MobileHomeRowsLayer's LazyColumn — no fixed overlay needed.
@@ -1884,6 +1951,7 @@ private fun HomeHeroLayer(
                         logoUrl = heroLogoUrl,
                         overviewOverride = heroOverviewOverride,
                         showBudget = showBudget,
+                        nowNext = if (isIptvItem(item)) getLiveChannelEpg(item.id) else null,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(start = contentStartPadding, end = 400.dp)
@@ -2459,7 +2527,8 @@ private fun HomeInputLayer(
     // profile switcher). Focus navigation includes it as the first focusable item.
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -2521,12 +2590,10 @@ private fun HomeInputLayer(
         }
 
         // Clamp item index if it's beyond the current row's bounds.
-        // Allow one extra position for "See All" virtual card on eligible rows.
         // Do NOT reset to 0 or jump rows — that's what caused the trip.
         val currentRowCat = categories.getOrNull(focusState.currentRowIndex)
         val currentRowItems = currentRowCat?.items.orEmpty()
-        val maxValidIdx = if (currentRowCat != null && categoryHasSeeAll(currentRowCat))
-            currentRowItems.size else currentRowItems.lastIndex
+        val maxValidIdx = currentRowItems.lastIndex
         if (currentRowItems.isNotEmpty() && focusState.currentItemIndex > maxValidIdx) {
             focusState.currentItemIndex = maxValidIdx
         }
@@ -2538,9 +2605,7 @@ private fun HomeInputLayer(
             if (focusState.currentItemIndex != 0) focusState.currentItemIndex = 0
             return@LaunchedEffect
         }
-        val focusedCatForClamp = categories.getOrNull(focusState.currentRowIndex)
-        val maxItemIndex = if (focusedCatForClamp != null && categoryHasSeeAll(focusedCatForClamp))
-            focusedRowItemCount else focusedRowItemCount - 1
+        val maxItemIndex = focusedRowItemCount - 1
         if (focusState.currentItemIndex > maxItemIndex) {
             focusState.currentItemIndex = maxItemIndex
         }
@@ -2592,7 +2657,7 @@ private fun HomeInputLayer(
                             if (hasProfile && focusState.sidebarFocusIndex == 0) {
                                 onSwitchProfile()
                             } else {
-                                when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile, frigateConfigured)) {
+                                when (topBarFocusedItem(focusState.sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> Unit
                                     SidebarItem.DISCOVER -> onNavigateToDiscover()
@@ -2661,10 +2726,20 @@ private fun HomeInputLayer(
                         } else {
                             val rightCat = categories.getOrNull(focusState.currentRowIndex)
                             val maxItems = rightCat?.items?.size ?: 0
-                            val maxRightIdx = if (rightCat != null && categoryHasSeeAll(rightCat)) maxItems else maxItems - 1
+                            val maxRightIdx = maxItems - 1
                             if (focusState.currentItemIndex < maxRightIdx) {
                                 focusState.currentItemIndex++
                                 focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            } else if (
+                                rightCat != null && categoryHasSeeAll(rightCat) &&
+                                onBrowseCategory != null
+                            ) {
+                                // Row has no more locally-loaded items (rows cap at
+                                // HOME_ROW_ITEM_CAP) — Right past the last card keeps
+                                // "scrolling" straight into the full See All list
+                                // instead of dead-ending, now that there's no trailing
+                                // "See All" tile to land on.
+                                onBrowseCategory(rightCat.id)
                             }
                             true
                         }
@@ -2767,16 +2842,6 @@ private fun HomeInputLayer(
                                     if (titleCat != null && holdMs < 500L) {
                                         onBrowseCategory?.invoke(titleCat.id)
                                     }
-                                    selectPressedInHome = false
-                                    selectDownAtMs = 0L
-                                    return@onPreviewKeyEvent true
-                                }
-                                // "See All" virtual card at index == items.size (short press only)
-                                val seeAllCat = categories.getOrNull(focusState.currentRowIndex)
-                                val isSeeAll = seeAllCat != null && categoryHasSeeAll(seeAllCat) &&
-                                    focusState.currentItemIndex == seeAllCat.items.size
-                                if (isSeeAll && holdMs < 500L) {
-                                    onBrowseCategory?.invoke(seeAllCat!!.id)
                                     selectPressedInHome = false
                                     selectDownAtMs = 0L
                                     return@onPreviewKeyEvent true
@@ -3332,7 +3397,6 @@ private fun TvHomeRowsLayer(
                                 focusedItemIndex = focusState.currentItemIndex,
                                 usePosterCards = rowUsePosterCards
                             ),
-                            showSeeAll = categoryHasSeeAll(category),
                             isTitleFocused = rowIsFocused && focusState.isTitleFocused,
                             onTitleClick = if (categoryHasSeeAll(category)) {
                                 { onBrowseCategory?.invoke(category.id) }
@@ -3403,47 +3467,6 @@ private fun homeViewportFocusOverlayActive(
     if (focusedItemIndex < 0 || category.items.isEmpty()) return false
     if (category.id == HomeViewModel.APPS_CATEGORY_ID) return false
     return category.items.size > 1 && focusedItemIndex <= category.items.lastIndex
-}
-
-@Composable
-private fun SeeAllCard(isFocused: Boolean, width: Dp, posterMode: Boolean) {
-    val borderColor by androidx.compose.animation.animateColorAsState(
-        targetValue = if (isFocused) XadarrSkin.colors.focusOutline else Color.White.copy(0.12f),
-        animationSpec = tween(150),
-        label = "see_all_border"
-    )
-    val bgColor by androidx.compose.animation.animateColorAsState(
-        targetValue = if (isFocused) Color(0xFF1A2540) else Color(0xFF0E0E16),
-        animationSpec = tween(150),
-        label = "see_all_bg"
-    )
-    Box(
-        modifier = Modifier
-            .width(width)
-            .aspectRatio(if (posterMode) 2f / 3f else 16f / 9f)
-            .clip(rememberXadarrCardShape(XadarrSkin.radius.md))
-            .border(1.5.dp, borderColor, rememberXadarrCardShape(XadarrSkin.radius.md))
-            .background(bgColor),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            androidx.tv.material3.Text(
-                text = "→",
-                color = if (isFocused) Color.White else Color.White.copy(0.35f),
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Light,
-            )
-            androidx.tv.material3.Text(
-                text = "See All",
-                color = if (isFocused) Color.White else Color.White.copy(0.45f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -3982,7 +4005,6 @@ private fun ContentRow(
     focusedItemIndex: Int,
     isFastScrolling: Boolean,
     useViewportFocusOverlay: Boolean = false,
-    showSeeAll: Boolean = false,
     isTitleFocused: Boolean = false,
     onTitleClick: (() -> Unit)? = null,
     onItemClick: (MediaItem) -> Unit,
@@ -4127,11 +4149,16 @@ private fun ContentRow(
         Row(
             modifier = Modifier
                 .padding(start = startPadding, bottom = 12.dp)
+                // Border/background are pure decoration here — no padding is added
+                // inside them. This row sits inside a fixed-height, clipped row
+                // container; any extra size on the title pushes the cards below it
+                // out of alignment with their focus-ring overlay. Zero net size
+                // change keeps every row's card position identical regardless of
+                // whether the title is focused.
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.5.dp, titleBorderColor, RoundedCornerShape(8.dp))
                 .background(if (isTitleFocused) Color(0xFF1A2540) else Color.Transparent)
-                .then(if (onTitleClick != null) Modifier.clickable { onTitleClick() } else Modifier)
-                .then(if (isTitleFocused) Modifier.padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
+                .then(if (onTitleClick != null) Modifier.clickable { onTitleClick() } else Modifier),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -4315,15 +4342,6 @@ private fun ContentRow(
                         isPending = itemIsPending,
                     )
                 }
-                }
-                if (showSeeAll) {
-                    item(key = "see_all") {
-                        SeeAllCard(
-                            isFocused = isCurrentRow && focusedItemIndex == totalItems,
-                            width = itemWidth,
-                            posterMode = effectivePosterMode,
-                        )
-                    }
                 }
             }
             if (railFocusOverlayActive) {

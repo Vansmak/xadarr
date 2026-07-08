@@ -235,7 +235,8 @@ fun TvScreen(
     var focusZone by rememberSaveable { mutableStateOf(if (uiState.isConfigured) TvFocusZone.GROUPS else TvFocusZone.SIDEBAR) }
     val hasProfile = currentProfile != null
     val frigateConfigured = LocalFrigateConfigured.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured)
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(if (hasProfile) 4 else 3) }
     var groupIndex by rememberSaveable { mutableIntStateOf(0) }
     var channelIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -836,7 +837,7 @@ fun TvScreen(
                             if (hasProfile && sidebarFocusIndex == 0) {
                                 onSwitchProfile()
                             } else {
-                                when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured)) {
+                                when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> onNavigateToHome()
                                     SidebarItem.DISCOVER -> onNavigateToDiscover()
