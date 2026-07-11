@@ -178,6 +178,8 @@ data class SettingsUiState(
     val skipProfileSelection: Boolean = false,
     val oledBlackBackground: Boolean = false,
     val clockFormat: String = "24h",
+    // Home's one configurable row (Design v4 §3): "watchlist" | "up_next" | "continue_watching"
+    val homeRowSelection: String = "continue_watching",
     val qualityFilters: List<QualityFilterConfig> = emptyList(),
     // Spoiler blur — blur unwatched episode card images and hide synopsis
     val spoilerBlurEnabled: Boolean = false,
@@ -281,6 +283,7 @@ class SettingsViewModel @Inject constructor(
     private fun trailerDelayKey() = profileManager.profileStringKey("trailer_delay_seconds")
     private fun showBudgetKey() = profileManager.profileBooleanKey("show_budget_on_home")
     private fun clockFormatKey() = profileManager.profileStringKey("clock_format")
+    private fun homeRowSelectionKey() = profileManager.profileStringKey("home_row_selection")
     private fun spoilerBlurKey() = profileManager.profileBooleanKey("spoiler_blur")
     // Stored as a string because ProfileManager has no int helper and we only persist
     // a handful of discrete dB values. Parsed back to Int on read.
@@ -445,6 +448,7 @@ class SettingsViewModel @Inject constructor(
             val spoilerBlurEnabled = prefs[spoilerBlurKey()] ?: false
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
+            val homeRowSelection = prefs[homeRowSelectionKey()] ?: "continue_watching"
             val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "White"
             val selectedTheme = prefs[com.arflix.tv.util.THEME_KEY] ?: "Midnight"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
@@ -572,6 +576,7 @@ class SettingsViewModel @Inject constructor(
                 skipProfileSelection = skipProfileSelection,
                 oledBlackBackground = oledBlackBackground,
                 clockFormat = clockFormat,
+                homeRowSelection = homeRowSelection,
                 focusBorderColor = focusBorderColor,
                 selectedTheme = selectedTheme,
                 qualityFilters = qualityFilters,
@@ -1186,6 +1191,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[clockFormatKey()] = next }
             _uiState.value = _uiState.value.copy(clockFormat = next)
+            syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    /** Cycles Home's one configurable row (Design v4 §3): watchlist -> up_next -> continue_watching. */
+    fun cycleHomeRowSelection() {
+        val next = when (_uiState.value.homeRowSelection) {
+            "watchlist" -> "up_next"
+            "up_next" -> "continue_watching"
+            else -> "watchlist"
+        }
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[homeRowSelectionKey()] = next }
+            _uiState.value = _uiState.value.copy(homeRowSelection = next)
             syncLocalStateToCloud(silent = true)
         }
     }

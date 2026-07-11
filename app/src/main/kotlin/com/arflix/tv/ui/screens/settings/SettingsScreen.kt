@@ -230,7 +230,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
-        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41)
+        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41, 42)
         "profiles" -> listOf(19)
         "android_settings" -> listOf(37)
         "network" -> listOf(25, 26, 35, 38, 39, 40)
@@ -863,6 +863,7 @@ fun SettingsScreen(
                                                 34 -> viewModel.cycleTrailerDelay()
                                                 36 -> viewModel.setLauncherMode(!uiState.launcherModeEnabled)
                                                 41 -> showNavCustomizationModal = true
+                                                42 -> viewModel.cycleHomeRowSelection()
                                             }
                                         }
                                         "iptv" -> {
@@ -1289,6 +1290,8 @@ fun SettingsScreen(
                             skipProfileSelection = uiState.skipProfileSelection,
                             oledBlackBackground = uiState.oledBlackBackground,
                             clockFormat = uiState.clockFormat,
+                            homeRowSelection = uiState.homeRowSelection,
+                            onHomeRowSelectionClick = { viewModel.cycleHomeRowSelection() },
                             showBudget = uiState.showBudget,
                             volumeBoostDb = uiState.volumeBoostDb,
                             focusedIndex = if (activeZone == Zone.CONTENT) contentFocusIndex else -1,
@@ -4837,6 +4840,7 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
         }
         "appearance" -> when (tvGeneralRowsForSection("appearance").getOrNull(focusedIndex)) {
             41 -> TvSettingsHelp("Navigation Bar", "Reorder, rename, icon-only or hide items in the top navigation bar.")
+            42 -> TvSettingsHelp("Home Row", "Choose what fills Home's one configurable row: Watchlist, Up Next, or Continue Watching.")
             else -> TvSettingsHelp("Interface", "Control layout, OLED mode, clock and focus styling.")
         }
         "profiles" -> TvSettingsHelp("Profiles", "Control whether this device opens the profile picker on startup.")
@@ -4902,6 +4906,8 @@ private fun TvGeneralSettingsRows(
     skipProfileSelection: Boolean = false,
     oledBlackBackground: Boolean = false,
     clockFormat: String = "24h",
+    homeRowSelection: String = "continue_watching",
+    onHomeRowSelectionClick: () -> Unit = {},
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
     focusBorderColor: String = "White",
@@ -5057,6 +5063,19 @@ private fun TvGeneralSettingsRows(
                     value = navSectionsSummary,
                     isFocused = focusedIndex == localIndex,
                     onClick = onNavigationBarClick,
+                    modifier = Modifier.settingsFocusSlot(localIndex)
+                )
+                42 -> SettingsRow(
+                    icon = Icons.Default.Home,
+                    title = "Home Row",
+                    subtitle = "Choose what fills Home's one configurable row",
+                    value = when (homeRowSelection) {
+                        "watchlist" -> "Watchlist"
+                        "up_next" -> "Up Next"
+                        else -> "Continue Watching"
+                    },
+                    isFocused = focusedIndex == localIndex,
+                    onClick = onHomeRowSelectionClick,
                     modifier = Modifier.settingsFocusSlot(localIndex)
                 )
                 37 -> SettingsRow(Icons.Default.Settings, "Android Settings", "Open Android TV system settings", "", focusedIndex == localIndex, onAndroidSettingsClick, Modifier.settingsFocusSlot(localIndex))
