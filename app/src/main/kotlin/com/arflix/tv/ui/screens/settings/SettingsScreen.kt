@@ -178,10 +178,8 @@ import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import androidx.compose.material.icons.filled.CropLandscape
 import androidx.compose.material.icons.filled.CropPortrait
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.toSidebarItem
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -314,24 +312,28 @@ fun SettingsScreen(
         }
     }
 
-    var isSidebarFocused by remember { mutableStateOf(false) }
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
     val hasProfile = currentProfile != null
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     // Rows shown in the "Navigation" settings section: every customizable nav
     // destination except Settings, which is never hideable/reorderable (it's
     // always the standalone gear icon). Falls back to declaration order when
     // no per-profile customization has been saved yet, matching NavSectionRepository.defaultSections().
     val orderableNavSections = remember(navSections) {
+        val fixedKinds = com.arflix.tv.data.model.NavSectionKind.entries.filter { it != com.arflix.tv.data.model.NavSectionKind.CUSTOM }
         val effective = navSections.ifEmpty {
-            com.arflix.tv.data.model.NavSectionKind.entries.mapIndexed { index, kind ->
+            fixedKinds.mapIndexed { index, kind ->
                 com.arflix.tv.data.model.NavSectionConfig(kind = kind, order = index)
             }
         }
-        effective.sortedBy { it.order }.filter { it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS }
+        // CUSTOM entries (open-ended targets) have no dedicated Settings UI yet —
+        // config-blob-only for now, per phasing. Exclude them from this list so the
+        // per-kind update helpers (keyed on kind, not identity) are never invoked on them.
+        effective.sortedBy { it.order }
+            .filter { it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS }
+            .filter { it.kind != com.arflix.tv.data.model.NavSectionKind.CUSTOM }
     }
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
-    var sidebarFocusIndex by remember { mutableIntStateOf(topBarMaxIndex(hasProfile, frigateConfigured, navSections)) } // SETTINGS
     var sectionIndex by remember { mutableIntStateOf(0) }
     var mobilePage by remember { mutableStateOf("MAIN") }
     var contentFocusIndex by remember { mutableIntStateOf(0) }
@@ -388,7 +390,7 @@ fun SettingsScreen(
     var showWebhookCompletionDialog by remember { mutableStateOf(false) }
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
-    var showFrigateUrlDialog by remember { mutableStateOf(false) }
+    var showNeolinkUrlDialog by remember { mutableStateOf(false) }
     var showHaUrlDialog by remember { mutableStateOf(false) }
     var showHaTokenDialog by remember { mutableStateOf(false) }
     var showBlacklistPathDialog by remember { mutableStateOf(false) }
@@ -431,7 +433,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
-            "stremio" -> stremioAddons.size + 8 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Frigate + HA url/token + Smart Home link + optional blacklist path
+            "stremio" -> stremioAddons.size + 8 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Neolink + HA url/token + Smart Home link + optional blacklist path
             "accounts" -> 9
             else -> 0
         }
@@ -665,7 +667,7 @@ fun SettingsScreen(
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
         showEpiseerrUrlDialog ||
-        showFrigateUrlDialog ||
+        showNeolinkUrlDialog ||
         showHaUrlDialog ||
         showHaTokenDialog ||
         showBlacklistPathDialog ||
@@ -689,6 +691,9 @@ fun SettingsScreen(
             .onPreviewKeyEvent { event ->
                     if (isTouchDevice) return@onPreviewKeyEvent false
                     if (hasBlockingModal) return@onPreviewKeyEvent false
+                    if (com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = activeZone == Zone.SECTION)) {
+                        return@onPreviewKeyEvent true
+                    }
 
                 if (event.type == KeyEventType.KeyDown) {
                     val currentSection = sections.getOrNull(sectionIndex).orEmpty()
@@ -699,11 +704,7 @@ fun SettingsScreen(
                     when (event.key) {
                         Key.Back, Key.Escape -> {
                             when (activeZone) {
-                                Zone.SIDEBAR -> onBack()
-                                Zone.SECTION -> {
-                                    activeZone = Zone.SIDEBAR
-                                    isSidebarFocused = true
-                                }
+                                Zone.SECTION -> onBack()
                                 Zone.CONTENT -> {
                                     activeZone = Zone.SECTION
                                 }
@@ -726,24 +727,15 @@ fun SettingsScreen(
                                         catalogActionIndex = 0
                                     }
                                 }
-                                Zone.SECTION -> {
-                                    Unit
-                                }
-                                Zone.SIDEBAR -> {
-                                    if (sidebarFocusIndex > 0) {
-                                        sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
-                                    }
-                                }
+                                // SECTION is the leftmost column — LEFT here is handled by
+                                // navRailPreviewKey() above (opens the rail) before this
+                                // when-block ever runs, so nothing left to do.
+                                Zone.SECTION -> Unit
                             }
                             true
                         }
                         Key.DirectionRight -> {
                             when (activeZone) {
-                                Zone.SIDEBAR -> {
-                                    if (sidebarFocusIndex < maxSidebarIndex) {
-                                        sidebarFocusIndex = (sidebarFocusIndex + 1).coerceIn(0, maxSidebarIndex)
-                                    }
-                                }
                                 Zone.SECTION -> {
                                     activeZone = Zone.CONTENT
                                     addonActionIndex = 0
@@ -777,12 +769,8 @@ fun SettingsScreen(
                         Key.DirectionUp -> {
                             val isLongPress = event.nativeKeyEvent.repeatCount >= 1
                             when (activeZone) {
-                                Zone.SIDEBAR -> Unit
                                 Zone.SECTION -> {
-                                    if (isLongPress || sectionIndex == 0) {
-                                        activeZone = Zone.SIDEBAR
-                                        isSidebarFocused = true
-                                    } else {
+                                    if (!isLongPress && sectionIndex > 0) {
                                         sectionIndex--
                                         contentFocusIndex = 0
                                         addonActionIndex = 0
@@ -792,8 +780,7 @@ fun SettingsScreen(
                                 }
                                 Zone.CONTENT -> {
                                     if (isLongPress) {
-                                        activeZone = Zone.SIDEBAR
-                                        isSidebarFocused = true
+                                        activeZone = Zone.SECTION
                                     } else if (contentFocusIndex > 0) {
                                         contentFocusIndex--
                                         addonActionIndex = 0
@@ -808,10 +795,6 @@ fun SettingsScreen(
                         }
                         Key.DirectionDown -> {
                             when (activeZone) {
-                                Zone.SIDEBAR -> {
-                                    activeZone = Zone.SECTION
-                                    isSidebarFocused = false
-                                }
                                 Zone.SECTION -> {
                                     if (sectionIndex < sections.size - 1) {
                                         sectionIndex++
@@ -835,21 +818,6 @@ fun SettingsScreen(
                         }
                         Key.Enter, Key.DirectionCenter -> {
                             when (activeZone) {
-                                Zone.SIDEBAR -> {
-                                    if (hasProfile && sidebarFocusIndex == 0) {
-                                        onSwitchProfile()
-                                    } else {
-                                        when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
-                                            SidebarItem.SEARCH -> onNavigateToSearch()
-                                            SidebarItem.HOME -> onNavigateToHome()
-                                            SidebarItem.TV -> onNavigateToTv()
-                                            SidebarItem.DISCOVER -> onNavigateToDiscover()
-                                            SidebarItem.CAMERAS -> onNavigateToCameras()
-                                            SidebarItem.SETTINGS -> { /* Already here */ }
-                                            null -> Unit
-                                        }
-                                    }
-                                }
                                 Zone.SECTION -> activeZone = Zone.CONTENT
                                 Zone.CONTENT -> {
                                     when (currentSection) {
@@ -1077,7 +1045,7 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 2 + uiState.webhookUrls.size -> webhookUrlDialogIndex = -1
                                                 contentFocusIndex == stremioAddons.size + 3 + uiState.webhookUrls.size -> viewModel.cycleWebhookInterval()
                                                 contentFocusIndex == stremioAddons.size + 4 + uiState.webhookUrls.size -> showWebhookCompletionDialog = true
-                                                contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showFrigateUrlDialog = true
+                                                contentFocusIndex == stremioAddons.size + 5 + uiState.webhookUrls.size -> showNeolinkUrlDialog = true
                                                 contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showHaUrlDialog = true
                                                 contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showHaTokenDialog = true
                                                 contentFocusIndex == stremioAddons.size + 8 + uiState.webhookUrls.size -> onNavigateToSmartHome()
@@ -1179,7 +1147,7 @@ fun SettingsScreen(
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
                 onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
-                onShowFrigateUrlDialog = { showFrigateUrlDialog = true },
+                onShowNeolinkUrlDialog = { showNeolinkUrlDialog = true },
                 onShowHaUrlDialog = { showHaUrlDialog = true },
                 onShowHaTokenDialog = { showHaTokenDialog = true },
                 onShowBlacklistPathDialog = { showBlacklistPathDialog = true },
@@ -1188,12 +1156,7 @@ fun SettingsScreen(
                 onShowTraktClientSecretDialog = { showTraktClientSecretDialog = true },
             )
         } else {
-            AppTopBar(
-                selectedItem = SidebarItem.SETTINGS,
-                isFocused = activeZone == Zone.SIDEBAR,
-                focusedIndex = sidebarFocusIndex,
-                profile = currentProfile
-            )
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
 
             Row(
                 modifier = Modifier
@@ -1518,8 +1481,8 @@ fun SettingsScreen(
                             onWebhookUrlClick = { idx -> webhookUrlDialogIndex = idx },
                             onCycleInterval = { viewModel.cycleWebhookInterval() },
                             onCompletionPercentClick = { showWebhookCompletionDialog = true },
-                            frigateUrl = uiState.frigateUrl,
-                            onFrigateUrlClick = { showFrigateUrlDialog = true },
+                            neolinkUrl = uiState.neolinkUrl,
+                            onNeolinkUrlClick = { showNeolinkUrlDialog = true },
                             haUrl = uiState.haUrl,
                             onHaUrlClick = { showHaUrlDialog = true },
                             haToken = uiState.haToken,
@@ -1625,14 +1588,14 @@ fun SettingsScreen(
             )
         }
 
-        if (showFrigateUrlDialog) {
-            FrigateUrlDialog(
-                currentValue = uiState.frigateUrl,
+        if (showNeolinkUrlDialog) {
+            NeolinkUrlDialog(
+                currentValue = uiState.neolinkUrl,
                 onSave = { url ->
-                    viewModel.saveFrigateUrl(url)
-                    showFrigateUrlDialog = false
+                    viewModel.saveNeolinkUrl(url)
+                    showNeolinkUrlDialog = false
                 },
-                onDismiss = { showFrigateUrlDialog = false }
+                onDismiss = { showNeolinkUrlDialog = false }
             )
         }
 
@@ -2166,14 +2129,14 @@ fun SettingsScreen(
             )
         }
 
-        if (isTouchDevice && showFrigateUrlDialog) {
-            FrigateUrlDialog(
-                currentValue = uiState.frigateUrl,
+        if (isTouchDevice && showNeolinkUrlDialog) {
+            NeolinkUrlDialog(
+                currentValue = uiState.neolinkUrl,
                 onSave = { url ->
-                    viewModel.saveFrigateUrl(url)
-                    showFrigateUrlDialog = false
+                    viewModel.saveNeolinkUrl(url)
+                    showNeolinkUrlDialog = false
                 },
-                onDismiss = { showFrigateUrlDialog = false }
+                onDismiss = { showNeolinkUrlDialog = false }
             )
         }
 
@@ -2338,6 +2301,29 @@ fun SettingsScreen(
                 },
                 isVisible = true,
                 onDismiss = { viewModel.dismissToast() }
+            )
+        }
+
+        if (!isTouchDevice) {
+            com.arflix.tv.ui.components.NavRail(
+                isOpen = isNavRailOpen.value,
+                onClose = {
+                    isNavRailOpen.value = false
+                    runCatching { focusRequester.requestFocus() }
+                },
+                currentScreen = com.arflix.tv.data.model.NavSectionKind.SETTINGS,
+                navSections = navSections,
+                neolinkConfigured = neolinkConfigured,
+                profile = currentProfile,
+                actions = com.arflix.tv.ui.components.NavRailActions(
+                    onNavigateToHome = onNavigateToHome,
+                    onNavigateToSearch = onNavigateToSearch,
+                    onNavigateToDiscover = onNavigateToDiscover,
+                    onNavigateToTv = onNavigateToTv,
+                    onNavigateToCameras = onNavigateToCameras,
+                    onNavigateToWatchlist = onNavigateToWatchlist,
+                    onSwitchProfile = onSwitchProfile,
+                ),
             )
         }
 
@@ -3520,7 +3506,7 @@ private fun MobileSettingsLayout(
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
-    onShowFrigateUrlDialog: () -> Unit = {},
+    onShowNeolinkUrlDialog: () -> Unit = {},
     onShowHaUrlDialog: () -> Unit = {},
     onShowHaTokenDialog: () -> Unit = {},
     onShowBlacklistPathDialog: () -> Unit = {},
@@ -3616,7 +3602,7 @@ private fun MobileSettingsLayout(
                 onShowWebhookUrlDialog = onShowWebhookUrlDialog,
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
                 onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
-                onShowFrigateUrlDialog = onShowFrigateUrlDialog,
+                onShowNeolinkUrlDialog = onShowNeolinkUrlDialog,
                 onShowHaUrlDialog = onShowHaUrlDialog,
                 onShowHaTokenDialog = onShowHaTokenDialog,
                 onShowBlacklistPathDialog = onShowBlacklistPathDialog,
@@ -3819,7 +3805,7 @@ private fun MobileSettingsSubPage(
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
-    onShowFrigateUrlDialog: () -> Unit = {},
+    onShowNeolinkUrlDialog: () -> Unit = {},
     onShowHaUrlDialog: () -> Unit = {},
     onShowHaTokenDialog: () -> Unit = {},
     onShowBlacklistPathDialog: () -> Unit = {},
@@ -4057,8 +4043,8 @@ private fun MobileSettingsSubPage(
                     onWebhookUrlClick = onShowWebhookUrlDialog,
                     onCycleInterval = { viewModel.cycleWebhookInterval() },
                     onCompletionPercentClick = onShowWebhookCompletionDialog,
-                    frigateUrl = uiState.frigateUrl,
-                    onFrigateUrlClick = onShowFrigateUrlDialog,
+                    neolinkUrl = uiState.neolinkUrl,
+                    onNeolinkUrlClick = onShowNeolinkUrlDialog,
                     haUrl = uiState.haUrl,
                     onHaUrlClick = onShowHaUrlDialog,
                     haToken = uiState.haToken,
@@ -4285,8 +4271,11 @@ private fun MobileSettingsRow(
     }
 }
 
+// SIDEBAR (the old persistent top nav bar zone) is gone — replaced by NavRail,
+// opened via LEFT at SECTION (this screen's leftmost column) instead of a
+// dedicated zone. See navRailPreviewKey() in the key handler below.
 private enum class Zone {
-    SIDEBAR, SECTION, CONTENT
+    SECTION, CONTENT
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -8258,8 +8247,8 @@ private fun StremioAddonsSettings(
     onWebhookUrlClick: (Int?) -> Unit = {},
     onCycleInterval: () -> Unit = {},
     onCompletionPercentClick: () -> Unit = {},
-    frigateUrl: String = "",
-    onFrigateUrlClick: () -> Unit = {},
+    neolinkUrl: String = "",
+    onNeolinkUrlClick: () -> Unit = {},
     haUrl: String = "",
     onHaUrlClick: () -> Unit = {},
     haToken: String = "",
@@ -8440,11 +8429,11 @@ private fun StremioAddonsSettings(
 
         SettingsRow(
             icon = Icons.Default.Videocam,
-            title = "Frigate NVR URL",
-            subtitle = if (frigateUrl.isNotBlank()) frigateUrl else "Not configured — Cameras tab hidden",
-            value = if (frigateUrl.isNotBlank()) "Configured" else "—",
+            title = "Neolink NVR URL",
+            subtitle = if (neolinkUrl.isNotBlank()) neolinkUrl else "Not configured — Cameras tab hidden",
+            value = if (neolinkUrl.isNotBlank()) "Configured" else "—",
             isFocused = focusedIndex == addons.size + 5 + webhookUrls.size,
-            onClick = onFrigateUrlClick,
+            onClick = onNeolinkUrlClick,
             modifier = Modifier.settingsFocusSlot(addons.size + 5 + webhookUrls.size)
         )
 
@@ -10608,7 +10597,7 @@ private fun WebhookUrlDialog(
 }
 
 @Composable
-private fun FrigateUrlDialog(
+private fun NeolinkUrlDialog(
     currentValue: String,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit
@@ -10629,10 +10618,10 @@ private fun FrigateUrlDialog(
                 .background(BackgroundElevated)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-                Text(text = "Frigate NVR URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
+                Text(text = "Neolink NVR URL", style = ArflixTypography.sectionTitle, color = TextPrimary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Base URL of your Frigate instance. When set, a Cameras tab appears in the nav bar and a Cameras row on the home screen.",
+                    text = "Base URL of your Neolink instance. When set, a Cameras tab appears in the nav bar and a Cameras row on the home screen.",
                     style = ArflixTypography.caption,
                     color = TextSecondary
                 )

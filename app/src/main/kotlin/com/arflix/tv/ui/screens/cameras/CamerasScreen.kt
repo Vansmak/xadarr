@@ -77,16 +77,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
+import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arflix.tv.data.model.Profile
-import com.arflix.tv.data.repository.FrigateRepository
+import com.arflix.tv.data.repository.NeolinkRepository
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
@@ -94,13 +100,14 @@ import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.ui.components.topBarSelectedIndex
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
 import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -110,18 +117,56 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
+// mainStream (H265, often 4K) sometimes fails or renders corrupted (partial
+// green frame) — subStream (H264, lower res) is far more reliably playable.
+// Streams are proxied straight from Neolink's own RTSP restream, named
+// "<camera>/mainStream" and "<camera>/subStream" — see NeolinkRepository.getCameras().
+private fun neolinkSubStreamUrl(streamUrl: String): String? =
+    if (streamUrl.endsWith("/mainStream")) streamUrl.removeSuffix("/mainStream") + "/subStream" else null
+
+// Media3's RTSP client defaults to UDP transport, which doesn't survive the
+// Docker NAT hop to Neolink reliably — the player then just hangs in
+// STATE_BUFFERING forever instead of erroring or falling back to subStream.
+// Every external ffmpeg test against these streams only worked with
+// -rtsp_transport tcp, so force the same thing here (RTP-over-RTSP,
+// TCP-interleaved) for rtsp:// sources; everything else (event clip mp4s)
+// goes through the normal default factory.
+private class CameraMediaSourceFactory(context: android.content.Context) : MediaSource.Factory {
+    private val default = DefaultMediaSourceFactory(context)
+    private val rtsp = RtspMediaSource.Factory().setForceUseRtpTcp(true)
+
+    override fun setDrmSessionManagerProvider(provider: DrmSessionManagerProvider): MediaSource.Factory {
+        default.setDrmSessionManagerProvider(provider)
+        return this
+    }
+
+    override fun setLoadErrorHandlingPolicy(policy: LoadErrorHandlingPolicy): MediaSource.Factory {
+        default.setLoadErrorHandlingPolicy(policy)
+        return this
+    }
+
+    override fun getSupportedTypes(): IntArray = default.supportedTypes
+
+    override fun createMediaSource(mediaItem: MediaItem): MediaSource =
+        if (mediaItem.localConfiguration?.uri?.scheme == "rtsp") {
+            rtsp.createMediaSource(mediaItem)
+        } else {
+            default.createMediaSource(mediaItem)
+        }
+}
+
 // ── ViewModel ────────────────────────────────────────────────────────────────
 
 data class CamerasUiState(
-    val cameras: List<FrigateRepository.FrigateCamera> = emptyList(),
-    val events: List<FrigateRepository.FrigateEvent> = emptyList(),
+    val cameras: List<NeolinkRepository.NeolinkCamera> = emptyList(),
+    val events: List<NeolinkRepository.NeolinkEvent> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
 )
 
 @HiltViewModel
 class CamerasViewModel @Inject constructor(
-    private val frigateRepository: FrigateRepository
+    private val neolinkRepository: NeolinkRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CamerasUiState())
@@ -134,10 +179,10 @@ class CamerasViewModel @Inject constructor(
     fun loadCameras() {
         viewModelScope.launch {
             _uiState.value = CamerasUiState(isLoading = true)
-            val cameras = frigateRepository.getCameras()
-            val events = runCatching { frigateRepository.getRecentEvents(20) }.getOrDefault(emptyList())
+            val cameras = neolinkRepository.getCameras()
+            val events = runCatching { neolinkRepository.getRecentEvents(20) }.getOrDefault(emptyList())
             _uiState.value = if (cameras.isEmpty()) {
-                CamerasUiState(isLoading = false, events = events, error = "No cameras found. Check Frigate URL in settings.")
+                CamerasUiState(isLoading = false, events = events, error = "No cameras found. Check Neolink URL in settings.")
             } else {
                 CamerasUiState(cameras = cameras, events = events, isLoading = false)
             }
@@ -182,14 +227,14 @@ fun CamerasScreen(
     }
     val rowCount = if (cameras.isEmpty()) 0 else (cameras.size + colCount - 1) / colCount
 
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     // Focus state — all navigation is keyboard-driven (no system focus on cards)
     var focusZone by remember { mutableStateOf(FocusZone.GRID) }
     var topBarFocusIndex by remember {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured, navSections))
+        mutableIntStateOf(topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, neolinkConfigured, navSections))
     }
-    val maxTopBarIndex = remember(hasProfile, frigateConfigured, navSections) { topBarMaxIndex(hasProfile, frigateConfigured, navSections) }
+    val maxTopBarIndex = remember(hasProfile, neolinkConfigured, navSections) { topBarMaxIndex(hasProfile, neolinkConfigured, navSections) }
     var focusedCameraIndex by remember { mutableIntStateOf(0) }
     var focusedEventIndex by remember { mutableIntStateOf(0) }
 
@@ -202,7 +247,7 @@ fun CamerasScreen(
     // ExoPlayer for the embedded fullscreen player — reuse across camera selections
     val embeddedPlayer = remember {
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(context))
+            .setMediaSourceFactory(CameraMediaSourceFactory(context))
             .setRenderersFactory(
                 DefaultRenderersFactory(context)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -237,6 +282,19 @@ fun CamerasScreen(
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
+    // Explicit playback failures fall back to subStream immediately.
+    DisposableEffect(embeddedPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                val current = playerUrl
+                android.util.Log.e("Cameras", "playback error for $current: ${error.errorCodeName}", error)
+                val fallback = current?.let { neolinkSubStreamUrl(it) }
+                if (fallback != null) playerUrl = fallback
+            }
+        }
+        embeddedPlayer.addListener(listener)
+        onDispose { embeddedPlayer.removeListener(listener) }
+    }
     LaunchedEffect(playerUrl) {
         if (playerUrl != null) {
             android.util.Log.d("Cameras", "playing: $playerUrl")
@@ -247,6 +305,19 @@ fun CamerasScreen(
             embeddedPlayer.play()
             focusZone = FocusZone.PLAYER
             runCatching { playerFocusRequester.requestFocus() }
+
+            // mainStream sometimes stalls silently (no onPlayerError,
+            // just never leaves STATE_BUFFERING) — fall back to subStream if it hasn't
+            // become ready within a few seconds.
+            val urlAtLaunch = playerUrl
+            delay(8_000)
+            if (playerUrl == urlAtLaunch && embeddedPlayer.playbackState != Player.STATE_READY) {
+                val fallback = neolinkSubStreamUrl(urlAtLaunch!!)
+                if (fallback != null) {
+                    android.util.Log.w("Cameras", "playback stalled for $urlAtLaunch, falling back to $fallback")
+                    playerUrl = fallback
+                }
+            }
         } else {
             embeddedPlayer.stop()
             embeddedPlayer.clearMediaItems()
@@ -288,7 +359,7 @@ fun CamerasScreen(
                         focusZone == FocusZone.GRID &&
                             (focusedCameraIndex < colCount || event.nativeKeyEvent.repeatCount >= 1) -> {
                             focusZone = FocusZone.TOPBAR
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, frigateConfigured, navSections)
+                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, neolinkConfigured, navSections)
                             true
                         }
                         focusZone == FocusZone.GRID -> {
@@ -347,7 +418,10 @@ fun CamerasScreen(
                     Key.Enter, Key.DirectionCenter -> when {
                         focusZone == FocusZone.PLAYER -> false
                         focusZone == FocusZone.TOPBAR -> {
-                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
+                            val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(topBarFocusIndex, hasProfile, neolinkConfigured, navSections)
+                            if (customEntry != null) {
+                                com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv, onNavigateToCameras = {})
+                            } else when (topBarFocusedItem(topBarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
                                 SidebarItem.SEARCH -> onNavigateToSearch()
                                 SidebarItem.HOME -> onNavigateToHome()
                                 SidebarItem.DISCOVER -> onNavigateToDiscover()
@@ -462,7 +536,7 @@ fun CamerasScreen(
 
 @Composable
 private fun CameraGrid(
-    cameras: List<FrigateRepository.FrigateCamera>,
+    cameras: List<NeolinkRepository.NeolinkCamera>,
     colCount: Int,
     rowCount: Int,
     focusZone: FocusZone,
@@ -510,7 +584,7 @@ private fun CameraGrid(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun CameraGridCard(
-    camera: FrigateRepository.FrigateCamera,
+    camera: NeolinkRepository.NeolinkCamera,
     isFocused: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -527,6 +601,20 @@ private fun CameraGridCard(
     )
     val borderColor = if (isFocused) Pink.copy(pulseAlpha) else Color.White.copy(0.06f)
 
+    // snapshotUrl is a static string, so Coil's in-memory cache would otherwise
+    // keep showing whatever bitmap it first decoded for that exact URL for as
+    // long as the app process stays alive — never re-hitting the network even
+    // though the server now serves a fresh live frame each time. A changing
+    // cache-busting query param forces a real refetch; matches the server's
+    // own ~15s snapshot TTL so this doesn't just hammer ffmpeg for nothing.
+    var snapshotNonce by remember { mutableStateOf(0L) }
+    LaunchedEffect(camera.snapshotUrl) {
+        while (true) {
+            snapshotNonce = System.currentTimeMillis()
+            delay(15_000)
+        }
+    }
+
     Column(
         modifier = modifier
             .scale(scale)
@@ -539,8 +627,9 @@ private fun CameraGridCard(
             contentAlignment = Alignment.Center,
         ) {
             if (camera.snapshotUrl.isNotBlank()) {
+                val separator = if (camera.snapshotUrl.contains("?")) "&" else "?"
                 AsyncImage(
-                    model = camera.snapshotUrl,
+                    model = "${camera.snapshotUrl}${separator}_t=$snapshotNonce",
                     contentDescription = camera.displayName,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -666,7 +755,7 @@ private fun EmbeddedCameraPlayer(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun CameraEventsRow(
-    events: List<FrigateRepository.FrigateEvent>,
+    events: List<NeolinkRepository.NeolinkEvent>,
     focusedIndex: Int,
     modifier: Modifier = Modifier,
 ) {
@@ -807,10 +896,11 @@ fun CameraPlayerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusRequester = remember { FocusRequester() }
+    var currentUrl by remember(streamUrl) { mutableStateOf(streamUrl) }
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(context))
+            .setMediaSourceFactory(CameraMediaSourceFactory(context))
             .setRenderersFactory(
                 DefaultRenderersFactory(context)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -819,11 +909,6 @@ fun CameraPlayerScreen(
                     .setEnableDecoderFallback(true)
             )
             .build()
-            .apply {
-                setMediaItem(MediaItem.fromUri(streamUrl))
-                prepare()
-                playWhenReady = true
-            }
     }
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, event ->
@@ -837,6 +922,39 @@ fun CameraPlayerScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(obs)
             exoPlayer.release()
+        }
+    }
+    // Explicit playback failures fall back to subStream immediately.
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                android.util.Log.e("Cameras", "playback error for $currentUrl: ${error.errorCodeName}", error)
+                val fallback = neolinkSubStreamUrl(currentUrl)
+                if (fallback != null) currentUrl = fallback
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+    LaunchedEffect(currentUrl) {
+        android.util.Log.d("Cameras", "playing: $currentUrl")
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        exoPlayer.setMediaItem(MediaItem.fromUri(currentUrl))
+        exoPlayer.prepare()
+        exoPlayer.play()
+
+        // mainStream sometimes stalls silently (no onPlayerError,
+        // just never leaves STATE_BUFFERING) — fall back to subStream if it hasn't
+        // become ready within a few seconds.
+        val urlAtLaunch = currentUrl
+        delay(8_000)
+        if (currentUrl == urlAtLaunch && exoPlayer.playbackState != Player.STATE_READY) {
+            val fallback = neolinkSubStreamUrl(urlAtLaunch)
+            if (fallback != null) {
+                android.util.Log.w("Cameras", "playback stalled for $urlAtLaunch, falling back to $fallback")
+                currentUrl = fallback
+            }
         }
     }
 

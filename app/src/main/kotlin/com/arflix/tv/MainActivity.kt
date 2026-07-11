@@ -74,8 +74,8 @@ import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
 import com.arflix.tv.util.LAST_APP_LANGUAGE_KEY
 import com.arflix.tv.util.detectDeviceType
-import com.arflix.tv.data.repository.FRIGATE_URL_KEY
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.data.repository.NEOLINK_URL_KEY
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.util.deviceHasTouchScreen
 import com.arflix.tv.util.settingsDataStore
 import androidx.datastore.preferences.core.Preferences
@@ -795,9 +795,9 @@ fun ArflixApp(
 
     val deviceType = LocalDeviceType.current
     val isMobile = deviceType.isTouchDevice()
-    val frigateConfigured by remember {
+    val neolinkConfigured by remember {
         context.settingsDataStore.data.map { prefs ->
-            prefs[FRIGATE_URL_KEY]?.isNotBlank() == true
+            prefs[NEOLINK_URL_KEY]?.isNotBlank() == true
         }
     }.collectAsStateWithLifecycle(initialValue = false)
     val navSections by remember(navSectionRepository) {
@@ -826,7 +826,7 @@ fun ArflixApp(
         .collectAsState()
 
     CompositionLocalProvider(
-        LocalFrigateConfigured provides frigateConfigured,
+        LocalNeolinkConfigured provides neolinkConfigured,
         com.arflix.tv.util.LocalNavSections provides navSections,
         com.arflix.tv.util.LocalEpiseerrPendingIds provides episeerrPendingIds,
     ) {

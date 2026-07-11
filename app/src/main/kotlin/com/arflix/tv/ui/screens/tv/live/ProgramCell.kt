@@ -214,7 +214,7 @@ fun ProgramCell(
             if (!program.description.isNullOrBlank()) {
                 Text(
                     text = program.description!!,
-                    style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim, fontSize = 12.sp),
+                    style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim, fontSize = 13.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -225,14 +225,14 @@ fun ProgramCell(
             ) {
                 Text(
                     text = formatClock(program.startUtcMillis),
-                    style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 12.sp),
+                    style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 13.sp),
                 )
                 val mins = ((program.endUtcMillis - program.startUtcMillis) / 60_000L)
                     .coerceAtLeast(0L)
                 if (mins > 0) {
                     Text(
                         text = "·  ${mins}min",
-                        style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 12.sp),
+                        style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 13.sp),
                     )
                 }
             }

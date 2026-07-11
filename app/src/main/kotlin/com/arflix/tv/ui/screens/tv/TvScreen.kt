@@ -123,7 +123,7 @@ import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.AccentGreen
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -234,9 +234,9 @@ fun TvScreen(
 
     var focusZone by rememberSaveable { mutableStateOf(if (uiState.isConfigured) TvFocusZone.GROUPS else TvFocusZone.SIDEBAR) }
     val hasProfile = currentProfile != null
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
     var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(if (hasProfile) 4 else 3) }
     var groupIndex by rememberSaveable { mutableIntStateOf(0) }
     var channelIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -837,7 +837,10 @@ fun TvScreen(
                             if (hasProfile && sidebarFocusIndex == 0) {
                                 onSwitchProfile()
                             } else {
-                                when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
+                                val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)
+                                if (customEntry != null) {
+                                    com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv = {}, onNavigateToCameras = onNavigateToCameras)
+                                } else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()
                                     SidebarItem.HOME -> onNavigateToHome()
                                     SidebarItem.DISCOVER -> onNavigateToDiscover()

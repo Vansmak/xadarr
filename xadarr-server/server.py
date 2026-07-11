@@ -13,6 +13,8 @@ TMDB key and other server config are stored in /data/server_config.json.
 
 import json
 import os
+import subprocess
+import tempfile
 import time
 import queue
 import threading
@@ -21,6 +23,7 @@ import requests
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context, redirect
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -282,10 +285,98 @@ def _set_addons(blob: dict, addons: list):
     blob.setdefault("addonsByProfile", {})[pid] = addons
 
 
-def _get_frigate_url(blob: dict = None) -> str:
+NEOLINK_RECORDINGS_DIR = Path(os.environ.get("NEOLINK_RECORDINGS_DIR", "/neolink-recordings"))
+
+# Neolink has no live-snapshot API (only event thumbnails), so camera grid tiles
+# would otherwise show a stale frame from whenever the last motion event fired.
+# Grab a real current frame off Neolink's RTSP restream via ffmpeg instead, cached
+# briefly per camera so rapid repeat requests don't each spawn their own ffmpeg process.
+_SNAPSHOT_CACHE_DIR = Path(tempfile.gettempdir()) / "xadarr_camera_snapshots"
+_SNAPSHOT_TTL_SECONDS = 15
+
+
+def _neolink_live_snapshot(camera_name: str, cfg: dict):
+    host = urlparse(cfg["url"]).hostname if cfg.get("url") else None
+    if not host:
+        return None
+    _SNAPSHOT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = _SNAPSHOT_CACHE_DIR / f"{camera_name}.jpg"
+    try:
+        if cache_path.exists() and (time.time() - cache_path.stat().st_mtime) < _SNAPSHOT_TTL_SECONDS:
+            return cache_path.read_bytes()
+    except Exception:
+        pass
+    rtsp_url = f"rtsp://{host}:8654/{camera_name}/subStream"
+    tmp_path = cache_path.with_suffix(".jpg.tmp")
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", rtsp_url,
+             "-frames:v", "1", "-q:v", "4", "-f", "mjpeg", str(tmp_path)],
+            capture_output=True, timeout=6,
+        )
+        if result.returncode == 0 and tmp_path.exists() and tmp_path.stat().st_size > 0:
+            tmp_path.replace(cache_path)
+            return cache_path.read_bytes()
+    except Exception as e:
+        print(f"[neolink] live snapshot grab failed for {camera_name}: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    try:
+        return cache_path.read_bytes() if cache_path.exists() else None
+    except Exception:
+        return None
+
+_neolink_token_cache = {"token": None, "fetched_at": 0.0}
+
+
+def _get_neolink_config(blob: dict = None) -> dict:
     if blob is None:
         blob = _load_json(SETTINGS_FILE, {})
-    return blob.get("frigate_url", "").rstrip("/")
+    return {
+        "url": blob.get("neolink_url", "").rstrip("/"),
+        "username": blob.get("neolink_username", ""),
+        "password": blob.get("neolink_password", ""),
+    }
+
+
+def _neolink_login(cfg: dict) -> str | None:
+    try:
+        r = requests.post(
+            f"{cfg['url']}/api/auth/login",
+            json={"username": cfg["username"], "password": cfg["password"]},
+            timeout=8,
+        )
+        r.raise_for_status()
+        token = r.json().get("token")
+        if token:
+            _neolink_token_cache["token"] = token
+            _neolink_token_cache["fetched_at"] = time.time()
+        return token
+    except Exception as e:
+        print(f"[neolink] login failed: {e}")
+        return None
+
+
+def _neolink_token(cfg: dict, force_refresh: bool = False) -> str | None:
+    stale = (time.time() - _neolink_token_cache["fetched_at"]) > 3600
+    if force_refresh or not _neolink_token_cache["token"] or stale:
+        return _neolink_login(cfg)
+    return _neolink_token_cache["token"]
+
+
+def _neolink_get(cfg: dict, path: str, timeout: int = 8):
+    """GET against Neolink's API, re-logging in once on a 401."""
+    token = _neolink_token(cfg)
+    if not token:
+        return None
+    r = requests.get(f"{cfg['url']}{path}", headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
+    if r.status_code == 401:
+        token = _neolink_token(cfg, force_refresh=True)
+        if not token:
+            return None
+        r = requests.get(f"{cfg['url']}{path}", headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
+    r.raise_for_status()
+    return r
 
 
 def _normalize_media_type(mt: str) -> str:
@@ -370,12 +461,25 @@ def _set_catalogues(blob: dict, catalogues: list):
 # next sync and vice versa.
 
 _NAV_SECTION_KINDS = ["SEARCH", "HOME", "DISCOVER", "TV", "CAMERAS", "SETTINGS"]
+# Discover has no tile/rail slot in the current design — kept resolvable but
+# hidden by default rather than removed.
+_DEFAULT_HIDDEN_KINDS = {"DISCOVER"}
 
 
 def _default_nav_sections() -> list:
+    # Matches NavSectionRepository.defaultSections() on the TV app — Home's
+    # "Your library" tiles / NavRail mockup. CUSTOM entries (Movies/Shows/
+    # Watchlist) are seeded explicitly since they have no single default kind.
     return [
-        {"kind": kind, "label": None, "iconOnly": False, "visible": True, "order": i}
-        for i, kind in enumerate(_NAV_SECTION_KINDS)
+        {"kind": "HOME", "label": None, "iconOnly": False, "visible": True, "order": 0},
+        {"kind": "TV", "label": "Live TV", "iconOnly": False, "visible": True, "order": 1},
+        {"kind": "CUSTOM", "customId": "movies", "label": "Movies", "target": "seeall:trending_movies", "iconOnly": False, "visible": True, "order": 2},
+        {"kind": "CUSTOM", "customId": "shows", "label": "Shows", "target": "seeall:trending_tv", "iconOnly": False, "visible": True, "order": 3},
+        {"kind": "CAMERAS", "label": None, "iconOnly": False, "visible": True, "order": 4},
+        {"kind": "SEARCH", "label": None, "iconOnly": False, "visible": True, "order": 5},
+        {"kind": "CUSTOM", "customId": "watchlist", "label": "Watchlist", "target": "watchlist", "iconOnly": False, "visible": True, "order": 6},
+        {"kind": "SETTINGS", "label": None, "iconOnly": False, "visible": True, "order": 7},
+        {"kind": "DISCOVER", "label": None, "iconOnly": False, "visible": False, "order": 8},
     ]
 
 
@@ -388,7 +492,7 @@ def _get_nav_sections(blob: dict) -> list:
     # release adds a new destination) so upgrades don't silently drop it.
     stored_kinds = {s.get("kind") for s in stored}
     missing = [
-        {"kind": kind, "label": None, "iconOnly": False, "visible": True, "order": len(stored) + i}
+        {"kind": kind, "label": None, "iconOnly": False, "visible": kind not in _DEFAULT_HIDDEN_KINDS, "order": len(stored) + i}
         for i, kind in enumerate(_NAV_SECTION_KINDS) if kind not in stored_kinds
     ]
     return sorted(stored + missing, key=lambda s: s.get("order", 0))
@@ -401,6 +505,24 @@ def _set_nav_sections(blob: dict, sections: list):
         if s.get("kind") == "SETTINGS":
             s["visible"] = True
     blob.setdefault("navSectionsByProfile", {})[pid] = sections
+
+
+# ── Home layout blob helpers ──────────────────────────────────────────────────
+# Mirrors HomeLayoutRepository on the TV app (HeroConfig/FooterConfig/HomeLayoutConfig).
+# Rows and nav already have homes (catalogsByProfile / navSectionsByProfile above) —
+# this only covers the two zones that didn't: hero and footer.
+
+def _default_home_layout() -> dict:
+    return {
+        "hero": {"type": "live_resume", "actions": ["watch", "guide"]},
+        "footer": {"type": "apps_catalog"},
+    }
+
+
+def _get_home_layout(blob: dict) -> dict:
+    pid = _active_profile_id(blob)
+    stored = blob.get("homeLayoutByProfile", {}).get(pid)
+    return stored if stored else _default_home_layout()
 
 
 # Synthetic catalogue rows managed by the web server (not in the TV blob)
@@ -540,7 +662,21 @@ def save_server_config():
 
 @app.route("/api/integration/xadarr/settings", methods=["GET"])
 def sync_get_settings():
-    return jsonify(_load_json(SETTINGS_FILE, {}))
+    blob = _load_json(SETTINGS_FILE, {})
+    # One-time backfill: a profile with no stored homeLayoutByProfile entry gets
+    # the default persisted so the blob is self-describing (the TV app also
+    # defaults locally if this key is absent, so this isn't load-bearing for
+    # correctness — just keeps the on-disk blob complete for direct inspection).
+    for profile in blob.get("profiles", []):
+        pid = profile.get("id")
+        if not pid:
+            continue
+        by_profile = blob.setdefault("homeLayoutByProfile", {})
+        if pid not in by_profile:
+            by_profile[pid] = _default_home_layout()
+    if blob.get("profiles"):
+        _save_json(SETTINGS_FILE, blob)
+    return jsonify(blob)
 
 
 @app.route("/api/integration/xadarr/settings", methods=["PUT"])
@@ -568,6 +704,27 @@ def sync_put_settings():
                     incoming_ps["homeServerConnectionJson"] = existing_conn
             except Exception:
                 pass
+    # Preserve neolink_username/neolink_password if the incoming blob omits them.
+    # The TV app's Neolink URL field is a single string with no separate
+    # username/password inputs — it only round-trips credentials it can decompose
+    # out of that field, which are never set locally. Without this, every settings
+    # push from a device wipes credentials entered via the web UI's separate rows.
+    if not (data.get("neolink_username") or "").strip():
+        existing_user = (existing.get("neolink_username") or "").strip()
+        if existing_user:
+            data["neolink_username"] = existing_user
+    if not (data.get("neolink_password") or "").strip():
+        existing_pass = (existing.get("neolink_password") or "").strip()
+        if existing_pass:
+            data["neolink_password"] = existing_pass
+    # Preserve homeLayoutByProfile per profile if the incoming blob omits it —
+    # an old (pre-home_layout) client's PUT is a full overwrite and would
+    # otherwise silently wipe hero/footer config set from another device.
+    existing_home_layout = existing.get("homeLayoutByProfile") or {}
+    if existing_home_layout:
+        incoming_home_layout = data.setdefault("homeLayoutByProfile", {})
+        for pid, layout in existing_home_layout.items():
+            incoming_home_layout.setdefault(pid, layout)
     _save_json(SETTINGS_FILE, data)
     return jsonify({"ok": True})
 
@@ -1639,25 +1796,81 @@ def get_server_items():
     return jsonify([])
 
 
-# ── Cameras (Frigate) ─────────────────────────────────────────────────────────
+# ── Cameras (Neolink) ──────────────────────────────────────────────────────────
 
 @app.route("/api/cameras/list", methods=["GET"])
 def cameras_list():
     blob = _get_blob()
-    frigate_url = _get_frigate_url(blob)
-    if not frigate_url:
+    cfg = _get_neolink_config(blob)
+    if not cfg["url"]:
         return jsonify([])
     try:
-        r = requests.get(f"{frigate_url}/api/config", timeout=8)
-        r.raise_for_status()
-        cameras_config = r.json().get("cameras", {})
+        r = _neolink_get(cfg, "/api/cameras")
+        if r is None:
+            return jsonify({"error": "neolink auth failed"}), 502
         cameras = [
-            {"name": name, "snapshotUrl": f"/api/cameras/snapshot/{name}"}
-            for name in cameras_config.keys()
+            {
+                "name": cam["name"],
+                "online": cam.get("online", False),
+                "snapshotUrl": f"/api/cameras/snapshot/{cam['name']}",
+            }
+            for cam in r.json()
         ]
         return jsonify(cameras)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/cameras/events", methods=["GET"])
+def cameras_events():
+    blob = _get_blob()
+    cfg = _get_neolink_config(blob)
+    if not cfg["url"]:
+        return jsonify([])
+    try:
+        limit = request.args.get("limit", "20")
+        r = _neolink_get(cfg, f"/api/events?limit={limit}")
+        if r is None:
+            return jsonify({"error": "neolink auth failed"}), 502
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+def _serve_event_asset(event_id: str, filename: str, mimetype: str):
+    # event ids look like "camera~YYYY-MM-DD~HHMMSS-hash", matching the
+    # on-disk layout recordings/<camera>/<date>/detections/<HHMMSS-hash>/
+    parts = event_id.split("~")
+    if len(parts) != 3:
+        return "Bad event id", 400
+    camera, date, event_folder = parts
+    event_dir = NEOLINK_RECORDINGS_DIR / camera / date / "detections" / event_folder
+    if not (event_dir / filename).exists():
+        return "Not found", 404
+    return send_from_directory(str(event_dir), filename, mimetype=mimetype)
+
+
+@app.route("/api/cameras/events/<event_id>/thumb.jpg", methods=["GET"])
+def camera_event_thumb(event_id):
+    return _serve_event_asset(event_id, "thumb.jpg", "image/jpeg")
+
+
+@app.route("/api/cameras/events/<event_id>/clip.mp4", methods=["GET"])
+def camera_event_clip(event_id):
+    return _serve_event_asset(event_id, "clip.mp4", "video/mp4")
+
+
+@app.route("/api/cameras/ws-token", methods=["GET"])
+def cameras_ws_token():
+    blob = _get_blob()
+    cfg = _get_neolink_config(blob)
+    if not cfg["url"]:
+        return jsonify({"error": "neolink not configured"}), 503
+    token = _neolink_token(cfg)
+    if not token:
+        return jsonify({"error": "neolink auth failed"}), 502
+    ws_base = cfg["url"].replace("https://", "wss://").replace("http://", "ws://")
+    return jsonify({"token": token, "wsBase": ws_base})
 
 
 @app.route("/api/media/jf-image/<item_id>/<image_type>", methods=["GET"])
@@ -1682,15 +1895,29 @@ def jellyfin_image(item_id, image_type):
 
 @app.route("/api/cameras/snapshot/<camera_name>", methods=["GET"])
 def camera_snapshot(camera_name):
-    blob = _get_blob()
-    frigate_url = _get_frigate_url(blob)
-    if not frigate_url:
-        return "Frigate not configured", 503
+    cfg = _get_neolink_config(_get_blob())
+    live = _neolink_live_snapshot(camera_name, cfg) if cfg["url"] else None
+    if live:
+        resp = Response(live, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    # Live RTSP grab failed (camera offline, ffmpeg missing, etc.) — fall back to
+    # the most recent event's thumbnail (folders are named so lexical sort ==
+    # chronological).
+    cam_dir = NEOLINK_RECORDINGS_DIR / camera_name
+    if not cam_dir.is_dir():
+        return "No recordings for camera", 404
     try:
-        url = f"{frigate_url}/api/{camera_name}/latest.jpg"
-        r = requests.get(url, timeout=5)
-        r.raise_for_status()
-        return Response(r.content, content_type=r.headers.get("Content-Type", "image/jpeg"))
+        for date_dir in sorted((d for d in cam_dir.iterdir() if d.is_dir()), reverse=True):
+            detections_dir = date_dir / "detections"
+            if not detections_dir.is_dir():
+                continue
+            for event_dir in sorted((d for d in detections_dir.iterdir() if d.is_dir()), reverse=True):
+                if (event_dir / "thumb.jpg").exists():
+                    resp = send_from_directory(str(event_dir), "thumb.jpg", mimetype="image/jpeg")
+                    resp.headers["Cache-Control"] = "no-cache"
+                    return resp
+        return "No thumbnail available", 404
     except Exception as e:
         return str(e), 502
 

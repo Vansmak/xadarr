@@ -5,6 +5,7 @@ import android.content.Context
 import com.arflix.tv.util.settingsDataStore
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -29,7 +30,7 @@ import com.arflix.tv.data.repository.CloudSyncRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.ProfileManager
 import com.arflix.tv.data.repository.StreamRepository
-import com.arflix.tv.data.repository.FrigateRepository
+import com.arflix.tv.data.repository.NeolinkRepository
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.CloudSyncStatus
@@ -54,10 +55,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -130,7 +133,7 @@ class HomeViewModel @Inject constructor(
     private val streamRepository: StreamRepository,
     private val traktRepository: TraktRepository,
     private val traktSyncService: TraktSyncService,
-    private val frigateRepository: FrigateRepository,
+    private val neolinkRepository: NeolinkRepository,
     private val iptvRepository: IptvRepository,
     private val homeServerRepository: HomeServerRepository,
     private val watchHistoryRepository: WatchHistoryRepository,
@@ -147,6 +150,8 @@ class HomeViewModel @Inject constructor(
     private val cwHolder: com.arflix.tv.data.repository.ContinueWatchingHolder,
     private val sonarrRepository: com.arflix.tv.data.repository.SonarrRepository,
     private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
+    private val homeLayoutRepository: com.arflix.tv.data.repository.HomeLayoutRepository,
+    private val navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val imageLoader: ImageLoader by lazy(LazyThreadSafetyMode.NONE) {
@@ -172,20 +177,29 @@ class HomeViewModel @Inject constructor(
     // IPTV favorite channels — maps MediaItem.id (Int hash) to channel / EPG data
     private val iptvChannelMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvChannel>()
     private val iptvNowNextMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvNowNext>()
-    // Frigate cameras — maps MediaItem.id (camera name hash) to FrigateCamera
-    private val cameraMap = mutableMapOf<Int, FrigateRepository.FrigateCamera>()
-    // Frigate events — maps MediaItem.id to clip URL
-    private val frigateEventClipMap = mutableMapOf<Int, String>()
+    // Neolink cameras — maps MediaItem.id (camera name hash) to NeolinkCamera
+    private val cameraMap = mutableMapOf<Int, NeolinkRepository.NeolinkCamera>()
+    // Neolink events — maps MediaItem.id to clip URL
+    private val neolinkEventClipMap = mutableMapOf<Int, String>()
     // Last successfully built On Now category — used as fallback when loadHomeData()
     // races with a snapshot refresh and buildFavoriteTvCategory() transiently returns null.
     @Volatile private var lastFavoriteTvCategory: Category? = null
+    // home_layout.hero/footer, cached from HomeLayoutRepository's reactive flow so
+    // chooseInitialHero() (a plain function called from several sync code paths) can
+    // read it without becoming suspend. Defaults match HomeLayoutConfig()'s defaults.
+    @Volatile private var cachedHomeLayout: com.arflix.tv.data.model.HomeLayoutConfig =
+        com.arflix.tv.data.model.HomeLayoutConfig()
 
     companion object {
         const val FAVORITE_TV_CATEGORY_ID = "favorite_tv"
         const val WATCHLIST_CATEGORY_ID = "my_watchlist"
         const val APPS_CATEGORY_ID = "installed_apps"
         const val CAMERAS_CATEGORY_ID = "cameras"
-        const val FRIGATE_EVENTS_CATEGORY_ID = "frigate_events"
+        const val NEOLINK_EVENTS_CATEGORY_ID = "frigate_events"
+        const val LIBRARY_TILES_CATEGORY_ID = "your_library"
+        const val UP_NEXT_CATEGORY_ID = "up_next"
+        /** Design v4 §3 — Home's one configurable row, default matches pre-v4 behavior. */
+        const val DEFAULT_HOME_ROW_SELECTION = "continue_watching"
         /** Target Continue Watching row length - Sonarr-calendar filler tops it up to this when real CW items fall short. */
         const val CW_TARGET_ROW_SIZE = 15
         /** Chunk size for progressively resolving the Sonarr/Radarr "All Shows"/"All Movies" library browse list. */
@@ -193,7 +207,7 @@ class HomeViewModel @Inject constructor(
         /** Prefix used in MediaItem.status to identify IPTV items. */
         const val IPTV_STATUS_PREFIX = "iptv:"
         const val CAMERA_STATUS_PREFIX = "camera:"
-        const val FRIGATE_EVENT_STATUS_PREFIX = "frigate_event:"
+        const val NEOLINK_EVENT_STATUS_PREFIX = "frigate_event:"
         private const val TOP_10_ITEM_LIMIT = 10
         private const val HOME_ROW_ITEM_CAP = 15
         private val HARD_CAPPED_TOP_10_CATALOG_IDS = setOf(
@@ -208,10 +222,10 @@ class HomeViewModel @Inject constructor(
     fun isCollectionItem(item: MediaItem): Boolean = item.status?.startsWith("collection:") == true
 
     fun isCameraItem(item: MediaItem): Boolean = item.status?.startsWith(CAMERA_STATUS_PREFIX) == true
-    fun isFrigateEventItem(item: MediaItem): Boolean = item.status?.startsWith(FRIGATE_EVENT_STATUS_PREFIX) == true
+    fun isNeolinkEventItem(item: MediaItem): Boolean = item.status?.startsWith(NEOLINK_EVENT_STATUS_PREFIX) == true
 
     fun getCameraStreamUrl(itemId: Int): String? = cameraMap[itemId]?.streamUrl
-    fun getFrigateEventClipUrl(itemId: Int): String? = frigateEventClipMap[itemId]
+    fun getNeolinkEventClipUrl(itemId: Int): String? = neolinkEventClipMap[itemId]
     fun getCameraName(item: MediaItem): String? =
         item.status?.removePrefix(CAMERA_STATUS_PREFIX)
             ?.takeIf { item.status?.startsWith(CAMERA_STATUS_PREFIX) == true && it.isNotBlank() }
@@ -499,20 +513,20 @@ class HomeViewModel @Inject constructor(
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).apply {
             timeZone = java.util.TimeZone.getDefault()
         }
-        fun fmtRange(p: com.arflix.tv.data.model.IptvProgram): String {
-            val s = timeFmt.format(java.util.Date(p.startUtcMillis))
-            val e = timeFmt.format(java.util.Date(p.endUtcMillis))
-            return "$s - $e"
-        }
+        // Time range intentionally NOT baked in here — the Home hero (HeroSection
+        // in HomeScreen.kt) now renders the current program's start-end time as
+        // its own dedicated element next to the progress bar; including it here
+        // too would duplicate it in the overview text shown right below.
         val overviewParts = mutableListOf<String>()
         if (nowProgram != null) {
-            overviewParts.add("Now: ${fmtRange(nowProgram)}  ${nowProgram.title}")
+            overviewParts.add("Now: ${nowProgram.title}")
             if (!nowProgram.description.isNullOrBlank()) {
                 overviewParts.add(nowProgram.description)
             }
         }
         if (nextProgram != null) {
-            overviewParts.add("Next: ${fmtRange(nextProgram)}  ${nextProgram.title}")
+            val nextStart = timeFmt.format(java.util.Date(nextProgram.startUtcMillis))
+            overviewParts.add("Next: $nextStart  ${nextProgram.title}")
         }
 
         return MediaItem(
@@ -585,11 +599,73 @@ class HomeViewModel @Inject constructor(
             status = "all_apps",
             mediaType = com.arflix.tv.data.model.MediaType.MOVIE
         )
-        return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps + allAppsTile)
+        val settingsTile = com.arflix.tv.data.model.MediaItem(
+            id = "settings_tile".hashCode(),
+            title = "Settings",
+            status = "settings",
+            mediaType = com.arflix.tv.data.model.MediaType.MOVIE
+        )
+        return Category(id = APPS_CATEGORY_ID, title = "Apps", items = apps + settingsTile + allAppsTile)
+    }
+
+    /**
+     * "Your library" tile row — Home's presentation of navSectionsByProfile
+     * (the same config NavRail shows vertically on other screens; see
+     * NavRail.kt). Home never shows itself; Search and Settings live in the
+     * restricted NavRail instead (opened via LEFT from this row) since neither
+     * has meaningful "dynamic content" to put on a landscape card.
+     * Encodes each tile's identity into MediaItem.status as "navtile:kind:<KIND>"
+     * or "navtile:custom:<customId>" — dispatched in HomeScreen's onItemClick.
+     * Each tile's image/backdrop is best-effort borrowed from whatever's
+     * already loaded in [categories] for that destination (on-now channel,
+     * first camera, first watchlist item, first matching movie/show) — no
+     * extra fetches, so a tile with nothing loaded yet just falls back to
+     * MediaCard's plain gradient background.
+     */
+    private fun buildLibraryTilesCategory(
+        navSections: List<com.arflix.tv.data.model.NavSectionConfig>,
+        categories: List<Category>,
+    ): Category? {
+        val entries = navSections.filter {
+            it.visible &&
+                it.kind != com.arflix.tv.data.model.NavSectionKind.HOME &&
+                it.kind != com.arflix.tv.data.model.NavSectionKind.SEARCH &&
+                it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS
+        }.sortedBy { it.order }
+        if (entries.isEmpty()) return null
+        fun firstItem(categoryId: String) = categories.firstOrNull { it.id == categoryId }?.items?.firstOrNull()
+        // Excludes itself — on a recompute, categories already contains the
+        // previous tile row, and every tile's MediaItem is tagged MOVIE, which
+        // would otherwise make the "movies" tile a mirror of some other tile.
+        val otherCategories = categories.filter { it.id != LIBRARY_TILES_CATEGORY_ID }
+        val items = entries.map { entry ->
+            val isCustom = entry.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM
+            val statusId = if (isCustom) "navtile:custom:${entry.customId}" else "navtile:kind:${entry.kind.name}"
+            val label = entry.label ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
+            val sourceItem = when {
+                entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> firstItem(FAVORITE_TV_CATEGORY_ID)
+                entry.kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> firstItem(CAMERAS_CATEGORY_ID)
+                isCustom && entry.customId == "watchlist" -> firstItem(WATCHLIST_CATEGORY_ID)
+                isCustom && entry.customId == "movies" ->
+                    otherCategories.asSequence().flatMap { it.items }.firstOrNull { it.mediaType == com.arflix.tv.data.model.MediaType.MOVIE }
+                isCustom && entry.customId == "shows" ->
+                    otherCategories.asSequence().flatMap { it.items }.firstOrNull { it.mediaType == com.arflix.tv.data.model.MediaType.TV }
+                else -> null
+            }
+            com.arflix.tv.data.model.MediaItem(
+                id = statusId.hashCode(),
+                title = label,
+                status = statusId,
+                mediaType = com.arflix.tv.data.model.MediaType.MOVIE,
+                image = sourceItem?.image.orEmpty(),
+                backdrop = sourceItem?.backdrop ?: sourceItem?.image,
+            )
+        }
+        return Category(id = LIBRARY_TILES_CATEGORY_ID, title = "Your library", items = items)
     }
 
     private suspend fun buildCamerasCategory(): Category? {
-        val cameras = frigateRepository.getCameras()
+        val cameras = neolinkRepository.getCameras()
         if (cameras.isEmpty()) return null
         val items = cameras.map { camera ->
             val stableId = camera.name.hashCode()
@@ -663,6 +739,15 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun chooseInitialHero(categories: List<Category>): MediaItem? {
+        // hero.type == "live_resume": prefer the On Now row's current item (the
+        // last-played/favorited live channel) as the idle hero, same MediaItem
+        // shape and HomeHeroLayer rendering as any other item — just a different
+        // pick. "none" (or anything unrecognized) falls back to today's behavior.
+        if (cachedHomeLayout.hero.type == "live_resume") {
+            val onNowItem = (categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID } ?: lastFavoriteTvCategory)
+                ?.items?.firstOrNull { !it.isPlaceholder }
+            if (onNowItem != null) return onNowItem
+        }
         val preferredRow = categories.firstOrNull { category ->
             !category.id.startsWith("collection_row_") && category.items.any { !it.isPlaceholder }
         }
@@ -850,6 +935,24 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     val cardLogoUrls = mutableStateMapOf<String, String>()
+
+    // Home's one configurable row (Design v4 §3): "watchlist" | "up_next" |
+    // "continue_watching", per profile. HomeScreen filters uiState.categories
+    // down to just this one alongside the fixed rows — the underlying
+    // watchlist/CW fetches all still run unconditionally so switching the
+    // selection is instant with no reload.
+    private val _homeRowSelection = MutableStateFlow(DEFAULT_HOME_ROW_SELECTION)
+    val homeRowSelection: StateFlow<String> = _homeRowSelection.asStateFlow()
+
+    fun setHomeRowSelection(value: String) {
+        viewModelScope.launch {
+            val profileId = profileManager.getProfileId()
+            context.settingsDataStore.edit {
+                it[profileManager.profileStringKeyFor(profileId, "home_row_selection")] = value
+            }
+            _homeRowSelection.value = value
+        }
+    }
 
     private val _browseItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val browseItems: StateFlow<List<MediaItem>> = _browseItems.asStateFlow()
@@ -1260,12 +1363,97 @@ class HomeViewModel @Inject constructor(
                 }
         }
 
+        // Home row selection (Design v4 §3) — re-reads whenever the active
+        // profile changes, same convergence pattern as NavSectionRepository's
+        // per-profile observers.
+        viewModelScope.launch {
+            profileManager.activeProfileId
+                .distinctUntilChanged()
+                .flatMapLatest { profileId ->
+                    context.settingsDataStore.data.map { prefs ->
+                        prefs[profileManager.profileStringKeyFor(profileId, "home_row_selection")]
+                            ?: DEFAULT_HOME_ROW_SELECTION
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { _homeRowSelection.value = it }
+        }
+
+        // "Up Next" only gets built/fetched when it's actually the selected row —
+        // Watchlist/Continue Watching already run unconditionally for other reasons
+        // (badges, sync, etc.) so they don't need this gating.
+        viewModelScope.launch {
+            homeRowSelection.collect { selection ->
+                val current = _uiState.value.categories.toMutableList()
+                val idx = current.indexOfFirst { it.id == UP_NEXT_CATEGORY_ID }
+                if (selection == "up_next") {
+                    val category = runCatching { buildUpNextCategory() }.getOrNull()
+                    if (category != null) {
+                        if (idx >= 0) current[idx] = category else current.add(category)
+                        _uiState.value = _uiState.value.copy(categories = current)
+                    }
+                } else if (idx >= 0) {
+                    current.removeAt(idx)
+                    _uiState.value = _uiState.value.copy(categories = current)
+                }
+            }
+        }
+
         // Reactive On Now row builder — runs independently of loadHomeData().
         launchOnNowRowObserver()
 
-        // Load Frigate cameras and recent events independently of main catalog load.
+        // home_layout: cache hero/footer config for chooseInitialHero(), and keep
+        // the Apps row pinned last when footer.type == "apps_catalog". Idempotent —
+        // only mutates categories when the Apps row isn't already last, so this
+        // can't loop against its own _uiState.categories observation.
+        viewModelScope.launch {
+            homeLayoutRepository.observeLayoutForActiveProfile()
+                .combine(_uiState.map { it.categories }.distinctUntilChanged()) { layout, categories -> layout to categories }
+                .collect { (layout, categories) ->
+                    cachedHomeLayout = layout
+                    if (layout.footer.type != "apps_catalog") return@collect
+                    val appsIdx = categories.indexOfFirst { it.id == APPS_CATEGORY_ID }
+                    if (appsIdx < 0 || appsIdx == categories.lastIndex) return@collect
+                    val reordered = categories.toMutableList()
+                    reordered.add(reordered.removeAt(appsIdx))
+                    _uiState.value = _uiState.value.copy(categories = reordered)
+                }
+        }
+
+        // "Your library" tile row — Home's presentation of navSectionsByProfile.
+        // Positioned between On Now and Continue Watching on first insert only;
+        // once present, updates rebuild its content in place without re-deriving
+        // position, same convergence pattern as the footer-pinning observer above.
+        viewModelScope.launch {
+            navSectionRepository.observeSectionsForActiveProfile()
+                .combine(_uiState.map { it.categories }.distinctUntilChanged()) { sections, categories -> sections to categories }
+                .collect { (sections, categories) ->
+                    val tileCategory = buildLibraryTilesCategory(sections, categories)
+                    val existingIdx = categories.indexOfFirst { it.id == LIBRARY_TILES_CATEGORY_ID }
+                    val updated = categories.toMutableList()
+                    when {
+                        tileCategory == null && existingIdx >= 0 -> updated.removeAt(existingIdx)
+                        tileCategory == null -> return@collect
+                        existingIdx >= 0 && updated[existingIdx] == tileCategory -> return@collect
+                        existingIdx >= 0 -> updated[existingIdx] = tileCategory
+                        else -> {
+                            val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
+                            val favIdx = updated.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
+                            val insertIdx = when {
+                                cwIdx >= 0 -> cwIdx
+                                favIdx >= 0 -> favIdx + 1
+                                else -> updated.size.coerceAtMost(1)
+                            }
+                            updated.add(insertIdx, tileCategory)
+                        }
+                    }
+                    _uiState.value = _uiState.value.copy(categories = updated)
+                }
+        }
+
+        // Load Neolink cameras and recent events independently of main catalog load.
         launchCamerasRow()
-        launchFrigateEventsRow()
+        launchNeolinkEventsRow()
 
         // Reactively inject the watchlist row whenever watchlist items change.
         viewModelScope.launch {
@@ -2025,15 +2213,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun buildFrigateEventsCategory(): Category? {
-        val url = frigateRepository.baseUrl()
-        if (url.isBlank()) return null
-        val events = frigateRepository.getRecentEvents(20)
+    private suspend fun buildNeolinkEventsCategory(): Category? {
+        if (!neolinkRepository.isConfigured()) return null
+        val events = neolinkRepository.getRecentEvents(20)
         if (events.isEmpty()) return null
         val nowMs = System.currentTimeMillis()
         val items = events.map { event ->
             val itemId = event.id.hashCode().let { h -> if (h >= 0) -(h + 1) else h }
-            frigateEventClipMap[itemId] = event.clipUrl
+            neolinkEventClipMap[itemId] = event.clipUrl
             val displayName = event.camera.replace('_', ' ')
                 .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercaseChar() } }
             val diff = nowMs - event.startTimeMs
@@ -2048,24 +2235,24 @@ class HomeViewModel @Inject constructor(
                 id = itemId,
                 title = displayName,
                 subtitle = "$label • $timeAgo",
-                status = "$FRIGATE_EVENT_STATUS_PREFIX${event.id}",
+                status = "$NEOLINK_EVENT_STATUS_PREFIX${event.id}",
                 image = event.thumbnailUrl,
                 mediaType = com.arflix.tv.data.model.MediaType.MOVIE,
             )
         }
         if (items.isEmpty()) return null
-        return Category(id = FRIGATE_EVENTS_CATEGORY_ID, title = "Recent Events", items = items)
+        return Category(id = NEOLINK_EVENTS_CATEGORY_ID, title = "Recent Events", items = items)
     }
 
-    private fun launchFrigateEventsRow(delayMs: Long = 1_500L) {
+    private fun launchNeolinkEventsRow(delayMs: Long = 1_500L) {
         viewModelScope.launch(Dispatchers.IO) {
             if (delayMs > 0L) delay(delayMs)
-            val cfg = savedCatalogById[FRIGATE_EVENTS_CATEGORY_ID]
+            val cfg = savedCatalogById[NEOLINK_EVENTS_CATEGORY_ID]
             if (cfg?.isHidden == true || cfg?.placement == CatalogPlacement.DISCOVER) return@launch
-            val category = runCatching { buildFrigateEventsCategory() }.getOrNull() ?: return@launch
+            val category = runCatching { buildNeolinkEventsCategory() }.getOrNull() ?: return@launch
             withContext(Dispatchers.Main) {
                 val current = _uiState.value.categories.toMutableList()
-                val existing = current.indexOfFirst { it.id == FRIGATE_EVENTS_CATEGORY_ID }
+                val existing = current.indexOfFirst { it.id == NEOLINK_EVENTS_CATEGORY_ID }
                 if (existing >= 0) {
                     current[existing] = category
                 } else {
@@ -2112,6 +2299,18 @@ class HomeViewModel @Inject constructor(
             backdrop = tmdbBackdrop ?: tmdbPoster ?: poster,
             badge = dateLabel.takeIf { it.isNotBlank() }?.let { "Airs $it" },
         )
+    }
+
+    /**
+     * Home's "Up Next" row option (Design v4 §3) — reuses the same Sonarr-calendar
+     * data as Continue Watching's filler instead of a separate fetch, just as a
+     * standalone row rather than padding. No excludeTmdbIds here since, unlike the
+     * CW filler, this isn't topping up a list of real-progress items.
+     */
+    private suspend fun buildUpNextCategory(): Category? {
+        val items = buildUpcomingFillerItems(excludeTmdbIds = emptySet(), limit = CW_TARGET_ROW_SIZE)
+        if (items.isEmpty()) return null
+        return Category(id = UP_NEXT_CATEGORY_ID, title = "Up Next", items = items)
     }
 
     /**
@@ -2448,11 +2647,11 @@ class HomeViewModel @Inject constructor(
                                 ?.takeIf { it.items.isNotEmpty() }
                                 ?.let { put(CAMERAS_CATEGORY_ID, it) }
                         }
-                        val eventsCfg = savedCatalogById[FRIGATE_EVENTS_CATEGORY_ID]
+                        val eventsCfg = savedCatalogById[NEOLINK_EVENTS_CATEGORY_ID]
                         if (eventsCfg?.isHidden != true && eventsCfg?.placement != CatalogPlacement.DISCOVER) {
-                            latestCats.firstOrNull { it.id == FRIGATE_EVENTS_CATEGORY_ID }
+                            latestCats.firstOrNull { it.id == NEOLINK_EVENTS_CATEGORY_ID }
                                 ?.takeIf { it.items.isNotEmpty() }
-                                ?.let { put(FRIGATE_EVENTS_CATEGORY_ID, it) }
+                                ?.let { put(NEOLINK_EVENTS_CATEGORY_ID, it) }
                         }
                     }
 
@@ -2916,7 +3115,7 @@ class HomeViewModel @Inject constructor(
                 // Re-inject cameras and events rows immediately (no delay) so they're present
                 // even when loadHomeData completes before the init-time launchers have fired.
                 launchCamerasRow(delayMs = 0L)
-                launchFrigateEventsRow(delayMs = 0L)
+                launchNeolinkEventsRow(delayMs = 0L)
 
                 // Persist the real categories to disk so the next app launch
                 // shows them immediately without waiting for TMDB API calls.
@@ -3302,6 +3501,18 @@ class HomeViewModel @Inject constructor(
     }
 
     private enum class LibraryBrowseKind { SHOWS, MOVIES }
+
+    // Nav row "Movies"/"Shows" cards target these — whichever home-server
+    // library catalogue (Jellyfin/Emby/Plex "Movies"/"Shows" folder) is
+    // already configured, same one startBrowseAll()/CategoryBrowseOverlay
+    // already know how to render as a full library browse. Null when no such
+    // catalogue exists (no home server connected) — caller falls back to the
+    // trending-catalog nav target instead of a dead card.
+    fun findMoviesLibraryCatalogId(): String? =
+        savedCatalogById.entries.firstOrNull { detectLibraryBrowseKind(it.value) == LibraryBrowseKind.MOVIES }?.key
+
+    fun findShowsLibraryCatalogId(): String? =
+        savedCatalogById.entries.firstOrNull { detectLibraryBrowseKind(it.value) == LibraryBrowseKind.SHOWS }?.key
 
     private fun detectLibraryBrowseKind(catalog: CatalogConfig): LibraryBrowseKind? {
         if (catalog.sourceType != com.arflix.tv.data.model.CatalogSourceType.HOME_SERVER) return null

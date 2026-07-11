@@ -153,7 +153,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrManualBringIntoViewBoundary
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.focus.isXadarrDpadNavigationKey
@@ -225,9 +225,9 @@ fun DetailsScreen(
     // Sidebar state
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 2 else 1) }
     
     // Stream Selector state
@@ -561,7 +561,10 @@ fun DetailsScreen(
                                 if (hasProfile && sidebarFocusIndex == 0) {
                                     onSwitchProfile()
                                 } else {
-                                    when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) {
+                                    val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)
+                                    if (customEntry != null) {
+                                        com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv, onNavigateToCameras)
+                                    } else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
                                         SidebarItem.SEARCH -> onNavigateToSearch()
                                         SidebarItem.HOME -> onNavigateToHome()
                                         SidebarItem.DISCOVER -> onNavigateToDiscover()

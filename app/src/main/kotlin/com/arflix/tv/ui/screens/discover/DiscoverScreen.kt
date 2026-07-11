@@ -48,19 +48,12 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CollectionTileShape
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
-import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.components.MediaCard
-import com.arflix.tv.ui.components.SidebarItem
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.ui.components.topBarSelectedIndex
 import com.arflix.tv.ui.theme.XadarrTheme
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
-import com.arflix.tv.util.LocalFrigateConfigured
-
-private enum class DiscoverFocusZone { TOPBAR, ROWS }
+import com.arflix.tv.util.LocalNeolinkConfigured
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -79,19 +72,19 @@ fun DiscoverScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     val hasProfile = currentProfile != null
 
-    var focusZone by remember { mutableStateOf(DiscoverFocusZone.ROWS) }
-    var topBarFocusIndex by remember {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured, navSections))
-    }
-    val maxTopBarIndex = remember(hasProfile, frigateConfigured, navSections) { topBarMaxIndex(hasProfile, frigateConfigured, navSections) }
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
     val rootFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
+    // Index of the focused card within its row — item 0 is the row's (and thus
+    // the screen's) leftmost column. LEFT while here opens the NavRail instead
+    // of doing nothing, as it did before (see navRailPreviewKey below).
+    var focusedItemIndexInRow by remember { mutableIntStateOf(0) }
     var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
     val lazyColumnState = rememberLazyListState()
 
@@ -101,7 +94,7 @@ fun DiscoverScreen(
     // Delay must exceed the NavHost fade-out animation (250ms) so the exiting
     // screen's cards are no longer composing and competing when we request focus.
     LaunchedEffect(uiState.categories.isNotEmpty()) {
-        if (uiState.categories.isNotEmpty() && focusZone == DiscoverFocusZone.ROWS) {
+        if (uiState.categories.isNotEmpty()) {
             delay(300)
             runCatching { firstRowFocusRequester.requestFocus() }
         }
@@ -116,50 +109,12 @@ fun DiscoverScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = focusedItemIndexInRow == 0)) {
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Back, Key.Escape -> { onBack(); true }
-                    Key.DirectionUp -> {
-                        if (focusZone == DiscoverFocusZone.ROWS &&
-                            (focusedRowIndex == 0 || event.nativeKeyEvent.repeatCount >= 1)
-                        ) {
-                            focusZone = DiscoverFocusZone.TOPBAR
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.DISCOVER, hasProfile, frigateConfigured, navSections)
-                            runCatching { rootFocusRequester.requestFocus() }
-                            true
-                        } else false
-                    }
-                    Key.DirectionDown -> {
-                        if (focusZone == DiscoverFocusZone.TOPBAR) {
-                            focusZone = DiscoverFocusZone.ROWS
-                            runCatching { contentFocusRequester.requestFocus() }
-                            true
-                        } else false
-                    }
-                    Key.DirectionLeft -> {
-                        if (focusZone == DiscoverFocusZone.TOPBAR && topBarFocusIndex > 0) {
-                            topBarFocusIndex--; true
-                        } else false
-                    }
-                    Key.DirectionRight -> {
-                        if (focusZone == DiscoverFocusZone.TOPBAR && topBarFocusIndex < maxTopBarIndex) {
-                            topBarFocusIndex++; true
-                        } else false
-                    }
-                    Key.Enter, Key.DirectionCenter -> {
-                        if (focusZone == DiscoverFocusZone.TOPBAR) {
-                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
-                                SidebarItem.HOME -> onNavigateToHome()
-                                SidebarItem.SEARCH -> onNavigateToSearch()
-                                SidebarItem.DISCOVER -> Unit
-                                SidebarItem.TV -> onNavigateToTv()
-                                SidebarItem.CAMERAS -> onNavigateToCameras()
-                                SidebarItem.SETTINGS -> onNavigateToSettings()
-                                null -> onSwitchProfile()
-                            }
-                            true
-                        } else false
-                    }
                     else -> false
                 }
             }
@@ -220,7 +175,7 @@ fun DiscoverScreen(
                                         else Modifier
                                     ),
                             ) {
-                                items(category.items, key = { it.id }) { item ->
+                                itemsIndexed(category.items, key = { _, it -> it.id }) { itemIdx, item ->
                                     val itemIsPending = isWatchlistRow &&
                                         episeerrPendingIds.contains(item.id.toString())
                                     val isCollectionTile = isCollectionRow &&
@@ -248,7 +203,9 @@ fun DiscoverScreen(
                                                 else -> onNavigateToDetails(item.mediaType, item.id)
                                             }
                                         },
-                                        modifier = Modifier.padding(end = 12.dp),
+                                        modifier = Modifier
+                                            .padding(end = 12.dp)
+                                            .onFocusChanged { if (it.hasFocus) focusedItemIndexInRow = itemIdx },
                                     )
                                 }
                             }
@@ -260,11 +217,26 @@ fun DiscoverScreen(
         }
 
         if (!isTouchDevice) {
-            AppTopBar(
-                selectedItem = SidebarItem.DISCOVER,
-                isFocused = focusZone == DiscoverFocusZone.TOPBAR,
-                focusedIndex = if (focusZone == DiscoverFocusZone.TOPBAR) topBarFocusIndex else -1,
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
+
+            com.arflix.tv.ui.components.NavRail(
+                isOpen = isNavRailOpen.value,
+                onClose = {
+                    isNavRailOpen.value = false
+                    runCatching { rootFocusRequester.requestFocus() }
+                },
+                currentScreen = com.arflix.tv.data.model.NavSectionKind.DISCOVER,
+                navSections = navSections,
+                neolinkConfigured = neolinkConfigured,
                 profile = currentProfile,
+                actions = com.arflix.tv.ui.components.NavRailActions(
+                    onNavigateToHome = onNavigateToHome,
+                    onNavigateToSearch = onNavigateToSearch,
+                    onNavigateToTv = onNavigateToTv,
+                    onNavigateToCameras = onNavigateToCameras,
+                    onNavigateToSettings = onNavigateToSettings,
+                    onSwitchProfile = onSwitchProfile,
+                ),
             )
         }
 

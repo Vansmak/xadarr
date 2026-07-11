@@ -30,7 +30,7 @@ val USER_TMDB_API_KEY = stringPreferencesKey("user_tmdb_api_key")
 val USER_TRAKT_CLIENT_ID = stringPreferencesKey("user_trakt_client_id")
 val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
-val FRIGATE_URL_KEY = stringPreferencesKey("frigate_url")
+val NEOLINK_URL_KEY = stringPreferencesKey("neolink_url")
 val HA_URL_KEY = stringPreferencesKey("ha_url")
 val HA_TOKEN_KEY = stringPreferencesKey("ha_token")
 val HA_EXPOSED_ENTITIES_KEY = stringPreferencesKey("ha_exposed_entities") // JSON array of entity_ids; empty = show all

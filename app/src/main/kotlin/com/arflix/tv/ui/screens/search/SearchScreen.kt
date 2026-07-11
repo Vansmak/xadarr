@@ -85,7 +85,7 @@ import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.topBarFocusedItem
 import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.XadarrFocusableSurface
@@ -151,9 +151,9 @@ fun SearchScreen(
 
     var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
     val hasProfile = currentProfile != null
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
+    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
     var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 1 else 0) }
     var isSearchInputFocused by remember { mutableStateOf(false) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
@@ -422,7 +422,9 @@ fun SearchScreen(
                     when (focusZone) {
                         FocusZone.SIDEBAR -> {
                             if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
-                            else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, frigateConfigured, navSections)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
+                            else com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)?.let { entry ->
+                                com.arflix.tv.navigation.NavTargets.activate(entry.target, onNavigateToHome, onNavigateToSearch = {}, onNavigateToTv = onNavigateToTv, onNavigateToCameras = onNavigateToCameras)
+                            } ?: when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
                             true
                         }
                         FocusZone.SEARCH_INPUT -> {

@@ -128,6 +128,33 @@ fun AllAppsCard(
     onFocused: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    IconTileCard(
+        icon = Icons.Default.Apps,
+        label = "All Apps",
+        isFocused = isFocused,
+        onClick = onClick,
+        onFocused = onFocused,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Square icon-over-label tile — shared by the Apps row's "All Apps"/"Settings"
+ * entries and Home's "Your library" tile row (the navSectionsByProfile
+ * presentation, see HomeViewModel.buildLibraryTilesCategory). One visual
+ * pattern for "a tile that launches something," not tied to package icons
+ * the way AppLauncherCard is.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun IconTileCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isFocused: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val shape = RoundedCornerShape(12.dp)
     Column(
         modifier = modifier.width(90.dp),
@@ -148,8 +175,8 @@ fun AllAppsCard(
         ) { _ ->
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = Icons.Default.Apps,
-                    contentDescription = "All Apps",
+                    imageVector = icon,
+                    contentDescription = label,
                     tint = TextSecondary,
                     modifier = Modifier.size(36.dp)
                 )
@@ -157,7 +184,7 @@ fun AllAppsCard(
         }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "All Apps",
+            text = label,
             fontSize = 11.sp,
             fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
             color = if (isFocused) TextPrimary else TextSecondary,

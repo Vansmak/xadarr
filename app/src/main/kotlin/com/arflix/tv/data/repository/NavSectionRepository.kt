@@ -28,10 +28,44 @@ class NavSectionRepository @Inject constructor(
     private fun navSectionsKey(profileId: String) = stringPreferencesKey("profile_${profileId}_nav_sections_v1")
     private val listType = TypeToken.getParameterized(List::class.java, NavSectionConfig::class.java).type
 
-    // Matches today's fixed order/visibility exactly — used whenever a profile
-    // has no stored config yet (fresh install or a device from before this existed).
-    fun defaultSections(): List<NavSectionConfig> =
-        NavSectionKind.entries.mapIndexed { index, kind -> NavSectionConfig(kind = kind, order = index) }
+    // CUSTOM is excluded from fixedKinds: it has no single default instance
+    // (customId/target are always explicit) — the three CUSTOM defaults below
+    // (Movies/Shows/Watchlist) are seeded directly, not derived from this list.
+    private val fixedKinds = NavSectionKind.entries.filter { it != NavSectionKind.CUSTOM }
+
+    // Discover has no tile/rail slot in the current design — kept as a real,
+    // resolvable kind (route still works) but hidden by default rather than
+    // removed, so it's a one-toggle re-enable rather than lost functionality.
+    private fun defaultVisibility(kind: NavSectionKind): Boolean = kind != NavSectionKind.DISCOVER
+
+    // The three CUSTOM defaults every profile should have — seeded directly
+    // since CUSTOM has no single default instance the way fixedKinds does.
+    // Shared with the upgrade-merge path in readSectionsFromPrefs() below so
+    // profiles that predate these (Movies/Shows/Watchlist) get them retrofitted
+    // instead of silently missing three of the six "Your library" tiles.
+    private fun defaultCustomEntries(startOrder: Int): List<NavSectionConfig> = listOf(
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "movies", label = "Movies", target = "seeall:trending_movies", order = startOrder),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "shows", label = "Shows", target = "seeall:trending_tv", order = startOrder + 1),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "watchlist", label = "Watchlist", target = "watchlist", order = startOrder + 2),
+    )
+
+    // Matches the Home "Your library" tiles / NavRail mockup exactly — used
+    // whenever a profile has no stored config yet (fresh install or a device
+    // from before this existed).
+    fun defaultSections(): List<NavSectionConfig> {
+        val customs = defaultCustomEntries(startOrder = 2)
+        return listOf(
+            NavSectionConfig(kind = NavSectionKind.HOME, order = 0),
+            NavSectionConfig(kind = NavSectionKind.TV, label = "Live TV", order = 1),
+            customs[0],
+            customs[1],
+            NavSectionConfig(kind = NavSectionKind.CAMERAS, order = 4),
+            NavSectionConfig(kind = NavSectionKind.SEARCH, order = 5),
+            customs[2],
+            NavSectionConfig(kind = NavSectionKind.SETTINGS, order = 7),
+            NavSectionConfig(kind = NavSectionKind.DISCOVER, visible = defaultVisibility(NavSectionKind.DISCOVER), order = 8),
+        )
+    }
 
     private fun readSectionsFromPrefs(profileId: String, prefs: Preferences): List<NavSectionConfig> {
         val raw = prefs[navSectionsKey(profileId)]
@@ -43,9 +77,15 @@ class NavSectionRepository @Inject constructor(
             // later release adds a new destination) so upgrades don't silently drop a
             // nav item the user never chose to hide.
             val storedKinds = stored.map { it.kind }.toSet()
-            val missing = NavSectionKind.entries.filter { it !in storedKinds }
-                .mapIndexed { i, kind -> NavSectionConfig(kind = kind, order = stored.size + i) }
-            (stored + missing).sortedBy { it.order }
+            val missingFixed = fixedKinds.filter { it !in storedKinds }
+                .mapIndexed { i, kind -> NavSectionConfig(kind = kind, visible = defaultVisibility(kind), order = stored.size + i) }
+            // Same idea for the CUSTOM defaults (Movies/Shows/Watchlist) — a stored
+            // list from before they existed has no CUSTOM entries at all, and CUSTOM
+            // isn't in fixedKinds, so the merge above alone would never add them.
+            val storedCustomIds = stored.filter { it.kind == NavSectionKind.CUSTOM }.mapNotNull { it.customId }.toSet()
+            val missingCustom = defaultCustomEntries(startOrder = stored.size + missingFixed.size)
+                .filter { it.customId !in storedCustomIds }
+            (stored + missingFixed + missingCustom).sortedBy { it.order }
         } catch (_: Exception) {
             defaultSections()
         }

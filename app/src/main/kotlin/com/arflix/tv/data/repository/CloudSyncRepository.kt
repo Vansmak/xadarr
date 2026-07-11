@@ -20,7 +20,7 @@ import com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
 import com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY
 import com.arflix.tv.data.repository.LAN_SYNC_LAST_MODIFIED_KEY
-import com.arflix.tv.data.repository.FRIGATE_URL_KEY
+import com.arflix.tv.data.repository.NEOLINK_URL_KEY
 import com.arflix.tv.data.repository.EPISEERR_URL_KEY
 import com.arflix.tv.data.repository.HA_URL_KEY
 import com.arflix.tv.data.repository.HA_TOKEN_KEY
@@ -58,6 +58,28 @@ import kotlin.math.max
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// The device-local Neolink URL is one "http://user:pass@host:port" string (see
+// NeolinkRepository.connection()), but the sync-server blob (episeerr / xadarr-server)
+// keeps url/username/password as three separate fields for its own web dashboard's
+// settings form. These decompose/compose between the two representations.
+private fun decomposeNeolinkUrl(raw: String): Triple<String, String, String> =
+    runCatching {
+        val uri = java.net.URI(raw)
+        val userInfo = uri.userInfo?.split(":", limit = 2)
+        val bareUrl = "${uri.scheme}://${uri.host}${if (uri.port > 0) ":${uri.port}" else ""}"
+        Triple(bareUrl, userInfo?.getOrNull(0).orEmpty(), userInfo?.getOrNull(1).orEmpty())
+    }.getOrDefault(Triple(raw, "", ""))
+
+private fun composeNeolinkUrl(baseUrl: String, username: String, password: String): String {
+    if (username.isBlank()) return baseUrl
+    return runCatching {
+        val uri = java.net.URI(baseUrl)
+        val userInfo = if (password.isNotBlank()) "$username:$password" else username
+        val portPart = if (uri.port > 0) ":${uri.port}" else ""
+        "${uri.scheme}://$userInfo@${uri.host}$portPart"
+    }.getOrDefault(baseUrl)
+}
+
 /**
  * Shared cloud sync logic used by both SettingsViewModel (full push/pull on
  * Settings screen) and ProfileViewModel (pull on profile selection).
@@ -75,6 +97,7 @@ class CloudSyncRepository @Inject constructor(
     private val profileManager: ProfileManager,
     private val catalogRepository: CatalogRepository,
     private val navSectionRepository: NavSectionRepository,
+    private val homeLayoutRepository: HomeLayoutRepository,
     private val iptvRepository: IptvRepository,
     private val streamRepository: StreamRepository,
     private val homeServerRepository: HomeServerRepository,
@@ -586,6 +609,17 @@ class CloudSyncRepository @Inject constructor(
         root.put("subtitleSettingsUpdatedAt", prefs[subtitleSettingsUpdatedAtKey()]?.toLongOrNull() ?: 0L)
         root.put("skipProfileSelection", prefs[SKIP_PROFILE_SELECTION_KEY] ?: false)
 
+        // Watchlist/Continue-Watching row placement, hide, and sort-order —
+        // previously local-only DataStore prefs (see WebhookRepository.kt),
+        // never round-tripped through the sync blob, so a second device
+        // never saw a reorder/hide done on another one.
+        prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY]?.let { root.put("watchlist_placement", it) }
+        prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY]?.let { root.put("watchlist_sort_order", it) }
+        root.put("watchlist_hidden", prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false)
+        prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY]?.let { root.put("cw_placement", it) }
+        prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.let { root.put("cw_sort_order", it) }
+        root.put("cw_hidden", prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false)
+
         // User API keys and integration settings — round-trip so server UI stays populated
         prefs[USER_TMDB_API_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("tmdb_api_key", it) }
         prefs[USER_TRAKT_CLIENT_ID]?.takeIf { it.isNotBlank() }?.let { root.put("trakt_client_id", it) }
@@ -602,7 +636,16 @@ class CloudSyncRepository @Inject constructor(
             ?: prefs[LAN_SYNC_LAST_MODIFIED_KEY]?.toLongOrNull()
             ?: System.currentTimeMillis()
         root.put("lan_sync_last_modified", lanTs)
-        prefs[FRIGATE_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("frigate_url", it) }
+        prefs[NEOLINK_URL_KEY]?.takeIf { it.isNotBlank() }?.let { raw ->
+            // Local field is a single "http://user:pass@host:port" string (see
+            // NeolinkRepository.connection()); the sync-server blob keeps url/
+            // username/password as three separate fields — decompose on push
+            // so episeerr's own web dashboard can authenticate too.
+            val (bareUrl, user, pass) = decomposeNeolinkUrl(raw)
+            root.put("neolink_url", bareUrl)
+            if (user.isNotBlank()) root.put("neolink_username", user)
+            if (pass.isNotBlank()) root.put("neolink_password", pass)
+        }
         prefs[EPISEERR_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("episeerr_url", it) }
         prefs[HA_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_url", it) }
         prefs[HA_TOKEN_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_token", it) }
@@ -677,6 +720,16 @@ class CloudSyncRepository @Inject constructor(
             }
         }
         root.put("navSectionsByProfile", JSONObject(gson.toJson(navSectionsByProfile)))
+
+        // Home layout (hero + footer) per profile. Rows/nav already have homes
+        // above (catalogsByProfile/navSectionsByProfile) — this only covers the
+        // two zones that didn't.
+        val homeLayoutByProfile = buildMap<String, com.arflix.tv.data.model.HomeLayoutConfig> {
+            profiles.forEach { profile ->
+                put(profile.id, homeLayoutRepository.getLayoutForProfile(profile.id))
+            }
+        }
+        root.put("homeLayoutByProfile", JSONObject(gson.toJson(homeLayoutByProfile)))
 
         // Hidden preinstalled catalogs per profile.
         // Dynamic rows that are never user-hidden are excluded so they don't get
@@ -1271,13 +1324,15 @@ class CloudSyncRepository @Inject constructor(
         val webhookInterval = root.optString("webhook_interval_seconds", "")
         val watchlistEnabled = root.opt("watchlist_api_enabled")
         val watchlistPort   = root.optString("watchlist_api_port", "")
-        val frigateUrl      = root.optString("frigate_url", "")
+        val neolinkUrl      = root.optString("neolink_url", "")
+        val neolinkUsername = root.optString("neolink_username", "")
+        val neolinkPassword = root.optString("neolink_password", "")
         val episeerrUrl     = root.optString("episeerr_url", "")
         val haUrl           = root.optString("ha_url", "")
         val haToken         = root.optString("ha_token", "")
         val haExposedIds    = root.optString("ha_exposed_entities", "")
         if (webhookUrl.isNotBlank() || webhookEnabled != null || webhookInterval.isNotBlank() ||
-            watchlistEnabled != null || watchlistPort.isNotBlank() || frigateUrl.isNotBlank() ||
+            watchlistEnabled != null || watchlistPort.isNotBlank() || neolinkUrl.isNotBlank() ||
             episeerrUrl.isNotBlank() || haUrl.isNotBlank() || haToken.isNotBlank() || haExposedIds.isNotBlank()) {
             context.settingsDataStore.edit { prefs ->
                 if (webhookUrl.isNotBlank())      prefs[WEBHOOK_URL_KEY]           = webhookUrl
@@ -1289,11 +1344,30 @@ class CloudSyncRepository @Inject constructor(
                 if (completionPct.isNotBlank()) prefs[WEBHOOK_COMPLETION_PERCENT_KEY] = completionPct
                 if (watchlistEnabled != null)     prefs[WATCHLIST_API_ENABLED_KEY] = watchlistEnabled as? Boolean ?: (watchlistEnabled.toString() == "true")
                 if (watchlistPort.isNotBlank())   prefs[WATCHLIST_API_PORT_KEY]    = watchlistPort
-                if (frigateUrl.isNotBlank())      prefs[FRIGATE_URL_KEY]           = frigateUrl
+                if (neolinkUrl.isNotBlank())      prefs[NEOLINK_URL_KEY]           = composeNeolinkUrl(neolinkUrl, neolinkUsername, neolinkPassword)
                 if (episeerrUrl.isNotBlank())     prefs[EPISEERR_URL_KEY]          = episeerrUrl
                 if (haUrl.isNotBlank())           prefs[HA_URL_KEY]                = haUrl
                 if (haToken.isNotBlank())         prefs[HA_TOKEN_KEY]              = haToken
                 if (haExposedIds.isNotBlank())    prefs[HA_EXPOSED_ENTITIES_KEY]   = haExposedIds
+            }
+        }
+
+        // ── Watchlist/Continue-Watching row placement, hide, sort-order ──
+        val watchlistPlacementStr = root.optString("watchlist_placement", "")
+        val watchlistSortOrderStr = root.optString("watchlist_sort_order", "")
+        val watchlistHiddenOpt = if (root.has("watchlist_hidden")) root.optBoolean("watchlist_hidden") else null
+        val cwPlacementStr = root.optString("cw_placement", "")
+        val cwSortOrderStr = root.optString("cw_sort_order", "")
+        val cwHiddenOpt = if (root.has("cw_hidden")) root.optBoolean("cw_hidden") else null
+        if (watchlistPlacementStr.isNotBlank() || watchlistSortOrderStr.isNotBlank() || watchlistHiddenOpt != null ||
+            cwPlacementStr.isNotBlank() || cwSortOrderStr.isNotBlank() || cwHiddenOpt != null) {
+            context.settingsDataStore.edit { prefs ->
+                if (watchlistPlacementStr.isNotBlank()) prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY] = watchlistPlacementStr
+                if (watchlistSortOrderStr.isNotBlank()) prefs[com.arflix.tv.data.repository.WATCHLIST_SORT_ORDER_KEY] = watchlistSortOrderStr
+                if (watchlistHiddenOpt != null)          prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] = watchlistHiddenOpt
+                if (cwPlacementStr.isNotBlank())        prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY] = cwPlacementStr
+                if (cwSortOrderStr.isNotBlank())        prefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY] = cwSortOrderStr
+                if (cwHiddenOpt != null)                 prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] = cwHiddenOpt
             }
         }
 
@@ -1324,11 +1398,17 @@ class CloudSyncRepository @Inject constructor(
         }
 
         // ── Catalogs ──
+        // Wrapped in runCatching: a payload from a newer client carrying an enum
+        // value this build doesn't know (CatalogKind) could otherwise throw mid-parse
+        // and abort every field still to be applied below (addons, watchlist, iptv...).
+        // Old build just keeps its existing catalogsByProfile for this profile instead.
         root.optJSONObject("catalogsByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-            val type = object : TypeToken<Map<String, List<CatalogConfig>>>() {}.type
-            val map: Map<String, List<CatalogConfig>> = gson.fromJson(json, type) ?: emptyMap()
-            map.forEach { (profileId, catalogs) ->
-                catalogRepository.replaceCatalogsForProfile(profileId, catalogs)
+            runCatching {
+                val type = object : TypeToken<Map<String, List<CatalogConfig>>>() {}.type
+                val map: Map<String, List<CatalogConfig>> = gson.fromJson(json, type) ?: emptyMap()
+                map.forEach { (profileId, catalogs) ->
+                    catalogRepository.replaceCatalogsForProfile(profileId, catalogs)
+                }
             }
         }
         root.optJSONArray("catalogs")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
@@ -1342,11 +1422,27 @@ class CloudSyncRepository @Inject constructor(
         }
 
         // ── Nav section customization ──
+        // Same runCatching rationale as catalogsByProfile above — an old build
+        // seeing NavSectionKind.CUSTOM from a newer client/server shouldn't abort
+        // the rest of the restore.
         root.optJSONObject("navSectionsByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
-            val type = object : TypeToken<Map<String, List<com.arflix.tv.data.model.NavSectionConfig>>>() {}.type
-            val map: Map<String, List<com.arflix.tv.data.model.NavSectionConfig>> = gson.fromJson(json, type) ?: emptyMap()
-            map.forEach { (profileId, sections) ->
-                navSectionRepository.saveSectionsForProfile(profileId, sections)
+            runCatching {
+                val type = object : TypeToken<Map<String, List<com.arflix.tv.data.model.NavSectionConfig>>>() {}.type
+                val map: Map<String, List<com.arflix.tv.data.model.NavSectionConfig>> = gson.fromJson(json, type) ?: emptyMap()
+                map.forEach { (profileId, sections) ->
+                    navSectionRepository.saveSectionsForProfile(profileId, sections)
+                }
+            }
+        }
+
+        // ── Home layout (hero + footer) ──
+        root.optJSONObject("homeLayoutByProfile")?.toString()?.takeIf { it.isNotBlank() }?.let { json ->
+            runCatching {
+                val type = object : TypeToken<Map<String, com.arflix.tv.data.model.HomeLayoutConfig>>() {}.type
+                val map: Map<String, com.arflix.tv.data.model.HomeLayoutConfig> = gson.fromJson(json, type) ?: emptyMap()
+                map.forEach { (profileId, layout) ->
+                    homeLayoutRepository.saveLayoutForProfile(profileId, layout)
+                }
             }
         }
 

@@ -109,6 +109,7 @@ fun CategorySidebar(
     onFocusEnter: () -> Unit = {},
     onMoveRight: () -> Unit = {},
     onMoveUpFromSearch: () -> Unit = {},
+    onOpenNavRail: () -> Unit = {},
     onTopBoundaryFocusChanged: (Boolean) -> Unit = {},
     focusSearchSignal: Int = 0,
     focusFirstCategorySignal: Int = 0,
@@ -174,13 +175,13 @@ fun CategorySidebar(
             .fillMaxHeight()
             .background(LiveColors.PanelDeep)
             .onFocusChanged { if (it.hasFocus) onFocusEnter() }
-            // Trap DPAD_LEFT at the sidebar edge so the key doesn't bubble
-            // up to the Activity and back out to the Android launcher.
+            // DPAD_LEFT at the sidebar edge opens the global NavRail instead of
+            // bubbling up to the Activity and back out to the Android launcher.
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) {
                     false
                 } else when (ev.key) {
-                    Key.DirectionLeft -> true
+                    Key.DirectionLeft -> { onOpenNavRail(); true }
                     Key.DirectionRight -> {
                         onMoveRight()
                         true
@@ -242,7 +243,7 @@ fun CategorySidebar(
                         active = false,
                         expanded = true,
                         indent = 16.dp,
-                        labelSize = 10.sp,
+                        labelSize = 12.sp,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = onFavoriteSortToggle,
                     )
@@ -257,7 +258,7 @@ fun CategorySidebar(
                             active = selectedId == child.id,
                             expanded = true,
                             indent = 28.dp,
-                            labelSize = 10.5.sp,
+                            labelSize = 12.5.sp,
                             hasChildren = child.children.isNotEmpty(),
                             isOpenGroup = child.containsId(selectedId),
                             onFocused = { onTopBoundaryFocusChanged(false) },
@@ -272,7 +273,7 @@ fun CategorySidebar(
                                     active = selectedId == grandchild.id,
                                     expanded = true,
                                     indent = 48.dp,
-                                    labelSize = 9.5.sp,
+                                    labelSize = 11.sp,
                                     onFocused = { onTopBoundaryFocusChanged(false) },
                                     onClick = { onSelect(grandchild.id) },
                                 )
@@ -335,7 +336,7 @@ fun CategorySidebar(
                         expanded = expanded,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { groupEditMode = !groupEditMode },
-                        labelSize = 10.sp,
+                        labelSize = 12.sp,
                     )
                 }
             }
@@ -375,7 +376,7 @@ fun CategorySidebar(
                                 active = selectedId == child.id,
                                 expanded = true,
                                 indent = 40.dp,
-                                labelSize = 10.5.sp,
+                                labelSize = 12.5.sp,
                                 onFocused = { onTopBoundaryFocusChanged(false) },
                                 onClick = { onSelect(child.id) },
                             )
@@ -576,7 +577,7 @@ private fun SidebarRow(
     hasChildren: Boolean = false,
     isOpenGroup: Boolean = false,
     indent: androidx.compose.ui.unit.Dp = 0.dp,
-    labelSize: androidx.compose.ui.unit.TextUnit = 11.sp,
+    labelSize: androidx.compose.ui.unit.TextUnit = 13.sp,
     focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -702,7 +703,7 @@ private fun SidebarRow(
                 if (count > 0) {
                     Text(
                         text = formatCount(count),
-                        style = LiveType.NumberMono.copy(color = LiveColors.FgMute, fontSize = 7.sp),
+                        style = LiveType.NumberMono.copy(color = LiveColors.FgMute, fontSize = 10.sp),
                     )
                 }
                 if (badge != null) {
@@ -710,7 +711,7 @@ private fun SidebarRow(
                         text = badge,
                         style = LiveType.NumberMono.copy(
                             color = Color(0xFFFF8C00),
-                            fontSize = 7.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -882,7 +883,7 @@ private fun CategoryMenuItem(
             text = action.label,
             style = LiveType.CatLabel.copy(
                 color = if (focused) Color.Black else LiveColors.Fg,
-                fontSize = 11.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             ),
             maxLines = 1,

@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -77,13 +79,8 @@ import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.screens.tv.TvUiState
 import com.arflix.tv.ui.screens.tv.TvViewModel
-import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarHeight
-import com.arflix.tv.ui.components.SidebarItem
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.ui.components.topBarSelectedIndex
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -93,7 +90,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class LiveTvFocusZone {
-    TOPBAR,
     CATEGORY_LIST,
     CHANNEL_LIST,
     EPG,
@@ -287,13 +283,10 @@ fun LiveTvScreen(
 
     // Selected category (persist across nav). Defaults to "all".
     val hasProfile = currentProfile != null
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxTopBarIndex = topBarMaxIndex(hasProfile, frigateConfigured, navSections)
     var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.CATEGORY_LIST) }
-    var topBarFocusIndex by rememberSaveable {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections).coerceIn(0, maxTopBarIndex))
-    }
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
 
     // Category switches are served from prebuilt buckets. Favorites and
     // recents remain ordered dynamic lists, but they are simple id lookups.
@@ -531,17 +524,16 @@ fun LiveTvScreen(
     }
 
     fun selectChannel(channel: EnrichedChannel) {
+        // Selecting any channel goes straight to fullscreen — one press, like
+        // TiviMate. Previously a new channel only started in the small
+        // MiniPlayerRow, and selecting it again was needed to go fullscreen.
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
-        if (channel.id == playingChannelId && !isFullScreen) {
-            playingCatchupProgram = null
-            isFullScreen = true
-            hudPokeSignal++
-        } else {
-            if (channel.id != playingChannelId) previousChannelId = playingChannelId
-            playingChannelId = channel.id
-            playingCatchupProgram = null
-        }
+        if (channel.id != playingChannelId) previousChannelId = playingChannelId
+        playingChannelId = channel.id
+        playingCatchupProgram = null
+        isFullScreen = true
+        hudPokeSignal++
     }
 
     fun playProgramInMini(channel: EnrichedChannel, program: IptvProgram?) {
@@ -555,6 +547,21 @@ fun LiveTvScreen(
     // ExoPlayer lives in playerViewModel (activity-scoped) so it survives navigation.
     // The player config (OkHttp, load control) is set up once in LiveTvPlayerViewModel.
     val exoPlayer = playerViewModel.player
+
+    // Channel zaps used to give zero feedback while the new stream loaded —
+    // the last frame just froze with no indication the press registered.
+    // Surface Player.STATE_BUFFERING so the fullscreen view can show a spinner.
+    var isBuffering by remember { mutableStateOf(false) }
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING
+            }
+        }
+        exoPlayer.addListener(listener)
+        isBuffering = exoPlayer.playbackState == Player.STATE_BUFFERING
+        onDispose { exoPlayer.removeListener(listener) }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -695,17 +702,8 @@ fun LiveTvScreen(
     BackHandler(enabled = !searchOpen && !isFullScreen) {
         when (focusZone) {
             LiveTvFocusZone.EPG -> focusChannelList(focusedChannelId ?: playingChannelId)
-            LiveTvFocusZone.CHANNEL_LIST -> {
-                if (isTouchDevice) onBack()
-                else {
-                    guideGroupsVisible = false
-                    topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
-                        .coerceIn(0, maxTopBarIndex)
-                    focusZone = LiveTvFocusZone.TOPBAR
-                }
-            }
+            LiveTvFocusZone.CHANNEL_LIST -> onBack()
             LiveTvFocusZone.CATEGORY_LIST -> onBack()
-            LiveTvFocusZone.TOPBAR -> onBack()
         }
     }
 
@@ -716,51 +714,8 @@ fun LiveTvScreen(
             .then(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
-                        if (searchOpen || isFullScreen || event.type != KeyEventType.KeyDown) {
-                            return@onPreviewKeyEvent false
-                        }
-                        when (focusZone) {
-                            LiveTvFocusZone.TOPBAR -> {
-                                when (event.key) {
-                                    Key.DirectionLeft -> {
-                                        if (topBarFocusIndex > 0) {
-                                            topBarFocusIndex = (topBarFocusIndex - 1).coerceIn(0, maxTopBarIndex)
-                                        }
-                                        true
-                                    }
-                                    Key.DirectionRight -> {
-                                        if (topBarFocusIndex < maxTopBarIndex) {
-                                            topBarFocusIndex = (topBarFocusIndex + 1).coerceIn(0, maxTopBarIndex)
-                                        }
-                                        true
-                                    }
-                                    Key.DirectionDown -> {
-                                        focusChannelList()
-                                        true
-                                    }
-                                    Key.DirectionCenter, Key.Enter -> {
-                                        if (hasProfile && topBarFocusIndex == 0) {
-                                            onSwitchProfile()
-                                        } else {
-                                            when (topBarFocusedItem(topBarFocusIndex, hasProfile, frigateConfigured, navSections)) {
-                                                SidebarItem.SEARCH -> onNavigateToSearch()
-                                                SidebarItem.HOME -> onNavigateToHome()
-                                                SidebarItem.DISCOVER -> onNavigateToDiscover()
-                                                SidebarItem.TV -> Unit
-                                                SidebarItem.CAMERAS -> onNavigateToCameras()
-                                                SidebarItem.SETTINGS -> onNavigateToSettings()
-                                                null -> Unit
-                                            }
-                                        }
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-                            LiveTvFocusZone.CATEGORY_LIST -> false
-                            LiveTvFocusZone.CHANNEL_LIST -> false
-                            LiveTvFocusZone.EPG -> false
-                        }
+                        if (searchOpen || isFullScreen) return@onPreviewKeyEvent false
+                        com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = false)
                     }
                 } else {
                     Modifier
@@ -898,12 +853,7 @@ fun LiveTvScreen(
                             onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
                             favorites = favSet,
                             onMoveLeftFromChannels = { openSidebar() },
-                            onMoveUpFromTopOfChannels = {
-                                guideGroupsVisible = false
-                                topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
-                                    .coerceIn(0, maxTopBarIndex)
-                                focusZone = LiveTvFocusZone.TOPBAR
-                            },
+                            onMoveUpFromTopOfChannels = {},
                             onEnterEpg = { channel -> focusEpg(channel.id) },
                             onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
                             modifier = Modifier
@@ -961,11 +911,7 @@ fun LiveTvScreen(
                         onMoveCategoryDown = { groupName ->
                             viewModel.moveGroupDown(groupName)
                         },
-                        onFocusEnter = {
-                            if (focusZone != LiveTvFocusZone.TOPBAR) {
-                                focusZone = LiveTvFocusZone.CATEGORY_LIST
-                            }
-                        },
+                        onFocusEnter = { focusZone = LiveTvFocusZone.CATEGORY_LIST },
                         onMoveRight = {
                             val remembered = rememberedChannelByCategory[selectedCategoryId]
                                 ?.takeIf { id -> filteredChannels.any { it.id == id } }
@@ -975,11 +921,8 @@ fun LiveTvScreen(
                                 ?: filteredChannels.firstOrNull()?.id
                             focusChannelList(target)
                         },
-                        onMoveUpFromSearch = {
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.TV, hasProfile, frigateConfigured, navSections)
-                                .coerceIn(0, maxTopBarIndex)
-                            focusZone = LiveTvFocusZone.TOPBAR
-                        },
+                        onMoveUpFromSearch = { isNavRailOpen.value = true },
+                        onOpenNavRail = { isNavRailOpen.value = true },
                         focusSearchSignal = focusSearchCategorySignal,
                         focusFirstCategorySignal = focusCategorySignal,
                         focusActiveCategorySignal = focusActiveCategorySignal,
@@ -1055,6 +998,16 @@ fun LiveTvScreen(
                         modifier = Modifier,
                     )
                 }
+
+                // Independent of the HUD's auto-hide timer — shows immediately
+                // on a channel zap so the press has visible confirmation instead
+                // of freezing on the previous frame with no feedback at all.
+                if (isBuffering) {
+                    CircularProgressIndicator(
+                        color = LiveColors.Accent,
+                        modifier = Modifier.align(Alignment.Center).size(48.dp),
+                    )
+                }
             }
         }
 
@@ -1064,19 +1017,36 @@ fun LiveTvScreen(
             }
         }
 
-        // Top bar only shows when NOT in full-screen playback.
+        // Top chrome only shows when NOT in full-screen playback.
         // Fade with the fullscreen progress so it doesn't pop in/out — looks
         // natural next to the grow animation below.
         if (showTopBar && fsProgress < 1f) {
             Box(modifier = Modifier.graphicsLayer { alpha = 1f - fsProgress }) {
-                AppTopBar(
-                    selectedItem = SidebarItem.TV,
-                    isFocused = focusZone == LiveTvFocusZone.TOPBAR,
-                    focusedIndex = if (focusZone == LiveTvFocusZone.TOPBAR) topBarFocusIndex else -1,
-                    profile = currentProfile,
-                    profileCount = 1,
-                )
+                com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
             }
+        }
+
+        if (showTopBar) {
+            com.arflix.tv.ui.components.NavRail(
+                isOpen = isNavRailOpen.value,
+                onClose = {
+                    isNavRailOpen.value = false
+                    runCatching { sidebarFocus.requestFocus() }
+                },
+                currentScreen = com.arflix.tv.data.model.NavSectionKind.TV,
+                navSections = navSections,
+                neolinkConfigured = neolinkConfigured,
+                profile = currentProfile,
+                actions = com.arflix.tv.ui.components.NavRailActions(
+                    onNavigateToHome = onNavigateToHome,
+                    onNavigateToSearch = onNavigateToSearch,
+                    onNavigateToDiscover = onNavigateToDiscover,
+                    onNavigateToCameras = onNavigateToCameras,
+                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToWatchlist = onNavigateToWatchlist,
+                    onSwitchProfile = onSwitchProfile,
+                ),
+            )
         }
 
         AnimatedVisibility(

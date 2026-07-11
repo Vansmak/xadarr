@@ -60,7 +60,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private const val EpgWindowMinutes = 24 * 60
+private const val EpgWindowMinutes = 10 * 60
 
 enum class EpgGridFocusMode {
     ChannelList,
@@ -113,7 +113,12 @@ fun EpgGrid(
     val maxCatchupDays = remember(channels) {
         channels.maxOfOrNull { ch -> effectiveCatchupDays(ch) } ?: 0
     }
-    val todayStartMillis = remember { roundedWindowStart() }
+    // Window is anchored to "now", unlike the old midnight anchor that stayed
+    // valid all day — recompute once per half-hour bucket (via clockTickMillis,
+    // which ticks every 30s from the caller) so a long-open Live TV session
+    // keeps sliding the window forward instead of freezing at whatever "now"
+    // was when the screen first composed.
+    val todayStartMillis = remember(clockTickMillis / (30L * 60_000L)) { roundedWindowStart() }
     val windowStartMillis = remember(todayStartMillis, maxCatchupDays) {
         todayStartMillis - maxCatchupDays * 24L * 60L * 60_000L
     }
@@ -744,11 +749,15 @@ private fun buildHalfHourSlots(startMillis: Long, count: Int): List<TimeSlot> {
 
 /** Round down to the start of the current day (00:00) so the user can
  *  scroll back through the full daily timeline for catchup. */
+// (now - 1h) rounded down to the nearest :00/:30 — matches the 10h-wide
+// window documented on EpgGrid above. Was previously rounding to midnight,
+// giving a 24h+ window far wider than the at-a-glance range this grid is
+// designed for.
 private fun roundedWindowStart(): Long {
     val cal = java.util.Calendar.getInstance()
-    cal.timeInMillis = System.currentTimeMillis()
-    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-    cal.set(java.util.Calendar.MINUTE, 0)
+    cal.timeInMillis = System.currentTimeMillis() - 60L * 60_000L
+    val roundedMinute = if (cal.get(java.util.Calendar.MINUTE) < 30) 0 else 30
+    cal.set(java.util.Calendar.MINUTE, roundedMinute)
     cal.set(java.util.Calendar.SECOND, 0)
     cal.set(java.util.Calendar.MILLISECOND, 0)
     return cal.timeInMillis

@@ -22,8 +22,8 @@ val LocalDeviceType = compositionLocalOf { DeviceType.TV }
 /** True if the physical device has a touchscreen. Use this to decide navigation style. */
 val LocalHasTouchScreen = compositionLocalOf { true }
 
-/** True if a Frigate URL has been configured in settings. Controls CAMERAS nav visibility. */
-val LocalFrigateConfigured = compositionLocalOf { false }
+/** True if a Neolink URL has been configured in settings. Controls CAMERAS nav visibility. */
+val LocalNeolinkConfigured = compositionLocalOf { false }
 
 /** Set of TMDB IDs (as strings) currently pending Episeerr rule selection. */
 val LocalEpiseerrPendingIds = compositionLocalOf { emptySet<String>() }

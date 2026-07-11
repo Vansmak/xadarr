@@ -94,6 +94,16 @@ fun MediaCard(
     // "All Shows"/"All Movies" library-browser status — file availability +
     // assigned Episeerr rule, when the overlay is sourced from Sonarr/Radarr.
     libraryBadge: com.arflix.tv.data.model.LibraryBrowseEntry? = null,
+    // Nav-row cards (Home's "Your library" row) have no photo art by design —
+    // a fixed per-section tint + centered icon instead of the generic dark
+    // gradient+title fallback every other empty-art card uses. Null (every
+    // other call site) preserves the original fallback exactly.
+    emptyStateIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    emptyStateTint: Color? = null,
+    // When true, a blank subtitle stays blank instead of falling back to a
+    // generic "Movie"/"TV Series"/"Media" label — nav cards want "icon + label
+    // only" when there's no real dynamic content, not a fake media-type tag.
+    hideGenericSubtitleFallback: Boolean = false,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
 ) {

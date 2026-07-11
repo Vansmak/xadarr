@@ -56,7 +56,7 @@ import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
 import com.arflix.tv.ui.components.navItems
 import com.arflix.tv.ui.components.navSectionFor
-import com.arflix.tv.util.LocalFrigateConfigured
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.util.LocalNavSections
 import com.arflix.tv.ui.theme.TextSecondary
 
@@ -85,9 +85,9 @@ fun Sidebar(
     onItemSelected: (SidebarItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val frigateConfigured = LocalFrigateConfigured.current
+    val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = LocalNavSections.current
-    val centerItems = navItems(frigateConfigured, navSections).filter { it != SidebarItem.SETTINGS }
+    val centerItems = navItems(neolinkConfigured, navSections).filter { it != SidebarItem.SETTINGS }
     val bottomItem = SidebarItem.SETTINGS
     val hasProfile = profile != null
     val centerFocusedIndex = if (hasProfile) focusedIndex - 1 else focusedIndex

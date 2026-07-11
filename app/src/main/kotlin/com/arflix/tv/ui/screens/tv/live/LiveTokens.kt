@@ -61,23 +61,23 @@ val LiveMono: FontFamily = InterFontFamily
 object LiveType {
     // TV couch-readable sizes — minimum 14sp for body, larger for titles.
     val ChannelName  = TextStyle(fontFamily = InterFontFamily, fontSize = 14.sp, fontWeight = FontWeight.W600, letterSpacing = 0.sp, lineHeight = 18.sp)
-    val ProgramTitle = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 17.sp)
-    val CellTitle    = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 17.sp)
-    val BodySynopsis = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W400, letterSpacing = 0.sp, lineHeight = 15.sp)
-    val CatLabel     = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 16.sp)
-    val SectionTag   = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W600, letterSpacing = 0.sp, lineHeight = 15.sp)
-    val Badge        = TextStyle(fontFamily = InterFontFamily, fontSize = 10.sp, fontWeight = FontWeight.W600, letterSpacing = 0.sp, lineHeight = 14.sp)
-    val TimeMono     = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 15.sp)
-    val NumberMono   = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 15.sp)
+    val ProgramTitle = TextStyle(fontFamily = InterFontFamily, fontSize = 14.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 18.sp)
+    val CellTitle    = TextStyle(fontFamily = InterFontFamily, fontSize = 14.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 18.sp)
+    val BodySynopsis = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W400, letterSpacing = 0.sp, lineHeight = 17.sp)
+    val CatLabel     = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 17.sp)
+    val SectionTag   = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, fontWeight = FontWeight.W600, letterSpacing = 0.sp, lineHeight = 16.sp)
+    val Badge        = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.W600, letterSpacing = 0.sp, lineHeight = 15.sp)
+    val TimeMono     = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 17.sp)
+    val NumberMono   = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.W500, letterSpacing = 0.sp, lineHeight = 17.sp)
 }
 
 object LiveDims {
-    // v3 — another ~30 % shrink. ~17 channel rows + mini-player fit on 1080 p.
-    // 240 dp so the longest labels ("United Kingdom", "Czech Republic",
-    // "South Africa") render fully without ellipsis.
-    val SidebarExpanded  = 240.dp
+    // 268 dp so the longest labels ("United Kingdom", "Czech Republic",
+    // "South Africa") still render fully without ellipsis at the larger,
+    // couch-readable label sizes below.
+    val SidebarExpanded  = 268.dp
     val SidebarCollapsed = 52.dp
-    val SidebarRowHeight = 26.dp
+    val SidebarRowHeight = 34.dp
 
     val MiniPlayerWidth  = 300.dp
     val MiniPlayerHeight = 168.dp
