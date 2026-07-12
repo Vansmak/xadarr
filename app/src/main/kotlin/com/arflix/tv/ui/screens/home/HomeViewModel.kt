@@ -174,6 +174,13 @@ class HomeViewModel @Inject constructor(
         var isLoading: Boolean = false
     )
 
+    private data class CwHomeRowKey(
+        val placement: String?,
+        val hidden: Boolean,
+        val sort: Int,
+        val homeRowSelection: String
+    )
+
     // IPTV favorite channels — maps MediaItem.id (Int hash) to channel / EPG data
     private val iptvChannelMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvChannel>()
     private val iptvNowNextMap = mutableMapOf<Int, com.arflix.tv.data.model.IptvNowNext>()
@@ -247,7 +254,19 @@ class HomeViewModel @Inject constructor(
     private fun isActionableMediaItem(item: MediaItem): Boolean {
         // Non-actionable items are expected during filtering: invalid IDs cannot be opened,
         // placeholders are synthetic UI entries, and collection tiles use their own handling.
-        return item.id > 0 && !item.isPlaceholder && !isCollectionItem(item)
+        // Synthetic status-tagged items (nav tiles, camera snapshots, Frigate events,
+        // launcher apps) all reuse MediaType.MOVIE and a hashCode()-derived id for UI
+        // convenience — they aren't real TMDB items. Without this check, focusing one as
+        // hero fed that fake id straight into scheduleHeroDetailsFetch's getMovieDetails()
+        // call; the hash occasionally collides with a real TMDB movie id, which silently
+        // overwrote the hero with that unrelated movie's title/overview (e.g. the "CAMERAS"
+        // nav tile briefly showing a documentary about wildlife camera rigs).
+        val isSyntheticTile = item.status?.let {
+            it.startsWith("navtile:") || it.startsWith("camera:") ||
+                it.startsWith("frigate_event:") || it.startsWith("app:") ||
+                it == "settings" || it == "all_apps"
+        } == true
+        return item.id > 0 && !item.isPlaceholder && !isCollectionItem(item) && !isSyntheticTile
     }
 
     private fun continueWatchingKey(mediaType: MediaType, id: Int): String {
@@ -622,46 +641,189 @@ class HomeViewModel @Inject constructor(
      * extra fetches, so a tile with nothing loaded yet just falls back to
      * MediaCard's plain gradient background.
      */
-    private fun buildLibraryTilesCategory(
+    /**
+     * Where the one configurable Home row (Design v4 §3 — Continue Watching /
+     * Watchlist / Up Next, whichever is selected) belongs: directly BEFORE the
+     * "Your library" tile row (per Joe 2026-07-11 — Browse stays put in the
+     * middle; only On Now and the selected row swap ends around it, giving
+     * Hero → selected row → Browse → On Now → Apps). Falls back to the very
+     * front if Browse hasn't loaded yet, so the row still lands somewhere
+     * sensible before its position self-corrects once Browse appears.
+     */
+    private fun selectedHomeRowInsertIndex(current: List<Category>): Int {
+        val libIdx = current.indexOfFirst { it.id == LIBRARY_TILES_CATEGORY_ID }
+        if (libIdx >= 0) return libIdx
+        return 0
+    }
+
+    // Populated by buildLibraryTilesCategory below, keyed by each tile's
+    // synthetic MediaItem.id (statusId.hashCode()) — the same real
+    // movie/show/channel item used for that tile's art. Lets updateHeroItem
+    // redirect a focused tile to real hero content instead of the tile's own
+    // fake-id item (Joe, 2026-07-11: hero should update like showing a real
+    // show/movie when Movies/Shows/TV tiles are focused).
+    private var libraryTileHeroSources: Map<Int, MediaItem> = emptyMap()
+
+    // Set from IptvRepository.observeTvSessionState() alongside the collector
+    // that rebuilds the library tiles row below. The TV tile picks this channel
+    // over the On Now row's own (channel-number) order when present — Joe,
+    // 2026-07-11: "always cbs?" (was always the lowest-numbered favorite) →
+    // "last channel" (tried list-order-last instead) → "last watched, or
+    // recent" (this — the actual channel the user was last on, not a position
+    // in a static list).
+    private var lastWatchedIptvChannelId: String = ""
+
+    private suspend fun buildLibraryTilesCategory(
         navSections: List<com.arflix.tv.data.model.NavSectionConfig>,
         categories: List<Category>,
     ): Category? {
+        // Discover sorts last regardless of its stored `order` — mirrors NavRail's
+        // same treatment of Settings. Discover predates this row's design and many
+        // profiles have it persisted with a stale low order from before "sorts
+        // last" was the intended behavior; pinning it here rather than trusting
+        // the stored value keeps it last unconditionally.
         val entries = navSections.filter {
             it.visible &&
                 it.kind != com.arflix.tv.data.model.NavSectionKind.HOME &&
                 it.kind != com.arflix.tv.data.model.NavSectionKind.SEARCH &&
-                it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS
-        }.sortedBy { it.order }
+                it.kind != com.arflix.tv.data.model.NavSectionKind.SETTINGS &&
+                // Watchlist dropped from this row specifically (Joe 2026-07-11) — it
+                // still shows on Home as the user-selected row (see HomeScreen.kt's
+                // pruneHomeCategories) and is still reachable via NavRail if enabled
+                // there; just not duplicated as a destination tile here too.
+                !(it.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM && it.customId == "watchlist")
+        }.sortedWith(compareBy({ it.kind == com.arflix.tv.data.model.NavSectionKind.DISCOVER }, { it.order }))
         if (entries.isEmpty()) return null
         fun firstItem(categoryId: String) = categories.firstOrNull { it.id == categoryId }?.items?.firstOrNull()
+        // On Now is ordered by channel number (see buildFavoriteTvCategory), so
+        // firstItem(FAVORITE_TV_CATEGORY_ID) always landed on the same
+        // lowest-numbered favorite (CBS 2 for Joe) instead of anything reflecting
+        // "what's on now" — Joe, 2026-07-11: "always cbs?" / "last channel"
+        // (prefers the other end of that same static order over picking one at
+        // random or building real rotation logic).
+        fun lastItem(categoryId: String) = categories.firstOrNull { it.id == categoryId }?.items?.lastOrNull()
+        // Prefers whichever channel the user actually last watched
+        // (IptvRepository.observeTvSessionState(), cached in
+        // lastWatchedIptvChannelId alongside this function's own recompute
+        // trigger). Checks favorites first (already-built MediaItems, no extra
+        // work), then falls back to a full-snapshot lookup — the last-watched
+        // channel is very often NOT a favorite: PPV/event-tier channels are
+        // deliberately excluded from the curated Tier 1 favorites list (Joe,
+        // 2026-07-11: "it shows spectrum la but I was watching ppv" — the
+        // favorites-only lookup silently missed the PPV channel and fell all
+        // the way back to a static "last favorite" pick).
+        //
+        // No fallback beyond that on purpose — Joe, same day, on the earlier
+        // "last favorite in list order" fallback: "so only last fav? that's
+        // dumb, esp if they don't persist" (favorite channels are a known
+        // separate bug: they don't reliably survive app updates — see
+        // "Still open" below). Picking an arbitrary favorite when there's no
+        // real signal is worse than picking nothing — null here means the
+        // tile falls back to its flat color with no art, same as Discover.
+        suspend fun onNowChannelItem(): MediaItem? {
+            if (lastWatchedIptvChannelId.isBlank()) return null
+            val favoriteItems = categories.firstOrNull { it.id == FAVORITE_TV_CATEGORY_ID }?.items.orEmpty()
+            favoriteItems.firstOrNull { it.status == "$IPTV_STATUS_PREFIX$lastWatchedIptvChannelId" }
+                ?.let { return it }
+            val snapshot = iptvRepository.getMemoryCachedSnapshot()
+            val channel = snapshot?.channels?.firstOrNull { it.id == lastWatchedIptvChannelId }
+            return channel?.let { iptvChannelToMediaItem(it, snapshot.nowNext[it.id]) }
+        }
         // Excludes itself — on a recompute, categories already contains the
         // previous tile row, and every tile's MediaItem is tagged MOVIE, which
         // would otherwise make the "movies" tile a mirror of some other tile.
         val otherCategories = categories.filter { it.id != LIBRARY_TILES_CATEGORY_ID }
+        val heroSources = mutableMapOf<Int, MediaItem>()
         val items = entries.map { entry ->
             val isCustom = entry.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM
             val statusId = if (isCustom) "navtile:custom:${entry.customId}" else "navtile:kind:${entry.kind.name}"
             val label = entry.label ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
             val sourceItem = when {
-                entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> firstItem(FAVORITE_TV_CATEGORY_ID)
+                entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> onNowChannelItem()
                 entry.kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> firstItem(CAMERAS_CATEGORY_ID)
                 isCustom && entry.customId == "watchlist" -> firstItem(WATCHLIST_CATEGORY_ID)
                 isCustom && entry.customId == "movies" ->
                     otherCategories.asSequence().flatMap { it.items }.firstOrNull { it.mediaType == com.arflix.tv.data.model.MediaType.MOVIE }
                 isCustom && entry.customId == "shows" ->
-                    otherCategories.asSequence().flatMap { it.items }.firstOrNull { it.mediaType == com.arflix.tv.data.model.MediaType.TV }
+                    // IPTV channel items are ALSO tagged MediaType.TV (see
+                    // iptvChannelToMediaItem) — without excluding them, this matches
+                    // whatever live channel sits earliest across categories (On Now
+                    // sits before any row with real shows) instead of an actual
+                    // series (Joe, 2026-07-11, screenshot: "shows tile is showing a
+                    // channel cbs not a series").
+                    otherCategories.asSequence().flatMap { it.items }.firstOrNull {
+                        it.mediaType == com.arflix.tv.data.model.MediaType.TV &&
+                            it.status?.startsWith(IPTV_STATUS_PREFIX) != true
+                    }
                 else -> null
             }
+            // Dynamic status line shown on the tile itself (concept.png/
+            // Screenshothome.png) — the row has no header of its own, so this is
+            // the only place per-destination freshness gets surfaced.
+            val subtitle = when {
+                entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> {
+                    val onNow = onNowChannelItem()
+                    val nowProgram = onNow?.overview
+                        ?.lineSequence()
+                        ?.firstOrNull { it.startsWith("Now: ") }
+                        ?.removePrefix("Now: ")
+                    when {
+                        onNow != null && nowProgram != null -> "Now: $nowProgram · ${onNow.title}"
+                        onNow != null -> "Now: ${onNow.title}"
+                        else -> ""
+                    }
+                }
+                entry.kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> {
+                    val event = firstItem(NEOLINK_EVENTS_CATEGORY_ID)
+                    val cameraCount = categories.firstOrNull { it.id == CAMERAS_CATEGORY_ID }?.items?.size ?: 0
+                    when {
+                        event != null -> "${event.title} · ${event.subtitle.orEmpty()}"
+                        cameraCount > 0 -> "$cameraCount cameras"
+                        else -> ""
+                    }
+                }
+                isCustom && entry.customId == "watchlist" -> {
+                    val count = categories.firstOrNull { it.id == WATCHLIST_CATEGORY_ID }?.items?.size ?: 0
+                    if (count > 0) "$count saved" else ""
+                }
+                isCustom && entry.customId == "movies" -> {
+                    val count = otherCategories.asSequence().flatMap { it.items.asSequence() }
+                        .filter { it.mediaType == com.arflix.tv.data.model.MediaType.MOVIE }
+                        .distinctBy { it.id }.count()
+                    if (count > 0) "$count movies" else ""
+                }
+                isCustom && entry.customId == "shows" -> {
+                    // Same IPTV-channel exclusion as sourceItem above, or a channel
+                    // count sneaks into "shows" here too.
+                    val count = otherCategories.asSequence().flatMap { it.items.asSequence() }
+                        .filter {
+                            it.mediaType == com.arflix.tv.data.model.MediaType.TV &&
+                                it.status?.startsWith(IPTV_STATUS_PREFIX) != true
+                        }
+                        .distinctBy { it.id }.count()
+                    if (count > 0) "$count shows" else ""
+                }
+                else -> ""
+            }
+            val tileId = statusId.hashCode()
+            if (sourceItem != null) heroSources[tileId] = sourceItem
             com.arflix.tv.data.model.MediaItem(
-                id = statusId.hashCode(),
+                id = tileId,
                 title = label,
+                subtitle = subtitle,
                 status = statusId,
                 mediaType = com.arflix.tv.data.model.MediaType.MOVIE,
                 image = sourceItem?.image.orEmpty(),
                 backdrop = sourceItem?.backdrop ?: sourceItem?.image,
             )
         }
-        return Category(id = LIBRARY_TILES_CATEGORY_ID, title = "Your library", items = items)
+        libraryTileHeroSources = heroSources
+        // Untitled row — concept.png's "Browse" row has no section header of its
+        // own; each tile carries its own title/subtitle instead (see
+        // BrowseTileCard in HomeScreen.kt, which suppresses the header for
+        // HomeRowKind.LIBRARY_TILES). Category.title is kept blank rather than
+        // removed since Category.title is non-nullable elsewhere.
+        return Category(id = LIBRARY_TILES_CATEGORY_ID, title = "", items = items)
     }
 
     private suspend fun buildCamerasCategory(): Category? {
@@ -748,6 +910,14 @@ class HomeViewModel @Inject constructor(
                 ?.items?.firstOrNull { !it.isPlaceholder }
             if (onNowItem != null) return onNowItem
         }
+        // Opening hero defaults to a random Watchlist pick (Joe 2026-07-11) — every
+        // caller here only runs while _uiState.value.heroItem is still null (see e.g.
+        // the `heroItem != null` guards around this function's call sites), so this
+        // only fires once at cold start; it doesn't re-randomize on every reload.
+        // Focus-follows-hero (elsewhere) takes over the moment the user navigates.
+        val watchlistItems = categories.firstOrNull { it.id == WATCHLIST_CATEGORY_ID }
+            ?.items?.filter { !it.isPlaceholder }
+        if (!watchlistItems.isNullOrEmpty()) return watchlistItems.random()
         val preferredRow = categories.firstOrNull { category ->
             !category.id.startsWith("collection_row_") && category.items.any { !it.isPlaceholder }
         }
@@ -953,6 +1123,16 @@ class HomeViewModel @Inject constructor(
             _homeRowSelection.value = value
         }
     }
+
+    // Whichever of watchlist/continue_watching is homeRowSelection still only names a
+    // *candidate* — its own Settings > Catalogs Visible/Hidden toggle can independently
+    // hide it everywhere (Home, Discover, Search), same as any other catalogue's toggle.
+    // pruneHomeCategories() in HomeScreen.kt is what actually enforces this for Home;
+    // these two flows just get the current hidden state to it reactively.
+    private val _cwHidden = MutableStateFlow(false)
+    val cwHidden: StateFlow<Boolean> = _cwHidden.asStateFlow()
+    private val _watchlistHidden = MutableStateFlow(false)
+    val watchlistHidden: StateFlow<Boolean> = _watchlistHidden.asStateFlow()
 
     private val _browseItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val browseItems: StateFlow<List<MediaItem>> = _browseItems.asStateFlow()
@@ -1379,6 +1559,21 @@ class HomeViewModel @Inject constructor(
                 .collect { _homeRowSelection.value = it }
         }
 
+        // CW_HIDDEN_KEY/WATCHLIST_HIDDEN_KEY aren't per-profile scoped (unlike
+        // home_row_selection above), so this just reads the raw global keys.
+        viewModelScope.launch {
+            context.settingsDataStore.data
+                .map { it[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false }
+                .distinctUntilChanged()
+                .collect { _cwHidden.value = it }
+        }
+        viewModelScope.launch {
+            context.settingsDataStore.data
+                .map { it[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false }
+                .distinctUntilChanged()
+                .collect { _watchlistHidden.value = it }
+        }
+
         // "Up Next" only gets built/fetched when it's actually the selected row —
         // Watchlist/Continue Watching already run unconditionally for other reasons
         // (badges, sync, etc.) so they don't need this gating.
@@ -1389,7 +1584,9 @@ class HomeViewModel @Inject constructor(
                 if (selection == "up_next") {
                     val category = runCatching { buildUpNextCategory() }.getOrNull()
                     if (category != null) {
-                        if (idx >= 0) current[idx] = category else current.add(category)
+                        // First insert lands right after the nav tile row (or before
+                        // Apps) — was previously appended at the very end of Home.
+                        if (idx >= 0) current[idx] = category else current.add(selectedHomeRowInsertIndex(current), category)
                         _uiState.value = _uiState.value.copy(categories = current)
                     }
                 } else if (idx >= 0) {
@@ -1421,13 +1618,20 @@ class HomeViewModel @Inject constructor(
         }
 
         // "Your library" tile row — Home's presentation of navSectionsByProfile.
-        // Positioned between On Now and Continue Watching on first insert only;
-        // once present, updates rebuild its content in place without re-deriving
-        // position, same convergence pattern as the footer-pinning observer above.
+        // Positioned between the selected row and On Now on first insert only
+        // (Joe 2026-07-11: Browse stays put in the middle; only On Now and the
+        // selected row swap ends around it — Hero → selected row → Browse →
+        // On Now → Apps); once present, updates rebuild its content in place
+        // without re-deriving position, same convergence pattern as the
+        // footer-pinning observer above.
         viewModelScope.launch {
             navSectionRepository.observeSectionsForActiveProfile()
                 .combine(_uiState.map { it.categories }.distinctUntilChanged()) { sections, categories -> sections to categories }
-                .collect { (sections, categories) ->
+                .combine(
+                    iptvRepository.observeTvSessionState().map { it.lastChannelId }.distinctUntilChanged()
+                ) { (sections, categories), lastChannelId -> Triple(sections, categories, lastChannelId) }
+                .collect { (sections, categories, lastChannelId) ->
+                    lastWatchedIptvChannelId = lastChannelId
                     val tileCategory = buildLibraryTilesCategory(sections, categories)
                     val existingIdx = categories.indexOfFirst { it.id == LIBRARY_TILES_CATEGORY_ID }
                     val updated = categories.toMutableList()
@@ -1437,11 +1641,16 @@ class HomeViewModel @Inject constructor(
                         existingIdx >= 0 && updated[existingIdx] == tileCategory -> return@collect
                         existingIdx >= 0 -> updated[existingIdx] = tileCategory
                         else -> {
-                            val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
+                            val selectedRowId = when (_homeRowSelection.value) {
+                                "watchlist" -> WATCHLIST_CATEGORY_ID
+                                "up_next" -> UP_NEXT_CATEGORY_ID
+                                else -> "continue_watching"
+                            }
+                            val selectedIdx = updated.indexOfFirst { it.id == selectedRowId }
                             val favIdx = updated.indexOfFirst { it.id == FAVORITE_TV_CATEGORY_ID }
                             val insertIdx = when {
-                                cwIdx >= 0 -> cwIdx
-                                favIdx >= 0 -> favIdx + 1
+                                selectedIdx >= 0 -> selectedIdx + 1
+                                favIdx >= 0 -> favIdx
                                 else -> updated.size.coerceAtMost(1)
                             }
                             updated.add(insertIdx, tileCategory)
@@ -1468,19 +1677,32 @@ class HomeViewModel @Inject constructor(
                 val isWatchlistHidden = prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] ?: false
                 val updated = current.toMutableList()
                 updated.removeAll { it.id == WATCHLIST_CATEGORY_ID }
-                if (items.isNotEmpty() && !isWatchlistHidden && watchlistPlacement == CatalogPlacement.HOME) {
+                // Design v4 §3: whichever row the Home Row setting currently
+                // points at is always shown, regardless of the legacy per-catalog
+                // placement/hidden toggles (those still govern Discover/Search).
+                val isSelectedHomeRow = _homeRowSelection.value == "watchlist"
+                if (items.isNotEmpty() && (isSelectedHomeRow || (!isWatchlistHidden && watchlistPlacement == CatalogPlacement.HOME))) {
                     val cat = Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = items)
-                    val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
-                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
-                    val insertIdx = (baseIdx + sortOrder).coerceIn(0, updated.size)
-                    updated.add(insertIdx, cat)
+                    // When Watchlist is the selected Home row (Design v4 §3), it
+                    // belongs right after the nav tile row, not at the legacy
+                    // sort-order offset from Continue Watching.
+                    val insertIdx = if (isSelectedHomeRow) {
+                        selectedHomeRowInsertIndex(updated)
+                    } else {
+                        val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
+                        val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                        (baseIdx + sortOrder).coerceIn(0, updated.size)
+                    }
+                    updated.add(insertIdx.coerceIn(0, updated.size), cat)
                 }
                 if (updated != current) {
                     _uiState.value = _uiState.value.copy(categories = updated)
                 }
             }
         }
-        // Re-inject/remove watchlist row when placement or sort order changes.
+        // Re-inject/remove watchlist row when placement, sort order, or the Home
+        // Row selection changes (this Flow isn't narrowed by .map/.distinctUntilChanged
+        // so it re-runs on any settings write, home_row_selection included).
         viewModelScope.launch {
             context.settingsDataStore.data.drop(1).collect { prefs ->
                 val newPlacement = prefs[com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY]
@@ -1493,32 +1715,53 @@ class HomeViewModel @Inject constructor(
                 if (current.isEmpty()) return@collect
                 val updated = current.toMutableList()
                 updated.removeAll { it.id == WATCHLIST_CATEGORY_ID }
-                if (items.isNotEmpty() && !isWatchlistHidden && newPlacement == CatalogPlacement.HOME) {
+                val isSelectedHomeRow = _homeRowSelection.value == "watchlist"
+                if (items.isNotEmpty() && (isSelectedHomeRow || (!isWatchlistHidden && newPlacement == CatalogPlacement.HOME))) {
                     val cat = Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = items)
-                    val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
-                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
-                    val insertIdx = (baseIdx + sortOrder).coerceIn(0, updated.size)
-                    updated.add(insertIdx, cat)
+                    val insertIdx = if (isSelectedHomeRow) {
+                        selectedHomeRowInsertIndex(updated)
+                    } else {
+                        val cwIdx = updated.indexOfFirst { it.id == "continue_watching" }
+                        val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                        (baseIdx + sortOrder).coerceIn(0, updated.size)
+                    }
+                    updated.add(insertIdx.coerceIn(0, updated.size), cat)
                 }
                 _uiState.value = _uiState.value.copy(categories = updated)
             }
         }
-        // React to CW placement/hidden/sort changes: remove or restore CW row on Home.
+        // React to CW placement/hidden/sort changes, and to the Home Row
+        // selection changing: remove or restore CW row on Home. homeRowSelection
+        // is included in the mapped key so this fires when the Home Row setting
+        // changes even though CW's own placement/hidden/sort didn't.
         viewModelScope.launch {
             context.settingsDataStore.data
-                .map { Triple(it[com.arflix.tv.data.repository.CW_PLACEMENT_KEY], it[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false, it[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.toIntOrNull() ?: 0) }
+                .map {
+                    CwHomeRowKey(
+                        placement = it[com.arflix.tv.data.repository.CW_PLACEMENT_KEY],
+                        hidden = it[com.arflix.tv.data.repository.CW_HIDDEN_KEY] ?: false,
+                        sort = it[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.toIntOrNull() ?: 0,
+                        homeRowSelection = _homeRowSelection.value,
+                    )
+                }
                 .distinctUntilChanged()
-                .collect { (str, cwHidden, cwSort) ->
-                    cachedCwPlacement = str
+                .collect { key ->
+                    cachedCwPlacement = key.placement
                         ?.let { runCatching { com.arflix.tv.data.model.CatalogPlacement.valueOf(it) }.getOrNull() }
                         ?: com.arflix.tv.data.model.CatalogPlacement.HOME
-                    cachedCwHidden = cwHidden
-                    cachedCwSortOrder = cwSort
+                    cachedCwHidden = key.hidden
+                    cachedCwSortOrder = key.sort
                     val current = _uiState.value.categories.toMutableList()
                     val hasCW = current.any { it.id == "continue_watching" }
                     val cwCat = cwHolder.cwCategory.value
-                    if (!cwHidden && cachedCwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME) {
-                        if (!hasCW && cwCat != null) current.add(cwSort.coerceIn(0, current.size), cwCat)
+                    // Design v4 §3: the Home Row selector always wins over the
+                    // legacy per-catalog placement/hidden toggle for Home visibility.
+                    val isSelectedHomeRow = key.homeRowSelection == "continue_watching"
+                    if (isSelectedHomeRow || (!key.hidden && cachedCwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME)) {
+                        if (!hasCW && cwCat != null) {
+                            val insertIdx = if (isSelectedHomeRow) selectedHomeRowInsertIndex(current) else key.sort
+                            current.add(insertIdx.coerceIn(0, current.size), cwCat)
+                        }
                     } else {
                         if (hasCW) current.removeAll { it.id == "continue_watching" }
                     }
@@ -1763,8 +2006,15 @@ class HomeViewModel @Inject constructor(
                         val cwSortPreload = cwPrefs[com.arflix.tv.data.repository.CW_SORT_ORDER_KEY]?.toIntOrNull() ?: 0
                         val updated = _uiState.value.categories.toMutableList()
                         val idx = updated.indexOfFirst { it.id == "continue_watching" }
-                        if (!cwHiddenPreload && cwPlacementPreload == com.arflix.tv.data.model.CatalogPlacement.HOME) {
-                            if (idx >= 0) updated[idx] = cwCategory else updated.add(cwSortPreload.coerceIn(0, updated.size), cwCategory)
+                        // Design v4 §3: same OR condition as every other CW insertion
+                        // site — this preload path predates the Home Row selector and
+                        // was never updated, so it could hide/misplace CW even when
+                        // it's the selected row, racing against the sites that do
+                        // check it depending on which happened to run last.
+                        val isSelectedPreload = _homeRowSelection.value == "continue_watching"
+                        if (isSelectedPreload || (!cwHiddenPreload && cwPlacementPreload == com.arflix.tv.data.model.CatalogPlacement.HOME)) {
+                            val insertIdx = if (isSelectedPreload) selectedHomeRowInsertIndex(updated) else cwSortPreload
+                            if (idx >= 0) updated[idx] = cwCategory else updated.add(insertIdx.coerceIn(0, updated.size), cwCategory)
                         } else {
                             if (idx >= 0) updated.removeAt(idx)
                         }
@@ -2906,12 +3156,20 @@ class HomeViewModel @Inject constructor(
                 // independent coroutine that survives loadHomeData restarts.
                 // NOTE: cwPlacementInLoad / isCwHiddenInLoad read from prefs below (with watchlist prefs).
                 // We use cachedCwPlacement/cachedCwHidden here since prefs are read after this block.
-                if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                // Design v4 §3: the Home Row selector always wins over the legacy
+                // per-catalog placement/hidden toggle for Home visibility — same
+                // condition as the reactive CW collector above.
+                val isCwSelectedHomeRow = _homeRowSelection.value == "continue_watching"
+                if (isCwSelectedHomeRow || (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME)) {
                     val existingCW = _uiState.value.categories.firstOrNull {
                         it.id == "continue_watching" && it.items.isNotEmpty() &&
                             it.items.none { item -> item.isPlaceholder }
                     }
-                    val cwInsert = cachedCwSortOrder.coerceIn(0, categories.size)
+                    val cwInsert = if (isCwSelectedHomeRow) {
+                        selectedHomeRowInsertIndex(categories)
+                    } else {
+                        cachedCwSortOrder
+                    }.coerceIn(0, categories.size)
                     if (existingCW != null) {
                         categories.add(cwInsert, existingCW)
                     } else if (cachedContinueWatching.isNotEmpty()) {
@@ -2957,10 +3215,17 @@ class HomeViewModel @Inject constructor(
                     ?: CatalogPlacement.HOME
                 val isCwHiddenInLoad = watchlistPrefs?.get(com.arflix.tv.data.repository.CW_HIDDEN_KEY) ?: false
                 val liveWatchlistItems = watchlistRepository.watchlistItems.value
-                if (liveWatchlistItems.isNotEmpty() && !isWatchlistHiddenInLoad && watchlistPlacementInLoad == CatalogPlacement.HOME) {
-                    val cwIdx = categories.indexOfFirst { it.id == "continue_watching" }
-                    val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
-                    val insertIdx = (baseIdx + watchlistSortOrder).coerceIn(0, categories.size)
+                val isWatchlistSelectedHomeRow = _homeRowSelection.value == "watchlist"
+                if (liveWatchlistItems.isNotEmpty() &&
+                    (isWatchlistSelectedHomeRow || (!isWatchlistHiddenInLoad && watchlistPlacementInLoad == CatalogPlacement.HOME))
+                ) {
+                    val insertIdx = if (isWatchlistSelectedHomeRow) {
+                        selectedHomeRowInsertIndex(categories)
+                    } else {
+                        val cwIdx = categories.indexOfFirst { it.id == "continue_watching" }
+                        val baseIdx = if (cwIdx >= 0) cwIdx + 1 else 0
+                        baseIdx + watchlistSortOrder
+                    }.coerceIn(0, categories.size)
                     categories.add(insertIdx, Category(
                         id = WATCHLIST_CATEGORY_ID,
                         title = "My Watchlist",
@@ -3201,13 +3466,15 @@ class HomeViewModel @Inject constructor(
                         lastContinueWatchingItems = continueWatchingCategory.items
                         lastContinueWatchingUpdateMs = SystemClock.elapsedRealtime()
                         cwHolder.update(continueWatchingCategory)
-                        if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                        val isSelectedFresh = _homeRowSelection.value == "continue_watching"
+                        if (isSelectedFresh || (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME)) {
                             val updated = _uiState.value.categories.toMutableList()
                             val index = updated.indexOfFirst { it.id == "continue_watching" }
                             if (index >= 0) {
                                 updated[index] = continueWatchingCategory
                             } else {
-                                updated.add(cachedCwSortOrder.coerceIn(0, updated.size), continueWatchingCategory)
+                                val insertIdx = if (isSelectedFresh) selectedHomeRowInsertIndex(updated) else cachedCwSortOrder
+                                updated.add(insertIdx.coerceIn(0, updated.size), continueWatchingCategory)
                             }
                             _uiState.value = _uiState.value.copy(categories = updated)
                         }
@@ -3703,7 +3970,25 @@ class HomeViewModel @Inject constructor(
         }
 
         val rows = mutableListOf<Category>()
-        if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+        // On Now and the selected row (Design v4 §3) are both built by observers
+        // that run independently of this skeleton (IPTV/EPG load, CW's decoupled
+        // fetch) and can take several seconds on a cold start. Without a
+        // placeholder here, pruneHomeCategories() has nothing to render for
+        // those ids until the observer's first real emission lands — the row
+        // appears to be "missing", and when it's finally inserted at the top of
+        // an already-scrolled list the user has to dpad back up to see it.
+        // Seeding empty placeholder rows up front means the real data fills an
+        // existing row in place instead of inserting a new one.
+        // Order (Joe 2026-07-11): Hero → selected row → Browse → On Now → Apps
+        // — selected row seeds first here, On Now second (Browse tile row isn't
+        // part of this skeleton at all; it's seeded later by its own observer,
+        // which now inserts it between whichever of these two seeded first).
+        // Design v4 §3: gate the CW placeholder the same way the reactive CW
+        // collector does — otherwise, when Watchlist/Up Next is the selected
+        // row but CW's own legacy placement still says HOME, this skeleton
+        // would flash both a CW placeholder AND the selected row's placeholder
+        // at once before the CW collector removes the extra one.
+        if (_homeRowSelection.value == "continue_watching" || (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME)) {
             if (cachedContinueWatching.isNotEmpty()) {
                 rows.add(
                     Category(
@@ -3722,6 +4007,15 @@ class HomeViewModel @Inject constructor(
                 )
             }
         }
+        // Cover the other two Home-row-selection options too — whichever one is
+        // NOT "continue_watching" doesn't get a skeleton row from the block
+        // above, so seed it here using whatever the selector has resolved to so
+        // far (falls back to the default, same as the reactive selector does).
+        when (_homeRowSelection.value) {
+            "watchlist" -> rows.add(Category(id = WATCHLIST_CATEGORY_ID, title = "My Watchlist", items = placeholderItems))
+            "up_next" -> rows.add(Category(id = UP_NEXT_CATEGORY_ID, title = "Up Next", items = placeholderItems))
+        }
+        rows.add(Category(id = FAVORITE_TV_CATEGORY_ID, title = "On Now", items = placeholderItems))
 
         savedCatalogs.forEach { cfg ->
             if (isCollectionTileConfig(cfg)) return@forEach
@@ -3958,13 +4252,15 @@ class HomeViewModel @Inject constructor(
                     lastContinueWatchingItems = continueWatchingCategory.items
                     lastContinueWatchingUpdateMs = now
                     cwHolder.update(continueWatchingCategory)
-                    if (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME) {
+                    val isSelectedRefresh = _homeRowSelection.value == "continue_watching"
+                    if (isSelectedRefresh || (!cachedCwHidden && cachedCwPlacement == CatalogPlacement.HOME)) {
                         val latestCategories = _uiState.value.categories.toMutableList()
                         val continueWatchingIndex = latestCategories.indexOfFirst { it.id == "continue_watching" }
                         if (continueWatchingIndex >= 0) {
                             latestCategories[continueWatchingIndex] = continueWatchingCategory
                         } else {
-                            latestCategories.add(cachedCwSortOrder.coerceIn(0, latestCategories.size), continueWatchingCategory)
+                            val insertIdx = if (isSelectedRefresh) selectedHomeRowInsertIndex(latestCategories) else cachedCwSortOrder
+                            latestCategories.add(insertIdx.coerceIn(0, latestCategories.size), continueWatchingCategory)
                         }
                         _uiState.value = _uiState.value.copy(categories = latestCategories)
                     }
@@ -4379,6 +4675,18 @@ class HomeViewModel @Inject constructor(
     }
 
     fun updateHeroItem(item: MediaItem) {
+        // Browse tiles (Movies/Shows/TV/...) carry a synthetic hash-based id —
+        // never feed that into the hero pipeline directly (a stale bug already
+        // found the hash occasionally collides with a real TMDB id, silently
+        // showing an unrelated movie/show). Redirect to the real representative
+        // item recorded alongside this tile's art in buildLibraryTilesCategory,
+        // if one exists (Discover has none — falls through to the isActionableMediaItem
+        // guard below and leaves the hero untouched, same as before this existed).
+        if (item.status?.startsWith("navtile:") == true) {
+            val real = libraryTileHeroSources[item.id] ?: return
+            updateHeroItem(real)
+            return
+        }
         if (isCollectionItem(item)) {
             if (item.isPlaceholder) return
             heroUpdateJob?.cancel()

@@ -42,6 +42,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
@@ -77,6 +78,23 @@ fun DiscoverScreen(
     val hasProfile = currentProfile != null
 
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below (activating an entry, or the
+    // Left press that opens the rail) still has a matching KeyUp on the way —
+    // that KeyUp arrives after isNavRailOpen.value has already flipped, so it
+    // isn't caught by the same guard and falls through to whatever card still
+    // holds real Compose focus underneath (this screen's cards use
+    // enableSystemFocus, unlike Home's manual scheme), firing that card's own
+    // onClick. Tracking the exact key lets us swallow just its KeyUp partner
+    // (Joe, 2026-07-11: selecting a NavRail entry was landing on whatever
+    // background card — e.g. "Obsession" — had focus before the rail opened).
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
     val rootFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
@@ -109,7 +127,35 @@ fun DiscoverScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = focusedItemIndexInRow == 0)) {
+                if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                    pendingRailKeyUp = null
+                    return@onPreviewKeyEvent true
+                }
+                if (isNavRailOpen.value) {
+                    if (event.type == KeyEventType.KeyDown) pendingRailKeyUp = event.key
+                    val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                        currentScreen = com.arflix.tv.data.model.NavSectionKind.DISCOVER,
+                        navSections = navSections,
+                        neolinkConfigured = neolinkConfigured,
+                    )
+                    com.arflix.tv.ui.components.navRailHandleKey(
+                        event = event,
+                        entries = railEntries,
+                        focusedIndex = navRailFocusedIndex,
+                        onClose = { isNavRailOpen.value = false },
+                        actions = com.arflix.tv.ui.components.NavRailActions(
+                            onNavigateToHome = onNavigateToHome,
+                            onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToTv = onNavigateToTv,
+                            onNavigateToCameras = onNavigateToCameras,
+                            onNavigateToSettings = onNavigateToSettings,
+                        ),
+                    )
+                    return@onPreviewKeyEvent true
+                }
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && focusedItemIndexInRow == 0) {
+                    isNavRailOpen.value = true
+                    pendingRailKeyUp = Key.DirectionLeft
                     return@onPreviewKeyEvent true
                 }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -219,6 +265,9 @@ fun DiscoverScreen(
         if (!isTouchDevice) {
             com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
 
+            // zIndex forces this above the category content above regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
             com.arflix.tv.ui.components.NavRail(
                 isOpen = isNavRailOpen.value,
                 onClose = {
@@ -228,16 +277,16 @@ fun DiscoverScreen(
                 currentScreen = com.arflix.tv.data.model.NavSectionKind.DISCOVER,
                 navSections = navSections,
                 neolinkConfigured = neolinkConfigured,
-                profile = currentProfile,
                 actions = com.arflix.tv.ui.components.NavRailActions(
                     onNavigateToHome = onNavigateToHome,
                     onNavigateToSearch = onNavigateToSearch,
                     onNavigateToTv = onNavigateToTv,
                     onNavigateToCameras = onNavigateToCameras,
                     onNavigateToSettings = onNavigateToSettings,
-                    onSwitchProfile = onSwitchProfile,
                 ),
+                focusedIndex = navRailFocusedIndex.value,
             )
+            }
         }
 
         // Rule picker rendered last so it covers the topbar

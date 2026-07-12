@@ -24,13 +24,27 @@ fun rememberNavRailOpen(): MutableState<Boolean> = remember { mutableStateOf(fal
  * - Rail open: consumed unconditionally — NavRail (which holds focus once open,
  *   see NavRail's own FocusRequester) owns all input until it closes itself.
  * - Otherwise: not consumed, screen handles the event as normal.
+ *
+ * Safety net: NavRail's `LaunchedEffect(isOpen) { focusRequester.requestFocus() }`
+ * is wrapped in `runCatching` and can silently fail to move focus into the rail
+ * (e.g. if the rail hasn't been laid out yet on a slow frame). When that
+ * happens, focus never leaves this screen, so NavRail's own Back/Escape key
+ * handling (which only runs for the focused path) never sees the event either
+ * — every key event just gets swallowed here forever, hanging the screen. Back
+ * and Escape close the rail directly from here rather than relying on focus
+ * having actually landed inside NavRail.
  */
 fun navRailPreviewKey(
     event: KeyEvent,
     isRailOpen: MutableState<Boolean>,
     atLeftEdge: Boolean,
 ): Boolean {
-    if (isRailOpen.value) return true
+    if (isRailOpen.value) {
+        if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+            isRailOpen.value = false
+        }
+        return true
+    }
     if (event.type != KeyEventType.KeyDown) return false
     if (event.key == Key.DirectionLeft && atLeftEdge) {
         isRailOpen.value = true

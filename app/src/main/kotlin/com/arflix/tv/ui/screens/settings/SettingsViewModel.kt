@@ -1195,7 +1195,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Cycles Home's one configurable row (Design v4 §3): watchlist -> up_next -> continue_watching. */
+    /**
+     * Cycles Home's one configurable row (Design v4 §3): watchlist -> up_next -> continue_watching.
+     * Also syncs the picked row's own visible+placement toggle (Watchlist/Continue Watching rows in
+     * Settings > Catalogs) to Visible+Home, so the two controls never disagree about what's on Home —
+     * without this, picking "Continue Watching" here while its own toggle was still Hidden or set to
+     * Discover/Search left Home showing nothing.
+     */
     fun cycleHomeRowSelection() {
         val next = when (_uiState.value.homeRowSelection) {
             "watchlist" -> "up_next"
@@ -1203,8 +1209,26 @@ class SettingsViewModel @Inject constructor(
             else -> "watchlist"
         }
         viewModelScope.launch {
-            context.settingsDataStore.edit { it[homeRowSelectionKey()] = next }
-            _uiState.value = _uiState.value.copy(homeRowSelection = next)
+            context.settingsDataStore.edit { prefs ->
+                prefs[homeRowSelectionKey()] = next
+                when (next) {
+                    "watchlist" -> {
+                        prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] = false
+                        prefs[watchlistPlacementKey] = com.arflix.tv.data.model.CatalogPlacement.HOME.name
+                    }
+                    "continue_watching" -> {
+                        prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] = false
+                        prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY] = com.arflix.tv.data.model.CatalogPlacement.HOME.name
+                    }
+                }
+            }
+            _uiState.value = _uiState.value.copy(
+                homeRowSelection = next,
+                isWatchlistHidden = if (next == "watchlist") false else _uiState.value.isWatchlistHidden,
+                watchlistPlacement = if (next == "watchlist") com.arflix.tv.data.model.CatalogPlacement.HOME else _uiState.value.watchlistPlacement,
+                isCwHidden = if (next == "continue_watching") false else _uiState.value.isCwHidden,
+                cwPlacement = if (next == "continue_watching") com.arflix.tv.data.model.CatalogPlacement.HOME else _uiState.value.cwPlacement,
+            )
             syncLocalStateToCloud(silent = true)
         }
     }
@@ -2038,39 +2062,64 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    // setWatchlist*/setCw* below sync homeRowSelection to match whenever the row they touch ends up
+    // Visible+Home — Home only ever renders the ONE row named by homeRowSelection (Design v4 §3), so
+    // without this, marking Watchlist/Continue Watching Visible+Home via their own toggle silently did
+    // nothing if a different row was still selected.
+
     fun setWatchlistPlacement(placement: com.arflix.tv.data.model.CatalogPlacement) {
+        val becomesHomeRow = placement == com.arflix.tv.data.model.CatalogPlacement.HOME && !_uiState.value.isWatchlistHidden
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
                 prefs[watchlistPlacementKey] = placement.name
+                if (becomesHomeRow) prefs[homeRowSelectionKey()] = "watchlist"
             }
-            _uiState.value = _uiState.value.copy(watchlistPlacement = placement)
+            _uiState.value = _uiState.value.copy(
+                watchlistPlacement = placement,
+                homeRowSelection = if (becomesHomeRow) "watchlist" else _uiState.value.homeRowSelection,
+            )
         }
     }
 
     fun setCwPlacement(placement: com.arflix.tv.data.model.CatalogPlacement) {
+        val becomesHomeRow = placement == com.arflix.tv.data.model.CatalogPlacement.HOME && !_uiState.value.isCwHidden
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
                 prefs[com.arflix.tv.data.repository.CW_PLACEMENT_KEY] = placement.name
+                if (becomesHomeRow) prefs[homeRowSelectionKey()] = "continue_watching"
             }
-            _uiState.value = _uiState.value.copy(cwPlacement = placement)
+            _uiState.value = _uiState.value.copy(
+                cwPlacement = placement,
+                homeRowSelection = if (becomesHomeRow) "continue_watching" else _uiState.value.homeRowSelection,
+            )
         }
     }
 
     fun setWatchlistHidden(hidden: Boolean) {
+        val becomesHomeRow = !hidden && _uiState.value.watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
                 prefs[com.arflix.tv.data.repository.WATCHLIST_HIDDEN_KEY] = hidden
+                if (becomesHomeRow) prefs[homeRowSelectionKey()] = "watchlist"
             }
-            _uiState.value = _uiState.value.copy(isWatchlistHidden = hidden)
+            _uiState.value = _uiState.value.copy(
+                isWatchlistHidden = hidden,
+                homeRowSelection = if (becomesHomeRow) "watchlist" else _uiState.value.homeRowSelection,
+            )
         }
     }
 
     fun setCwHidden(hidden: Boolean) {
+        val becomesHomeRow = !hidden && _uiState.value.cwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME
         viewModelScope.launch {
             context.settingsDataStore.edit { prefs ->
                 prefs[com.arflix.tv.data.repository.CW_HIDDEN_KEY] = hidden
+                if (becomesHomeRow) prefs[homeRowSelectionKey()] = "continue_watching"
             }
-            _uiState.value = _uiState.value.copy(isCwHidden = hidden)
+            _uiState.value = _uiState.value.copy(
+                isCwHidden = hidden,
+                homeRowSelection = if (becomesHomeRow) "continue_watching" else _uiState.value.homeRowSelection,
+            )
         }
     }
 

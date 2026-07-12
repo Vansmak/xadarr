@@ -6,11 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,7 +48,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.NavSectionConfig
 import com.arflix.tv.data.model.NavSectionKind
-import com.arflix.tv.data.model.Profile
 import com.arflix.tv.navigation.NavTargets
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveDims
@@ -66,7 +66,6 @@ data class NavRailActions(
     val onNavigateToCameras: () -> Unit = {},
     val onNavigateToSettings: () -> Unit = {},
     val onNavigateToWatchlist: () -> Unit = {},
-    val onSwitchProfile: () -> Unit = {},
 )
 
 private fun NavSectionKind.toRailLabel(): String = when (this) {
@@ -102,6 +101,62 @@ fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry
 }
 
 /**
+ * Pure computation of what the rail shows, extracted so a screen's own key
+ * handler can compute bounds (entries.size) without composing the rail.
+ * Home is always offered first regardless of its configured `order` — it has
+ * no chip for itself in its own hub row, so the rail is the only place all
+ * other screens see a "back to Home" entry at all.
+ */
+fun computeNavRailEntries(
+    currentScreen: NavSectionKind?,
+    navSections: List<NavSectionConfig>,
+    neolinkConfigured: Boolean,
+    restrictToKinds: Set<NavSectionKind>? = null,
+): List<NavSectionConfig> {
+    val homeEntry = navSections.firstOrNull { it.kind == NavSectionKind.HOME }
+        ?: NavSectionConfig(kind = NavSectionKind.HOME, order = -1)
+    // Settings sorts last regardless of its configured order — it's the "everything
+    // else" destination, not something users reorder ahead of real nav targets.
+    // Discover sorts last among the remaining browsable entries (just ahead of
+    // Settings) for the same reason — mirrors HomeViewModel.buildLibraryTilesCategory's
+    // treatment of Discover in the Home "Browse" tile row.
+    val rest = navSections
+        .filter { it.visible && it.kind != NavSectionKind.HOME && it.kind != currentScreen }
+        .filter { it.kind != NavSectionKind.CAMERAS || neolinkConfigured }
+        .filter { restrictToKinds == null || it.kind in restrictToKinds }
+        // Watchlist dropped from NavRail (Joe 2026-07-11) — same reasoning as its
+        // removal from Home's Browse tile row: it's already reachable as Home's
+        // selected row / a Discover-placed catalogue, no need for a third path.
+        .filter { !(it.kind == NavSectionKind.CUSTOM && it.customId == "watchlist") }
+        .sortedWith(compareBy({ it.kind == NavSectionKind.SETTINGS }, { it.kind == NavSectionKind.DISCOVER }, { it.order }))
+    return if (restrictToKinds != null) rest else listOf(homeEntry) + rest
+}
+
+/** Pure dispatch, extracted so a screen's own key handler can invoke it directly. */
+fun activateNavRailEntry(entry: NavSectionConfig, actions: NavRailActions) {
+    if (entry.kind == NavSectionKind.CUSTOM) {
+        NavTargets.activate(
+            entry.target,
+            onNavigateToHome = actions.onNavigateToHome,
+            onNavigateToSearch = actions.onNavigateToSearch,
+            onNavigateToTv = actions.onNavigateToTv,
+            onNavigateToCameras = actions.onNavigateToCameras,
+            onNavigateToWatchlist = actions.onNavigateToWatchlist,
+        )
+        return
+    }
+    when (entry.kind) {
+        NavSectionKind.HOME -> actions.onNavigateToHome()
+        NavSectionKind.SEARCH -> actions.onNavigateToSearch()
+        NavSectionKind.DISCOVER -> actions.onNavigateToDiscover()
+        NavSectionKind.TV -> actions.onNavigateToTv()
+        NavSectionKind.CAMERAS -> actions.onNavigateToCameras()
+        NavSectionKind.SETTINGS -> actions.onNavigateToSettings()
+        NavSectionKind.CUSTOM -> Unit
+    }
+}
+
+/**
  * Vertical overlay nav rail used by every screen except Home (Home renders
  * navSectionsByProfile as its own horizontal hub row instead — see AppTopBar's
  * navItems()/customNavEntries()). Opened when the screen's leftmost focusable
@@ -109,9 +164,17 @@ fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry
  * dispatch site for CUSTOM targets and fixed destinations alike, rather than
  * each screen having its own copy of the SidebarItem when-block.
  *
- * Home is always offered first regardless of its configured `order` — it has
- * no chip for itself in its own hub row, so the rail is the only place all
- * other screens see a "back to Home" entry at all.
+ * Pure render — no focus/key handling of its own. Every other screen in this
+ * app drives "focus" with plain state + the screen's own onPreviewKeyEvent
+ * rather than real Compose focus (see XadarrFocusableSurface's
+ * enableSystemFocus=false pattern used throughout); NavRail used to be the
+ * one place fighting for genuine focus via FocusRequester, and it reliably
+ * lost that fight — Home's own focus-recovery effect (and likely each other
+ * screen's equivalent) kept reclaiming focus every time NavRail grabbed it,
+ * so the rail looked open but never responded to anything but Back/Escape
+ * (those were special-cased directly in the host screen). `focusedIndex` is
+ * now hosted by the caller and driven by the caller's own key handler, same
+ * as every row/card elsewhere in the app.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -121,61 +184,24 @@ fun NavRail(
     currentScreen: NavSectionKind?,
     navSections: List<NavSectionConfig>,
     neolinkConfigured: Boolean,
-    profile: Profile?,
     actions: NavRailActions,
     // Home already renders every other destination as its own landscape "Your
     // library" row (see HomeViewModel.buildLibraryTilesCategory) — the rail
     // there only needs to cover what that row can't: Search and Settings.
     // Null (every other screen) shows the full list plus a Home entry.
     restrictToKinds: Set<NavSectionKind>? = null,
+    // Which entry is selected, 0..entries.lastIndex. Owned and mutated by the
+    // caller's own key handler; see navRailHandleKey().
+    focusedIndex: Int = 0,
 ) {
     if (!isOpen) return
 
     // Robust close on the system back gesture/button, not just the D-pad Back
-    // key handled in onPreviewKeyEvent below — composed after (nested inside)
+    // key the caller's key handler processes — composed after (nested inside)
     // the screen's own BackHandler, so it takes priority while the rail is open.
     BackHandler(enabled = isOpen) { onClose() }
 
-    val homeEntry = navSections.firstOrNull { it.kind == NavSectionKind.HOME }
-        ?: NavSectionConfig(kind = NavSectionKind.HOME, order = -1)
-    // Settings sorts last regardless of its configured order — it's the "everything
-    // else" destination, not something users reorder ahead of real nav targets.
-    val rest = navSections
-        .filter { it.visible && it.kind != NavSectionKind.HOME && it.kind != currentScreen }
-        .filter { it.kind != NavSectionKind.CAMERAS || neolinkConfigured }
-        .filter { restrictToKinds == null || it.kind in restrictToKinds }
-        .sortedWith(compareBy({ it.kind == NavSectionKind.SETTINGS }, { it.order }))
-    val entries = if (restrictToKinds != null) rest else listOf(homeEntry) + rest
-
-    var focusedIndex by remember(isOpen) { mutableIntStateOf(0) }
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(isOpen) {
-        if (isOpen) runCatching { focusRequester.requestFocus() }
-    }
-
-    fun activate(entry: NavSectionConfig) {
-        onClose()
-        if (entry.kind == NavSectionKind.CUSTOM) {
-            NavTargets.activate(
-                entry.target,
-                onNavigateToHome = actions.onNavigateToHome,
-                onNavigateToSearch = actions.onNavigateToSearch,
-                onNavigateToTv = actions.onNavigateToTv,
-                onNavigateToCameras = actions.onNavigateToCameras,
-                onNavigateToWatchlist = actions.onNavigateToWatchlist,
-            )
-            return
-        }
-        when (entry.kind) {
-            NavSectionKind.HOME -> actions.onNavigateToHome()
-            NavSectionKind.SEARCH -> actions.onNavigateToSearch()
-            NavSectionKind.DISCOVER -> actions.onNavigateToDiscover()
-            NavSectionKind.TV -> actions.onNavigateToTv()
-            NavSectionKind.CAMERAS -> actions.onNavigateToCameras()
-            NavSectionKind.SETTINGS -> actions.onNavigateToSettings()
-            NavSectionKind.CUSTOM -> Unit
-        }
-    }
+    val entries = computeNavRailEntries(currentScreen, navSections, neolinkConfigured, restrictToKinds)
 
     val railWidth by animateDpAsState(
         targetValue = if (isOpen) 260.dp else 0.dp,
@@ -188,30 +214,6 @@ fun NavRail(
             .fillMaxHeight()
             .width(railWidth)
             .background(Color.Black.copy(alpha = 0.92f))
-            .focusRequester(focusRequester)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.Back, Key.Escape, Key.DirectionRight -> { onClose(); true }
-                    Key.DirectionUp -> {
-                        if (focusedIndex > 0) focusedIndex--
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        if (focusedIndex < entries.lastIndex) focusedIndex++
-                        true
-                    }
-                    Key.Enter, Key.DirectionCenter -> {
-                        if (focusedIndex == entries.size && profile != null) {
-                            onClose(); actions.onSwitchProfile()
-                        } else {
-                            entries.getOrNull(focusedIndex)?.let(::activate)
-                        }
-                        true
-                    }
-                    else -> false
-                }
-            }
     ) {
         Column(
             modifier = Modifier
@@ -223,18 +225,43 @@ fun NavRail(
                 RailRow(
                     entry = entry,
                     isFocused = focusedIndex == index,
-                    onClick = { activate(entry) },
-                )
-            }
-            if (profile != null) {
-                Spacer(Modifier.height(12.dp))
-                RailProfileRow(
-                    profile = profile,
-                    isFocused = focusedIndex == entries.size,
-                    onClick = { onClose(); actions.onSwitchProfile() },
+                    onClick = { onClose(); activateNavRailEntry(entry, actions) },
                 )
             }
         }
+    }
+}
+
+/**
+ * Key handling extracted so the host screen's own onPreviewKeyEvent (which
+ * reliably holds real focus, unlike NavRail itself — see NavRail's doc
+ * comment) can drive rail navigation directly. Returns true if the key was
+ * consumed. `focusedIndex` is a caller-owned mutable slot (0..entries.lastIndex).
+ */
+fun navRailHandleKey(
+    event: androidx.compose.ui.input.key.KeyEvent,
+    entries: List<NavSectionConfig>,
+    focusedIndex: androidx.compose.runtime.MutableState<Int>,
+    onClose: () -> Unit,
+    actions: NavRailActions,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val maxIndex = entries.lastIndex
+    return when (event.key) {
+        Key.Back, Key.Escape, Key.DirectionRight -> { onClose(); true }
+        Key.DirectionUp -> {
+            if (focusedIndex.value > 0) focusedIndex.value--
+            true
+        }
+        Key.DirectionDown -> {
+            if (focusedIndex.value < maxIndex) focusedIndex.value++
+            true
+        }
+        Key.Enter, Key.DirectionCenter -> {
+            entries.getOrNull(focusedIndex.value)?.let { onClose(); activateNavRailEntry(it, actions) }
+            true
+        }
+        else -> false
     }
 }
 
@@ -260,29 +287,6 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
         )
         Text(
             text = label,
-            fontSize = 15.sp,
-            fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.72f),
-        )
-    }
-}
-
-@Composable
-private fun RailProfileRow(profile: Profile, isFocused: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(LiveDims.FocusBorder, if (isFocused) LiveColors.Accent else Color.Transparent, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        TopBarProfileAvatar(profile = profile, isFocused = false)
-        Text(
-            text = profile.name,
             fontSize = 15.sp,
             fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
             color = if (isFocused) Color.White else Color.White.copy(alpha = 0.72f),

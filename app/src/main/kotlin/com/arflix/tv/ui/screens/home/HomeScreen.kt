@@ -235,6 +235,12 @@ private class HomeFocusState(
     initialItemIndex: Int = 0,
     initialSidebarIndex: Int = 1
 ) {
+    // Since the NavRail redesign, Home's only remaining chrome target is the
+    // profile avatar (Search/Discover/TV/Cameras/Settings all moved to
+    // NavRail, opened via Left) — reached by an extra Up press at row 0. Kept
+    // the pre-redesign name/shape (sidebarFocusIndex still tracks a position,
+    // in practice always homeProfileFocusIndex now) rather than introducing a
+    // parallel flag, since every row-focus-dimming check already guards on it.
     var isSidebarFocused by mutableStateOf(false)
     var sidebarFocusIndex by mutableIntStateOf(initialSidebarIndex)
     var currentRowIndex by mutableIntStateOf(initialRowIndex)
@@ -294,26 +300,37 @@ private fun localizedCategoryTitle(category: Category): String = when (category.
 }
 
 /**
- * Design v4 §3/§5 — Home renders exactly: On Now, the nav card row, ONE
- * user-selected row (watchlist | up_next | continue_watching), and Apps.
- * Everything else HomeViewModel still computes (Cameras, Recent Events,
- * generic catalogsByProfile rows, the other two of the three selectable
- * rows) stays in uiState.categories for data purposes — the nav row's
- * dynamic subtitles and the browse overlay both still read from it by ID —
- * it's just not rendered as its own row here. Order is fixed regardless of
- * where these ids sit in the raw list.
+ * Design v4 §3/§5 — Home renders exactly: ONE user-selected row (watchlist |
+ * up_next | continue_watching), the nav card row, On Now, and Apps (per Joe
+ * 2026-07-11: Browse stays in the middle, only the selected row and On Now
+ * swap ends around it — original concept.png had On Now first). Everything
+ * else HomeViewModel still computes (Cameras, Recent Events, generic
+ * catalogsByProfile rows, the other two of the three selectable rows) stays
+ * in uiState.categories for data purposes — the nav row's dynamic subtitles
+ * and the browse overlay both still read from it by ID — it's just not
+ * rendered as its own row here. Order is fixed regardless of where these ids
+ * sit in the raw list.
  */
-private fun pruneHomeCategories(categories: List<Category>, homeRowSelection: String): List<Category> {
+private fun pruneHomeCategories(
+    categories: List<Category>,
+    homeRowSelection: String,
+    // Each candidate row's own Settings > Catalogs Visible/Hidden toggle can hide it
+    // everywhere, independent of homeRowSelection just naming it the candidate — without
+    // this check, marking Continue Watching Hidden while it was still the selected row
+    // did nothing, since selection alone used to be treated as an unconditional override.
+    cwHidden: Boolean = false,
+    watchlistHidden: Boolean = false,
+): List<Category> {
     val byId = categories.associateBy { it.id }
     val selectedRowId = when (homeRowSelection) {
-        "watchlist" -> HomeViewModel.WATCHLIST_CATEGORY_ID
+        "watchlist" -> HomeViewModel.WATCHLIST_CATEGORY_ID.takeUnless { watchlistHidden }
         "up_next" -> HomeViewModel.UP_NEXT_CATEGORY_ID
-        else -> "continue_watching"
+        else -> "continue_watching".takeUnless { cwHidden }
     }
     return listOfNotNull(
-        byId[HomeViewModel.FAVORITE_TV_CATEGORY_ID],
+        selectedRowId?.let { byId[it] },
         byId[HomeViewModel.LIBRARY_TILES_CATEGORY_ID],
-        byId[selectedRowId],
+        byId[HomeViewModel.FAVORITE_TV_CATEGORY_ID],
         byId[HomeViewModel.APPS_CATEGORY_ID],
     )
 }
@@ -364,6 +381,15 @@ private data class HomeFocusedHeroSnapshot(
 )
 
 private fun preferredHomeStartRowIndex(categories: List<Category>): Int {
+    // Land on the nav/browse tile row by default, not whatever's in the
+    // selected-row slot (Watchlist/Continue Watching/Up Next) — that row is
+    // still one Up-press away, just no longer where focus starts out (Joe,
+    // 2026-07-11).
+    val libraryTilesIndex = categories.indexOfFirst {
+        it.id == HomeViewModel.LIBRARY_TILES_CATEGORY_ID && it.items.any { item -> !item.isPlaceholder }
+    }
+    if (libraryTilesIndex >= 0) return libraryTilesIndex
+
     val realContentIndex = categories.indexOfFirst { category ->
         !category.id.startsWith("collection_row_") && category.items.any { !it.isPlaceholder }
     }
@@ -678,8 +704,15 @@ fun HomeScreen(
         preloadedCategories
     }
     val homeRowSelection by viewModel.homeRowSelection.collectAsStateWithLifecycle()
-    val displayCategories = remember(rawDisplayCategories, homeRowSelection) {
-        pruneHomeCategories(deduplicateHomeCategories(rawDisplayCategories), homeRowSelection)
+    val cwHiddenForPrune by viewModel.cwHidden.collectAsStateWithLifecycle()
+    val watchlistHiddenForPrune by viewModel.watchlistHidden.collectAsStateWithLifecycle()
+    val displayCategories = remember(rawDisplayCategories, homeRowSelection, cwHiddenForPrune, watchlistHiddenForPrune) {
+        pruneHomeCategories(
+            deduplicateHomeCategories(rawDisplayCategories),
+            homeRowSelection,
+            cwHidden = cwHiddenForPrune,
+            watchlistHidden = watchlistHiddenForPrune,
+        )
     }
     val displayHeroItem = uiState.heroItem ?: preloadedHeroItem
         ?: if (uiState.categories.isEmpty()) {
@@ -1191,8 +1224,16 @@ fun HomeScreen(
                 )
             }
         } // end if (!isMobile) backdrop
-        
-        Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }) {
+
+        // zIndex(4f) — one above HomeHeroLayer's zIndex(3f) below. NavRail lives
+        // nested inside HomeInputLayer; without this, HomeHeroLayer (composed
+        // after HomeInputLayer as a sibling, plus its own explicit zIndex)
+        // always painted over NavRail when open, regardless of composition
+        // order, making the rail's own content bleed through under the hero
+        // text instead of covering it. Hero and rows don't otherwise overlap
+        // spatially (hero's own bottom padding keeps clear of the row list), so
+        // this has no effect on normal (rail-closed) browsing.
+        Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }.zIndex(4f)) {
         HomeInputLayer(
             categories = displayCategories,
             cardLogoUrls = cardLogoUrls,
@@ -1348,6 +1389,18 @@ fun HomeScreen(
                 onDeleteItem = { item, entry, onDone -> viewModel.deleteLibraryItem(item, entry, onDone) },
                 isModalOpen = libraryRulePickerTarget != null,
                 onDismiss = { browseCatId = null },
+                onNavigateToSearch = onNavigateToSearch,
+                onNavigateToDiscover = onNavigateToDiscover,
+                onNavigateToTv = onNavigateToTv,
+                onNavigateToCameras = onNavigateToCameras,
+                onNavigateToSettings = onNavigateToSettings,
+                onNavigateToWatchlist = onNavigateToWatchlist,
+                onBrowseCategory = { categoryId ->
+                    browseCatId = categoryId
+                    viewModel.startBrowseAll(categoryId)
+                },
+                findMoviesLibraryCatalogId = viewModel::findMoviesLibraryCatalogId,
+                findShowsLibraryCatalogId = viewModel::findShowsLibraryCatalogId,
             )
         }
 
@@ -1590,7 +1643,13 @@ private fun HeroSection(
                                 .width(320.dp)
                         )
                     } else {
-                        // Fallback to title text
+                        // Fallback to title text. Single line + ellipsis, not 2 —
+                        // this sits in a fixed-height 72.dp Box, and a long title
+                        // (e.g. an IPTV channel name like "Los Angeles: CBS 2
+                        // (KCBS)") wrapping to 2 lines at 40sp overflows that
+                        // height and spills down into the LIVE badge/program text
+                        // below it (Joe, 2026-07-11, screenshot: "hero for TV is
+                        // overlapping long channel name into program").
                         Text(
                             text = currentItem.title.uppercase(),
                             style = ArflixTypography.heroTitle.copy(
@@ -1600,7 +1659,8 @@ private fun HeroSection(
                                 shadow = textShadow
                             ),
                             color = TextPrimary,
-                            maxLines = 2
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -2588,6 +2648,16 @@ private fun HomeInputLayer(
     // leftmost-column signal (title-focus already means "left of the row's
     // first card"; the design doc calls this "leftmost element, one more left").
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Owned here (not inside NavRail) and driven by this screen's own key
+    // handler below — see NavRail.kt's doc comment: real Compose focus never
+    // reliably lands inside NavRail because this screen's own focus-recovery
+    // effect keeps reclaiming it, so the rail's own onPreviewKeyEvent (which
+    // depended on holding focus) never fired. Reset to 0 each time the rail
+    // opens, same as every other row's remembered index resets to a sane spot.
+    val navRailFocusedIndex = remember { androidx.compose.runtime.mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
     var selectPressedInHome by remember { mutableStateOf(false) }
     var selectDownAtMs by remember { mutableLongStateOf(0L) }
     var rootHasFocus by remember { mutableStateOf(false) }
@@ -2612,10 +2682,16 @@ private fun HomeInputLayer(
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
-    LaunchedEffect(rootHasFocus, isContextMenuOpen, isMobile, isBrowseOverlayOpen) {
-        if (isMobile || isContextMenuOpen || rootHasFocus || isBrowseOverlayOpen) return@LaunchedEffect
+    LaunchedEffect(rootHasFocus, isContextMenuOpen, isMobile, isBrowseOverlayOpen, isNavRailOpen.value) {
+        // NavRail intentionally takes focus off this root while it's open — this
+        // effect existed to recover focus when it drops for OTHER reasons (a
+        // dialog closing, a card losing its anchor, etc.) but didn't know about
+        // the rail, so it fought NavRail's own requestFocus() for every root
+        // focus loss and always won eventually, making the rail look "frozen"
+        // (visible, but every key still routed to Home's own input handling).
+        if (isMobile || isContextMenuOpen || rootHasFocus || isBrowseOverlayOpen || isNavRailOpen.value) return@LaunchedEffect
         delay(focusRecoveryDelayMs)
-        if (!rootHasFocus && !isContextMenuOpen && !isBrowseOverlayOpen) {
+        if (!rootHasFocus && !isContextMenuOpen && !isBrowseOverlayOpen && !isNavRailOpen.value) {
             runCatching { focusRequester.requestFocus() }
         }
     }
@@ -2651,7 +2727,18 @@ private fun HomeInputLayer(
     val categoryIds = remember(categories) {
         categories.joinToString(",") { it.id }
     }
-    LaunchedEffect(categoryIds) {
+    // The very first row (typically "On Now") is seeded with placeholder items
+    // up front and swapped for real content in place once its own observer
+    // resolves — same id, same position, so categoryIds above never changes
+    // and this effect wouldn't otherwise re-run. Without tracking this
+    // specifically, preferredHomeStartRowIndex's placeholder-skipping logic ran
+    // once against the placeholder and never got a chance to reconsider row 0
+    // after real content landed, so it stayed off-screen until the user
+    // pressed Up manually.
+    val firstRowHasRealContent = remember(categories) {
+        categories.getOrNull(0)?.items?.any { !it.isPlaceholder } == true
+    }
+    LaunchedEffect(categoryIds, firstRowHasRealContent) {
         if (categories.isEmpty()) return@LaunchedEffect
 
         if (!focusState.userHasNavigated && !focusState.isSidebarFocused) {
@@ -2659,6 +2746,15 @@ private fun HomeInputLayer(
             if (focusState.currentRowIndex != preferredStartRow) {
                 focusState.currentRowIndex = preferredStartRow
                 focusState.currentItemIndex = 0
+                // Without this, the row-list's own scroll-into-view effect (below,
+                // in HomeScreen's list-rendering composable) only scrolls on either
+                // the very first composition or a "recent user nav" — a
+                // code-driven row change like this one is neither, so focus moved
+                // here but the list never scrolled, leaving the previous row
+                // (Watchlist) still visible above the newly-focused browse tile
+                // row (Joe, 2026-07-11, screenshot comparison: should look like
+                // scrolling down manually — previous row fully out of view).
+                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                 preferredCategoryId = categories.getOrNull(preferredStartRow)?.id
             }
         }
@@ -2697,6 +2793,55 @@ private fun HomeInputLayer(
         }
     }
 
+    // Shared by the D-pad KeyUp handler below and this composable's own
+    // onItemClick (mouse/touch on cards) — they used to diverge: the D-pad path
+    // never checked for "navtile:" status at all and always fell through to
+    // onNavigateToDetails with the tile's synthetic hash id, leaving Movies/
+    // Shows/TV/Cameras/Discover browse tiles dead (or worse, opening a Details
+    // screen for a nonexistent TMDB id) on a real remote. Same class of bug the
+    // "Must check collection: BEFORE falling through to Details" comment below
+    // already fixed once for service tiles — this was the same gap for the
+    // newer library tile row (2026-07-11).
+    fun handleLibraryTileClick(item: MediaItem) {
+        val entry = navSectionForTileStatus(item.status.orEmpty(), navSections)
+        val libraryCatalogId = when (entry?.customId) {
+            "movies" -> findMoviesLibraryCatalogId()
+            "shows" -> findShowsLibraryCatalogId()
+            else -> null
+        }
+        if (libraryCatalogId != null && onBrowseCategory != null) {
+            // Full library browse (Sonarr/Radarr-backed if configured) — same
+            // overlay a catalogue row's own "See All" opens.
+            onBrowseCategory(libraryCatalogId)
+        } else if (entry?.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM) {
+            val target = entry.target
+            if (target != null && target.startsWith("seeall:") && onBrowseCategory != null) {
+                // Direct dispatch rather than NavTargets.activate's PendingHomeNavTarget
+                // round-trip — that mechanism only fires its consumer LaunchedEffect when
+                // uiState.categories changes identity, which never happens for a click
+                // that originates on Home itself (only for arriving at Home from another
+                // screen), so it silently dropped the target here.
+                onBrowseCategory(target.removePrefix("seeall:"))
+            } else {
+                com.arflix.tv.navigation.NavTargets.activate(
+                    target,
+                    onNavigateToHome = {},
+                    onNavigateToSearch = onNavigateToSearch,
+                    onNavigateToTv = { onNavigateToTv(null, null) },
+                    onNavigateToCameras = onNavigateToCameras,
+                    onNavigateToWatchlist = onNavigateToWatchlist,
+                )
+            }
+        } else when (entry?.kind) {
+            com.arflix.tv.data.model.NavSectionKind.SEARCH -> onNavigateToSearch()
+            com.arflix.tv.data.model.NavSectionKind.DISCOVER -> onNavigateToDiscover()
+            com.arflix.tv.data.model.NavSectionKind.TV -> onNavigateToTv(null, null)
+            com.arflix.tv.data.model.NavSectionKind.CAMERAS -> onNavigateToCameras()
+            com.arflix.tv.data.model.NavSectionKind.SETTINGS -> onNavigateToSettings()
+            else -> Unit
+        }
+    }
+
     val keyEventModifier = if (isMobile) {
         Modifier // No D-pad key handling on mobile
     } else {
@@ -2713,10 +2858,36 @@ private fun HomeInputLayer(
                 }
                 return@onPreviewKeyEvent true
             }
-            // NavRail owns all input once open (it holds focus via its own
-            // FocusRequester) — consume unconditionally so Home's own key
-            // handling below never runs concurrently with it.
+            // NavRail no longer tries to hold real Compose focus (see its doc
+            // comment — this screen's own focus-recovery effect always won that
+            // race, which is why the rail used to look open but not respond to
+            // anything but Back). This screen's key handler reliably holds
+            // focus, so it drives the rail's selection directly instead.
             if (isNavRailOpen.value) {
+                val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                    currentScreen = com.arflix.tv.data.model.NavSectionKind.HOME,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    restrictToKinds = setOf(
+                        com.arflix.tv.data.model.NavSectionKind.SEARCH,
+                        com.arflix.tv.data.model.NavSectionKind.SETTINGS,
+                    ),
+                )
+                com.arflix.tv.ui.components.navRailHandleKey(
+                    event = event,
+                    entries = railEntries,
+                    focusedIndex = navRailFocusedIndex,
+                    onClose = { isNavRailOpen.value = false },
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = {},
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = { onNavigateToTv(null, null) },
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                )
                 return@onPreviewKeyEvent true
             }
             if (trailerIsPlaying && event.type == KeyEventType.KeyDown &&
@@ -2791,19 +2962,15 @@ private fun HomeInputLayer(
                                 // more left" gesture every other screen uses.
                                 isNavRailOpen.value = true
                                 true
-                            } else if (event.nativeKeyEvent.repeatCount >= 1 && leftCatHasSeeAll) {
-                                // Held Left: jump straight to the title from anywhere in the row —
-                                // scanning back one card at a time to bail out to "See All" is
-                                // painful on a long row. Mirrors the held-Up-jumps-to-sidebar shortcut.
-                                focusState.isTitleFocused = true
-                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                                true
-                            } else if (event.nativeKeyEvent.repeatCount >= 1 && leftCat != null) {
-                                // Rows with no title/see-all (tiles, apps, cameras) have no
-                                // intermediate leftmost stop — held Left opens the rail directly.
-                                isNavRailOpen.value = true
-                                true
                             } else if (focusState.currentItemIndex == 0) {
+                                // Holding Left scrolls normally (see the `else` branch below,
+                                // same as held Right) until it reaches item 0 — only then does
+                                // it jump to the title/rail, same tick this branch fires on.
+                                // A dedicated "held Left jumps immediately from anywhere in the
+                                // row" shortcut used to live here (repeatCount >= 1), but it
+                                // fired on the very first repeat tick regardless of scroll
+                                // position, so a brief hold meant to scroll a few cards back
+                                // instead jumped straight to the title/rail (Joe 2026-07-11).
                                 if (leftCatHasSeeAll) {
                                     focusState.isTitleFocused = true
                                     focusState.lastNavEventTime = SystemClock.elapsedRealtime()
@@ -2817,10 +2984,11 @@ private fun HomeInputLayer(
                                 true
                             }
                         } else {
-                            if (focusState.sidebarFocusIndex > 0) {
-                                focusState.sidebarFocusIndex--
-                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                            }
+                            // Home's only remaining chrome target is the profile avatar
+                            // (Search/Discover/TV/Cameras/Settings all moved to NavRail) —
+                            // nothing else is rendered to cycle Left/Right into, so this
+                            // just consumes the key rather than moving sidebarFocusIndex
+                            // through positions with no visible chip to land on.
                             true
                         }
                     }
@@ -2829,10 +2997,6 @@ private fun HomeInputLayer(
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
                         if (focusState.isSidebarFocused) {
-                            if (focusState.sidebarFocusIndex < maxSidebarIndex) {
-                                focusState.sidebarFocusIndex++
-                                focusState.lastNavEventTime = SystemClock.elapsedRealtime()
-                            }
                             true
                         } else if (focusState.isTitleFocused) {
                             focusState.isTitleFocused = false
@@ -2863,9 +3027,6 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
-                        // No more top bar to escalate into — Up at row 0 (or a held
-                        // Up anywhere, matching the old shortcut's repeat-count check)
-                        // just stops there now instead of moving focus into chrome.
                         if (focusState.currentRowIndex > 0 && event.nativeKeyEvent.repeatCount < 1) {
                             // Save current item position before leaving this row
                             focusState.rowItemIndices[focusState.currentRowIndex] = focusState.currentItemIndex
@@ -2873,6 +3034,15 @@ private fun HomeInputLayer(
                             // Restore saved position for the target row (or 0 if never visited)
                             focusState.currentItemIndex = focusState.rowItemIndices[focusState.currentRowIndex] ?: 0
                             focusState.isTitleFocused = false
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
+                        } else if (focusState.currentRowIndex == 0 && hasProfile && !focusState.isSidebarFocused) {
+                            // Row 0 is as far as row navigation goes — one more Up escalates
+                            // into chrome, same "leftmost element, one more" gesture NavRail
+                            // uses for Left. The profile avatar is the only chrome target left
+                            // here (Search/Discover/TV/Cameras/Settings all moved to NavRail).
+                            focusState.isSidebarFocused = true
+                            focusState.sidebarFocusIndex = homeProfileFocusIndex ?: 0
                             focusState.lastNavEventTime = SystemClock.elapsedRealtime()
                             true
                         } else {
@@ -2883,7 +3053,11 @@ private fun HomeInputLayer(
                         selectPressedInHome = false
                         selectDownAtMs = 0L
                         focusState.userHasNavigated = true
-                        if (focusState.currentRowIndex < categories.size - 1) {
+                        if (focusState.isSidebarFocused) {
+                            focusState.isSidebarFocused = false
+                            focusState.lastNavEventTime = SystemClock.elapsedRealtime()
+                            true
+                        } else if (focusState.currentRowIndex < categories.size - 1) {
                             // Save current item position before leaving this row
                             focusState.rowItemIndices[focusState.currentRowIndex] = focusState.currentItemIndex
                             focusState.currentRowIndex++
@@ -2899,11 +3073,10 @@ private fun HomeInputLayer(
                         Key.Back, Key.Escape -> {
                             selectPressedInHome = false
                             selectDownAtMs = 0L
-                            // Let the mini-player overlay dismiss first if active.
-                            // No more sidebar to fall back to first — Back on Home
-                            // now exits directly (respecting launcher mode), same
-                            // as it used to once you'd already backed into chrome.
-                            if (onInterceptBack?.invoke() != true) {
+                            if (focusState.isSidebarFocused) {
+                                focusState.isSidebarFocused = false
+                            } else if (onInterceptBack?.invoke() != true) {
+                                // Let the mini-player overlay dismiss first if active.
                                 if (!launcherModeEnabled) onExitApp()
                             }
                             true
@@ -2978,8 +3151,11 @@ private fun HomeInputLayer(
                                             ?.takeIf { item.status?.startsWith("collection:") == true && it.isNotBlank() }
                                         val isCameraItem = item.status?.startsWith("camera:") == true
                                         val isNeolinkEvent = item.status?.startsWith("frigate_event:") == true
+                                        val isNavTile = item.status?.startsWith("navtile:") == true
                                         if (item.status == "all_apps") {
                                             onNavigateToAllApps()
+                                        } else if (isNavTile) {
+                                            handleLibraryTileClick(item)
                                         } else if (appPackage != null) {
                                             latestDismissMiniPlayer.value?.invoke()
                                             launchApp(context, appPackage)
@@ -3038,7 +3214,12 @@ private fun HomeInputLayer(
             .then(keyEventModifier)
     ) {
         if (!isMobile) {
-            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile, clockFormat = clockFormat)
+            com.arflix.tv.ui.components.MinimalTopChrome(
+                profile = currentProfile,
+                clockFormat = clockFormat,
+                showBackHint = false,
+                isProfileFocused = focusState.isSidebarFocused,
+            )
         }
 
         HomeRowsLayer(
@@ -3068,33 +3249,7 @@ private fun HomeInputLayer(
                 if (item.status == "settings") {
                     onNavigateToSettings()
                 } else if (isNavTile) {
-                    val entry = navSectionForTileStatus(item.status.orEmpty(), navSections)
-                    val libraryCatalogId = when (entry?.customId) {
-                        "movies" -> findMoviesLibraryCatalogId()
-                        "shows" -> findShowsLibraryCatalogId()
-                        else -> null
-                    }
-                    if (libraryCatalogId != null && onBrowseCategory != null) {
-                        // Full library browse (Sonarr/Radarr-backed if configured) —
-                        // same overlay a catalogue row's own "See All" opens.
-                        onBrowseCategory(libraryCatalogId)
-                    } else if (entry?.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM) {
-                        com.arflix.tv.navigation.NavTargets.activate(
-                            entry.target,
-                            onNavigateToHome = {}, // already home
-                            onNavigateToSearch = onNavigateToSearch,
-                            onNavigateToTv = { onNavigateToTv(null, null) },
-                            onNavigateToCameras = onNavigateToCameras,
-                            onNavigateToWatchlist = onNavigateToWatchlist,
-                        )
-                    } else when (entry?.kind) {
-                        com.arflix.tv.data.model.NavSectionKind.SEARCH -> onNavigateToSearch()
-                        com.arflix.tv.data.model.NavSectionKind.DISCOVER -> onNavigateToDiscover()
-                        com.arflix.tv.data.model.NavSectionKind.TV -> onNavigateToTv(null, null)
-                        com.arflix.tv.data.model.NavSectionKind.CAMERAS -> onNavigateToCameras()
-                        com.arflix.tv.data.model.NavSectionKind.SETTINGS -> onNavigateToSettings()
-                        else -> Unit
-                    }
+                    handleLibraryTileClick(item)
                 } else if (isNeolinkEvent) {
                     val clipUrl = getNeolinkEventClipUrl(item.id).orEmpty()
                     if (clipUrl.isNotBlank()) onNavigateToCameraPlayer(clipUrl, item.title)
@@ -3135,7 +3290,6 @@ private fun HomeInputLayer(
                 currentScreen = com.arflix.tv.data.model.NavSectionKind.HOME,
                 navSections = navSections,
                 neolinkConfigured = neolinkConfigured,
-                profile = currentProfile,
                 restrictToKinds = setOf(
                     com.arflix.tv.data.model.NavSectionKind.SEARCH,
                     com.arflix.tv.data.model.NavSectionKind.SETTINGS,
@@ -3148,8 +3302,8 @@ private fun HomeInputLayer(
                     onNavigateToCameras = onNavigateToCameras,
                     onNavigateToSettings = onNavigateToSettings,
                     onNavigateToWatchlist = onNavigateToWatchlist,
-                    onSwitchProfile = onSwitchProfile,
                 ),
+                focusedIndex = navRailFocusedIndex.value,
             )
         }
 
@@ -3625,7 +3779,15 @@ private fun homeViewportFocusOverlayActive(
     usePosterCards: Boolean
 ): Boolean {
     if (focusedItemIndex < 0 || category.items.isEmpty()) return false
-    if (category.id == HomeViewModel.APPS_CATEGORY_ID) return false
+    // Both this overlay and railFocusOverlayActive below are positioning
+    // optimizations tuned for the standard poster/landscape catalogue card
+    // geometry. Apps was already excluded since its small icon tiles don't
+    // match that geometry — Library Tiles is the same shape of row (small
+    // icon tiles, not big image cards) but was missed when it was added,
+    // so its focus indicator could render at a position computed for the
+    // wrong card size/spacing: the visible border drifts from the actually
+    // focused tile, so what looks focused isn't what OK activates.
+    if (category.id == HomeViewModel.APPS_CATEGORY_ID || category.id == HomeViewModel.LIBRARY_TILES_CATEGORY_ID) return false
     return category.items.size > 1 && focusedItemIndex <= category.items.lastIndex
 }
 
@@ -3651,11 +3813,43 @@ private fun CategoryBrowseOverlay(
     // avoids that double-dismiss.
     isModalOpen: Boolean = false,
     onDismiss: () -> Unit,
+    onNavigateToSearch: () -> Unit = {},
+    onNavigateToDiscover: () -> Unit = {},
+    onNavigateToTv: (channelId: String?, streamUrl: String?) -> Unit = { _, _ -> },
+    onNavigateToCameras: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToWatchlist: () -> Unit = {},
+    onBrowseCategory: ((String) -> Unit)? = null,
+    findMoviesLibraryCatalogId: () -> String? = { null },
+    findShowsLibraryCatalogId: () -> String? = { null },
 ) {
     val displayItems = overrideItems ?: category?.items ?: emptyList()
     val outerFocusRequester = remember { FocusRequester() }
     val firstItemFocusRequester = remember { FocusRequester() }
     val usePosterCards = rememberCardLayoutMode() == CardLayoutMode.POSTER
+    val isTouchDevice = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
+    val neolinkConfigured = com.arflix.tv.util.LocalNeolinkConfigured.current
+    val navSections = com.arflix.tv.util.LocalNavSections.current
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    // Works here even though this overlay otherwise uses native Compose focus
+    // traversal (see the focusedItemIndex comment below) — onPreviewKeyEvent on
+    // this outer Box intercepts key events before they reach whichever card
+    // actually holds focus, same mechanism every other migrated screen relies on.
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // card's own click (this grid uses real system focus, so this matters here
+    // more than almost anywhere else in the app; Joe, 2026-07-11: activating a
+    // NavRail entry was landing on whatever card had focus — e.g. a random
+    // movie's Details screen).
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
 
     var libraryMenuTarget by remember {
         mutableStateOf<Pair<MediaItem, com.arflix.tv.data.model.LibraryBrowseEntry>?>(null)
@@ -3780,6 +3974,75 @@ private fun CategoryBrowseOverlay(
                 // explicitly and directly at this ancestor level instead of hoping the
                 // nested node handles it — that's a guaranteed consume, not a gamble.
                 if (isModalOpen) return@onPreviewKeyEvent false
+                if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                    pendingRailKeyUp = null
+                    return@onPreviewKeyEvent true
+                }
+                if (isNavRailOpen.value) {
+                    if (event.type == KeyEventType.KeyDown) pendingRailKeyUp = event.key
+                    val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                        currentScreen = null,
+                        navSections = navSections,
+                        neolinkConfigured = neolinkConfigured,
+                    )
+                    // Movies/Shows in the rail are CUSTOM entries whose target is a
+                    // "seeall:<trending catalog>" fallback — generic activation (below)
+                    // round-trips through NavTargets.activate's PendingHomeNavTarget +
+                    // onNavigateToHome, which here is onDismiss(): it closes THIS
+                    // overlay back to Home instead of switching to the real library
+                    // browse, and Home's own consumer effect only fires for a
+                    // genuinely different-identity categories list, so it very often
+                    // just... doesn't (Joe, 2026-07-11: "I'm on shows then side menu I
+                    // choose movies and it goes to home again"). Intercept those two
+                    // specifically and swap this same overlay's content directly, same
+                    // as HomeScreen.kt's handleLibraryTileClick does for the Home tile.
+                    val focusedRailEntry = railEntries.getOrNull(navRailFocusedIndex.value)
+                    val isLibraryCustomEntry = focusedRailEntry?.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM &&
+                        (focusedRailEntry.customId == "movies" || focusedRailEntry.customId == "shows")
+                    if (isLibraryCustomEntry && event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.Enter || event.key == Key.DirectionCenter)) {
+                        val catalogId = when (focusedRailEntry?.customId) {
+                            "movies" -> findMoviesLibraryCatalogId()
+                            "shows" -> findShowsLibraryCatalogId()
+                            else -> null
+                        }
+                        isNavRailOpen.value = false
+                        if (catalogId != null && onBrowseCategory != null) {
+                            onBrowseCategory(catalogId)
+                        } else {
+                            com.arflix.tv.navigation.NavTargets.activate(
+                                focusedRailEntry?.target,
+                                onNavigateToHome = onDismiss,
+                                onNavigateToSearch = onNavigateToSearch,
+                                onNavigateToTv = { onNavigateToTv(null, null) },
+                                onNavigateToCameras = onNavigateToCameras,
+                                onNavigateToWatchlist = onNavigateToWatchlist,
+                            )
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                    com.arflix.tv.ui.components.navRailHandleKey(
+                        event = event,
+                        entries = railEntries,
+                        focusedIndex = navRailFocusedIndex,
+                        onClose = { isNavRailOpen.value = false },
+                        actions = com.arflix.tv.ui.components.NavRailActions(
+                            onNavigateToHome = onDismiss,
+                            onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToDiscover = onNavigateToDiscover,
+                            onNavigateToTv = { onNavigateToTv(null, null) },
+                            onNavigateToCameras = onNavigateToCameras,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToWatchlist = onNavigateToWatchlist,
+                        ),
+                    )
+                    return@onPreviewKeyEvent true
+                }
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && focusedItemIndex % gridColumns == 0) {
+                    isNavRailOpen.value = true
+                    pendingRailKeyUp = Key.DirectionLeft
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.Back || event.key == Key.Escape)) {
                     when {
@@ -3824,6 +4087,38 @@ private fun CategoryBrowseOverlay(
                 }
             },
     ) {
+        // Same NavRail every other screen has (Joe, 2026-07-11: "movies and
+        // shows don't have the sidebar... I can access any page from
+        // another"). Left at the leftmost grid column opens it.
+        if (!isTouchDevice) {
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = null)
+
+            // zIndex forces this above the grid content regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = {
+                        isNavRailOpen.value = false
+                        runCatching { firstItemFocusRequester.requestFocus() }
+                    },
+                    currentScreen = null,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onDismiss,
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = { onNavigateToTv(null, null) },
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
+        }
+
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
@@ -4176,6 +4471,17 @@ private fun classifyHomeRowKind(categoryId: String): HomeRowKind = when {
     else -> HomeRowKind.STANDARD
 }
 
+/** Per-destination solid tile color for BrowseTileCard — matches concept.png (Live TV red, Movies blue, Shows purple, Cameras green). */
+private fun browseTileColor(kind: com.arflix.tv.data.model.NavSectionKind?, customId: String?): Color = when {
+    kind == com.arflix.tv.data.model.NavSectionKind.TV -> Color(0xFF6B1F1F)
+    kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> Color(0xFF1F5C33)
+    kind == com.arflix.tv.data.model.NavSectionKind.DISCOVER -> Color(0xFF3A3A3A)
+    customId == "movies" -> Color(0xFF16325C)
+    customId == "shows" -> Color(0xFF3B2E63)
+    customId == "watchlist" -> Color(0xFF4A4A2E)
+    else -> Color(0xFF2A2A2A)
+}
+
 /** Reverses HomeViewModel.buildLibraryTilesCategory()'s "navtile:kind:X" / "navtile:custom:Y" encoding back to the source NavSectionConfig, for icon lookup. */
 private fun navSectionForTileStatus(
     status: String,
@@ -4256,7 +4562,11 @@ private fun ContentRow(
     val itemSpanPx = remember(density, itemWidth, itemSpacing) {
         with(density) { (itemWidth + itemSpacing).toPx().coerceAtLeast(1f) }
     }
-    val railFocusOverlayActive = !isAppsRow && !useViewportFocusOverlay && !isTitleFocused &&
+    // Same exclusion as homeViewportFocusOverlayActive() above and for the same
+    // reason: this overlay's position math is tuned for the standard image-card
+    // row, and Library Tiles' icon tiles don't match it — leaving it enabled
+    // let the visible focus border drift from the actually-focused tile.
+    val railFocusOverlayActive = !isAppsRow && !isLibraryTilesRow && !useViewportFocusOverlay && !isTitleFocused &&
         isCurrentRow && isScrollable && focusedItemIndex >= 0 && totalItems > 0 &&
         focusedItemIndex <= maxFirstIndex
     val focusedCardIndex = if (railFocusOverlayActive || useViewportFocusOverlay) {
@@ -4347,38 +4657,43 @@ private fun ContentRow(
         // Section title - clean white text, aligned with cards. When focused (D-pad
         // left of the row's first card) or tapped (touch), jumps straight to the
         // full "See All" browse view instead of requiring a scroll past every card.
+        // Library Tiles is untitled — concept.png's "Browse" row has no section
+        // header; each tile already carries its own title/subtitle via
+        // BrowseTileCard, so a redundant row header isn't rendered here.
         val titleBorderColor by androidx.compose.animation.animateColorAsState(
             targetValue = if (isTitleFocused) XadarrSkin.colors.focusOutline else Color.Transparent,
             animationSpec = tween(150),
             label = "row_title_focus_border"
         )
-        Row(
-            modifier = Modifier
-                .padding(start = startPadding, bottom = 12.dp)
-                // Border/background are pure decoration here — no padding is added
-                // inside them. This row sits inside a fixed-height, clipped row
-                // container; any extra size on the title pushes the cards below it
-                // out of alignment with their focus-ring overlay. Zero net size
-                // change keeps every row's card position identical regardless of
-                // whether the title is focused.
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.5.dp, titleBorderColor, RoundedCornerShape(8.dp))
-                .background(if (isTitleFocused) Color(0xFF1A2540) else Color.Transparent)
-                .then(if (onTitleClick != null) Modifier.clickable { onTitleClick() } else Modifier),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = localizedCategoryTitle(category),
-                style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
-                color = Color.White
-            )
-            if (isTitleFocused) {
+        if (!isLibraryTilesRow) {
+            Row(
+                modifier = Modifier
+                    .padding(start = startPadding, bottom = 12.dp)
+                    // Border/background are pure decoration here — no padding is added
+                    // inside them. This row sits inside a fixed-height, clipped row
+                    // container; any extra size on the title pushes the cards below it
+                    // out of alignment with their focus-ring overlay. Zero net size
+                    // change keeps every row's card position identical regardless of
+                    // whether the title is focused.
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.5.dp, titleBorderColor, RoundedCornerShape(8.dp))
+                    .background(if (isTitleFocused) Color(0xFF1A2540) else Color.Transparent)
+                    .then(if (onTitleClick != null) Modifier.clickable { onTitleClick() } else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
-                    text = "See All →",
-                    style = ArflixTypography.sectionTitle.copy(fontSize = 13.sp),
-                    color = Color.White.copy(alpha = 0.7f)
+                    text = localizedCategoryTitle(category),
+                    style = ArflixTypography.sectionTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                    color = Color.White
                 )
+                if (isTitleFocused) {
+                    Text(
+                        text = "See All →",
+                        style = ArflixTypography.sectionTitle.copy(fontSize = 13.sp),
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
 
@@ -4460,24 +4775,24 @@ private fun ContentRow(
                     return@itemsIndexed
                 }
                 if (isLibraryTilesRow) {
-                    // Landscape, same shape as any other catalogue row — image is
-                    // whatever HomeViewModel.buildLibraryTilesCategory found for
-                    // this destination (on-now channel, first camera/watchlist
-                    // item, a matching movie/show); title always shows since
-                    // there's no other label once the icon is gone.
-                    XadarrMediaCard(
-                        item = item,
+                    // Real backdrop/snapshot art when the destination has
+                    // representative content (a real movie/show/on-now channel —
+                    // see HomeViewModel.buildLibraryTilesCategory's sourceItem),
+                    // solid per-destination color as fallback otherwise (Discover
+                    // has no single representative item). Joe, 2026-07-11: "can
+                    // the tiles be art not just a color."
+                    val entry = navSectionForTileStatus(item.status.orEmpty(), currentNavSections)
+                    BrowseTileCard(
+                        icon = entry?.let { com.arflix.tv.ui.components.navEntryIcon(it) }
+                            ?: Icons.Filled.Star,
+                        label = item.title,
+                        subtitle = item.subtitle,
+                        backgroundColor = browseTileColor(entry?.kind, entry?.customId),
+                        isFocused = itemIsFocused && !railFocusOverlayActive && !useViewportFocusOverlay,
                         width = itemWidth,
-                        isLandscape = true,
-                        showTitle = true,
-                        raiseOnFocus = !isFastScrolling,
-                        isFocusedOverride = itemIsFocused && !railFocusOverlayActive && !useViewportFocusOverlay,
-                        focusedScale = 1f,
-                        enableFocusedImageSwap = false,
-                        animateFocus = false,
-                        enableSystemFocus = false,
                         onFocused = onCardFocused,
                         onClick = { latestOnItemClick.value(item) },
+                        artUrl = item.backdrop ?: item.image,
                     )
                     return@itemsIndexed
                 }

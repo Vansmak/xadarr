@@ -25,10 +25,12 @@ import com.arflix.tv.data.model.Profile
  * Non-Home screens' top chrome under the NavRail model: no persistent nav
  * chips (that's the rail's job now, opened via LEFT at the leftmost element —
  * see NavRail/NavRailTrigger) — just a status readout (network/clock/profile)
- * and a visual hint that Back leaves the screen. Purely decorative: nothing
- * here is focusable, so it never competes with the screen's own D-pad focus.
- * The actual back action stays wired through each screen's existing
- * BackHandler/Key.Back handling.
+ * and a visual hint that Back leaves the screen. Network/clock/back-hint stay
+ * decorative; the profile avatar is the one exception — Home drives its focus
+ * via `isProfileFocused` (see HomeScreen.kt's isSidebarFocused handling, an
+ * extra Up press at row 0), everything else here never competes with the
+ * screen's own D-pad focus. The actual back action stays wired through each
+ * screen's existing BackHandler/Key.Back handling.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -36,6 +38,16 @@ fun MinimalTopChrome(
     profile: Profile? = null,
     clockFormat: String = "24h",
     modifier: Modifier = Modifier,
+    // Home is the root screen — Back has nothing to leave to, so it hides the
+    // hint but keeps the profile/network/clock readout. Every other screen
+    // still shows it (see doc comment above).
+    showBackHint: Boolean = true,
+    // Profile switching moved here from the side menu (NavRail) — Home's own
+    // key handler escalates focus into this avatar via an extra Up press at
+    // row 0, same "one more" gesture NavRail uses for Left (see HomeScreen.kt's
+    // isSidebarFocused handling). Every other screen's own top bar still
+    // handles its own profile focus separately.
+    isProfileFocused: Boolean = false,
 ) {
     val currentTime = rememberTopBarTime(clockFormat)
 
@@ -60,17 +72,19 @@ fun MinimalTopChrome(
                 .padding(start = AppTopBarHorizontalPadding, end = AppTopBarHorizontalPadding, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "Back",
-                tint = Color.White.copy(alpha = 0.45f),
-                modifier = Modifier.padding(end = 6.dp)
-            )
-            Text(
-                text = "Back",
-                fontSize = 13.sp,
-                color = Color.White.copy(alpha = 0.45f),
-            )
+            if (showBackHint) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+                Text(
+                    text = "Back",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.45f),
+                )
+            }
 
             Row(
                 modifier = Modifier.weight(1f),
@@ -82,7 +96,7 @@ fun MinimalTopChrome(
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     if (profile != null) {
-                        TopBarProfileAvatar(profile = profile, isFocused = false)
+                        TopBarProfileAvatar(profile = profile, isFocused = isProfileFocused)
                     }
                     TopBarNetworkStatus()
                     Text(

@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,18 +54,14 @@ import androidx.tv.foundation.lazy.grid.rememberTvLazyGridState
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.MediaType
-import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.MediaCard
-import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.ToastType as ComponentToastType
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -123,11 +120,23 @@ fun WatchlistScreen(
     }
     
     var isSidebarFocused by remember { mutableStateOf(false) }
-    val hasProfile = currentProfile != null
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
-    var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 3 else 2) } // WATCHLIST
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // card's own click (this grid's MediaCards use real system focus; Joe,
+    // 2026-07-11: activating a NavRail entry was landing on whatever card had
+    // focus before the rail opened, e.g. a random movie's Details screen).
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
     val rootFocusRequester = remember { FocusRequester() }
     val gridFocusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -170,7 +179,6 @@ fun WatchlistScreen(
         if (!uiState.isLoading && uiState.items.isEmpty()) {
             // Empty screen must always have a deterministic focus target.
             isSidebarFocused = true
-            sidebarFocusIndex = if (hasProfile) 3 else SidebarItem.DISCOVER.ordinal
         } else if (!uiState.isLoading && uiState.items.isNotEmpty() && !isSidebarFocused) {
             // Ensure first card can receive focus when content becomes available.
             delay(80)
@@ -190,109 +198,137 @@ fun WatchlistScreen(
             }
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    // Helper: transition focus from grid to sidebar
-                    fun moveToSidebar() {
-                        isSidebarFocused = true
-                        // Immediately steal focus from grid card to prevent card click on next Enter
-                        runCatching { rootFocusRequester.requestFocus() }
-                    }
+                if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                    pendingRailKeyUp = null
+                    return@onPreviewKeyEvent true
+                }
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (isNavRailOpen.value) {
+                    pendingRailKeyUp = event.key
+                    val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                        currentScreen = null,
+                        navSections = navSections,
+                        neolinkConfigured = neolinkConfigured,
+                    )
+                    com.arflix.tv.ui.components.navRailHandleKey(
+                        event = event,
+                        entries = railEntries,
+                        focusedIndex = navRailFocusedIndex,
+                        onClose = { isNavRailOpen.value = false },
+                        actions = com.arflix.tv.ui.components.NavRailActions(
+                            onNavigateToHome = onNavigateToHome,
+                            onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToDiscover = onNavigateToDiscover,
+                            onNavigateToTv = onNavigateToTv,
+                            onNavigateToCameras = onNavigateToCameras,
+                            onNavigateToSettings = onNavigateToSettings,
+                        ),
+                    )
+                    return@onPreviewKeyEvent true
+                }
+                // Helper: transition focus from grid to chrome (root)
+                fun moveToSidebar() {
+                    isSidebarFocused = true
+                    // Immediately steal focus from grid card to prevent card click on next Enter
+                    runCatching { rootFocusRequester.requestFocus() }
+                }
 
-                    when (event.key) {
-                        Key.Back, Key.Escape -> {
-                            if (isSidebarFocused) {
-                                onBack()
-                            } else {
+                when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        if (isSidebarFocused) {
+                            onBack()
+                        } else {
+                            moveToSidebar()
+                        }
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (!isSidebarFocused) {
+                            if (focusedGridIndex % gridColumns == 0) {
                                 moveToSidebar()
+                                isNavRailOpen.value = true
+                                pendingRailKeyUp = Key.DirectionLeft
+                                true
+                            } else {
+                                false
                             }
+                        } else {
+                            // Leftmost/chrome, one more Left opens the rail — same
+                            // gesture every other screen uses.
+                            isNavRailOpen.value = true
+                            pendingRailKeyUp = Key.DirectionLeft
                             true
                         }
-                        Key.DirectionLeft -> {
-                            if (!isSidebarFocused) {
-                                if (focusedGridIndex % gridColumns == 0) {
-                                    moveToSidebar()
-                                    true
-                                } else {
-                                    false
-                                }
-                            } else {
-                                if (sidebarFocusIndex > 0) {
-                                    sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
-                                }
-                                true
-                            }
-                        }
-                        Key.DirectionRight -> {
-                            if (isSidebarFocused) {
-                                if (sidebarFocusIndex < maxSidebarIndex) {
-                                    sidebarFocusIndex = (sidebarFocusIndex + 1).coerceIn(0, maxSidebarIndex)
-                                }
+                    }
+                    Key.DirectionRight -> {
+                        // No more top bar items to cycle through here (all moved to
+                        // NavRail) — just consume so it doesn't fall through.
+                        isSidebarFocused
+                    }
+                    Key.DirectionUp -> {
+                        if (isSidebarFocused) {
+                            true
+                        } else {
+                            val firstVisibleIndex = gridState.firstVisibleItemIndex
+                            if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
+                                moveToSidebar()
                                 true
                             } else {
                                 false
                             }
                         }
-                        Key.DirectionUp -> {
-                            if (isSidebarFocused) {
-                                true
-                            } else {
-                                val firstVisibleIndex = gridState.firstVisibleItemIndex
-                                if (firstVisibleIndex == 0 && focusedGridIndex < gridColumns) {
-                                    moveToSidebar()
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                        }
-                        Key.DirectionDown -> {
-                            if (isSidebarFocused) {
-                                if (uiState.items.isNotEmpty()) {
-                                    isSidebarFocused = false
-                                    runCatching { gridFocusRequester.requestFocus() }
-                                }
-                                true
-                            } else {
-                                if (focusedGridIndex >= uiState.items.size - 1) {
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                        }
-                        Key.Enter, Key.DirectionCenter -> {
-                            if (isSidebarFocused) {
-                                if (hasProfile && sidebarFocusIndex == 0) {
-                                    onSwitchProfile()
-                                } else {
-                                    val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)
-                                    if (customEntry != null) {
-                                        com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv, onNavigateToCameras)
-                                    } else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
-                                        SidebarItem.SEARCH -> onNavigateToSearch()
-                                        SidebarItem.HOME -> onNavigateToHome()
-                                        SidebarItem.DISCOVER -> { }
-                                        SidebarItem.TV -> onNavigateToTv()
-                                        SidebarItem.CAMERAS -> onNavigateToCameras()
-                                        SidebarItem.SETTINGS -> onNavigateToSettings()
-                                        null -> Unit
-                                    }
-                                }
-                                true
-                            } else false
-                        }
-                        else -> false
                     }
-                } else false
+                    Key.DirectionDown -> {
+                        if (isSidebarFocused) {
+                            if (uiState.items.isNotEmpty()) {
+                                isSidebarFocused = false
+                                runCatching { gridFocusRequester.requestFocus() }
+                            }
+                            true
+                        } else {
+                            if (focusedGridIndex >= uiState.items.size - 1) {
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                    Key.Enter, Key.DirectionCenter -> {
+                        // Chrome no longer has any dispatchable item of its own
+                        // (Search/Discover/TV/Cameras/Settings/Watchlist all moved to
+                        // NavRail) — just consume so it doesn't fall through to a card click.
+                        isSidebarFocused
+                    }
+                    else -> false
+                }
             }
     ) {
         if (!LocalDeviceType.current.isTouchDevice()) {
-            AppTopBar(
-                selectedItem = SidebarItem.DISCOVER,
-                isFocused = isSidebarFocused,
-                focusedIndex = sidebarFocusIndex,
-                profile = currentProfile
-            )
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
+
+            // zIndex forces this above the grid content regardless of composition
+            // order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = {
+                        isNavRailOpen.value = false
+                        runCatching { rootFocusRequester.requestFocus() }
+                    },
+                    currentScreen = null,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
         }
 
         Column(

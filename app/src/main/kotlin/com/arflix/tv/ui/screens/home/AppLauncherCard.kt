@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.home
 
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -192,5 +193,102 @@ fun IconTileCard(
             maxLines = 1,
             modifier = Modifier.width(88.dp)
         )
+    }
+}
+
+/**
+ * Landscape "Browse" tile — icon top-left, title + subtitle bottom-left, over
+ * either real backdrop/poster art (when the destination has representative
+ * content — e.g. a real movie for the Movies tile, a live channel snapshot
+ * for TV) or a flat per-destination color as a fallback (Discover has no
+ * single representative item). Matches the concept.png/Screenshothome.png
+ * mockups for Home's nav-shortcut row (Live TV/Movies/Shows/Cameras/...):
+ * unlike IconTileCard (icon-over-label, used by Apps), each tile here carries
+ * its own dynamic status line (e.g. "Now: <channel>", "12 movies") baked into
+ * item.subtitle by HomeViewModel.buildLibraryTilesCategory. `artUrl` is that
+ * same category's `sourceItem?.backdrop ?: sourceItem?.image` (Joe,
+ * 2026-07-11: "can the tiles be art ninot just a color").
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun BrowseTileCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    subtitle: String,
+    backgroundColor: androidx.compose.ui.graphics.Color,
+    isFocused: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: androidx.compose.ui.unit.Dp = 210.dp,
+    artUrl: String? = null,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    XadarrFocusableSurface(
+        modifier = modifier
+            .width(width)
+            .height(width * 9f / 16f),
+        shape = shape,
+        backgroundColor = backgroundColor,
+        outlineColor = XadarrSkin.colors.focusOutline,
+        outlineWidth = XadarrSkin.focus.outlineWidth,
+        focusedScale = 1.05f,
+        pressedScale = 0.97f,
+        enableSystemFocus = false,
+        isFocusedOverride = isFocused,
+        onClick = onClick,
+        onFocusChanged = { focused -> if (focused) onFocused() },
+    ) { _ ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!artUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = artUrl,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // Tinted scrim keeps the section's color identity (Movies=blue,
+                // Shows=purple, ...) while still showing the art underneath, and
+                // keeps icon/title/subtitle legible over busy backdrops.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    backgroundColor.copy(alpha = 0.55f),
+                                    backgroundColor.copy(alpha = 0.85f),
+                                )
+                            )
+                        )
+                )
+            }
+            Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = label,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }

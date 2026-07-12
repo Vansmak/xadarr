@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -287,6 +288,19 @@ fun LiveTvScreen(
     val navSections = com.arflix.tv.util.LocalNavSections.current
     var focusZone by rememberSaveable { mutableStateOf(LiveTvFocusZone.CATEGORY_LIST) }
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // card's own click (Joe, 2026-07-11: activating a NavRail entry was
+    // landing on whatever card had focus before the rail opened).
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
 
     // Category switches are served from prebuilt buckets. Favorites and
     // recents remain ordered dynamic lists, but they are simple id lookups.
@@ -715,7 +729,35 @@ fun LiveTvScreen(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (searchOpen || isFullScreen) return@onPreviewKeyEvent false
-                        com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = false)
+                        if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                            pendingRailKeyUp = null
+                            return@onPreviewKeyEvent true
+                        }
+                        if (isNavRailOpen.value) {
+                            if (event.type == KeyEventType.KeyDown) pendingRailKeyUp = event.key
+                            val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                                currentScreen = com.arflix.tv.data.model.NavSectionKind.TV,
+                                navSections = navSections,
+                                neolinkConfigured = neolinkConfigured,
+                            )
+                            com.arflix.tv.ui.components.navRailHandleKey(
+                                event = event,
+                                entries = railEntries,
+                                focusedIndex = navRailFocusedIndex,
+                                onClose = { isNavRailOpen.value = false },
+                                actions = com.arflix.tv.ui.components.NavRailActions(
+                                    onNavigateToHome = onNavigateToHome,
+                                    onNavigateToSearch = onNavigateToSearch,
+                                    onNavigateToDiscover = onNavigateToDiscover,
+                                    onNavigateToCameras = onNavigateToCameras,
+                                    onNavigateToSettings = onNavigateToSettings,
+                                    onNavigateToWatchlist = onNavigateToWatchlist,
+                                ),
+                            )
+                            true
+                        } else {
+                            false
+                        }
                     }
                 } else {
                     Modifier
@@ -1027,6 +1069,9 @@ fun LiveTvScreen(
         }
 
         if (showTopBar) {
+            // zIndex forces this above the guide/category content regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
             com.arflix.tv.ui.components.NavRail(
                 isOpen = isNavRailOpen.value,
                 onClose = {
@@ -1036,7 +1081,6 @@ fun LiveTvScreen(
                 currentScreen = com.arflix.tv.data.model.NavSectionKind.TV,
                 navSections = navSections,
                 neolinkConfigured = neolinkConfigured,
-                profile = currentProfile,
                 actions = com.arflix.tv.ui.components.NavRailActions(
                     onNavigateToHome = onNavigateToHome,
                     onNavigateToSearch = onNavigateToSearch,
@@ -1044,9 +1088,10 @@ fun LiveTvScreen(
                     onNavigateToCameras = onNavigateToCameras,
                     onNavigateToSettings = onNavigateToSettings,
                     onNavigateToWatchlist = onNavigateToWatchlist,
-                    onSwitchProfile = onSwitchProfile,
                 ),
+                focusedIndex = navRailFocusedIndex.value,
             )
+            }
         }
 
         AnimatedVisibility(

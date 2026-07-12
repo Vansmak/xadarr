@@ -94,12 +94,7 @@ import coil.compose.AsyncImage
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.NeolinkRepository
 import com.arflix.tv.network.OkHttpProvider
-import com.arflix.tv.ui.components.AppTopBar
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
-import com.arflix.tv.ui.components.SidebarItem
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.ui.components.topBarSelectedIndex
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
@@ -192,7 +187,7 @@ class CamerasViewModel @Inject constructor(
 
 // ── Focus zones ───────────────────────────────────────────────────────────────
 
-private enum class FocusZone { TOPBAR, GRID, EVENTS, PLAYER }
+private enum class FocusZone { GRID, EVENTS, PLAYER }
 
 // ── Cameras grid screen ───────────────────────────────────────────────────────
 
@@ -215,7 +210,6 @@ fun CamerasScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val deviceType = LocalDeviceType.current
     val isTouchDevice = deviceType.isTouchDevice()
-    val hasProfile = currentProfile != null
 
     val cameras = uiState.cameras
     val events = uiState.events
@@ -231,10 +225,14 @@ fun CamerasScreen(
     val navSections = com.arflix.tv.util.LocalNavSections.current
     // Focus state — all navigation is keyboard-driven (no system focus on cards)
     var focusZone by remember { mutableStateOf(FocusZone.GRID) }
-    var topBarFocusIndex by remember {
-        mutableIntStateOf(topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, neolinkConfigured, navSections))
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
     }
-    val maxTopBarIndex = remember(hasProfile, neolinkConfigured, navSections) { topBarMaxIndex(hasProfile, neolinkConfigured, navSections) }
     var focusedCameraIndex by remember { mutableIntStateOf(0) }
     var focusedEventIndex by remember { mutableIntStateOf(0) }
 
@@ -343,6 +341,28 @@ fun CamerasScreen(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (isNavRailOpen.value) {
+                    val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                        currentScreen = com.arflix.tv.data.model.NavSectionKind.CAMERAS,
+                        navSections = navSections,
+                        neolinkConfigured = neolinkConfigured,
+                    )
+                    com.arflix.tv.ui.components.navRailHandleKey(
+                        event = event,
+                        entries = railEntries,
+                        focusedIndex = navRailFocusedIndex,
+                        onClose = { isNavRailOpen.value = false },
+                        actions = com.arflix.tv.ui.components.NavRailActions(
+                            onNavigateToHome = onNavigateToHome,
+                            onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToDiscover = onNavigateToDiscover,
+                            onNavigateToTv = onNavigateToTv,
+                            onNavigateToWatchlist = onNavigateToWatchlist,
+                            onNavigateToSettings = onNavigateToSettings,
+                        ),
+                    )
+                    return@onPreviewKeyEvent true
+                }
                 when (event.key) {
                     Key.Back, Key.Escape -> {
                         if (playerUrl != null) { playerUrl = null; true }
@@ -356,12 +376,9 @@ fun CamerasScreen(
                             focusedCameraIndex = bottomRowStart.coerceIn(0, (cameras.size - 1).coerceAtLeast(0))
                             true
                         }
-                        focusZone == FocusZone.GRID &&
-                            (focusedCameraIndex < colCount || event.nativeKeyEvent.repeatCount >= 1) -> {
-                            focusZone = FocusZone.TOPBAR
-                            topBarFocusIndex = topBarSelectedIndex(SidebarItem.CAMERAS, hasProfile, neolinkConfigured, navSections)
-                            true
-                        }
+                        // No more top bar to escalate into — Up at row 0 just stops
+                        // there now, same as Home post-redesign.
+                        focusZone == FocusZone.GRID && focusedCameraIndex < colCount -> true
                         focusZone == FocusZone.GRID -> {
                             focusedCameraIndex -= colCount
                             true
@@ -371,11 +388,6 @@ fun CamerasScreen(
                     Key.DirectionDown -> when {
                         focusZone == FocusZone.PLAYER -> false
                         focusZone == FocusZone.EVENTS -> false
-                        focusZone == FocusZone.TOPBAR -> {
-                            focusZone = FocusZone.GRID
-                            focusedCameraIndex = 0
-                            true
-                        }
                         focusZone == FocusZone.GRID && focusedCameraIndex + colCount < cameras.size -> {
                             focusedCameraIndex += colCount
                             true
@@ -389,22 +401,20 @@ fun CamerasScreen(
                     }
                     Key.DirectionLeft -> when {
                         focusZone == FocusZone.PLAYER -> false
-                        focusZone == FocusZone.TOPBAR && topBarFocusIndex > 0 -> {
-                            topBarFocusIndex--; true
-                        }
                         focusZone == FocusZone.GRID && focusedCameraIndex % colCount > 0 -> {
                             focusedCameraIndex--; true
                         }
+                        // Leftmost column, one more Left opens the rail — same gesture
+                        // every other screen uses.
+                        focusZone == FocusZone.GRID -> { isNavRailOpen.value = true; true }
                         focusZone == FocusZone.EVENTS && focusedEventIndex > 0 -> {
                             focusedEventIndex--; true
                         }
+                        focusZone == FocusZone.EVENTS -> { isNavRailOpen.value = true; true }
                         else -> false
                     }
                     Key.DirectionRight -> when {
                         focusZone == FocusZone.PLAYER -> false
-                        focusZone == FocusZone.TOPBAR && topBarFocusIndex < maxTopBarIndex -> {
-                            topBarFocusIndex++; true
-                        }
                         focusZone == FocusZone.GRID
                             && focusedCameraIndex % colCount < colCount - 1
                             && focusedCameraIndex + 1 < cameras.size -> {
@@ -417,21 +427,6 @@ fun CamerasScreen(
                     }
                     Key.Enter, Key.DirectionCenter -> when {
                         focusZone == FocusZone.PLAYER -> false
-                        focusZone == FocusZone.TOPBAR -> {
-                            val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(topBarFocusIndex, hasProfile, neolinkConfigured, navSections)
-                            if (customEntry != null) {
-                                com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv, onNavigateToCameras = {})
-                            } else when (topBarFocusedItem(topBarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
-                                SidebarItem.SEARCH -> onNavigateToSearch()
-                                SidebarItem.HOME -> onNavigateToHome()
-                                SidebarItem.DISCOVER -> onNavigateToDiscover()
-                                SidebarItem.TV -> onNavigateToTv()
-                                SidebarItem.CAMERAS -> Unit
-                                SidebarItem.SETTINGS -> onNavigateToSettings()
-                                null -> onSwitchProfile()
-                            }
-                            true
-                        }
                         focusZone == FocusZone.GRID && focusedCameraIndex < cameras.size -> {
                             val cam = cameras[focusedCameraIndex]
                             playerUrl = cam.streamUrl
@@ -508,17 +503,36 @@ fun CamerasScreen(
             }
         }
 
-        // AppTopBar — hidden only when in fullscreen player
+        // Top chrome + NavRail — hidden only when in fullscreen player
         if (!isTouchDevice && focusZone != FocusZone.PLAYER) {
-            AppTopBar(
-                selectedItem = SidebarItem.CAMERAS,
-                isFocused = focusZone == FocusZone.TOPBAR,
-                focusedIndex = if (focusZone == FocusZone.TOPBAR) topBarFocusIndex else -1,
-                profile = currentProfile,
-            )
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
+
+            // zIndex forces this above the grid/events content regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = {
+                        isNavRailOpen.value = false
+                        runCatching { rootFocusRequester.requestFocus() }
+                    },
+                    currentScreen = com.arflix.tv.data.model.NavSectionKind.CAMERAS,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                        onNavigateToSettings = onNavigateToSettings,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
         }
 
-        // Embedded fullscreen player — drawn on top, covers AppTopBar
+        // Embedded fullscreen player — drawn on top, covers the chrome above
         if (playerUrl != null) {
             EmbeddedCameraPlayer(
                 streamUrl = playerUrl!!,

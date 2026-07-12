@@ -71,6 +71,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
@@ -79,14 +80,9 @@ import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Category
 import com.arflix.tv.ui.components.LoadingIndicator
 import com.arflix.tv.ui.components.CardLayoutMode
-import com.arflix.tv.ui.components.AppTopBar
-import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.components.MediaCard
-import com.arflix.tv.ui.components.SidebarItem
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
-import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
+import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.XadarrFocusableSurface
 import com.arflix.tv.ui.skin.XadarrSkin
@@ -150,11 +146,23 @@ fun SearchScreen(
     }
 
     var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
-    val hasProfile = currentProfile != null
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
-    var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 1 else 0) }
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // card's own click. Matters here specifically for the AI-results grid,
+    // which uses real system focus (enableSystemFocus = true) unlike the rest
+    // of this screen's manual focusZone scheme.
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
     var isSearchInputFocused by remember { mutableStateOf(false) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
     val fastScrollThresholdMs = 220L
@@ -275,7 +283,34 @@ fun SearchScreen(
     // D-pad handler: manages zone transitions. FILTERS zone lets native focus handle Left/Right.
     val dpadModifier = if (!isTouchDevice) {
         Modifier.onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                pendingRailKeyUp = null
+                return@onPreviewKeyEvent true
+            }
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            if (isNavRailOpen.value) {
+                pendingRailKeyUp = event.key
+                val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                    currentScreen = com.arflix.tv.data.model.NavSectionKind.SEARCH,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                )
+                com.arflix.tv.ui.components.navRailHandleKey(
+                    event = event,
+                    entries = railEntries,
+                    focusedIndex = navRailFocusedIndex,
+                    onClose = { isNavRailOpen.value = false },
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                )
+                return@onPreviewKeyEvent true
+            }
             if (isSearchEditing && (event.key == Key.Back || event.key == Key.Escape)) {
                 isSearchEditing = false
                 keyboardController?.hide()
@@ -295,32 +330,23 @@ fun SearchScreen(
                     }
                     FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
                     FocusZone.SEARCH_INPUT -> {
-                        // Always progress toward sidebar so repeated Back presses can exit Search.
+                        // No sidebar/top bar to progress into — Search has no top bar of
+                        // its own (Joe, 2026-07-11: "I do not want top bar on search
+                        // period"), just the same NavRail every other screen has. Back
+                        // here exits the screen directly.
                         isSearchEditing = false
                         keyboardController?.hide()
-                        focusZone = FocusZone.SIDEBAR
+                        onBack()
                         true
                     }
-                    FocusZone.SIDEBAR -> { onBack(); true }
                 }
                 Key.DirectionUp -> when (focusZone) {
-                    FocusZone.SIDEBAR -> true
-                    FocusZone.SEARCH_INPUT -> {
-                        isSearchEditing = false
-                        keyboardController?.hide()
-                        focusZone = FocusZone.SIDEBAR
-                        true
-                    }
+                    FocusZone.SEARCH_INPUT -> true
                     FocusZone.FILTERS -> {
-                        if (event.nativeKeyEvent.repeatCount >= 1) { focusZone = FocusZone.SIDEBAR; true }
-                        else { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
+                        focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true
                     }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false // AI grid: let native focus handle navigation
-                        else if (event.nativeKeyEvent.repeatCount >= 1) {
-                            focusZone = FocusZone.SIDEBAR
-                            true
-                        }
                         else if (currentRowIndex > 0) {
                             resultsLastNavEventTime = SystemClock.elapsedRealtime()
                             currentRowIndex--
@@ -337,7 +363,6 @@ fun SearchScreen(
                     }
                 }
                 Key.DirectionDown -> when (focusZone) {
-                    FocusZone.SIDEBAR -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
                     FocusZone.SEARCH_INPUT -> {
                         isSearchEditing = false
                         keyboardController?.hide()
@@ -375,12 +400,16 @@ fun SearchScreen(
                     }
                 }
                 Key.DirectionLeft -> when (focusZone) {
-                    FocusZone.SIDEBAR -> { if (sidebarFocusIndex > 0) sidebarFocusIndex--; true }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false else {
                             if (currentItemIndex > 0) {
                                 resultsLastNavEventTime = SystemClock.elapsedRealtime()
                                 currentItemIndex--
+                            } else {
+                                // Leftmost column, one more Left opens the rail — same
+                                // gesture every other screen uses.
+                                isNavRailOpen.value = true
+                                pendingRailKeyUp = Key.DirectionLeft
                             }
                             true
                         }
@@ -389,15 +418,18 @@ fun SearchScreen(
                         if (focusedFilterIndex > 0) {
                             focusedFilterIndex--
                         } else {
-                            focusZone = FocusZone.SEARCH_INPUT
-                            runCatching { searchFocusRequester.requestFocus() }
+                            isNavRailOpen.value = true
+                            pendingRailKeyUp = Key.DirectionLeft
                         }
                         true
                     }
-                    else -> false
+                    FocusZone.SEARCH_INPUT -> {
+                        isNavRailOpen.value = true
+                        pendingRailKeyUp = Key.DirectionLeft
+                        true
+                    }
                 }
                 Key.DirectionRight -> when (focusZone) {
-                    FocusZone.SIDEBAR -> { if (sidebarFocusIndex < maxSidebarIndex) sidebarFocusIndex++; true }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false // AI grid: let native focus handle navigation
                         else {
@@ -420,13 +452,6 @@ fun SearchScreen(
                 }
                 Key.Enter, Key.DirectionCenter -> {
                     when (focusZone) {
-                        FocusZone.SIDEBAR -> {
-                            if (hasProfile && sidebarFocusIndex == 0) onSwitchProfile()
-                            else com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)?.let { entry ->
-                                com.arflix.tv.navigation.NavTargets.activate(entry.target, onNavigateToHome, onNavigateToSearch = {}, onNavigateToTv = onNavigateToTv, onNavigateToCameras = onNavigateToCameras)
-                            } ?: when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) { SidebarItem.SEARCH -> Unit; SidebarItem.HOME -> onNavigateToHome(); SidebarItem.DISCOVER -> onNavigateToDiscover(); SidebarItem.TV -> onNavigateToTv(); SidebarItem.CAMERAS -> onNavigateToCameras(); SidebarItem.SETTINGS -> onNavigateToSettings(); null -> Unit }
-                            true
-                        }
                         FocusZone.SEARCH_INPUT -> {
                             focusZone = FocusZone.SEARCH_INPUT
                             isSearchEditing = true
@@ -459,9 +484,41 @@ fun SearchScreen(
     } else Modifier
 
     Box(modifier = Modifier.fillMaxSize().background(appBackgroundDark()).then(dpadModifier)) {
-        if (!isTouchDevice) AppTopBar(selectedItem = SidebarItem.SEARCH, isFocused = focusZone == FocusZone.SIDEBAR, focusedIndex = sidebarFocusIndex, profile = currentProfile)
+        // No old horizontal top bar on Search (Joe, 2026-07-11: "I do not want
+        // top bar on search period") — but it does get the same NavRail every
+        // other screen has, so Search can reach any other page too (Joe,
+        // follow-up: "basically I can access any page from another").
+        if (!isTouchDevice) {
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
 
-        Column(modifier = Modifier.fillMaxSize().padding(top = if (isTouchDevice) 16.dp else AppTopBarContentTopInset).padding(horizontal = if (isTouchDevice) 12.dp else if (isCompactHeight) 20.dp else 28.dp)) {
+            // zIndex forces this above the results content regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = {
+                        isNavRailOpen.value = false
+                        runCatching { searchFocusRequester.requestFocus() }
+                    },
+                    currentScreen = com.arflix.tv.data.model.NavSectionKind.SEARCH,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
+        }
+
+        // Plain TV-safe top inset now that there's no tall top bar — same value
+        // CamerasScreen uses with MinimalTopChrome and no bar of its own.
+        Column(modifier = Modifier.fillMaxSize().padding(top = if (isTouchDevice) 16.dp else 32.dp).padding(horizontal = if (isTouchDevice) 12.dp else if (isCompactHeight) 20.dp else 28.dp)) {
             // ── Search Bar ──
             Row(
                 modifier = Modifier
@@ -498,9 +555,9 @@ fun SearchScreen(
                         searchEditRequestNonce++
                     },
                     onMoveUp = {
+                        // No sidebar/top bar above Search input anymore — nothing to move to.
                         isSearchEditing = false
                         keyboardController?.hide()
-                        focusZone = FocusZone.SIDEBAR
                     },
                     onMoveDown = {
                         isSearchEditing = false
@@ -1084,4 +1141,4 @@ private fun interleaveSearchResults(movies: List<MediaItem>, shows: List<MediaIt
     return combined.distinctBy { "${it.mediaType}_${it.id}" }
 }
 
-private enum class FocusZone { SIDEBAR, SEARCH_INPUT, FILTERS, RESULTS }
+private enum class FocusZone { SEARCH_INPUT, FILTERS, RESULTS }

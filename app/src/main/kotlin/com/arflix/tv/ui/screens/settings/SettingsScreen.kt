@@ -10,6 +10,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.arflix.tv.BuildConfig
@@ -313,6 +314,20 @@ fun SettingsScreen(
     }
 
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment (HomeScreen.kt fixed
+    // this same latent bug first: real Compose focus never reliably lands inside
+    // NavRail because a screen's other focus effects keep winning it back).
+    val navRailFocusedIndex = remember { androidx.compose.runtime.mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // row's own click (Joe, 2026-07-11: activating a NavRail entry was landing
+    // on whatever card/row had focus before the rail opened).
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
     val hasProfile = currentProfile != null
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
@@ -691,7 +706,36 @@ fun SettingsScreen(
             .onPreviewKeyEvent { event ->
                     if (isTouchDevice) return@onPreviewKeyEvent false
                     if (hasBlockingModal) return@onPreviewKeyEvent false
-                    if (com.arflix.tv.ui.components.navRailPreviewKey(event, isNavRailOpen, atLeftEdge = activeZone == Zone.SECTION)) {
+                    if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                        pendingRailKeyUp = null
+                        return@onPreviewKeyEvent true
+                    }
+                    if (isNavRailOpen.value) {
+                        if (event.type == KeyEventType.KeyDown) pendingRailKeyUp = event.key
+                        val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                            currentScreen = com.arflix.tv.data.model.NavSectionKind.SETTINGS,
+                            navSections = navSections,
+                            neolinkConfigured = neolinkConfigured,
+                        )
+                        com.arflix.tv.ui.components.navRailHandleKey(
+                            event = event,
+                            entries = railEntries,
+                            focusedIndex = navRailFocusedIndex,
+                            onClose = { isNavRailOpen.value = false },
+                            actions = com.arflix.tv.ui.components.NavRailActions(
+                                onNavigateToHome = onNavigateToHome,
+                                onNavigateToSearch = onNavigateToSearch,
+                                onNavigateToDiscover = onNavigateToDiscover,
+                                onNavigateToTv = onNavigateToTv,
+                                onNavigateToCameras = onNavigateToCameras,
+                                onNavigateToWatchlist = onNavigateToWatchlist,
+                            ),
+                        )
+                        return@onPreviewKeyEvent true
+                    }
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && activeZone == Zone.SECTION) {
+                        isNavRailOpen.value = true
+                        pendingRailKeyUp = Key.DirectionLeft
                         return@onPreviewKeyEvent true
                     }
 
@@ -945,8 +989,11 @@ fun SettingsScreen(
                                             if (contentFocusIndex == 0) {
                                                 showCatalogInput = true
                                             } else if (contentFocusIndex == 1) {
+                                                // Position (Up/Down) only matters for Discover/Search — Home's row
+                                                // order is fixed regardless (see HomeScreen.kt's pruneHomeCategories).
+                                                val watchlistOnHome = uiState.watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME
                                                 when (catalogActionIndex) {
-                                                    0 -> viewModel.moveWatchlistUp()
+                                                    0 -> if (!watchlistOnHome) viewModel.moveWatchlistUp()
                                                     1 -> {
                                                         val next = when (uiState.watchlistPlacement) {
                                                             com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
@@ -955,12 +1002,13 @@ fun SettingsScreen(
                                                         }
                                                         viewModel.setWatchlistPlacement(next)
                                                     }
-                                                    2 -> viewModel.moveWatchlistDown()
+                                                    2 -> if (!watchlistOnHome) viewModel.moveWatchlistDown()
                                                     3 -> viewModel.setWatchlistHidden(!uiState.isWatchlistHidden)
                                                 }
                                             } else if (contentFocusIndex == 2) {
+                                                val cwOnHome = uiState.cwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME
                                                 when (catalogActionIndex) {
-                                                    0 -> viewModel.moveCwUp()
+                                                    0 -> if (!cwOnHome) viewModel.moveCwUp()
                                                     1 -> {
                                                         val next = when (uiState.cwPlacement) {
                                                             com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
@@ -969,7 +1017,7 @@ fun SettingsScreen(
                                                         }
                                                         viewModel.setCwPlacement(next)
                                                     }
-                                                    2 -> viewModel.moveCwDown()
+                                                    2 -> if (!cwOnHome) viewModel.moveCwDown()
                                                     3 -> viewModel.setCwHidden(!uiState.isCwHidden)
                                                 }
                                             } else {
@@ -2308,26 +2356,31 @@ fun SettingsScreen(
         }
 
         if (!isTouchDevice) {
-            com.arflix.tv.ui.components.NavRail(
-                isOpen = isNavRailOpen.value,
-                onClose = {
-                    isNavRailOpen.value = false
-                    runCatching { focusRequester.requestFocus() }
-                },
-                currentScreen = com.arflix.tv.data.model.NavSectionKind.SETTINGS,
-                navSections = navSections,
-                neolinkConfigured = neolinkConfigured,
-                profile = currentProfile,
-                actions = com.arflix.tv.ui.components.NavRailActions(
-                    onNavigateToHome = onNavigateToHome,
-                    onNavigateToSearch = onNavigateToSearch,
-                    onNavigateToDiscover = onNavigateToDiscover,
-                    onNavigateToTv = onNavigateToTv,
-                    onNavigateToCameras = onNavigateToCameras,
-                    onNavigateToWatchlist = onNavigateToWatchlist,
-                    onSwitchProfile = onSwitchProfile,
-                ),
-            )
+            // zIndex forces this above the sidebar/content Row above regardless of
+            // composition order — see HomeScreen.kt's identical fix (HomeHeroLayer's
+            // explicit zIndex(3f) was silently beating NavRail there; whatever this
+            // screen's sidebar/content Row does apparently has the same effect here).
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = {
+                        isNavRailOpen.value = false
+                        runCatching { focusRequester.requestFocus() }
+                    },
+                    currentScreen = com.arflix.tv.data.model.NavSectionKind.SETTINGS,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
         }
 
     }
@@ -7167,7 +7220,9 @@ private fun CatalogsSettings(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Built-in · position $watchlistSortOrder",
+                                text = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                    "Built-in · fixed position on Home"
+                                else "Built-in · position $watchlistSortOrder",
                                 style = ArflixTypography.caption,
                                 color = TextSecondary.copy(alpha = 0.7f),
                                 maxLines = 1,
@@ -7181,7 +7236,9 @@ private fun CatalogsSettings(
                         MobileCatalogChip(
                             icon = Icons.Default.ArrowUpward,
                             label = "Up",
-                            enabled = watchlistSortOrder > 0,
+                            // Position only matters for Discover/Search — Home's row order is
+                            // fixed regardless of this value (see HomeScreen.kt's pruneHomeCategories).
+                            enabled = watchlistPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME && watchlistSortOrder > 0,
                             onClick = onMoveWatchlistUp,
                             modifier = Modifier.weight(1f)
                         )
@@ -7205,6 +7262,7 @@ private fun CatalogsSettings(
                         MobileCatalogChip(
                             icon = Icons.Default.ArrowDownward,
                             label = "Down",
+                            enabled = watchlistPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME,
                             onClick = onMoveWatchlistDown,
                             modifier = Modifier.weight(1f)
                         )
@@ -7237,7 +7295,9 @@ private fun CatalogsSettings(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Built-in · position $watchlistSortOrder",
+                            text = if (watchlistPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                "Built-in · fixed position on Home"
+                            else "Built-in · position $watchlistSortOrder",
                             style = ArflixTypography.caption,
                             color = TextSecondary.copy(alpha = 0.7f),
                             maxLines = 1,
@@ -7246,7 +7306,7 @@ private fun CatalogsSettings(
                     CatalogActionChip(
                         icon = Icons.Default.ArrowUpward,
                         isFocused = isRowFocused && focusedActionIndex == 0,
-                        enabled = watchlistSortOrder > 0,
+                        enabled = watchlistPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME && watchlistSortOrder > 0,
                         onClick = onMoveWatchlistUp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -7271,6 +7331,7 @@ private fun CatalogsSettings(
                     CatalogActionChip(
                         icon = Icons.Default.ArrowDownward,
                         isFocused = isRowFocused && focusedActionIndex == 2,
+                        enabled = watchlistPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME,
                         onClick = onMoveWatchlistDown
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -7310,7 +7371,9 @@ private fun CatalogsSettings(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Built-in · position $cwSortOrder",
+                                text = if (cwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                    "Built-in · fixed position on Home"
+                                else "Built-in · position $cwSortOrder",
                                 style = ArflixTypography.caption,
                                 color = TextSecondary.copy(alpha = 0.7f),
                                 maxLines = 1,
@@ -7324,7 +7387,7 @@ private fun CatalogsSettings(
                         MobileCatalogChip(
                             icon = Icons.Default.ArrowUpward,
                             label = "Up",
-                            enabled = cwSortOrder > 0,
+                            enabled = cwPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME && cwSortOrder > 0,
                             onClick = onMoveCwUp,
                             modifier = Modifier.weight(1f)
                         )
@@ -7348,6 +7411,7 @@ private fun CatalogsSettings(
                         MobileCatalogChip(
                             icon = Icons.Default.ArrowDownward,
                             label = "Down",
+                            enabled = cwPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME,
                             onClick = onMoveCwDown,
                             modifier = Modifier.weight(1f)
                         )
@@ -7380,7 +7444,9 @@ private fun CatalogsSettings(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Built-in · position $cwSortOrder",
+                            text = if (cwPlacement == com.arflix.tv.data.model.CatalogPlacement.HOME)
+                                "Built-in · fixed position on Home"
+                            else "Built-in · position $cwSortOrder",
                             style = ArflixTypography.caption,
                             color = TextSecondary.copy(alpha = 0.7f),
                             maxLines = 1,
@@ -7389,7 +7455,7 @@ private fun CatalogsSettings(
                     CatalogActionChip(
                         icon = Icons.Default.ArrowUpward,
                         isFocused = isRowFocused && focusedActionIndex == 0,
-                        enabled = cwSortOrder > 0,
+                        enabled = cwPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME && cwSortOrder > 0,
                         onClick = onMoveCwUp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -7414,6 +7480,7 @@ private fun CatalogsSettings(
                     CatalogActionChip(
                         icon = Icons.Default.ArrowDownward,
                         isFocused = isRowFocused && focusedActionIndex == 2,
+                        enabled = cwPlacement != com.arflix.tv.data.model.CatalogPlacement.HOME,
                         onClick = onMoveCwDown
                     )
                     Spacer(modifier = Modifier.width(6.dp))
