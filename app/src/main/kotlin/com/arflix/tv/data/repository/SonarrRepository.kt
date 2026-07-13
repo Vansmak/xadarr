@@ -54,6 +54,10 @@ data class SonarrSeriesSummary(
     val totalEpisodeCount: Int,
     val poster: String?,
     val assignedRule: String?,
+    // Most recent Sonarr import date for this series, epoch ms — null if it's
+    // never had an episode imported (or older than the sync server's history
+    // window). Backs the "All Shows" library browser's newest-first sort.
+    val lastEpisodeAddedEpochMs: Long? = null,
 )
 
 @Singleton
@@ -186,6 +190,8 @@ class SonarrRepository @Inject constructor(
                             totalEpisodeCount = s.optInt("totalEpisodeCount", 0),
                             poster = s.optString("poster").takeIf { it.isNotBlank() },
                             assignedRule = s.optString("assigned_rule").takeIf { it.isNotBlank() },
+                            lastEpisodeAddedEpochMs = s.optString("lastEpisodeAdded").takeIf { it.isNotBlank() }
+                                ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() },
                         )
                     )
                 }

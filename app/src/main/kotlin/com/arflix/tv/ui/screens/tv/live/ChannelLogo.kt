@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,13 +26,18 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import coil.size.Precision
 
 /**
  * Typographic channel logo placeholder. Variant chosen by first char-code % 3.
- * Real `logoUrl` loads over Coil when present; this placeholder always renders
- * underneath so a missing/slow image doesn't leave a blank box.
+ * Real `logoUrl` loads over Coil when present; the placeholder renders while
+ * the real logo is loading/missing/erroring, and is hidden once it succeeds.
+ * Most network logos are PNGs with transparent padding around the mark, so
+ * leaving the placeholder rendered underneath a successfully-loaded logo made
+ * the initials bleed through the transparent edges — looking like two icons
+ * stacked on top of each other.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -42,6 +50,9 @@ fun ChannelLogo(
     val variant = (channel.name.firstOrNull()?.code ?: 0) % 3
     val context = LocalContext.current
     val density = LocalDensity.current
+    val logoUrl = channel.logo
+    var logoLoaded by remember(logoUrl) { mutableStateOf(false) }
+    val showPlaceholder = logoUrl.isNullOrBlank() || !logoLoaded
     Box(
         modifier = modifier
             .size(size)
@@ -49,45 +60,46 @@ fun ChannelLogo(
             .background(channel.brandBg),
         contentAlignment = Alignment.Center,
     ) {
-        when (variant) {
-            0 -> Text(
-                initials,
-                style = LiveType.ChannelName.copy(
-                    color = channel.brandFg,
-                    fontSize = (size.value * 0.34f).sp,
-                    fontWeight = FontWeight.W700,
-                    letterSpacing = 0.sp,
-                ),
-            )
-            1 -> Text(
-                initials,
-                style = LiveType.ChannelName.copy(
-                    color = channel.brandFg,
-                    fontSize = (size.value * 0.32f).sp,
-                    fontWeight = FontWeight.W600,
-                    letterSpacing = 0.sp,
-                ),
-            )
-            else -> Text(
-                initials,
-                style = LiveType.ChannelName.copy(
-                    color = channel.brandFg,
-                    fontSize = (size.value * 0.33f).sp,
-                    fontWeight = FontWeight.W600,
-                    letterSpacing = 0.sp,
-                ),
-            )
+        if (showPlaceholder) {
+            when (variant) {
+                0 -> Text(
+                    initials,
+                    style = LiveType.ChannelName.copy(
+                        color = channel.brandFg,
+                        fontSize = (size.value * 0.34f).sp,
+                        fontWeight = FontWeight.W700,
+                        letterSpacing = 0.sp,
+                    ),
+                )
+                1 -> Text(
+                    initials,
+                    style = LiveType.ChannelName.copy(
+                        color = channel.brandFg,
+                        fontSize = (size.value * 0.32f).sp,
+                        fontWeight = FontWeight.W600,
+                        letterSpacing = 0.sp,
+                    ),
+                )
+                else -> Text(
+                    initials,
+                    style = LiveType.ChannelName.copy(
+                        color = channel.brandFg,
+                        fontSize = (size.value * 0.33f).sp,
+                        fontWeight = FontWeight.W600,
+                        letterSpacing = 0.sp,
+                    ),
+                )
+            }
+            if (variant == 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .height((size.value / 22f).coerceAtLeast(2f).dp)
+                        .fillMaxWidth(0.6f)
+                        .background(LiveColors.Accent),
+                )
+            }
         }
-        if (variant == 0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .height((size.value / 22f).coerceAtLeast(2f).dp)
-                    .fillMaxWidth(0.6f)
-                    .background(LiveColors.Accent),
-            )
-        }
-        val logoUrl = channel.logo
         if (!logoUrl.isNullOrBlank()) {
             val logoRequest = remember(logoUrl, size, density) {
                 val px = with(density) { size.roundToPx() }.coerceAtLeast(1)
@@ -106,6 +118,7 @@ fun ChannelLogo(
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
+                onState = { state -> logoLoaded = state is AsyncImagePainter.State.Success },
             )
         }
     }

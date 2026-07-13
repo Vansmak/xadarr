@@ -281,8 +281,19 @@ class IptvRepository @Inject constructor(
         val channels: List<IptvChannel> = emptyList(),
         val nowNext: Map<String, IptvNowNext> = emptyMap(),
         val loadedAtEpochMs: Long = 0L,
-        val configSignature: String = ""
+        val configSignature: String = "",
+        // Bumped 2026-07-12 when channel.id moved off a stream-URL hash onto a stable
+        // epg-id-based scheme (see buildChannelId). Cached payloads written under the old
+        // scheme carry ids in the old format baked in — deserializing them doesn't re-run
+        // buildChannelId, so they'd silently never match favorites/continue-watching/etc that
+        // decodeFavoriteChannels() et al. have already migrated to the new format on read.
+        // Gson defaults this to 0 for any payload written before this field existed, which
+        // readCache() below treats as stale — forcing exactly one fresh M3U parse per device
+        // after this update, not a permanent mismatch.
+        val channelIdSchemaVersion: Int = 0
     )
+
+    private val currentChannelIdSchemaVersion = 1
 
     fun observeConfig(): Flow<IptvConfig> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
@@ -1910,6 +1921,7 @@ class IptvRepository @Inject constructor(
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
+                ?.map { migrateLegacyChannelId(it) ?: it }
                 ?.distinct()
                 ?: emptyList()
         }.getOrDefault(emptyList())
@@ -1922,8 +1934,9 @@ class IptvRepository @Inject constructor(
         if (raw.isBlank()) return IptvTvSessionState()
         return runCatching {
             gson.fromJson(raw, IptvTvSessionState::class.java)?.let { session ->
+                val lastChannelId = session.lastChannelId.trim()
                 session.copy(
-                    lastChannelId = session.lastChannelId.trim(),
+                    lastChannelId = migrateLegacyChannelId(lastChannelId) ?: lastChannelId,
                     lastGroupName = session.lastGroupName.trim(),
                     lastFocusedZone = session.lastFocusedZone.trim().ifBlank { "GUIDE" }
                 )
@@ -1950,6 +1963,7 @@ class IptvRepository @Inject constructor(
             gson.fromJson<List<String>>(raw, type)
                 ?.map { it.trim() }
                 ?.filter { it.isNotBlank() }
+                ?.map { migrateLegacyChannelId(it) ?: it }
                 ?.distinct()
                 ?: emptyList()
         }.getOrDefault(emptyList())
@@ -5355,14 +5369,42 @@ class IptvRepository @Inject constructor(
         }.getOrDefault(0L)
     }
 
+    // tvg-id tracks Dispatcharr's own enforced channel number 1:1 (verified against the
+    // live M3U output, 2026-07-12: 681/681 channels had tvg-id == tvg-chno) — Dispatcharr's
+    // maintenance.sql keeps channel numbering stable across M3U refreshes specifically so
+    // consumers have something durable to key on. Using it alone (no stream-URL hash) means
+    // the id survives Dispatcharr regenerating a channel's proxy stream UUID, which it does
+    // on every merge/dedup pass in that script. The old scheme baked the stream URL into the
+    // id, so every maintenance run silently orphaned favorites/last-played-channel/etc for
+    // any channel whose upstream URL got re-issued — see migrateLegacyChannelId() below for
+    // the one-time recovery path for ids already stored under the old scheme.
     private fun buildChannelId(streamUrl: String, epgId: String?): String {
         val normalizedEpg = normalizeChannelKey(epgId ?: "")
-        val streamKey = stableStreamKey(streamUrl)
         return if (normalizedEpg.isNotBlank()) {
-            "m3u:$normalizedEpg:$streamKey"
+            "epg:$normalizedEpg"
         } else {
-            "m3u:$streamKey"
+            // No tvg-id to key on — fall back to the old, stream-URL-hash-based scheme.
+            // Not stable across Dispatcharr URL regeneration, but there's nothing else
+            // to anchor to for these entries.
+            "m3u:${stableStreamKey(streamUrl)}"
         }
+    }
+
+    private val legacyChannelIdRegex = Regex("^(.+):m3u:(.+):\\d+-[0-9a-f]{16}$")
+
+    /**
+     * Recovers a stable new-scheme id ("<playlistId>:epg:<epgId>") from an id stored under
+     * the old scheme ("<playlistId>:m3u:<epgId>:<streamHash>") — the epgId component is
+     * embedded as plain text in the old id, so it can be extracted directly rather than
+     * requiring the user to re-favorite/re-pick everything after this migration. Returns
+     * null for old ids with no epgId component (blank-tvg-id channels) — those were never
+     * stable and have nothing to recover to.
+     */
+    private fun migrateLegacyChannelId(id: String): String? {
+        val match = legacyChannelIdRegex.matchEntire(id) ?: return null
+        val playlistId = match.groupValues[1]
+        val epgIdPart = match.groupValues[2]
+        return "$playlistId:epg:$epgIdPart"
     }
 
     private fun stableStreamKey(streamUrl: String): String {
@@ -5638,7 +5680,8 @@ class IptvRepository @Inject constructor(
                 channels = compactChannels,
                 nowNext = compactNowNext,
                 loadedAtEpochMs = loadedAtMs,
-                configSignature = buildConfigSignature(config)
+                configSignature = buildConfigSignature(config),
+                channelIdSchemaVersion = currentChannelIdSchemaVersion
             )
             val compressed = gzipBytes(gson.toJson(payload))
             if (compressed.size <= MAX_IPTV_CACHE_BYTES) {
@@ -5675,6 +5718,7 @@ class IptvRepository @Inject constructor(
             val text = decodeCacheText(file.readBytes())
             if (text.isBlank()) return null
             val payload = gson.fromJson(text, IptvCachePayload::class.java) ?: return null
+            if (payload.channelIdSchemaVersion != currentChannelIdSchemaVersion) return null
             val currentSignature = buildConfigSignature(config)
             val legacySignature = buildLegacyConfigSignature(config)
             val cacheSignature = payload.configSignature.trim()

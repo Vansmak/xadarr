@@ -196,14 +196,27 @@ fun LiveTvScreen(
             (viewModel.cachedEnrichedChannels as? EnrichedChannels) ?: EnrichedChannels.Empty
         )
     }
-    LaunchedEffect(state.snapshot.channels) {
+    // Keyed off a stable channel-identity signature (count + first/last id), not the
+    // raw channels list — that list gets a new reference on every EPG/nowNext merge
+    // (nowNext is applied as a separate field per channel, not just carried alongside),
+    // even when the actual set of channels hasn't changed. Keying on the full list let
+    // frequent EPG merges cancel-and-restart this block's expensive enrichment
+    // (buildCategoryTree + per-channel enrich() over hundreds of channels) before it
+    // could ever finish, permanently stuck showing the cheap "initial" partial result
+    // from the first pass (Joe, 2026-07-12: TV guide stuck at 1 channel while
+    // TvViewModel's own logs showed the full 681-channel load completing in the
+    // background). nowNext itself is passed to EpgGrid separately (state.snapshot.nowNext)
+    // so it keeps updating live regardless of this effect's key.
+    val channelsIdentitySignature = "${state.snapshot.channels.size}:" +
+        "${state.snapshot.channels.firstOrNull()?.id}:${state.snapshot.channels.lastOrNull()?.id}"
+    LaunchedEffect(channelsIdentitySignature) {
         val snapshot = state.snapshot.channels
         if (snapshot.isEmpty()) {
             enrichedState.value = EnrichedChannels.Empty
             return@LaunchedEffect
         }
         // Skip re-enrichment if we already have a cache for the same playlist.
-        val signature = "${snapshot.size}:${snapshot.firstOrNull()?.id}:${snapshot.lastOrNull()?.id}"
+        val signature = channelsIdentitySignature
         if (viewModel.cachedChannelsSignature == signature &&
             viewModel.cachedEnrichedChannels is EnrichedChannels
         ) {

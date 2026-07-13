@@ -1243,7 +1243,12 @@ fun HomeScreen(
             contentStartPadding = contentStartPadding,
             fastScrollThresholdMs = fastScrollThresholdMs,
             usePosterCards = usePosterCards,
-            isContextMenuOpen = showContextMenu || showLiveTvContextMenu,
+            // rulePickerItem included so HomeInputLayer's own key handler backs off once the
+            // rule picker overlay opens — same reason showContextMenu/showLiveTvContextMenu are
+            // here. Without it, D-pad presses kept being intercepted by Home's key handler,
+            // never reaching the rule picker: it opened but didn't respond to input, and Back
+            // couldn't dismiss it either (Joe, 2026-07-12).
+            isContextMenuOpen = showContextMenu || showLiveTvContextMenu || rulePickerItem != null,
             trailerIsPlaying = isTrailerPlaying,
             onTrailerStop = { trailerSuppressed = true },
             isMobile = isMobile,
@@ -1523,7 +1528,19 @@ fun HomeScreen(
         // Library-browser rule picker — direct assign on an already-tracked
         // Sonarr series or Radarr movie (no pending-request queue involved),
         // unlike the pending-item picker above.
+        //
+        // zIndex is mandatory here: this composable is a HomeScreen-level sibling
+        // of CategoryBrowseOverlay (the All Shows/All Movies grid), which draws
+        // itself at zIndex(150f). Compose z-order is decided purely by zIndex, not
+        // composition order, once either sibling declares one — without an explicit
+        // zIndex here this picker defaulted to 0f and rendered fully behind the
+        // still-open browse grid: invisible, unfocused, D-pad input still landing
+        // on the grid underneath. Tapping "Change Rule" appeared to do nothing, and
+        // Back afterwards left the grid's focus/key-consumption state disturbed
+        // (Joe, 2026-07-12: "change rule... on long press... doesn't work" +
+        // "navigation in the shows view breaks after long press then back").
         libraryRulePickerTarget?.let { (mediaItem, entry) ->
+            Box(modifier = Modifier.fillMaxSize().zIndex(200f)) {
             val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
                 androidx.hilt.navigation.compose.hiltViewModel()
             val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
@@ -1554,6 +1571,7 @@ fun HomeScreen(
                 onDismiss = { libraryRulePickerTarget = null },
                 onRuleAssigned = { libraryRulePickerTarget = null },
             )
+            }
         }
     }
 }
@@ -2642,6 +2660,13 @@ private fun HomeInputLayer(
     val context = LocalContext.current
     val latestDismissMiniPlayer = androidx.compose.runtime.rememberUpdatedState(onDismissMiniPlayer)
     val focusRequester = remember { FocusRequester() }
+    // D-pad OK/Enter on a card is dispatched manually below (KeyEventType.KeyUp handler),
+    // not via ContentRow's onCardClick/Compose clickable — these cards render with
+    // enableSystemFocus = false, so Compose's own keyboard-click handling never fires for
+    // them; only touch taps go through onCardClick. Needed here too so a pending watchlist
+    // card's D-pad select opens the rule picker instead of falling through to Details, same
+    // check ContentRow already does for touch (Joe, 2026-07-12).
+    val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
     // No more nav chip row on Home (see MinimalTopChrome/NavRail below) — the
     // rail opens from the same "already at leftmost, one more LEFT" gesture as
     // every other screen, using Home's existing isTitleFocused as the
@@ -3129,9 +3154,13 @@ private fun HomeInputLayer(
                                 currentItem?.takeIf { isActionableHomeItem(it) }?.let { item ->
                                     val currentCategory = categories.getOrNull(focusState.currentRowIndex)
                                     val isOnNowRow = currentCategory?.id == "favorite_tv"
+                                    val isWatchlistRow = currentCategory?.id == "my_watchlist"
+                                    val isItemPending = isWatchlistRow && episeerrPendingIds.contains(item.id.toString())
                                     val iptvId = item.status?.removePrefix("iptv:")
                                         ?.takeIf { item.status?.startsWith("iptv:") == true && it.isNotBlank() }
-                                    if (holdMs >= 500L) {
+                                    if (isItemPending && holdMs < 500L && onPendingItemClick != null) {
+                                        onPendingItemClick(item)
+                                    } else if (holdMs >= 500L) {
                                         // Long-press: live TV gets its own 2-item menu; everything else gets the regular context menu
                                         if (isOnNowRow && iptvId != null && onOpenLiveTvContextMenu != null) {
                                             val streamUrl = getIptvStreamUrl(item.id).orEmpty()
@@ -4735,10 +4764,20 @@ private fun ContentRow(
                     { latestOnItemFocused.value(item, index) }
                 }
                 val itemIsPending = isWatchlistRow && episeerrPendingIds.contains(item.id.toString())
+                // Read via rememberUpdatedState, not captured by value in the remember(item,
+                // itemIsPending) closure below — onPendingItemClick already used this pattern,
+                // itemIsPending didn't, and that gap meant a card whose pending state flipped
+                // true *after* this row's initial composition (the common case: pending status
+                // arrives via EpiseerrPollManager's 60s poll, well after Home's first paint)
+                // kept firing the stale captured onClick despite the amber "Pending" badge —
+                // which reads isPending fresh on every recomposition — showing correctly.
+                // (Joe, 2026-07-12: tapping a visibly-pending watchlist card opened Details
+                // instead of the rule picker.)
+                val latestItemIsPending = rememberUpdatedState(itemIsPending)
                 val latestOnPendingItemClick = rememberUpdatedState(onPendingItemClick)
-                val onCardClick: () -> Unit = remember(item, itemIsPending) {
+                val onCardClick: () -> Unit = remember(item) {
                     {
-                        if (itemIsPending && latestOnPendingItemClick.value != null) {
+                        if (latestItemIsPending.value && latestOnPendingItemClick.value != null) {
                             latestOnPendingItemClick.value!!(item)
                         } else {
                             latestOnItemClick.value(item)

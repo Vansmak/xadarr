@@ -36,6 +36,7 @@ WATCHLIST_FILE     = DATA_DIR / "watchlist.json"   # legacy — kept for migrati
 HISTORY_FILE       = DATA_DIR / "history.json"
 WEBHOOK_LOG_FILE   = DATA_DIR / "webhook_log.json"
 SERVER_CONFIG_FILE = DATA_DIR / "server_config.json"
+TRAKT_OUTBOX_FILE  = DATA_DIR / "xadarr_trakt_outbox.json"
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -704,6 +705,27 @@ def sync_put_settings():
                     incoming_ps["homeServerConnectionJson"] = existing_conn
             except Exception:
                 pass
+    # Preserve traktTokens per profile if the incoming blob omits a profile's
+    # token. Trakt refresh tokens are single-use — whichever device refreshes
+    # first rotates it, and any other device still holding the old refresh
+    # token gets a 401 on its next refresh attempt and clears its own local
+    # copy. Without this guard, that device's very next settings push (for any
+    # unrelated change) would wipe the still-valid, just-rotated token this
+    # server already has, forcing every device to re-authenticate. Only a
+    # profile the client explicitly disconnected (traktDisconnectedProfileIds)
+    # is allowed to clear the stored token.
+    existing_trakt_tokens = existing.get("traktTokens") or {}
+    if existing_trakt_tokens:
+        incoming_trakt_tokens = data.setdefault("traktTokens", {})
+        disconnected_ids = set(data.get("traktDisconnectedProfileIds") or [])
+        for pid, existing_token in existing_trakt_tokens.items():
+            if not isinstance(existing_token, dict) or not existing_token.get("accessToken"):
+                continue
+            if pid in disconnected_ids:
+                continue
+            incoming_token = incoming_trakt_tokens.get(pid)
+            if not isinstance(incoming_token, dict) or not incoming_token.get("accessToken"):
+                incoming_trakt_tokens[pid] = existing_token
     # Preserve neolink_username/neolink_password if the incoming blob omits them.
     # The TV app's Neolink URL field is a single string with no separate
     # username/password inputs — it only round-trips credentials it can decompose
@@ -1355,7 +1377,8 @@ def post_settings():
 def get_watchlist():
     blob = _get_blob()
     _migrate_watchlist_to_blob(blob)
-    items = _get_watchlist(blob)
+    _flush_trakt_outbox(blob)
+    items = _reconcile_watchlist_with_trakt(blob)
     return jsonify(_watchlist_to_web(items))
 
 
@@ -1400,6 +1423,7 @@ def add_to_watchlist():
         }
         wl.insert(0, new_item)
         _set_watchlist(blob, wl)
+        _trakt_watchlist_push(blob, tmdb_id, media_type, add=True)
         _save_blob(blob)
         _fire_watchlist_webhook("watchlist.add", new_item)
         _broadcast_watchlist()
@@ -1414,6 +1438,7 @@ def remove_from_watchlist(media_type, item_id):
     removed = [w for w in wl if int(w.get("tmdbId") or w.get("id") or 0) == item_id]
     wl = [w for w in wl if int(w.get("tmdbId") or w.get("id") or 0) != item_id]
     _set_watchlist(blob, wl)
+    _trakt_watchlist_push(blob, item_id, _normalize_media_type(media_type), add=False)
     _save_blob(blob)
     if removed:
         removed[0]["mediaType"] = media_type
@@ -1488,6 +1513,196 @@ def _mark_watchlist(items: list[dict]) -> list[dict]:
     for item in items:
         item["inWatchlist"] = str(item.get("id", "")) in wl_ids
     return items
+
+
+def _trakt_refresh_token(blob: dict) -> str | None:
+    """Refresh this server's own Trakt connection and persist the new tokens
+    into the given (already-loaded) blob. Returns the new access token, or
+    None if there's nothing to refresh with or the refresh call itself fails.
+    """
+    tokens = (blob.get("traktTokens") or {}).get(SETUP_PROFILE_ID, {})
+    refresh_token = tokens.get("refreshToken")
+    client_id = blob.get("trakt_client_id", "")
+    client_secret = blob.get("trakt_client_secret", "")
+    if not refresh_token or not client_id or not client_secret:
+        return None
+    try:
+        r = requests.post(
+            "https://api.trakt.tv/oauth/token",
+            json={
+                "refresh_token": refresh_token, "client_id": client_id,
+                "client_secret": client_secret, "grant_type": "refresh_token",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        tok = r.json()
+        new_tokens = {
+            "accessToken": tok.get("access_token"),
+            "refreshToken": tok.get("refresh_token"),
+            "expiresAt": int(time.time() * 1000) + tok.get("expires_in", 0) * 1000,
+        }
+        blob.setdefault("traktTokens", {})[SETUP_PROFILE_ID] = new_tokens
+        return new_tokens["accessToken"]
+    except Exception as exc:
+        print(f"[Trakt] token refresh failed: {exc}")
+        return None
+
+
+def _trakt_request(blob: dict, method: str, path: str, json_body: dict | None = None):
+    """Authenticated call against this server's own Trakt connection,
+    refreshing reactively on a 401 rather than trusting the stored expiresAt
+    (observed holding a stale value in the wrong units — seconds vs. ms — for
+    tokens saved by an older build; proactively refreshing on every call hits
+    Trakt's aggressive refresh-endpoint rate limit fast). Raises on any
+    failure, including "not connected" — callers decide whether to swallow or
+    propagate.
+    """
+    tokens = (blob.get("traktTokens") or {}).get(SETUP_PROFILE_ID, {})
+    access_token = tokens.get("accessToken")
+    if not access_token:
+        raise RuntimeError("Trakt not connected")
+    client_id = blob.get("trakt_client_id", "")
+
+    def _call(token: str):
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "trakt-api-key": client_id,
+            "trakt-api-version": "2",
+            "Content-Type": "application/json",
+        }
+        if method == "GET":
+            return requests.get(f"https://api.trakt.tv/{path}", headers=headers, timeout=10)
+        return requests.post(f"https://api.trakt.tv/{path}", json=json_body, headers=headers, timeout=10)
+
+    r = _call(access_token)
+    if r.status_code == 401:
+        refreshed = _trakt_refresh_token(blob)
+        if refreshed:
+            r = _call(refreshed)
+    r.raise_for_status()
+    return r
+
+
+def _trakt_outbox_load() -> list:
+    return _load_json(TRAKT_OUTBOX_FILE, [])
+
+
+def _trakt_outbox_enqueue(tmdb_id: int, media_type: str, add: bool) -> None:
+    items = _trakt_outbox_load()
+    items.append({
+        "tmdbId": tmdb_id, "mediaType": media_type, "add": add,
+        "queuedAt": int(time.time() * 1000),
+    })
+    _save_json(TRAKT_OUTBOX_FILE, items)
+
+
+def _flush_trakt_outbox(blob: dict) -> None:
+    """Retry any watchlist pushes that failed at the time of the original
+    add/remove. Runs opportunistically on every watchlist GET (mirrors the
+    native app's own outbox, which flushes on its periodic/reconnect Trakt
+    sync) — makes this server's Trakt push as reliable as the app's, which
+    matters once Trakt is treated as the cross-surface source of truth: a
+    push that's silently lost here is indistinguishable from a real removal
+    once anything reconciles against Trakt.
+    """
+    items = _trakt_outbox_load()
+    if not items:
+        return
+    remaining = []
+    for item in items:
+        try:
+            key = "movies" if item.get("mediaType") == "movie" else "shows"
+            body = {key: [{"ids": {"tmdb": item.get("tmdbId")}}]}
+            path = "sync/watchlist" if item.get("add") else "sync/watchlist/remove"
+            _trakt_request(blob, "POST", path, body)
+        except Exception as exc:
+            print(f"[Trakt] outbox retry failed for {item}: {exc}")
+            remaining.append(item)
+    if len(remaining) != len(items):
+        _save_json(TRAKT_OUTBOX_FILE, remaining)
+
+
+def _trakt_watchlist_push(blob: dict, tmdb_id: int, media_type: str, add: bool) -> None:
+    """Push a watchlist add/remove to Trakt. Never raises — a Trakt failure
+    here must not block the local watchlist write, same as the native Xadarr
+    app's toggleWatchlist()/TraktOutboxRepository. Unlike a plain best-effort
+    attempt, a failure here is queued (see _trakt_outbox_enqueue) and retried
+    on the next watchlist load instead of being silently dropped.
+    """
+    key = "movies" if media_type == "movie" else "shows"
+    body = {key: [{"ids": {"tmdb": tmdb_id}}]}
+    path = "sync/watchlist" if add else "sync/watchlist/remove"
+    try:
+        _trakt_request(blob, "POST", path, body)
+    except Exception as exc:
+        print(f"[Trakt] watchlist {'add' if add else 'remove'} failed for tmdb={tmdb_id}: {exc}")
+        _trakt_outbox_enqueue(tmdb_id, media_type, add)
+
+
+def _reconcile_watchlist_with_trakt(blob: dict) -> list:
+    """Make the watchlist blob match Trakt's real watchlist exactly — Trakt is
+    the single source of truth, this blob is a cache. Adds anything Trakt has
+    that's missing locally (fetching title/poster from TMDB), drops anything
+    local that Trakt no longer has. Never raises; if Trakt can't be reached
+    (not connected, network error) returns the local list untouched rather
+    than risk wiping it out over a transient failure.
+
+    Safe to run unconditionally now that _flush_trakt_outbox is called first
+    on the same request — a push that failed at add/remove time gets one more
+    chance to reach Trakt before this treats "not on Trakt" as ground truth.
+    (Previously reverted 2026-07-11: reconciling against Trakt while pushes
+    could be silently and permanently lost resurrected watchlist items the
+    user had deliberately removed.)
+    """
+    try:
+        r = _trakt_request(blob, "GET", "sync/watchlist?extended=full")
+        trakt_items = r.json()
+    except Exception as exc:
+        print(f"[Trakt] watchlist fetch failed, skipping reconcile: {exc}")
+        return _get_watchlist(blob)
+
+    trakt_keys = set()
+    for entry in trakt_items:
+        media_type = "movie" if entry.get("type") == "movie" else "show"
+        obj = entry.get("movie") or entry.get("show") or {}
+        tmdb_id = (obj.get("ids") or {}).get("tmdb")
+        if tmdb_id:
+            trakt_keys.add((media_type, tmdb_id))
+
+    local = _get_watchlist(blob)
+    kept = [
+        w for w in local
+        if (_normalize_media_type(w.get("mediaType", "movie")), int(w.get("tmdbId") or w.get("id") or 0)) in trakt_keys
+    ]
+    local_keys = {
+        (_normalize_media_type(w.get("mediaType", "movie")), int(w.get("tmdbId") or w.get("id") or 0))
+        for w in local
+    }
+    missing = trakt_keys - local_keys
+    changed = len(kept) != len(local)
+
+    for media_type, tmdb_id in missing:
+        endpoint = "/movie/" if media_type == "movie" else "/tv/"
+        tmdb_data = _tmdb_get(endpoint + str(tmdb_id)) or {}
+        kept.insert(0, {
+            "tmdbId": tmdb_id,
+            "title": tmdb_data.get("title") or tmdb_data.get("name") or "",
+            "mediaType": media_type,
+            "posterPath": ("https://image.tmdb.org/t/p/w342" + tmdb_data["poster_path"])
+                if tmdb_data.get("poster_path") else "",
+            "backdropPath": ("https://image.tmdb.org/t/p/w780" + tmdb_data["backdrop_path"])
+                if tmdb_data.get("backdrop_path") else "",
+            "addedAt": int(time.time() * 1000),
+            "sourceOrder": 0,
+        })
+        changed = True
+
+    if changed:
+        _set_watchlist(blob, kept)
+        _save_blob(blob)
+    return kept
 
 
 @app.route("/api/media/detail", methods=["GET"])

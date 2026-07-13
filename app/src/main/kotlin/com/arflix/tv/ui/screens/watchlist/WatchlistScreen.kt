@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,6 +121,8 @@ fun WatchlistScreen(
     }
     
     var isSidebarFocused by remember { mutableStateOf(false) }
+    val episeerrPendingIds = com.arflix.tv.util.LocalEpiseerrPendingIds.current
+    var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
@@ -415,14 +418,19 @@ fun WatchlistScreen(
                         ) {
                             itemsIndexed(uiState.items) { index, item ->
                                 val logoUrl = logoUrls["${item.mediaType}_${item.id}"]
+                                val itemIsPending = episeerrPendingIds.contains(item.id.toString())
                                 MediaCard(
                                     item = item,
                                     width = cardWidth,
                                     isLandscape = !usePosterCards,
                                     logoImageUrl = logoUrl,
                                     focusedScale = 1f,
+                                    isPending = itemIsPending,
                                     onFocused = { focusedGridIndex = index },
-                                    onClick = { onNavigateToDetails(item.mediaType, item.id) },
+                                    onClick = {
+                                        if (itemIsPending) rulePickerItem = item
+                                        else onNavigateToDetails(item.mediaType, item.id)
+                                    },
                                     onLongClick = { viewModel.removeFromWatchlist(item) }
                                 )
                             }
@@ -442,6 +450,30 @@ fun WatchlistScreen(
                 },
                 isVisible = true,
                 onDismiss = { viewModel.dismissToast() }
+            )
+        }
+
+        // Rule picker rendered last so it covers the topbar
+        rulePickerItem?.let { mediaItem ->
+            val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                hiltViewModel()
+            val syncServerUrl by rulePickerVm.syncServerUrl.collectAsState()
+            val episeerrUrl by rulePickerVm.episeerrUrl.collectAsState()
+            val pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id       = mediaItem.id.toString(),
+                seriesId = null,
+                title    = mediaItem.title,
+                tmdbId   = mediaItem.id.toString(),
+                tvdbId   = null,
+                poster   = mediaItem.image.takeIf { it.isNotBlank() },
+            )
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem        = pendingItem,
+                episeerrRepository = rulePickerVm.episeerrRepository,
+                syncServerUrl      = syncServerUrl,
+                episeerrUrl        = episeerrUrl,
+                onDismiss          = { rulePickerItem = null },
+                onRuleAssigned     = { rulePickerItem = null },
             )
         }
 

@@ -163,6 +163,13 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 
 ## Changelog
 
+### v2.10
+- **All Shows library browser sort** — now orders by newest episode added first, then by how recently you watched, instead of alphabetical.
+- **Fix: Live TV guide stuck loading** — a rare timing issue where a background EPG refresh could cancel channel list processing before it finished, leaving the guide stuck on "Loading channels…" even though the data had loaded.
+- **Fix: pending watchlist items** — tapping a watchlist item awaiting a rule selection now reliably opens the picker instead of sometimes opening details.
+- **Fix: watchlist changes lost when Trakt is unreachable** — adds/removes now queue and retry automatically instead of staying local-only forever.
+- **Fix: channel logos** — logos with transparent padding no longer show placeholder text bleeding through underneath.
+
 ### v2.7
 - **IPTV group management** — three-state per group: Show / Hide / Remove. Long-press "Edit groups" in the TV guide category sidebar to manage all groups. New groups that appear in an M3U sync are automatically hidden and badged "NEW" until you explicitly show them.
 - **Dispatcharr integration** — install the Dispatcharr Bridge addon (`http://your-xadarr-server:7979/dispatcharr-bridge`) to unlock group removal. Groups marked Remove are written to a blacklist file that Dispatcharr's maintenance script reads on the next sync run.

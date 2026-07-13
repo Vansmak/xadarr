@@ -293,6 +293,49 @@ class WatchlistRepository @Inject constructor(
     }
 
     /**
+     * Reconcile the local watchlist against Trakt's real watchlist — Trakt is
+     * the source of truth here (unlike [syncFromSyncServer], which is
+     * deliberately additive-only for the generic sync-server blob). Adds
+     * anything in [authoritative] missing locally (fetching TMDB metadata),
+     * removes anything local that isn't in it. Silent — no webhook fire, no
+     * sync-server notify; this is a background correction driven by
+     * TraktSyncService's own sync cycle, not a user action.
+     */
+    suspend fun reconcileWithTrakt(authoritative: Set<Pair<MediaType, Int>>) = withContext(Dispatchers.IO) {
+        fun keyOf(item: LocalWatchlistItem) = (if (item.mediaType == "tv") MediaType.TV else MediaType.MOVIE) to item.tmdbId
+
+        val existing = loadWatchlistRaw()
+        val kept = existing.filter { keyOf(it) in authoritative }
+        val missing = authoritative - existing.map { keyOf(it) }.toSet()
+        if (kept.size == existing.size && missing.isEmpty()) return@withContext
+
+        val added = missing.map { (mediaType, tmdbId) ->
+            val typeStr = if (mediaType == MediaType.TV) "tv" else "movie"
+            val enriched = runCatching {
+                enrichWatchlistItem(LocalWatchlistItem(tmdbId = tmdbId, mediaType = typeStr, title = ""))
+            }.getOrNull()
+            LocalWatchlistItem(
+                tmdbId = tmdbId,
+                mediaType = typeStr,
+                title = enriched?.title ?: "",
+                posterPath = enriched?.image,
+                backdropPath = enriched?.backdrop,
+                addedAt = System.currentTimeMillis()
+            )
+        }
+
+        val result = added + kept
+        saveWatchlist(result)
+        cacheMutex.withLock {
+            itemsCache.clear()
+            keyCache.clear()
+            result.forEach { keyCache.add(cacheKey(if (it.mediaType == "tv") MediaType.TV else MediaType.MOVIE, it.tmdbId)) }
+            _watchlistItems.value = result.map { it.toBasicMediaItem() }
+            cacheLoaded = true
+        }
+    }
+
+    /**
      * Get all watchlist items enriched with TMDB data
      */
     suspend fun getWatchlistItems(): List<MediaItem> = withContext(Dispatchers.IO) {

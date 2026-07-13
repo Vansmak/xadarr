@@ -59,7 +59,8 @@ class TraktSyncService @Inject constructor(
     private val supabaseApi: SupabaseApi,
     private val authRepository: AuthRepository,
     private val outboxRepository: TraktOutboxRepository,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val watchlistRepository: WatchlistRepository
 ) {
     private val TAG = "TraktSyncService"
     private val gson = Gson()
@@ -251,6 +252,7 @@ class TraktSyncService @Inject constructor(
                 }
             }
             flushOutbox()
+            reconcileWatchlist()
 
             // Non-critical: fetch last activities for incremental sync optimization
             // Don't fail the sync if this call fails - data is already synced
@@ -451,6 +453,7 @@ class TraktSyncService @Inject constructor(
             }
 
             flushOutbox()
+            reconcileWatchlist()
 
             try {
                 updateSyncState(
@@ -1665,6 +1668,38 @@ class TraktSyncService @Inject constructor(
                             true
                         }
                     }
+                    TraktOutboxAction.ADD_TO_WATCHLIST -> {
+                        val tmdbId = item.tmdbId
+                        if (tmdbId == null) {
+                            false
+                        } else {
+                            val body = if (item.mediaType == "movie") {
+                                TraktWatchlistBody(movies = listOf(TraktMovieId(TraktIds(tmdb = tmdbId))))
+                            } else {
+                                TraktWatchlistBody(shows = listOf(TraktShowId(TraktIds(tmdb = tmdbId))))
+                            }
+                            executeTraktCall("outbox add to watchlist") { auth ->
+                                traktApi.addToWatchlist(auth, clientId, "2", body)
+                            }
+                            true
+                        }
+                    }
+                    TraktOutboxAction.REMOVE_FROM_WATCHLIST -> {
+                        val tmdbId = item.tmdbId
+                        if (tmdbId == null) {
+                            false
+                        } else {
+                            val body = if (item.mediaType == "movie") {
+                                TraktWatchlistBody(movies = listOf(TraktMovieId(TraktIds(tmdb = tmdbId))))
+                            } else {
+                                TraktWatchlistBody(shows = listOf(TraktShowId(TraktIds(tmdb = tmdbId))))
+                            }
+                            executeTraktCall("outbox remove from watchlist") { auth ->
+                                traktApi.removeFromWatchlist(auth, clientId, "2", body)
+                            }
+                            true
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 false
@@ -1679,6 +1714,41 @@ class TraktSyncService @Inject constructor(
 
         outboxRepository.remove(succeeded)
         outboxRepository.incrementAttempts(failed)
+    }
+
+    /**
+     * Make the local watchlist match Trakt's real watchlist exactly — Trakt is
+     * the source of truth, the local list is a cache. Adds anything Trakt has
+     * that's missing locally (fetching TMDB metadata for new entries), drops
+     * anything local that Trakt no longer has. Runs right after flushOutbox()
+     * in the same sync cycle so a push that failed at add/remove time gets one
+     * more chance to reach Trakt before this treats "not on Trakt" as ground
+     * truth for a removal.
+     *
+     * Safe to re-enable now that the two Python sync-server dashboards
+     * (episeerr_custom's xadarr.py, xadarr-server) also queue-and-retry failed
+     * Trakt pushes instead of dropping them silently — previously reverted
+     * 2026-07-11 because those surfaces had no retry, so an item's watchlist
+     * push could be lost forever on a transient failure, and this reconcile
+     * would then read that loss as "user removed it" and delete it locally
+     * too, resurrecting/dropping items with no user action behind it.
+     */
+    private suspend fun reconcileWatchlist() {
+        val auth = getAuthHeader() ?: return
+        try {
+            val traktItems = traktApi.getWatchlist(auth, clientId)
+            val authoritative = traktItems.mapNotNull { item ->
+                when (item.type) {
+                    "movie" -> item.movie?.ids?.tmdb?.let { MediaType.MOVIE to it }
+                    "show" -> item.show?.ids?.tmdb?.let { MediaType.TV to it }
+                    else -> null
+                }
+            }.toSet()
+            watchlistRepository.reconcileWithTrakt(authoritative)
+        } catch (e: Exception) {
+            // Can't verify right now — leave the local list untouched rather
+            // than risk wiping it out over a transient failure.
+        }
     }
 
     private suspend fun removePlaybackForContent(traktAuth: String?, tmdbId: Int, mediaType: MediaType) {

@@ -22,6 +22,8 @@ import com.arflix.tv.data.model.LibraryBrowseEntry
 import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.TraktOutboxAction
+import com.arflix.tv.data.repository.TraktOutboxItem
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.TraktSyncService
 import com.arflix.tv.data.repository.ContinueWatchingItem
@@ -133,6 +135,7 @@ class HomeViewModel @Inject constructor(
     private val streamRepository: StreamRepository,
     private val traktRepository: TraktRepository,
     private val traktSyncService: TraktSyncService,
+    private val traktOutboxRepository: com.arflix.tv.data.repository.TraktOutboxRepository,
     private val neolinkRepository: NeolinkRepository,
     private val iptvRepository: IptvRepository,
     private val homeServerRepository: HomeServerRepository,
@@ -3873,18 +3876,53 @@ class HomeViewModel @Inject constructor(
     // one single disruptive late list-swap that would otherwise fight with
     // whatever they've already navigated to (see the browse overlay's own focus
     // comments for why a late swap is a real problem, not just cosmetic).
+    //
+    // Sort order (Joe, 2026-07-12: wanted "new episodes added" then "recently
+    // watched" instead of the old flat alphabetical) needs each series' tmdbId
+    // up front to look up local watch recency — so tvdb->tmdb resolution runs
+    // as its own fast first pass (cheap cached find-by-external-id calls, not
+    // the full details fetch below) over the *entire* list before any chunking
+    // starts. That keeps the chunked/progressive-reveal loop below untouched in
+    // spirit: it still appends in order, just now that order is pre-sorted
+    // rather than Sonarr's raw list order.
     private suspend fun loadShowsFromSonarr() {
         val allSeries = sonarrRepository.getAllSeries()
         val semaphore = Semaphore(4)
-        allSeries.chunked(LIBRARY_BROWSE_CHUNK_SIZE).forEach { chunk ->
+
+        val refsBySeriesId = coroutineScope {
+            allSeries.map { series ->
+                async(networkDispatcher) {
+                    semaphore.withPermit {
+                        val tvdbId = series.tvdbId ?: return@withPermit null
+                        val ref = runCatching {
+                            mediaRepository.resolveTvdbToTmdbRef(tvdbId, com.arflix.tv.data.model.MediaType.TV)
+                        }.getOrNull() ?: return@withPermit null
+                        series.seriesId to ref
+                    }
+                }
+            }.mapNotNull { it.await() }.toMap()
+        }
+
+        val watchedEpochByTmdbId = runCatching { watchHistoryRepository.getWatchHistory() }
+            .getOrDefault(emptyList())
+            .filter { it.media_type == "tv" }
+            .groupBy { it.show_tmdb_id }
+            .mapValues { (_, entries) ->
+                entries.maxOf { parseContinueWatchingUpdatedAt(it.updated_at, it.paused_at) }
+            }
+
+        val sortedSeries = allSeries.sortedWith(
+            compareByDescending<com.arflix.tv.data.repository.SonarrSeriesSummary> { it.lastEpisodeAddedEpochMs ?: 0L }
+                .thenByDescending { series -> refsBySeriesId[series.seriesId]?.let { watchedEpochByTmdbId[it.second] } ?: 0L }
+                .thenBy { it.title.lowercase() }
+        )
+
+        sortedSeries.chunked(LIBRARY_BROWSE_CHUNK_SIZE).forEach { chunk ->
             val resolved = coroutineScope {
                 chunk.map { series ->
                     async(networkDispatcher) {
                         semaphore.withPermit {
-                            val tvdbId = series.tvdbId ?: return@withPermit null
-                            val ref = runCatching {
-                                mediaRepository.resolveTvdbToTmdbRef(tvdbId, com.arflix.tv.data.model.MediaType.TV)
-                            }.getOrNull() ?: return@withPermit null
+                            val ref = refsBySeriesId[series.seriesId] ?: return@withPermit null
                             val item = runCatching { mediaRepository.getTvDetails(ref.second) }.getOrNull()
                                 ?: return@withPermit null
                             series to item
@@ -5170,14 +5208,32 @@ class HomeViewModel @Inject constructor(
             try {
                 val isInWatchlist = watchlistRepository.isInWatchlist(item.mediaType, item.id)
                 val traktConnected = runCatching { traktRepository.hasTrakt() }.getOrDefault(false)
+                val traktMediaType = if (item.mediaType == MediaType.MOVIE) "movie" else "tv"
                 if (isInWatchlist) {
-                    if (traktConnected && !traktRepository.removeFromWatchlist(item.mediaType, item.id)) {
-                        throw IllegalStateException("Failed to remove from Trakt watchlist")
+                    val traktSyncOk = traktConnected && traktRepository.removeFromWatchlist(item.mediaType, item.id)
+                    if (!traktSyncOk) {
+                        traktOutboxRepository.enqueue(
+                            TraktOutboxItem(
+                                action = TraktOutboxAction.REMOVE_FROM_WATCHLIST,
+                                tmdbId = item.id,
+                                mediaType = traktMediaType,
+                            )
+                        )
                     }
                     watchlistRepository.removeFromWatchlist(item.mediaType, item.id)
                 } else {
-                    if (traktConnected && !traktRepository.addToWatchlist(item.mediaType, item.id)) {
-                        throw IllegalStateException("Failed to add to Trakt watchlist")
+                    // Trakt may be disconnected (expired/never-connected token) at the moment
+                    // of adding — queue it so a later reconnect/sync backfills it instead of
+                    // the item silently staying local-only forever.
+                    val traktSyncOk = traktConnected && traktRepository.addToWatchlist(item.mediaType, item.id)
+                    if (!traktSyncOk) {
+                        traktOutboxRepository.enqueue(
+                            TraktOutboxItem(
+                                action = TraktOutboxAction.ADD_TO_WATCHLIST,
+                                tmdbId = item.id,
+                                mediaType = traktMediaType,
+                            )
+                        )
                     }
                     watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
                 }

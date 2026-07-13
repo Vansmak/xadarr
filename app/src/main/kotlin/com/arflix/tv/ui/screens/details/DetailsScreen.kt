@@ -135,14 +135,11 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.EpisodeContextMenu
 import com.arflix.tv.ui.components.SeasonContextMenu
 import com.arflix.tv.ui.components.LoadingIndicator
-import com.arflix.tv.ui.components.AppTopBar
-import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.PersonModal
 import com.arflix.tv.ui.components.PosterCard
 import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
-import com.arflix.tv.ui.components.SidebarItem
 import com.arflix.tv.ui.components.SkeletonDetailsPage
 import com.arflix.tv.ui.components.StreamSelector
 import com.arflix.tv.ui.components.TrailerPlayer
@@ -151,8 +148,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.onKeyEvent
 import com.arflix.tv.ui.components.Toast
-import com.arflix.tv.ui.components.topBarFocusedItem
-import com.arflix.tv.ui.components.topBarMaxIndex
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.focus.xadarrManualBringIntoViewBoundary
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
@@ -222,13 +217,28 @@ fun DetailsScreen(
     var collectionIndex by remember { mutableIntStateOf(0) }
     var suppressSelectUntilMs by remember { mutableLongStateOf(0L) }
     
-    // Sidebar state
+    // Sidebar state — "sidebar" here means "chrome focused, at the top of the
+    // screen"; the actual sidebar UI is now the shared NavRail (Joe,
+    // 2026-07-11: "detail screens like this... from a search still have the
+    // top menu" — migrated to match every other screen).
     var isSidebarFocused by remember { mutableStateOf(false) }
     val hasProfile = currentProfile != null
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
-    val maxSidebarIndex = topBarMaxIndex(hasProfile, neolinkConfigured, navSections)
-    var sidebarFocusIndex by remember { mutableIntStateOf(if (hasProfile) 2 else 1) }
+    val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
+    // Driven directly by this screen's own key handler below rather than NavRail's
+    // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
+    // identical fix (real Compose focus never reliably lands inside NavRail).
+    val navRailFocusedIndex = remember { mutableStateOf(0) }
+    LaunchedEffect(isNavRailOpen.value) {
+        if (isNavRailOpen.value) navRailFocusedIndex.value = 0
+    }
+    // A KeyDown consumed by the rail block below still has a matching KeyUp on
+    // the way, arriving after isNavRailOpen.value has already flipped back to
+    // false — swallow it explicitly so it can't leak through to a background
+    // card's own click (this screen's cards use real system focus). See
+    // DiscoverScreen.kt's identical fix for the full mechanism.
+    var pendingRailKeyUp by remember { mutableStateOf<Key?>(null) }
     
     // Stream Selector state
     var showStreamSelector by remember { mutableStateOf(false) }
@@ -366,6 +376,34 @@ fun DetailsScreen(
         verticalMinRepeatIntervalMs = 112L
     )
     val keyModifier = if (isMobile) Modifier else Modifier.onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
+                    pendingRailKeyUp = null
+                    return@onPreviewKeyEvent true
+                }
+                if (isNavRailOpen.value) {
+                    if (event.type == KeyEventType.KeyDown) pendingRailKeyUp = event.key
+                    val railEntries = com.arflix.tv.ui.components.computeNavRailEntries(
+                        currentScreen = null,
+                        navSections = navSections,
+                        neolinkConfigured = neolinkConfigured,
+                    )
+                    com.arflix.tv.ui.components.navRailHandleKey(
+                        event = event,
+                        entries = railEntries,
+                        focusedIndex = navRailFocusedIndex,
+                        onClose = { isNavRailOpen.value = false },
+                        actions = com.arflix.tv.ui.components.NavRailActions(
+                            onNavigateToHome = onNavigateToHome,
+                            onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToDiscover = onNavigateToDiscover,
+                            onNavigateToTv = onNavigateToTv,
+                            onNavigateToCameras = onNavigateToCameras,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToWatchlist = onNavigateToWatchlist,
+                        ),
+                    )
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type == KeyEventType.KeyUp && isXadarrDpadNavigationKey(event.key)) {
                     dpadRepeatGate.reset()
                 }
@@ -400,9 +438,10 @@ fun DetailsScreen(
                         }
                         Key.DirectionLeft -> {
                             if (isSidebarFocused) {
-                                if (sidebarFocusIndex > 0) {
-                                    sidebarFocusIndex = (sidebarFocusIndex - 1).coerceIn(0, maxSidebarIndex)
-                                }
+                                // Chrome-focused (topmost), one more Left opens the rail —
+                                // same gesture every other screen uses.
+                                isNavRailOpen.value = true
+                                pendingRailKeyUp = Key.DirectionLeft
                                 true
                             } else {
                                 // Check if at leftmost item in any section - go to sidebar
@@ -416,6 +455,8 @@ fun DetailsScreen(
                                     FocusSection.COLLECTION -> collectionIndex == 0
                                 }
                                 if (atLeftmost) {
+                                    isNavRailOpen.value = true
+                                    pendingRailKeyUp = Key.DirectionLeft
                                     true
                                 } else {
                                     handleLeft(
@@ -429,9 +470,8 @@ fun DetailsScreen(
                         }
                         Key.DirectionRight -> {
                             if (isSidebarFocused) {
-                                if (sidebarFocusIndex < maxSidebarIndex) {
-                                    sidebarFocusIndex = (sidebarFocusIndex + 1).coerceIn(0, maxSidebarIndex)
-                                }
+                                // No more inline chrome items to cycle through (all moved to
+                                // NavRail) — just consume so it doesn't fall through.
                                 true
                             } else {
                                 handleRight(
@@ -558,22 +598,9 @@ fun DetailsScreen(
                                 return@onPreviewKeyEvent true
                             }
                             if (isSidebarFocused) {
-                                if (hasProfile && sidebarFocusIndex == 0) {
-                                    onSwitchProfile()
-                                } else {
-                                    val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)
-                                    if (customEntry != null) {
-                                        com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv, onNavigateToCameras)
-                                    } else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
-                                        SidebarItem.SEARCH -> onNavigateToSearch()
-                                        SidebarItem.HOME -> onNavigateToHome()
-                                        SidebarItem.DISCOVER -> onNavigateToDiscover()
-                                        SidebarItem.TV -> onNavigateToTv()
-                                        SidebarItem.CAMERAS -> onNavigateToCameras()
-                                        SidebarItem.SETTINGS -> onNavigateToSettings()
-                                        null -> Unit
-                                    }
-                                }
+                                // Chrome no longer has any dispatchable item of its own (all
+                                // moved to NavRail) — just consume so it doesn't fall through
+                                // to whatever card is behind it.
                                 return@onPreviewKeyEvent true
                             }
                             when (focusedSection) {
@@ -865,12 +892,29 @@ fun DetailsScreen(
         }
 
         if (!LocalDeviceType.current.isTouchDevice()) {
-            AppTopBar(
-                selectedItem = SidebarItem.HOME,
-                isFocused = isSidebarFocused,
-                focusedIndex = sidebarFocusIndex,
-                profile = currentProfile
-            )
+            com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
+
+            // zIndex forces this above the details content regardless of
+            // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
+            Box(modifier = Modifier.zIndex(10f)) {
+                com.arflix.tv.ui.components.NavRail(
+                    isOpen = isNavRailOpen.value,
+                    onClose = { isNavRailOpen.value = false },
+                    currentScreen = null,
+                    navSections = navSections,
+                    neolinkConfigured = neolinkConfigured,
+                    actions = com.arflix.tv.ui.components.NavRailActions(
+                        onNavigateToHome = onNavigateToHome,
+                        onNavigateToSearch = onNavigateToSearch,
+                        onNavigateToDiscover = onNavigateToDiscover,
+                        onNavigateToTv = onNavigateToTv,
+                        onNavigateToCameras = onNavigateToCameras,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToWatchlist = onNavigateToWatchlist,
+                    ),
+                    focusedIndex = navRailFocusedIndex.value,
+                )
+            }
         }
         
         // Person Modal

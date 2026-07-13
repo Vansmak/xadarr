@@ -103,6 +103,7 @@ class TraktRepository @Inject constructor(
     private fun accessTokenKey() = profileManager.profileStringKey("trakt_access_token")
     private fun refreshTokenKey() = profileManager.profileStringKey("trakt_refresh_token")
     private fun expiresAtKey() = profileManager.profileLongKey("trakt_expires_at")
+    private fun explicitDisconnectKey() = profileManager.profileBooleanKey("trakt_explicit_disconnect")
     private fun includeSpecialsKey() = profileManager.profileBooleanKey("trakt_include_specials")
     private fun dismissedContinueWatchingKey() = profileManager.profileStringKey("trakt_dismissed_continue_watching_v1")
     private fun continueWatchingCacheKey() = profileManager.profileStringKey("trakt_continue_watching_cache_v4")
@@ -376,6 +377,7 @@ class TraktRepository @Inject constructor(
             prefs[accessTokenKey()] = token.accessToken
             prefs[refreshTokenKey()] = token.refreshToken
             prefs[expiresAtKey()] = token.createdAt + token.expiresIn
+            prefs.remove(explicitDisconnectKey())
         }
     }
 
@@ -402,8 +404,30 @@ class TraktRepository @Inject constructor(
             prefs.remove(accessTokenKey())
             prefs.remove(refreshTokenKey())
             prefs.remove(expiresAtKey())
+            // Marks this as a user-initiated disconnect (as opposed to a token
+            // going invalid from a failed background refresh — see
+            // clearInvalidTraktToken()) so cloud export knows the cleared state
+            // is intentional and should overwrite the server's copy rather than
+            // being treated as data to protect.
+            prefs[explicitDisconnectKey()] = true
         }
         clearProfileScopedMemoryCaches(clearPreloaded = false)
+    }
+
+    /**
+     * Profiles whose Trakt connection was cleared via an explicit user
+     * "Disconnect" action, as opposed to a background token-refresh failure.
+     * Used by cloud export to distinguish an intentional disconnect (which
+     * should overwrite the server's stored token) from a device merely
+     * losing the single-use refresh-token rotation race against another
+     * signed-in device (which should NOT wipe the still-valid token the
+     * other device already pushed).
+     */
+    suspend fun explicitlyDisconnectedProfileIds(profileIds: List<String>): Set<String> {
+        val prefs = context.traktDataStore.data.first()
+        return profileIds.filterTo(mutableSetOf()) { pid ->
+            prefs[profileManager.profileBooleanKeyFor(pid, "trakt_explicit_disconnect")] == true
+        }
     }
 
     /**

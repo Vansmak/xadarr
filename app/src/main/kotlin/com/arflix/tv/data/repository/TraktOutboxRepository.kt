@@ -21,7 +21,9 @@ private val Context.traktOutboxDataStore: DataStore<Preferences> by preferencesD
 enum class TraktOutboxAction {
     MARK_MOVIE_WATCHED,
     MARK_EPISODE_WATCHED,
-    REMOVE_PLAYBACK_ITEM
+    REMOVE_PLAYBACK_ITEM,
+    ADD_TO_WATCHLIST,
+    REMOVE_FROM_WATCHLIST
 }
 
 @Keep
@@ -34,6 +36,8 @@ data class TraktOutboxItem(
     val season: Int? = null,
     val episode: Int? = null,
     val playbackId: Long? = null,
+    /** "movie" or "tv" — used by ADD_TO_WATCHLIST / REMOVE_FROM_WATCHLIST. */
+    val mediaType: String? = null,
     val createdAt: String = Instant.now().toString(),
     val attempts: Int = 0
 )

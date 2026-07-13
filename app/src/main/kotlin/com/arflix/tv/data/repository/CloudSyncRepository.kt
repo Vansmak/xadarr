@@ -521,7 +521,29 @@ class CloudSyncRepository @Inject constructor(
         // Fetch existing server payload up-front so we can use it as a fallback when
         // building the snapshot (e.g., preserve home server connections and avatar images
         // that were set via the web UI or another device and haven't reached this device yet).
-        val existingServerRoot = syncServerLoadPayload()
+        //
+        // Must distinguish "server confirmed empty" (404 -> Result.success(null),
+        // nothing to preserve, safe to proceed) from "fetch itself failed" (network
+        // error -> Result.failure, we simply don't know what the server has).
+        // .getOrNull() used to collapse both into the same null, so a transient
+        // network blip during this GET made every "preserve if local is blank"
+        // check below (favorites, IPTV URLs, home server connections, avatar
+        // images) treat the server as empty too — pushing this device's blank
+        // fields straight over real server data. This is the leading suspect for
+        // IPTV favorite channels not reliably surviving app updates (Joe,
+        // 2026-07-11): a fresh install's very first sync is exactly when this
+        // GET is most likely to race a not-yet-ready network. Abort the whole
+        // snapshot build in that case — pushToCloudLocked()'s existing
+        // runCatching around this function already treats a thrown exception as
+        // a safe, retryable push failure (marks dirty, retries later) rather
+        // than silently overwriting good server data.
+        val syncServerConfigured = syncServerBaseUrl().isNotBlank()
+        val existingServerLoadResult = syncServerLoadPayload()
+        if (syncServerConfigured && existingServerLoadResult.isFailure) {
+            throw existingServerLoadResult.exceptionOrNull()
+                ?: IllegalStateException("Sync server payload fetch failed")
+        }
+        val existingServerRoot = existingServerLoadResult
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
             ?.let { payload -> runCatching { JSONObject(payload) }.getOrNull() }
@@ -665,6 +687,14 @@ class CloudSyncRepository @Inject constructor(
         // Trakt tokens per profile
         val traktTokens = traktRepository.exportTokensForProfiles(profiles.map { it.id })
         root.put("traktTokens", JSONObject(gson.toJson(traktTokens)))
+        // Profiles with no local Trakt token because the user explicitly hit
+        // Disconnect (vs. a background refresh losing the single-use
+        // refresh-token rotation race against another signed-in device). The
+        // sync server uses this to tell "intentionally cleared" apart from
+        // "this device's copy just went stale" and only overwrites its stored
+        // token in the former case.
+        val traktDisconnectedProfileIds = traktRepository.explicitlyDisconnectedProfileIds(profiles.map { it.id })
+        root.put("traktDisconnectedProfileIds", JSONArray(traktDisconnectedProfileIds.toList()))
 
         // Dismissed Continue Watching keys per profile (persist hide/remove state)
         val dismissedContinueWatchingByProfile =

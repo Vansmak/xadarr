@@ -22,6 +22,9 @@ import com.arflix.tv.data.repository.SonarrEpisodeInfo
 import com.arflix.tv.data.repository.SonarrEpisodeStatus
 import com.arflix.tv.data.repository.SonarrRepository
 import com.arflix.tv.data.repository.StreamRepository
+import com.arflix.tv.data.repository.TraktOutboxAction
+import com.arflix.tv.data.repository.TraktOutboxItem
+import com.arflix.tv.data.repository.TraktOutboxRepository
 import com.arflix.tv.data.repository.TraktRepository
 import com.arflix.tv.data.repository.WatchHistoryRepository
 import com.arflix.tv.data.repository.WatchlistRepository
@@ -182,6 +185,7 @@ class DetailsViewModel @Inject constructor(
     private val launcherContinueWatchingRepository: LauncherContinueWatchingRepository,
     private val homeServerRepository: HomeServerRepository,
     private val sonarrRepository: SonarrRepository,
+    private val traktOutboxRepository: TraktOutboxRepository,
 ) : ViewModel() {
 
     companion object {
@@ -1068,15 +1072,33 @@ class DetailsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val traktConnected = runCatching { traktRepository.hasTrakt() }.getOrDefault(false)
+                val traktMediaType = if (currentMediaType == MediaType.MOVIE) "movie" else "tv"
                 if (newInWatchlist) {
-                    if (traktConnected && !traktRepository.addToWatchlist(currentMediaType, currentMediaId)) {
-                        throw IllegalStateException("Failed to add to Trakt watchlist")
+                    // Trakt may be disconnected (expired/never-connected token) at the moment
+                    // of adding — queue it so a later reconnect/sync backfills it instead of
+                    // the item silently staying local-only forever.
+                    val traktSyncOk = traktConnected && traktRepository.addToWatchlist(currentMediaType, currentMediaId)
+                    if (!traktSyncOk) {
+                        traktOutboxRepository.enqueue(
+                            TraktOutboxItem(
+                                action = TraktOutboxAction.ADD_TO_WATCHLIST,
+                                tmdbId = currentMediaId,
+                                mediaType = traktMediaType,
+                            )
+                        )
                     }
                     // Pass the full MediaItem so it appears instantly in watchlist
                     watchlistRepository.addToWatchlist(currentMediaType, currentMediaId, currentItem)
                 } else {
-                    if (traktConnected && !traktRepository.removeFromWatchlist(currentMediaType, currentMediaId)) {
-                        throw IllegalStateException("Failed to remove from Trakt watchlist")
+                    val traktSyncOk = traktConnected && traktRepository.removeFromWatchlist(currentMediaType, currentMediaId)
+                    if (!traktSyncOk) {
+                        traktOutboxRepository.enqueue(
+                            TraktOutboxItem(
+                                action = TraktOutboxAction.REMOVE_FROM_WATCHLIST,
+                                tmdbId = currentMediaId,
+                                mediaType = traktMediaType,
+                            )
+                        )
                     }
                     watchlistRepository.removeFromWatchlist(currentMediaType, currentMediaId)
                 }

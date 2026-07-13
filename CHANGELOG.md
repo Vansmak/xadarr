@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.10] - 2026-07-12
+
+### Changed
+- **All Shows library browser sort** — replaced alphabetical with a recency-first order: shows with a newly added episode appear first (newest first), followed by everything else ordered by how recently you watched it.
+- **Details screen navigation** — migrated to the same slide-in nav rail used everywhere else in the app, replacing the old inline top-bar sidebar cycling.
+
+### Fixed
+- **Live TV guide stuck on "Loading channels…"** — a background channel-list refresh (EPG/now-playing merge) could repeatedly cancel the in-progress channel list processing before it finished, leaving the guide stuck even though the data had actually loaded successfully. Channel list rendering is now keyed on a stable identity signature instead of the raw list reference, so routine background refreshes no longer restart it.
+- **Watchlist items awaiting a rule pick** — tapping a pending watchlist card (on Home or the Watchlist screen) now reliably opens the rule picker instead of sometimes falling through to the details screen.
+- **Watchlist changes lost when Trakt is unreachable** — adding or removing a watchlist item while Trakt is momentarily unreachable (expired session, network blip) is now queued and retried automatically once it's reachable again, instead of silently staying local-only forever. Watchlist state also periodically re-syncs against Trakt to catch drift from changes made elsewhere.
+- **IPTV channel identity** — channels are now keyed on a stable ID that survives playlist provider stream URL changes, instead of a hash of the stream URL itself. Fixes favourites, last-played channel, and hidden/removed groups occasionally resetting after a playlist refresh.
+- **Channel logos with transparent padding** — network channel logos no longer show placeholder initials bleeding through underneath a successfully loaded logo.
+
 ## [2.9] - 2026-07-06
 
 ### Added

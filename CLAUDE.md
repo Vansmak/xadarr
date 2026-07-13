@@ -396,9 +396,19 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 ## Current Version
 
-**v2.9** — Smart Home screen, Radarr/Sonarr library browser, See All shortcuts.
+**v2.10** — Live TV/Watchlist render-bug fixes, Trakt watchlist reliability, All Shows recency sort.
 
-Changes since v2.8:
+Changes since v2.9:
+- **Fix: Live TV guide stuck on "Loading channels…"** — `LaunchedEffect` driving channel enrichment in `LiveTvScreen.kt` was keyed on the raw `state.snapshot.channels` list, which gets a new reference on every EPG/nowNext merge even when the channel set itself hasn't changed. Frequent merges kept cancelling the expensive enrichment (`buildCategoryTree` + per-channel `enrich()`) before it could finish, permanently stuck on the first partial pass. Now keyed on a stable `channelsIdentitySignature` (count + first/last id) instead — see [[project_livetv_watchlist_render_bug_2026-07-11]] in memory
+- **Fix: pending watchlist item tap** — tapping a pending (amber-badged) watchlist card on Home or Watchlist screen now opens the Episeerr rule picker via explicit `itemIsPending` routing in `onClick`, instead of sometimes falling through to Details
+- **Trakt watchlist outbox** — `TraktOutboxRepository` extended with `ADD_TO_WATCHLIST`/`REMOVE_FROM_WATCHLIST`; failed adds/removes (Trakt disconnected at the moment of the action) now queue and retry on the existing periodic/reconnect sync instead of being silently dropped
+- **Trakt watchlist reconcile re-enabled** — `TraktSyncService.reconcileWatchlist()`/`WatchlistRepository.reconcileWithTrakt()` make the local watchlist match Trakt exactly each sync cycle; previously reverted (resurrected deleted items) because episeerr_custom/xadarr-server's own watchlist write paths had no retry of their own — both now have a matching outbox, closing the gap
+- **IPTV channel id scheme** — `buildChannelId()` moved from a stream-URL hash to Dispatcharr's stable tvg-id/channel-number, which survives Dispatcharr regenerating a channel's proxy stream UUID on every maintenance run; old-format cached ids are migrated on read (`migrateLegacyChannelId()`)
+- **Fix: ChannelLogo bleed-through** — placeholder initials are now hidden once the real logo successfully loads (was rendering underneath always, showing through transparent-padded PNGs)
+- **All Shows sort** — replaced alphabetical with newest-episode-added-first, then most-recently-watched. `episeerr_custom/episeerr.py`'s `/api/sonarr/series` now includes `lastEpisodeAdded` per series (from Sonarr's `/api/v3/history`); `HomeViewModel.loadShowsFromSonarr()` pre-resolves tvdbId→tmdbId for the whole list before chunking so it can sort before the existing progressive-reveal loop runs. Movies/Radarr intentionally left alphabetical (not requested). See [[project_shows_sort_new_episodes_2026-07-12]]
+- **Details screen** migrated to shared NavRail (was still using the old inline `AppTopBar` sidebar cycling — last screen to convert)
+
+Changes since v2.8 (v2.9):
 - **Smart Home screen** — HA lights/fans/AC/windows; entity picker; fan speed (low/med/high); thermostat mode cycling. Opens via Shield remote Menu key or Settings → Home Assistant
 - **Fix: light/fan toggle sync** — optimistic update + delayed reconcile fixes a refresh() race with HA's actual state report that could look like the toggle silently reverted
 - **Library browser (All Movies/All Shows)** — `RadarrRepository`/`SonarrRepository`, file-state badges, delete-from-library with confirmation, per-episode search/delete
