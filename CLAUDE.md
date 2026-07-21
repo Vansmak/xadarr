@@ -30,7 +30,7 @@ Joe is the sole developer. He works from a couch using an Android TV remote.
 ./gradlew :app:installSideloadDebug
 
 # ADB device
-adb connect 192.168.254.91:5555
+adb connect 192.168.254.159:5555
 ```
 
 **After every successful build, always copy the APK to `/mnt/usbshare/`:**

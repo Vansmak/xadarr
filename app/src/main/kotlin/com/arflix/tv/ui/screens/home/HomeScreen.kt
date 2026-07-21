@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -300,11 +301,17 @@ private fun localizedCategoryTitle(category: Category): String = when (category.
 }
 
 /**
- * Design v4 §3/§5 — Home renders exactly: ONE user-selected row (watchlist |
- * up_next | continue_watching), the nav card row, On Now, and Apps (per Joe
- * 2026-07-11: Browse stays in the middle, only the selected row and On Now
- * swap ends around it — original concept.png had On Now first). Everything
- * else HomeViewModel still computes (Cameras, Recent Events, generic
+ * Home renders exactly: the nav card row (Browse), On Now, ONE user-selected
+ * row (watchlist | up_next | continue_watching), and Apps. Browse leads
+ * (Joe, 2026-07-19) specifically so cold-start focus lands on it directly at
+ * row 0 with no jump required — the previous order (selected row → Browse →
+ * On Now → Apps, Joe 2026-07-11) needed a LaunchedEffect to auto-correct
+ * focus onto Browse once it finished loading, and that correction
+ * permanently disables itself the moment the user presses anything, which a
+ * slow/flickering Browse build made easy to race and land stuck on the
+ * selected row instead. Putting Browse first removes the race by
+ * construction — nothing to jump to, it's already there. Everything else
+ * HomeViewModel still computes (Cameras, Recent Events, generic
  * catalogsByProfile rows, the other two of the three selectable rows) stays
  * in uiState.categories for data purposes — the nav row's dynamic subtitles
  * and the browse overlay both still read from it by ID — it's just not
@@ -328,9 +335,9 @@ private fun pruneHomeCategories(
         else -> "continue_watching".takeUnless { cwHidden }
     }
     return listOfNotNull(
-        selectedRowId?.let { byId[it] },
         byId[HomeViewModel.LIBRARY_TILES_CATEGORY_ID],
         byId[HomeViewModel.FAVORITE_TV_CATEGORY_ID],
+        selectedRowId?.let { byId[it] },
         byId[HomeViewModel.APPS_CATEGORY_ID],
     )
 }
@@ -633,6 +640,7 @@ fun HomeScreen(
     onNavigateToAllApps: () -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
+    val gameDayEvents = com.arflix.tv.util.LocalGameDayEvents.current
 
     // Use preloaded data from StartupViewModel if available
     LaunchedEffect(preloadedCategories, preloadedHeroItem, preloadedHeroLogoUrl, preloadedLogoCache) {
@@ -749,6 +757,16 @@ fun HomeScreen(
 
     // Use rememberSaveable to persist focus position across navigation (back from details page)
     val focusState = rememberSaveable(saver = HomeFocusState.Saver) { HomeFocusState() }
+    // Distinguishes the two Live TV hero contexts (Joe, 2026-07-20): focusing an
+    // individual On Now row card should show just THAT channel's own now/next
+    // (like a mini guide for that one channel); focusing the Browse row's TV
+    // tile should show the broader multi-channel favorites guide + Game Day
+    // override. Both produce an IPTV MediaItem as the hero (isIptvItem is true
+    // either way — the TV tile redirects to the same real channel item via
+    // libraryTileHeroSources), so the focused *row* is the only thing that
+    // actually tells the two contexts apart.
+    val isLiveTvTileFocused = displayCategories.getOrNull(focusState.currentRowIndex)?.id ==
+        HomeViewModel.LIBRARY_TILES_CATEGORY_ID
     val fastScrollThresholdMs = 650L
     val heroVideoIdleThresholdMs = 6_000L
     val startupEffectsDelayMs = if (isMobile) 0L else 900L
@@ -1069,6 +1087,19 @@ fun HomeScreen(
                 item.backdrop ?: item.image
             }
         }
+        // Live channels have no real backdrop art (see the null case above), so
+        // the plain generic gradient is the only thing shown there today — not
+        // helpful for telling one focused channel apart from another (Joe,
+        // 2026-07-20: "backdrop which currently shows random art is not helpful
+        // for tv"). Swap in a per-channel accent gradient instead, using the
+        // same deterministic name-hash color as the On Now card's logo
+        // fallback, so the backdrop and the focused card visually agree.
+        val liveTvBackdropBrush = remember(displayHeroItem?.id, displayHeroItem?.title) {
+            displayHeroItem?.takeIf { viewModel.isIptvItem(it) }?.let { item ->
+                val accent = channelAccentColor(item.title)
+                Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), BackgroundGradientEnd))
+            }
+        }
         var settledBackdrop by remember { mutableStateOf<String?>(null) }
         val latestCurrentBackdrop by rememberUpdatedState(currentBackdrop)
         LaunchedEffect(currentBackdrop, isMobile) {
@@ -1107,7 +1138,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
-                                brush = backdropGradient
+                                brush = liveTvBackdropBrush ?: backdropGradient
                             )
                     )
                 }
@@ -1327,6 +1358,30 @@ fun HomeScreen(
 
         if (showCinematicHomeLayer && browseCatId == null) {
             Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerOverlayAlpha.value }) {
+            // Compact multi-channel guide for the Live TV hero backdrop — Joe,
+            // 2026-07-20: wanted an actual guide of favorite channels here, not
+            // just the one focused/redirected channel's own now/next (which
+            // duplicates what its On Now row card already shows on its face).
+            // Today's resolved Game-Day events are merged in ahead of the
+            // regular favorites, not shown as a replacement — "where the dodger
+            // game? that channel should be there too." Unresolved events (no
+            // channel found at all) are skipped here; there's no channel to
+            // anchor a guide row to.
+            val favoriteChannelsGuide = remember(displayCategories, uiState.liveChannelEpg, gameDayEvents) {
+                val gameDayRows = gameDayEvents.mapNotNull { ev ->
+                    val channelName = ev.channelName ?: return@mapNotNull null
+                    FavoriteChannelGuideEntry(name = channelName, programTitle = ev.matchup, isGameDay = true)
+                }
+                val favoriteRows = displayCategories.firstOrNull { it.id == HomeViewModel.FAVORITE_TV_CATEGORY_ID }
+                    ?.items.orEmpty()
+                    .map { item ->
+                        FavoriteChannelGuideEntry(
+                            name = item.title,
+                            programTitle = uiState.liveChannelEpg[item.id]?.now?.title?.ifBlank { null }
+                        )
+                    }
+                (gameDayRows + favoriteRows).distinctBy { it.name }.take(5)
+            }
             HomeHeroLayer(
                 heroItem = displayHeroItem,
                 heroLogoUrl = displayHeroLogo,
@@ -1339,7 +1394,10 @@ fun HomeScreen(
                 isIptvItem = { item -> viewModel.isIptvItem(item) },
                 getIptvChannelId = { item -> viewModel.getIptvChannelId(item) },
                 getIptvStreamUrl = { itemId -> viewModel.getIptvStreamUrl(itemId) },
-                getLiveChannelEpg = { itemId -> viewModel.getLiveChannelEpg(itemId) }
+                getLiveChannelEpg = { itemId -> viewModel.getLiveChannelEpg(itemId) },
+                gameDayEvents = gameDayEvents,
+                favoriteChannelsGuide = favoriteChannelsGuide,
+                isLiveTvTileFocused = isLiveTvTileFocused
             )
             } // end trailer-dim wrapper
         }
@@ -1576,6 +1634,29 @@ fun HomeScreen(
     }
 }
 
+// Deterministic accent color from channel name -- same palette as
+// LiveTvChannelCard's logo-fallback background, so the hero backdrop and the
+// On Now card agree visually for the same channel.
+private fun channelAccentColor(channelName: String): Color {
+    val palette = listOf(
+        Color(0xFF1565C0), Color(0xFF6A1B9A), Color(0xFF2E7D32),
+        Color(0xFFC62828), Color(0xFF00695C), Color(0xFF4527A0),
+        Color(0xFF283593), Color(0xFF558B2F), Color(0xFF4E342E),
+    )
+    return palette[Math.abs(channelName.hashCode()) % palette.size]
+}
+
+// One row of the Live TV hero's compact multi-channel guide. Game-Day rows
+// (isGameDay) are synthesized from today's resolved events and merged in
+// ahead of the regular favorite-channel rows -- Joe, 2026-07-20: "where the
+// dodger game? that channel should be there too" -- rather than replacing
+// the guide outright, which is what an earlier version of this did.
+private data class FavoriteChannelGuideEntry(
+    val name: String,
+    val programTitle: String?,
+    val isGameDay: Boolean = false
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HeroSection(
@@ -1588,6 +1669,9 @@ private fun HeroSection(
     // users see no behavior change. Issue #72.
     showBudget: Boolean = true,
     nowNext: com.arflix.tv.data.model.IptvNowNext? = null,
+    hasGameDayToday: Boolean = false,
+    favoriteChannelsGuide: List<FavoriteChannelGuideEntry> = emptyList(),
+    isLiveTvTileFocused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1710,7 +1794,7 @@ private fun HeroSection(
             val isIptvHero = currentItem.status?.startsWith("iptv:") == true
             Column {
                 if (isIptvHero) {
-                    // IPTV hero: LIVE badge + channel pill (name + number).
+                    // IPTV hero: LIVE/GAME DAY badge + channel pill (name + number).
                     // NOTE: channel "number" doesn't exist anywhere in the IPTV
                     // data model yet — IptvChannel has no number field, and
                     // nothing in the M3U/Xtream ingest parses tvg-chno (grepped
@@ -1718,17 +1802,18 @@ private fun HeroSection(
                     // channel numbers upstream (maintenance.sql Part 8) but it's
                     // never plumbed into Xadarr's own channel model. Rendering
                     // name only until that's added — flagged, not faked.
+                    val gameDayAccent = Color(0xFFE8A33D)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .background(AccentRed, RoundedCornerShape(4.dp))
+                                .background(if (hasGameDayToday) gameDayAccent else AccentRed, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = stringResource(R.string.live).uppercase(),
+                                text = (if (hasGameDayToday) stringResource(R.string.game_day) else stringResource(R.string.live)).uppercase(),
                                 style = ArflixTypography.caption.copy(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
@@ -1749,64 +1834,152 @@ private fun HeroSection(
                         }
                     }
 
-                    // Current program + progress — same EPG data and formatting
-                    // as the On Now row cards (com.arflix.tv.ui.screens.tv.live).
-                    val nowProgram = nowNext?.now
-                    if (nowProgram != null && nowProgram.title.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = nowProgram.title,
-                            style = ArflixTypography.caption.copy(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                shadow = textShadow
-                            ),
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.width(heroTextWidth)
-                        )
-                        val progress = com.arflix.tv.ui.screens.tv.live.progressOf(nowProgram)
-                        val remaining = com.arflix.tv.ui.screens.tv.live.remainingLabel(nowProgram)
-                        if (progress != null) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.width(heroTextWidth)
+                    if (isLiveTvTileFocused) {
+                        // Compact multi-channel guide, "at a glance" (Joe,
+                        // 2026-07-20) — only for the Browse row's TV tile. On
+                        // Now cards (below) show just their own channel's
+                        // now/next instead, since the card itself already
+                        // carries that channel's identity. Today's resolved
+                        // Game-Day events are rows in this same list (gold dot
+                        // + accent name), not a separate view that replaces it
+                        // — "where the dodger game? that channel should be
+                        // there too."
+                        if (favoriteChannelsGuide.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.width(heroTextWidth + 220.dp)
                             ) {
-                                androidx.compose.material3.LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(3.dp),
-                                    color = AccentRed,
-                                    trackColor = Color.White.copy(alpha = 0.25f)
-                                )
-                                val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+                                favoriteChannelsGuide.take(5).forEach { entry ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(if (entry.isGameDay) gameDayAccent else AccentRed, CircleShape)
+                                        )
+                                        Text(
+                                            text = entry.name,
+                                            style = ArflixTypography.caption.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                shadow = textShadow
+                                            ),
+                                            color = if (entry.isGameDay) gameDayAccent else Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 260.dp)
+                                        )
+                                        if (!entry.programTitle.isNullOrBlank()) {
+                                            Text(
+                                                text = entry.programTitle,
+                                                style = ArflixTypography.caption.copy(
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    shadow = textShadow
+                                                ),
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // On Now row card focused: just THAT channel's own
+                        // now/next, same EPG data and formatting as the card
+                        // itself (com.arflix.tv.ui.screens.tv.live).
+                        val nowProgram = nowNext?.now
+                        if (nowProgram != null && nowProgram.title.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = nowProgram.title,
+                                style = ArflixTypography.caption.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    shadow = textShadow
+                                ),
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.width(heroTextWidth)
+                            )
+                            val progress = com.arflix.tv.ui.screens.tv.live.progressOf(nowProgram)
+                            val remaining = com.arflix.tv.ui.screens.tv.live.remainingLabel(nowProgram)
+                            if (progress != null) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.width(heroTextWidth)
+                                ) {
+                                    androidx.compose.material3.LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(3.dp),
+                                        color = AccentRed,
+                                        trackColor = Color.White.copy(alpha = 0.25f)
+                                    )
+                                    val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+                                    Text(
+                                        text = "${timeFmt.format(java.util.Date(nowProgram.startUtcMillis))}–${timeFmt.format(java.util.Date(nowProgram.endUtcMillis))}",
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            shadow = textShadow
+                                        ),
+                                        color = Color.White.copy(alpha = 0.75f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                            if (remaining.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "${timeFmt.format(java.util.Date(nowProgram.startUtcMillis))}–${timeFmt.format(java.util.Date(nowProgram.endUtcMillis))}",
+                                    text = remaining,
                                     style = ArflixTypography.caption.copy(
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
                                         shadow = textShadow
                                     ),
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    maxLines = 1
+                                    color = Color.White.copy(alpha = 0.75f)
                                 )
                             }
-                        }
-                        if (remaining.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = remaining,
-                                style = ArflixTypography.caption.copy(
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    shadow = textShadow
-                                ),
-                                color = Color.White.copy(alpha = 0.75f)
-                            )
+                            val nextProgram = nowNext?.next
+                            if (nextProgram != null && nextProgram.title.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.width(heroTextWidth)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.next).uppercase(),
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            shadow = textShadow
+                                        ),
+                                        color = Color.White.copy(alpha = 0.55f)
+                                    )
+                                    Text(
+                                        text = nextProgram.title,
+                                        style = ArflixTypography.caption.copy(
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            shadow = textShadow
+                                        ),
+                                        color = Color.White.copy(alpha = 0.75f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
@@ -2069,7 +2242,10 @@ private fun HomeHeroLayer(
     isIptvItem: (MediaItem) -> Boolean = { false },
     getIptvChannelId: (MediaItem) -> String? = { null },
     getIptvStreamUrl: (Int) -> String? = { null },
-    getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null }
+    getLiveChannelEpg: (Int) -> com.arflix.tv.data.model.IptvNowNext? = { null },
+    gameDayEvents: List<com.arflix.tv.data.repository.GameDayEvent> = emptyList(),
+    favoriteChannelsGuide: List<FavoriteChannelGuideEntry> = emptyList(),
+    isLiveTvTileFocused: Boolean = false
 ) {
     if (isMobile) {
         // Mobile hero is rendered inline inside MobileHomeRowsLayer's LazyColumn — no fixed overlay needed.
@@ -2096,6 +2272,9 @@ private fun HomeHeroLayer(
                         overviewOverride = heroOverviewOverride,
                         showBudget = showBudget,
                         nowNext = if (isIptvItem(item)) getLiveChannelEpg(item.id) else null,
+                        hasGameDayToday = isIptvItem(item) && isLiveTvTileFocused && gameDayEvents.any { it.channelName != null },
+                        favoriteChannelsGuide = if (isIptvItem(item) && isLiveTvTileFocused) favoriteChannelsGuide else emptyList(),
+                        isLiveTvTileFocused = isLiveTvTileFocused,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(start = contentStartPadding, end = 400.dp)

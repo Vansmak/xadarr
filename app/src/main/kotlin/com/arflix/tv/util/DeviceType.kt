@@ -28,6 +28,9 @@ val LocalNeolinkConfigured = compositionLocalOf { false }
 /** Set of TMDB IDs (as strings) currently pending Episeerr rule selection. */
 val LocalEpiseerrPendingIds = compositionLocalOf { emptySet<String>() }
 
+/** Today's Game-Day events (Dodgers/Rams/UFC) from Joe's episeerr_custom-only integration. */
+val LocalGameDayEvents = compositionLocalOf { emptyList<com.arflix.tv.data.repository.GameDayEvent>() }
+
 /**
  * Per-profile nav bar customization (rename/hide/icon-only/reorder) for the active
  * profile. Empty list means "no customization stored yet" — consumers should fall

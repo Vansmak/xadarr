@@ -824,11 +824,15 @@ fun ArflixApp(
     val episeerrPendingIds by (episeerrPollManager?.pendingTmdbIds
         ?: kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>()))
         .collectAsState()
+    val gameDayEvents by (episeerrPollManager?.gameDayEvents
+        ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.arflix.tv.data.repository.GameDayEvent>()))
+        .collectAsState()
 
     CompositionLocalProvider(
         LocalNeolinkConfigured provides neolinkConfigured,
         com.arflix.tv.util.LocalNavSections provides navSections,
         com.arflix.tv.util.LocalEpiseerrPendingIds provides episeerrPendingIds,
+        com.arflix.tv.util.LocalGameDayEvents provides gameDayEvents,
     ) {
     Column(
         modifier = Modifier

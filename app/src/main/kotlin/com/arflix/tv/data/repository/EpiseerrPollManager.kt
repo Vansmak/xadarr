@@ -18,12 +18,16 @@ import javax.inject.Singleton
 @Singleton
 class EpiseerrPollManager @Inject constructor(
     private val episeerrRepository: EpiseerrRepository,
+    private val gameDayRepository: GameDayRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "EpiseerrPollManager"
 
     private val _pendingTmdbIds = MutableStateFlow<Set<String>>(emptySet())
     val pendingTmdbIds: StateFlow<Set<String>> = _pendingTmdbIds.asStateFlow()
+
+    private val _gameDayEvents = MutableStateFlow<List<GameDayEvent>>(emptyList())
+    val gameDayEvents: StateFlow<List<GameDayEvent>> = _gameDayEvents.asStateFlow()
 
     private var pollJob: Job? = null
 
@@ -48,6 +52,11 @@ class EpiseerrPollManager @Inject constructor(
             _pendingTmdbIds.value = pending.mapNotNull { it.tmdbId }.toSet()
         } catch (e: Exception) {
             Log.d(tag, "pending refresh failed: ${e.message}")
+        }
+        try {
+            _gameDayEvents.value = gameDayRepository.getTodayEvents()
+        } catch (e: Exception) {
+            Log.d(tag, "game day refresh failed: ${e.message}")
         }
     }
 }
