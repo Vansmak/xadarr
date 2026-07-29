@@ -35,7 +35,7 @@ jobs:
 
       - name: Create CI keystore
         run: |
-          keytool -genkeypair -keystore arvio.jks -alias arvio \
+          keytool -genkeypair -keystore xadarr.jks -alias xadarr \
             -keyalg RSA -keysize 2048 -validity 1 \
             -dname "CN=CI" -storepass 815787 -keypass 815787
 

@@ -55,7 +55,7 @@ jobs:
         id: apk
         run: |
           SRC=$(find app/build/outputs/apk/sideload/debug -name "*.apk" | head -1)
-          DEST="app/build/outputs/apk/sideload/debug/arvio-${{ steps.ver.outputs.name }}.apk"
+          DEST="app/build/outputs/apk/sideload/debug/xadarr-${{ steps.ver.outputs.name }}.apk"
           mv "$SRC" "$DEST"
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
 
@@ -69,7 +69,7 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: |
           gh release create "${{ steps.ver.outputs.tag }}" \
-            --title "Arvio ${{ steps.ver.outputs.name }}" \
+            --title "Xadarr ${{ steps.ver.outputs.name }}" \
             --notes-file release_notes.md \
             "${{ steps.apk.outputs.path }}"
         env:

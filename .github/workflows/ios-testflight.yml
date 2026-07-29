@@ -64,9 +64,9 @@ jobs:
 
       - name: Install signing assets
         env:
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-arvio-ios
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-xadarr-ios
         run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/arvio-signing.keychain-db"
+          KEYCHAIN_PATH="$RUNNER_TEMP/xadarr-signing.keychain-db"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
