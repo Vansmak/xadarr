@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.11] - 2026-07-28
+
+### Fixed
+- **Continue Watching could get stuck on a stale position, or fall back to the wrong episode after finishing a season** — marking an episode watched and advancing Continue Watching to the correct next episode (season-aware, so a season finale correctly rolls over to the next season's E1) ran in a single background task that could be silently cut off if you backed out or auto-advanced to the next episode shortly after playback ended, before it finished writing. That work is now protected from being interrupted once it starts.
+- **Finishing a movie, a season finale, or an episode with auto-play-next off left a black, unresponsive screen** — playback controls now appear automatically in those cases instead of leaving you on a frozen frame with no indication anything happened or how to get out.
+
 ## [2.10] - 2026-07-12
 
 ### Changed
