@@ -639,6 +639,23 @@ class TraktRepository @Inject constructor(
     }
 
     /**
+     * Mark movie watched in local caches and Supabase without sending another Trakt request.
+     * Use this when Trakt was already told separately (e.g. a scrobble already fired).
+     */
+    suspend fun markMovieWatchedWithoutTraktSync(tmdbId: Int) {
+        ensureProfileCacheScope()
+        updateWatchedCache(tmdbId, null, null, true)
+        persistLocalWatchedSnapshotForCurrentProfile()
+        removeFromContinueWatchingCache(tmdbId, null, null)
+
+        try {
+            syncService.markMovieWatchedInSupabaseOnly(tmdbId)
+        } catch (e: Exception) {
+            // Sync failed, but local cache is already updated
+        }
+    }
+
+    /**
      * Mark movie as unwatched - updates local cache immediately (optimistic), then syncs to backend
      */
     suspend fun markMovieUnwatched(tmdbId: Int) {
@@ -1898,7 +1915,13 @@ class TraktRepository @Inject constructor(
         streamAddonId: String? = null,
         streamTitle: String? = null,
         year: String = "",
-        isUpNext: Boolean = false
+        isUpNext: Boolean = false,
+        // Defaults to the hardcoded fallback, but callers that already know the user's
+        // configured "Watched Threshold" (PlayerViewModel) should pass it explicitly so
+        // this removal gate can't diverge from the threshold that actually marks the
+        // episode watched — a mismatch here previously left a window where an episode
+        // had already vanished from Continue Watching but wasn't marked watched yet.
+        watchedThreshold: Int = Constants.WATCHED_THRESHOLD
     ) {
         ensureProfileCacheScope()
         val hasMeaningfulPosition = positionSeconds >= 60L
@@ -1906,13 +1929,13 @@ class TraktRepository @Inject constructor(
         // Up-next placeholders (progress=0, no position) are always allowed through.
         // Normal saves require progress >= MIN_PROGRESS_THRESHOLD or a meaningful position.
         if (!isUpNext) {
-            if ((progress < Constants.MIN_PROGRESS_THRESHOLD && !hasMeaningfulPosition) || progress >= Constants.WATCHED_THRESHOLD) {
-                if (progress >= Constants.WATCHED_THRESHOLD) {
+            if ((progress < Constants.MIN_PROGRESS_THRESHOLD && !hasMeaningfulPosition) || progress >= watchedThreshold) {
+                if (progress >= watchedThreshold) {
                     removeFromLocalContinueWatching(tmdbId, season, episode)
                 }
                 return
             }
-        } else if (progress >= Constants.WATCHED_THRESHOLD) {
+        } else if (progress >= watchedThreshold) {
             removeFromLocalContinueWatching(tmdbId, season, episode)
             return
         }

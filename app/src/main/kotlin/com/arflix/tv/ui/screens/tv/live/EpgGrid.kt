@@ -87,7 +87,7 @@ fun EpgGrid(
     onChannelSelect: (EnrichedChannel, IptvProgram?) -> Unit,
     onProgramSelect: (EnrichedChannel, IptvProgram?) -> Unit = onChannelSelect,
     onChannelFocused: (EnrichedChannel) -> Unit = {},
-    onChannelFavoriteToggle: (String) -> Unit,
+    onChannelLongPress: (EnrichedChannel) -> Unit = {},
     favorites: Set<String>,
     compact: Boolean = false,
     gridFocused: Boolean = false,
@@ -480,7 +480,7 @@ fun EpgGrid(
                                 onMoveDown = { moveChannelFocus(+1) },
                                 onPageUp = { moveChannelFocus(-5) },
                                 onPageDown = { moveChannelFocus(+5) },
-                                onFavoriteToggle = { onChannelFavoriteToggle(ch.id) },
+                                onLongPress = { onChannelLongPress(ch) },
                                 rowHeight = rowHeight,
                                 forceFocused = gridFocused &&
                                     focusMode == EpgGridFocusMode.ChannelList &&

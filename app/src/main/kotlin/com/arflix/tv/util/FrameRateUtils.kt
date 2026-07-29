@@ -33,6 +33,15 @@ object FrameRateUtils {
     private var originalModeId: Int? = null
     private val detectionCache = ConcurrentHashMap<String, CachedDetection>()
 
+    /**
+     * Display.Mode switching is only the fallback path for API 23-29. From API 30
+     * (Build.VERSION_CODES.R) onward, Surface.setFrameRate (driven through ExoPlayer's
+     * setVideoChangeFrameRateStrategy) handles frame-rate matching instead, so this path
+     * must stay out of the way rather than fight it.
+     */
+    private fun isDisplayModeSwitchSupported(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+
     data class FrameRateDetection(
         val raw: Float,
         val snapped: Float
@@ -196,7 +205,7 @@ object FrameRateUtils {
      * Used on the playback hot path so frame-rate matching never blocks first frame.
      */
     fun applyFrameRateMode(activity: Activity, frameRate: Float): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        if (!isDisplayModeSwitchSupported()) return false
         if (frameRate <= 0f) return false
 
         return try {
@@ -233,7 +242,7 @@ object FrameRateUtils {
         activity: Activity,
         frameRate: Float
     ): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        if (!isDisplayModeSwitchSupported()) return false
         if (frameRate <= 0f) return false
 
         val targetMode = withContext(Dispatchers.Main) {
@@ -280,15 +289,17 @@ object FrameRateUtils {
     }
 
     /**
-     * Restore the original display mode that was active before frame rate matching.
+     * Clear any preferred display mode we set, handing mode selection back to the
+     * system (preferredDisplayModeId = 0 means "no preference") rather than pinning
+     * it to whatever was active before playback started.
      */
     fun restoreOriginalMode(activity: Activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val modeId = originalModeId ?: return
+        if (!isDisplayModeSwitchSupported()) return
+        if (originalModeId == null) return
         try {
             val window = activity.window ?: return
             val params = window.attributes
-            params.preferredDisplayModeId = modeId
+            params.preferredDisplayModeId = 0
             window.attributes = params
             originalModeId = null
         } catch (_: Exception) {}

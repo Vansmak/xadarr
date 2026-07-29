@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 private fun isSupplementalStream(stream: StreamSource): Boolean =
@@ -75,7 +77,7 @@ data class PlayerUiState(
     val preferredAudioLanguage: String = "en",
     val preferredSubtitleLang: String = "",
     val secondarySubtitleLang: String = "",
-    val frameRateMatchingMode: String = "Off",
+    val frameRateMatchingMode: String = "Always",
     val subtitleSize: String = "Medium",
     val subtitleColor: String = "White",
     val subtitleStyle: String = "Bold",
@@ -163,8 +165,19 @@ class PlayerViewModel @Inject constructor(
     private var lastWatchHistorySaveTime: Long = 0
     private var lastWatchHistorySavedPositionSeconds: Long = -1L
     private var lastIsPlaying: Boolean = false
-    private var hasMarkedWatched: Boolean = false
+    // Keyed on "$mediaType:$mediaId:$season:$episode" rather than a bare Boolean so that an
+    // in-flight saveProgress() coroutine for an episode that just ended can't be mistaken for
+    // already having marked the *next* episode (loaded via auto-advance) watched, and so a
+    // rewatch of the same episode can mark watched again after loadMedia() resets it to null.
+    private var lastMarkedWatchedKey: String? = null
     private var hasManualSubtitleSelection: Boolean = false
+
+    // viewModelScope is cancelled as soon as this screen's back-stack entry clears, which races
+    // the scrobble/mark-watched network call fired from onDispose on back/exit. This scope has no
+    // lifecycle owner so that final report finishes even after the screen is gone.
+    private val progressReportScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
 
     // Skip intro
     private var skipIntervals: List<SkipInterval> = emptyList()
@@ -265,7 +278,7 @@ class PlayerViewModel @Inject constructor(
                 "preferredSource=${currentPreferredSourceName.orEmpty().take(120)}"
         )
         currentEpisodeTitle = null
-        hasMarkedWatched = false
+        lastMarkedWatchedKey = null
         lastIsPlaying = false
         lastScrobbleTime = 0
         lastWatchHistorySaveTime = 0
@@ -1019,10 +1032,10 @@ class PlayerViewModel @Inject constructor(
                 "off" -> "Off"
                 "seamless", "seamless only", "only if seamless", "only_if_seamless" -> "Seamless only"
                 "always" -> "Always"
-                else -> "Off"
+                else -> "Always"
             }
         } catch (_: Exception) {
-            "Off"
+            "Always"
         }
     }
 
@@ -2239,28 +2252,55 @@ class PlayerViewModel @Inject constructor(
         } else if (progressSaveJob?.isActive == true) {
             return
         }
-        progressSaveJob = viewModelScope.launch(Dispatchers.IO) {
+        // Snapshot the episode identity and display fields synchronously, before entering the
+        // async coroutine below. loadMedia() mutates these same instance fields when advancing
+        // to the next episode (auto-advance / manual "Play Next"), and can run before this
+        // coroutine actually gets scheduled — without a snapshot, a finishing episode's mark-
+        // watched call would silently read the *new* episode's identity instead.
+        val snapMediaType = currentMediaType
+        val snapMediaId = currentMediaId
+        val snapSeason = currentSeason
+        val snapEpisode = currentEpisode
+        val snapTitle = currentTitle
+        val snapEpisodeTitle = currentEpisodeTitle
+        val snapPoster = currentPoster
+        val snapBackdrop = currentBackdrop
+        val snapItemTitle = currentItemTitle
+        val snapSessionKey = "$snapMediaType:$snapMediaId:$snapSeason:$snapEpisode"
+
+        progressSaveJob = progressReportScope.launch {
             val currentTime = System.currentTimeMillis()
             val progressFraction = (progressPercent / 100f).coerceIn(0f, 1f)
+            // Single threshold for this whole save, used both to decide when an item is no
+            // longer "in progress" (stop updating history/local CW) and when it counts as
+            // watched. Previously these were two different numbers — a hardcoded 80%
+            // (Constants.WATCHED_THRESHOLD) here vs. the user-configurable "Watched
+            // Threshold" setting (default 90%) used only in the mark-watched block below —
+            // which left a gap where an episode had already stopped updating/vanished from
+            // Continue Watching but wasn't marked watched yet.
+            val watchedThreshold = runCatching {
+                context.settingsDataStore.data.first()[com.arflix.tv.data.repository.WEBHOOK_COMPLETION_PERCENT_KEY]
+                    ?.toIntOrNull()?.coerceIn(50, 99)
+            }.getOrNull() ?: Constants.WATCHED_THRESHOLD
 
             // Scrobble start/pause/updates with debounce
             val serverItemId = _uiState.value.selectedStream?.serverItemId
             if (isPlaying && !lastIsPlaying) {
                 try {
                     traktRepository.scrobbleStart(
-                        mediaType = currentMediaType,
-                        tmdbId = currentMediaId,
+                        mediaType = snapMediaType,
+                        tmdbId = snapMediaId,
                         progress = progressPercent.toFloat(),
-                        season = currentSeason,
-                        episode = currentEpisode
+                        season = snapSeason,
+                        episode = snapEpisode
                     )
                 } catch (e: Exception) {
                     // Scrobble start failed
                 }
                 runCatching {
                     progressWebhookRepository.maybeFireWebhook(
-                        event = "start", mediaType = currentMediaType, tmdbId = currentMediaId,
-                        title = currentTitle, season = currentSeason, episode = currentEpisode,
+                        event = "start", mediaType = snapMediaType, tmdbId = snapMediaId,
+                        title = snapTitle, season = snapSeason, episode = snapEpisode,
                         positionSeconds = (position / 1000L).coerceAtLeast(0L),
                         durationSeconds = (duration / 1000L).coerceAtLeast(1L),
                         progressPercent = progressPercent, serverItemId = serverItemId
@@ -2269,7 +2309,7 @@ class PlayerViewModel @Inject constructor(
                 if (!serverItemId.isNullOrBlank()) {
                     runCatching {
                         serverSessionRepository.reportStart(
-                            serverItemId = serverItemId, mediaType = currentMediaType,
+                            serverItemId = serverItemId, mediaType = snapMediaType,
                             positionMs = position, durationMs = duration
                         )
                     }
@@ -2278,19 +2318,19 @@ class PlayerViewModel @Inject constructor(
             } else if (!isPlaying && lastIsPlaying) {
                 try {
                     traktRepository.scrobblePauseImmediate(
-                        mediaType = currentMediaType,
-                        tmdbId = currentMediaId,
+                        mediaType = snapMediaType,
+                        tmdbId = snapMediaId,
                         progress = progressPercent.toFloat(),
-                        season = currentSeason,
-                        episode = currentEpisode
+                        season = snapSeason,
+                        episode = snapEpisode
                     )
                 } catch (e: Exception) {
                     // Scrobble pause immediate failed
                 }
                 runCatching {
                     progressWebhookRepository.maybeFireWebhook(
-                        event = "pause", mediaType = currentMediaType, tmdbId = currentMediaId,
-                        title = currentTitle, season = currentSeason, episode = currentEpisode,
+                        event = "pause", mediaType = snapMediaType, tmdbId = snapMediaId,
+                        title = snapTitle, season = snapSeason, episode = snapEpisode,
                         positionSeconds = (position / 1000L).coerceAtLeast(0L),
                         durationSeconds = (duration / 1000L).coerceAtLeast(1L),
                         progressPercent = progressPercent, serverItemId = serverItemId
@@ -2299,7 +2339,7 @@ class PlayerViewModel @Inject constructor(
                 if (!serverItemId.isNullOrBlank()) {
                     runCatching {
                         serverSessionRepository.reportProgress(
-                            serverItemId = serverItemId, mediaType = currentMediaType,
+                            serverItemId = serverItemId, mediaType = snapMediaType,
                             positionMs = position, durationMs = duration, isPaused = true
                         )
                     }
@@ -2309,19 +2349,19 @@ class PlayerViewModel @Inject constructor(
                 // Periodic scrobble update while playing (use scrobbleStart, not pause)
                 try {
                     traktRepository.scrobbleStart(
-                        mediaType = currentMediaType,
-                        tmdbId = currentMediaId,
+                        mediaType = snapMediaType,
+                        tmdbId = snapMediaId,
                         progress = progressPercent.toFloat(),
-                        season = currentSeason,
-                        episode = currentEpisode
+                        season = snapSeason,
+                        episode = snapEpisode
                     )
                 } catch (e: Exception) {
                     // Scrobble update failed
                 }
                 runCatching {
                     progressWebhookRepository.maybeFireWebhook(
-                        event = "progress", mediaType = currentMediaType, tmdbId = currentMediaId,
-                        title = currentTitle, season = currentSeason, episode = currentEpisode,
+                        event = "progress", mediaType = snapMediaType, tmdbId = snapMediaId,
+                        title = snapTitle, season = snapSeason, episode = snapEpisode,
                         positionSeconds = (position / 1000L).coerceAtLeast(0L),
                         durationSeconds = (duration / 1000L).coerceAtLeast(1L),
                         progressPercent = progressPercent, serverItemId = serverItemId
@@ -2330,7 +2370,7 @@ class PlayerViewModel @Inject constructor(
                 if (!serverItemId.isNullOrBlank()) {
                     runCatching {
                         serverSessionRepository.reportProgress(
-                            serverItemId = serverItemId, mediaType = currentMediaType,
+                            serverItemId = serverItemId, mediaType = snapMediaType,
                             positionMs = position, durationMs = duration, isPaused = false
                         )
                     }
@@ -2342,7 +2382,7 @@ class PlayerViewModel @Inject constructor(
             // Skip saving progress at watched threshold — the mark-watched block below handles
             // the next-episode CW entry, and saving the finished episode's full position here
             // would contaminate the next episode's resume time via show-level history fallback.
-            val isAtWatchedThreshold = progressPercent >= Constants.WATCHED_THRESHOLD
+            val isAtWatchedThreshold = progressPercent >= watchedThreshold
             val durationSeconds = (duration / 1000L).coerceAtLeast(1L)
             val positionSeconds = (position / 1000L).coerceAtLeast(0L)
             val hasSeekJump = lastWatchHistorySavedPositionSeconds >= 0L &&
@@ -2359,14 +2399,14 @@ class PlayerViewModel @Inject constructor(
                 val streamAddonId = if (shouldPersistStreamAffinity) selectedStream?.addonId?.takeIf { it.isNotBlank() } else null
                 val streamTitle = if (shouldPersistStreamAffinity) selectedStream?.source?.take(200)?.takeIf { it.isNotBlank() } else null
                 watchHistoryRepository.saveProgress(
-                    mediaType = currentMediaType,
-                    tmdbId = currentMediaId,
-                    title = currentTitle,
-                    poster = currentPoster,
-                    backdrop = currentBackdrop,
-                    season = currentSeason,
-                    episode = currentEpisode,
-                    episodeTitle = currentEpisodeTitle,
+                    mediaType = snapMediaType,
+                    tmdbId = snapMediaId,
+                    title = snapTitle,
+                    poster = snapPoster,
+                    backdrop = snapBackdrop,
+                    season = snapSeason,
+                    episode = snapEpisode,
+                    episodeTitle = snapEpisodeTitle,
                     progress = progressFraction,
                     duration = durationSeconds,
                     position = positionSeconds,
@@ -2379,22 +2419,23 @@ class PlayerViewModel @Inject constructor(
                 // Skip when at watched threshold — the watched-mark block below will handle
                 // creating the next-episode CW entry instead, avoiding a stale position/duration
                 // from the finished episode leaking into the next-episode's resume label.
-                if (progressPercent < Constants.WATCHED_THRESHOLD) {
+                if (progressPercent < watchedThreshold) {
                     traktRepository.saveLocalContinueWatching(
-                        mediaType = currentMediaType,
-                        tmdbId = currentMediaId,
-                        title = currentItemTitle.ifEmpty { currentTitle },
-                        posterPath = currentPoster,
-                        backdropPath = currentBackdrop,
-                        season = currentSeason,
-                        episode = currentEpisode,
-                        episodeTitle = currentEpisodeTitle,
+                        mediaType = snapMediaType,
+                        tmdbId = snapMediaId,
+                        title = snapItemTitle.ifEmpty { snapTitle },
+                        posterPath = snapPoster,
+                        backdropPath = snapBackdrop,
+                        season = snapSeason,
+                        episode = snapEpisode,
+                        episodeTitle = snapEpisodeTitle,
                         progress = progressPercent,
                         positionSeconds = positionSeconds,
                         durationSeconds = durationSeconds,
                         streamKey = streamKey,
                         streamAddonId = streamAddonId,
-                        streamTitle = streamTitle
+                        streamTitle = streamTitle,
+                        watchedThreshold = watchedThreshold
                     )
 
                     // Push local CW to cloud so other devices see mid-playback progress.
@@ -2405,34 +2446,58 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
 
-                if (!isPlaying || playbackState == Player.STATE_ENDED || progressPercent >= Constants.WATCHED_THRESHOLD) {
+                if (!isPlaying || playbackState == Player.STATE_ENDED || progressPercent >= watchedThreshold) {
                     runCatching { cloudSyncRepository.pushToCloud() }
                     runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
                 }
             }
 
             // Mark as watched when playback ends or crosses threshold
-            val watchedThreshold = runCatching {
-                context.settingsDataStore.data.first()[com.arflix.tv.data.repository.WEBHOOK_COMPLETION_PERCENT_KEY]
-                    ?.toIntOrNull()?.coerceIn(50, 99)
-            }.getOrNull() ?: Constants.WATCHED_THRESHOLD
-            if (!hasMarkedWatched && (playbackState == Player.STATE_ENDED || progressPercent >= watchedThreshold)) {
-                hasMarkedWatched = true
+            if (lastMarkedWatchedKey != snapSessionKey && (playbackState == Player.STATE_ENDED || progressPercent >= watchedThreshold)) {
+                lastMarkedWatchedKey = snapSessionKey
+                // NonCancellable: this block marks the episode watched and computes/saves the
+                // correct next Continue Watching pointer (season-aware rollover included). It's
+                // guarded by lastMarkedWatchedKey above so it only ever runs once per episode -
+                // if progressSaveJob gets cancelled partway through (e.g. the player screen
+                // tearing down to load the next episode, or the user backing out shortly after
+                // playback ends), that guard was already set, so the work silently never
+                // finishes and never retries: stale in-progress position lingers, and Continue
+                // Watching never advances past whatever it had before. NonCancellable makes sure
+                // once this starts, it always runs to completion regardless of what cancels the
+                // outer job.
+                withContext(NonCancellable) {
                 try {
                     traktRepository.scrobbleStop(
-                        mediaType = currentMediaType,
-                        tmdbId = currentMediaId,
+                        mediaType = snapMediaType,
+                        tmdbId = snapMediaId,
                         progress = progressPercent.toFloat(),
-                        season = currentSeason,
-                        episode = currentEpisode
+                        season = snapSeason,
+                        episode = snapEpisode
                     )
                 } catch (e: Exception) {
                     // Scrobble stop failed
                 }
+                // Mark watched locally regardless of Trakt scrobble outcome — the local
+                // watched cache (badges, isWatched checks, next-episode resolution) was
+                // previously only ever updated from manual "Mark Watched" menu actions,
+                // so automatic playback completion never persisted watched state until
+                // the next background Trakt re-sync (or never, for non-Trakt profiles).
+                // Uses the "WithoutTraktSync" variant since scrobbleStop above already
+                // told Trakt — calling the regular mark-watched path too would add a
+                // second, duplicate history entry on Trakt for the same viewing.
+                try {
+                    if (snapMediaType == MediaType.TV && snapSeason != null && snapEpisode != null) {
+                        traktRepository.markEpisodeWatchedWithoutTraktSync(snapMediaId, snapSeason, snapEpisode)
+                    } else if (snapMediaType == MediaType.MOVIE) {
+                        traktRepository.markMovieWatchedWithoutTraktSync(snapMediaId)
+                    }
+                } catch (e: Exception) {
+                    // Best-effort: don't let local watched-mark failure affect playback
+                }
                 runCatching {
                     progressWebhookRepository.maybeFireWebhook(
-                        event = "stop", mediaType = currentMediaType, tmdbId = currentMediaId,
-                        title = currentTitle, season = currentSeason, episode = currentEpisode,
+                        event = "stop", mediaType = snapMediaType, tmdbId = snapMediaId,
+                        title = snapTitle, season = snapSeason, episode = snapEpisode,
                         positionSeconds = (position / 1000L).coerceAtLeast(0L),
                         durationSeconds = (duration / 1000L).coerceAtLeast(1L),
                         progressPercent = progressPercent, serverItemId = serverItemId
@@ -2441,24 +2506,24 @@ class PlayerViewModel @Inject constructor(
                 if (!serverItemId.isNullOrBlank()) {
                     runCatching {
                         serverSessionRepository.reportStop(
-                            serverItemId = serverItemId, mediaType = currentMediaType,
+                            serverItemId = serverItemId, mediaType = snapMediaType,
                             positionMs = position, durationMs = duration
                         )
                     }
                 }
                 try {
-                    val safeSeason = currentSeason
-                    val safeEpisode = currentEpisode
-                    if (currentMediaType == MediaType.TV && safeSeason != null && safeEpisode != null) {
-                        traktRepository.deletePlaybackForEpisode(currentMediaId, safeSeason, safeEpisode)
-                    } else if (currentMediaType == MediaType.MOVIE) {
-                        traktRepository.deletePlaybackForContent(currentMediaId, currentMediaType)
+                    val safeSeason = snapSeason
+                    val safeEpisode = snapEpisode
+                    if (snapMediaType == MediaType.TV && safeSeason != null && safeEpisode != null) {
+                        traktRepository.deletePlaybackForEpisode(snapMediaId, safeSeason, safeEpisode)
+                    } else if (snapMediaType == MediaType.MOVIE) {
+                        traktRepository.deletePlaybackForContent(snapMediaId, snapMediaType)
                     }
                     // Clean up Supabase history for the finished episode so its stale
                     // position doesn't resurface as a Continue Watching candidate.
                     // Retry up to 2 times if the delete fails (network flakes).
-                    val deleteType = currentMediaType
-                    val deleteId = currentMediaId
+                    val deleteType = snapMediaType
+                    val deleteId = snapMediaId
                     val delS = safeSeason
                     val delE = safeEpisode
                     for (attempt in 1..2) {
@@ -2481,31 +2546,53 @@ class PlayerViewModel @Inject constructor(
                 // before the next refresh cycle picks up the server-side changes.
                 runCatching {
                     traktRepository.removeFromContinueWatchingCache(
-                        currentMediaId, currentSeason, currentEpisode
+                        snapMediaId, snapSeason, snapEpisode
                     )
                 }
 
                 // When a TV episode completes, immediately save the next episode to
                 // local Continue Watching so CW isn't empty between episodes.
-                val cwSeason = currentSeason
-                val cwEpisode = currentEpisode
-                if (currentMediaType == MediaType.TV && cwSeason != null && cwEpisode != null) {
+                // Season-aware: a naive cwEpisode+1 creates a phantom episode (e.g.
+                // S1E11 of a 10-episode season) whenever the finished episode was a
+                // season finale, instead of rolling over to the next season's E1.
+                val cwSeason = snapSeason
+                val cwEpisode = snapEpisode
+                if (snapMediaType == MediaType.TV && cwSeason != null && cwEpisode != null) {
                     try {
-                        val nextEpisode = cwEpisode + 1
-                        traktRepository.saveLocalContinueWatching(
-                            mediaType = currentMediaType,
-                            tmdbId = currentMediaId,
-                            title = currentItemTitle.ifEmpty { currentTitle },
-                            posterPath = currentPoster,
-                            backdropPath = currentBackdrop,
-                            season = cwSeason,
-                            episode = nextEpisode,
-                            episodeTitle = null,
-                            progress = 0,
-                            positionSeconds = 0L,
-                            durationSeconds = 0L,
-                            isUpNext = true
-                        )
+                        val currentSeasonEpisodes = runCatching {
+                            mediaRepository.getSeasonEpisodes(snapMediaId, cwSeason)
+                        }.getOrNull()
+                        val maxEpisodeInSeason = currentSeasonEpisodes?.maxOfOrNull { it.episodeNumber }
+                        val nextPointer: Pair<Int?, Int?> = when {
+                            // Couldn't verify season size — fall back to the old same-season
+                            // increment rather than risk an incorrect season rollover.
+                            maxEpisodeInSeason == null -> cwSeason to (cwEpisode + 1)
+                            cwEpisode < maxEpisodeInSeason -> cwSeason to (cwEpisode + 1)
+                            else -> {
+                                val nextSeasonEpisodes = runCatching {
+                                    mediaRepository.getSeasonEpisodes(snapMediaId, cwSeason + 1)
+                                }.getOrNull()
+                                if (!nextSeasonEpisodes.isNullOrEmpty()) (cwSeason + 1) to 1 else null to null
+                            }
+                        }
+                        val (nextSeason, nextEpisode) = nextPointer
+                        if (nextSeason != null && nextEpisode != null) {
+                            traktRepository.saveLocalContinueWatching(
+                                mediaType = snapMediaType,
+                                tmdbId = snapMediaId,
+                                title = snapItemTitle.ifEmpty { snapTitle },
+                                posterPath = snapPoster,
+                                backdropPath = snapBackdrop,
+                                season = nextSeason,
+                                episode = nextEpisode,
+                                episodeTitle = null,
+                                progress = 0,
+                                positionSeconds = 0L,
+                                durationSeconds = 0L,
+                                isUpNext = true
+                            )
+                        }
+                        // else: series finale — no next episode exists, leave CW alone.
                     } catch (_: Exception) {
                         // Best-effort: don't let CW save failure affect playback
                     }
@@ -2513,9 +2600,15 @@ class PlayerViewModel @Inject constructor(
 
                 runCatching { cloudSyncRepository.pushToCloud() }
                 runCatching { launcherContinueWatchingRepository.refreshForCurrentProfile() }
+                }
             }
 
-            lastIsPlaying = isPlaying
+            // Only update the shared play/pause tracker if this is still the active episode —
+            // a late-running snapshot for an episode the user has already advanced past should
+            // not clobber the new episode's own start/pause debounce state.
+            if (snapSessionKey == "$currentMediaType:$currentMediaId:$currentSeason:$currentEpisode") {
+                lastIsPlaying = isPlaying
+            }
         }.also { job ->
             job.invokeOnCompletion { progressSaveJob = null }
         }

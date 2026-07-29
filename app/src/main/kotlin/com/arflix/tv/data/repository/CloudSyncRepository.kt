@@ -368,7 +368,7 @@ class CloudSyncRepository @Inject constructor(
         val subtitleOffset: String = "Bottom",
         val subtitleStylized: Boolean = true,
         val cardLayoutMode: String = CARD_LAYOUT_MODE_LANDSCAPE,
-        val frameRateMatchingMode: String = "Off",
+        val frameRateMatchingMode: String = "Always",
         val autoPlayNext: Boolean = true,
         val autoPlaySingleSource: Boolean = true,
         val autoPlayMinQuality: String = "Any",
@@ -490,7 +490,7 @@ class CloudSyncRepository @Inject constructor(
             "off" -> "Off"
             "seamless", "seamless only", "only if seamless", "only_if_seamless" -> "Seamless only"
             "always" -> "Always"
-            else -> "Off"
+            else -> "Always"
         }
     }
 
@@ -599,7 +599,7 @@ class CloudSyncRepository @Inject constructor(
                             prefs[cardLayoutModeKeyFor(profile.id)] ?: CARD_LAYOUT_MODE_LANDSCAPE
                         ),
                         frameRateMatchingMode = normalizeFrameRateMode(
-                            prefs[frameRateMatchingModeKeyFor(profile.id)] ?: "Off"
+                            prefs[frameRateMatchingModeKeyFor(profile.id)] ?: "Always"
                         ),
                         autoPlayNext = prefs[autoPlayNextKeyFor(profile.id)] ?: true,
                         autoPlaySingleSource = prefs[autoPlaySingleSourceKeyFor(profile.id)] ?: true,
@@ -618,7 +618,7 @@ class CloudSyncRepository @Inject constructor(
         root.put("defaultSubtitle", prefs[defaultSubtitleKey()] ?: "Off")
         root.put("defaultAudioLanguage", prefs[defaultAudioLanguageKey()] ?: "Auto (Original)")
         root.put("cardLayoutMode", normalizeCardLayoutMode(prefs[cardLayoutModeKey()] ?: CARD_LAYOUT_MODE_LANDSCAPE))
-        root.put("frameRateMatchingMode", prefs[frameRateMatchingModeKey()] ?: "Off")
+        root.put("frameRateMatchingMode", prefs[frameRateMatchingModeKey()] ?: "Always")
         root.put("autoPlayNext", prefs[autoPlayNextKey()] ?: true)
         root.put("autoPlaySingleSource", prefs[autoPlaySingleSourceKey()] ?: true)
         root.put("autoPlayMinQuality", normalizeAutoPlayMinQuality(prefs[autoPlayMinQualityKey()] ?: "Any"))
@@ -1099,7 +1099,7 @@ class CloudSyncRepository @Inject constructor(
         val fallbackDefaultSubtitle = root.optString("defaultSubtitle", "Off")
         val fallbackDefaultAudioLanguage = root.optString("defaultAudioLanguage", "Auto (Original)")
         val fallbackCardLayoutMode = normalizeCardLayoutMode(root.optString("cardLayoutMode", CARD_LAYOUT_MODE_LANDSCAPE))
-        val fallbackFrameRateMatchingMode = normalizeFrameRateMode(root.optString("frameRateMatchingMode", "Off"))
+        val fallbackFrameRateMatchingMode = normalizeFrameRateMode(root.optString("frameRateMatchingMode", "Always"))
         val fallbackAutoPlayNext = root.optBoolean("autoPlayNext", true)
         val fallbackAutoPlaySingleSource = root.optBoolean("autoPlaySingleSource", true)
         val fallbackAutoPlayMinQuality = normalizeAutoPlayMinQuality(root.optString("autoPlayMinQuality", "Any"))

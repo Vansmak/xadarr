@@ -63,6 +63,7 @@ import com.arflix.tv.util.LocalDeviceType
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+import kotlinx.coroutines.delay
 
 /**
  * Context menu for media cards on home screen
@@ -566,6 +567,111 @@ fun LiveTvContextMenu(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.press_back_to_close),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Hold-to-open confirmation popup for toggling a live TV channel's favorite
+ * status. Replaces instant long-press toggling — holding OK/Enter on a
+ * channel row opens this instead of immediately adding/removing it, so a
+ * too-long tap can no longer silently change favorites.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun ChannelContextMenu(
+    isVisible: Boolean,
+    channelName: String,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    val cardBg = XadarrTheme.colors.backgroundCard
+    val borderColor = XadarrTheme.colors.borderLight
+    val label = stringResource(
+        if (isFavorite) R.string.remove_from_favorites else R.string.add_to_favorites
+    )
+    val icon = if (isFavorite) Icons.Default.Remove else Icons.Default.Add
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        // A single requestFocus() call loses the race against this popup's
+        // own AnimatedVisibility enter transition placing its content — same
+        // fix as EpgGrid's channel-focus restoration (see LiveTvScreen.kt
+        // history). Retry across a few frames instead of guessing one delay.
+        repeat(6) { attempt ->
+            delay(if (attempt == 0) 32L else 24L)
+            if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+    }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn() + scaleIn(initialScale = 0.9f),
+        exit = fadeOut() + scaleOut(targetScale = 0.9f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(50f)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            // repeatCount == 0 only — the hold that opened this
+                            // popup keeps generating repeat KeyDowns on the
+                            // remote if the user is still pressing OK when
+                            // focus lands here. Reacting to those would
+                            // "confirm" the toggle the instant the popup
+                            // appears, i.e. the exact same false-positive this
+                            // popup exists to prevent. A genuinely new press
+                            // always starts at repeatCount 0.
+                            Key.Enter, Key.DirectionCenter -> {
+                                if (event.nativeKeyEvent.repeatCount == 0) {
+                                    onToggleFavorite()
+                                    onDismiss()
+                                }
+                                true
+                            }
+                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            else -> true
+                        }
+                    } else false
+                },
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(top = 110.dp)
+                    .width(320.dp)
+                    .background(cardBg, RoundedCornerShape(14.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = channelName,
+                    style = ArflixTypography.sectionTitle,
+                    color = TextPrimary,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                ContextMenuItem(
+                    icon = icon,
+                    label = label,
+                    isFocused = true,
+                    onClick = { onToggleFavorite(); onDismiss() }
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.press_back_to_close),

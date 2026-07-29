@@ -7,8 +7,11 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -17,9 +20,12 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.arflix.tv.network.OkHttpProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -84,6 +90,43 @@ class LiveTvPlayerViewModel @Inject constructor(
             videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
         }
 
+    private var errorRetryJob: Job? = null
+    private var errorRetryCount = 0
+
+    // Dispatcharr-proxied streams occasionally hiccup mid-stream (provider failover,
+    // brief connection reset on the restream). Without this, ExoPlayer surfaces a
+    // PlaybackException, drops to STATE_IDLE, and the last frame just freezes forever —
+    // nothing else ever calls prepare() again. Retry transient IO/timeout errors with
+    // backoff, same recovery classes the VOD player (PlayerScreen.kt) already handles.
+    private val errorRecoveryListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) errorRetryCount = 0
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            val isRecoverable = when (error.errorCode) {
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+                PlaybackException.ERROR_CODE_TIMEOUT,
+                PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> true
+                else -> false
+            }
+            if (!isRecoverable || !_state.value.isActive || errorRetryCount >= 5) return
+            errorRetryCount++
+            val attempt = errorRetryCount
+            errorRetryJob?.cancel()
+            errorRetryJob = viewModelScope.launch {
+                delay(attempt * 1_000L)
+                if (!_state.value.isActive) return@launch
+                player.stop()
+                player.prepare()
+                player.play()
+            }
+        }
+    }
+
     // Pause/resume based on process lifecycle so audio stops when the whole app backgrounds.
     private val processLifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
@@ -96,6 +139,7 @@ class LiveTvPlayerViewModel @Inject constructor(
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        player.addListener(errorRecoveryListener)
     }
 
     /**
@@ -117,6 +161,8 @@ class LiveTvPlayerViewModel @Inject constructor(
             programTitle = programTitle,
             streamUrl = streamUrl,
         )
+        errorRetryJob?.cancel()
+        errorRetryCount = 0
         // Stop first so the player is in IDLE — prepare() is a no-op when already READY/PLAYING.
         player.stop()
         player.clearMediaItems()
@@ -145,6 +191,8 @@ class LiveTvPlayerViewModel @Inject constructor(
         channelName: String = "",
         programTitle: String = "",
     ) {
+        errorRetryJob?.cancel()
+        errorRetryCount = 0
         _state.value = MiniPlayerState(
             isActive = true,
             channelId = channelId,
@@ -172,12 +220,14 @@ class LiveTvPlayerViewModel @Inject constructor(
 
     /** Stop playback and clear mini-player state (user explicitly dismissed). */
     fun dismiss() {
+        errorRetryJob?.cancel()
         player.stop()
         player.clearMediaItems()
         _state.value = MiniPlayerState(isActive = false)
     }
 
     override fun onCleared() {
+        errorRetryJob?.cancel()
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         player.release()
         super.onCleared()

@@ -11,6 +11,7 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.util.SecureStorage
 import com.arflix.tv.util.settingsDataStore
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -558,7 +559,7 @@ class HomeServerRepository @Inject constructor(
                     val series = findBestSeries(connection, imdbId, title, null, tmdbId, tvdbId)
                         ?: return@runCatching emptyList()
                     val episodeItem = findEpisode(connection, series.id, season, episode)
-                        ?: findEpisodeBySearch(connection, title, season, episode, imdbId, tmdbId, tvdbId)
+                        ?: findEpisodeBySearch(connection, series.id, title, season, episode, imdbId, tmdbId, tvdbId)
                         ?: return@runCatching emptyList()
                     buildStreamSources(connection, episodeItem)
                 }.getOrDefault(emptyList())
@@ -1845,6 +1846,7 @@ class HomeServerRepository @Inject constructor(
 
     private fun findEpisodeBySearch(
         connection: HomeServerConnection,
+        seriesId: String,
         title: String,
         season: Int,
         episode: Int,
@@ -1852,10 +1854,19 @@ class HomeServerRepository @Inject constructor(
         tmdbId: Int?,
         tvdbId: Int?
     ): HomeServerItem? {
+        // Must stay scoped to the already-resolved series. Without SeriesId here, this was a
+        // library-wide search for any Episode at this season/episode number -- title scoring
+        // (HomeServerMatcher) is the only guard against a same-numbered episode from a
+        // *different* show, and candidate.title is the episode's own Name (not SeriesName), so
+        // that guard barely engages. Suspected cause of a reported wrong-episode playback
+        // (Joe, 2026-07-22: Night Agent S3E2 details played Black Mirror's video) -- this
+        // fallback only fires when the series-scoped findEpisode() above it misses, e.g. a
+        // newly-added episode Jellyfin hasn't indexed into /Shows/{id}/Episodes yet.
         val candidates = queryItems(
             connection,
             itemTypes = "Episode",
             query = mapOf(
+                "SeriesId" to seriesId,
                 "SearchTerm" to title,
                 "ParentIndexNumber" to season.toString(),
                 "IndexNumber" to episode.toString(),
@@ -2087,7 +2098,7 @@ class HomeServerRepository @Inject constructor(
                             "MaxStreamingBitrate" to "2147483647"
                         )
                     ),
-                    JsonObject(),
+                    playbackInfoRequestBody(),
                     connection
                 ).mediaSources()
             }.getOrDefault(emptyList())
@@ -2118,7 +2129,8 @@ class HomeServerRepository @Inject constructor(
                         videoSize = mediaSource.sizeBytes.takeIf { it > 0L },
                         proxyHeaders = ProxyHeaders(request = playbackHeaders(connection))
                     ),
-                    serverItemId = item.id.takeIf { it.isNotBlank() }
+                    serverItemId = item.id.takeIf { it.isNotBlank() },
+                    audioFormat = mediaSource.audioFormat
                 )
             }
             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
@@ -2132,6 +2144,89 @@ class HomeServerRepository @Inject constructor(
             ?: path.takeIf { it.isNotBlank() }
             ?: name.takeIf { it.isNotBlank() }
             ?: "$container|$sizeBytes|$videoWidth|$videoHeight"
+    }
+
+    // Sent as the body of POST /Items/{id}/PlaybackInfo (Jellyfin + Emby share this schema).
+    // Without a DeviceProfile the server has no capability info to negotiate against, so it
+    // never offers a transcode — Xadarr always ends up demanding the raw file via Static=true
+    // in playbackUrl() below. This profile mirrors what ExoPlayer here can actually decode:
+    // hardware decoders first, FFmpeg extension (media3-decoder-ffmpeg) as fallback for
+    // DTS/TrueHD/Atmos/EAC3/etc — see PlayerScreen.kt's EXTENSION_RENDERER_MODE_PREFER/ON
+    // setup. A file outside this list (or a device without the FFmpeg fallback) now gets a
+    // server-side transcode instead of silently failing or stuttering on-device.
+    private fun playbackInfoRequestBody(): JsonObject = JsonObject().apply {
+        add("DeviceProfile", buildDeviceProfile())
+    }
+
+    private fun buildDeviceProfile(): JsonObject {
+        fun directPlayProfile(container: String, videoCodecs: String?, audioCodecs: String) = JsonObject().apply {
+            addProperty("Container", container)
+            addProperty("Type", if (videoCodecs != null) "Video" else "Audio")
+            if (videoCodecs != null) addProperty("VideoCodec", videoCodecs)
+            addProperty("AudioCodec", audioCodecs)
+        }
+
+        // Broad on purpose: FFmpeg extension renderers give near-universal software decode
+        // fallback, so under-reporting here just forces needless transcodes.
+        val videoCodecs = "h264,hevc,vp9,av1,mpeg4,mpeg2video,vc1"
+        val audioCodecs = "aac,ac3,eac3,dts,truehd,flac,mp3,opus,vorbis,pcm_s16le,pcm_s24le"
+
+        val directPlayProfiles = JsonArray().apply {
+            add(directPlayProfile("mp4,m4v", videoCodecs, audioCodecs))
+            add(directPlayProfile("mkv,matroska", videoCodecs, audioCodecs))
+            add(directPlayProfile("ts,mpegts", "h264,hevc,mpeg2video", "aac,ac3,eac3,mp3"))
+            add(directPlayProfile("avi", "h264,mpeg4,mpeg2video,vc1", "aac,ac3,mp3,pcm_s16le"))
+            add(directPlayProfile("webm", "vp8,vp9,av1", "vorbis,opus"))
+            add(directPlayProfile("mp3", null, "mp3"))
+            add(directPlayProfile("flac", null, "flac"))
+            add(directPlayProfile("aac", null, "aac"))
+        }
+
+        // Fallback only — used when a file falls outside every profile above (e.g. a codec
+        // with no hardware or FFmpeg software decoder on this device at all).
+        val transcodingProfiles = JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("Container", "ts")
+                addProperty("Type", "Video")
+                addProperty("VideoCodec", "h264")
+                addProperty("AudioCodec", "aac,ac3")
+                addProperty("Context", "Streaming")
+                addProperty("Protocol", "hls")
+                addProperty("MaxAudioChannels", "6")
+                addProperty("MinSegments", 1)
+                addProperty("BreakOnNonKeyFrames", true)
+            })
+            add(JsonObject().apply {
+                addProperty("Container", "mp3")
+                addProperty("Type", "Audio")
+                addProperty("AudioCodec", "mp3")
+                addProperty("Context", "Streaming")
+                addProperty("Protocol", "http")
+                addProperty("MaxAudioChannels", "2")
+            })
+        }
+
+        val subtitleProfiles = JsonArray().apply {
+            listOf("srt", "subrip", "ass", "ssa", "pgssub", "pgs", "dvdsub", "vtt", "webvtt").forEach { format ->
+                add(JsonObject().apply { addProperty("Format", format); addProperty("Method", "Embed") })
+            }
+            listOf("srt", "subrip", "vtt", "webvtt", "ass", "ssa").forEach { format ->
+                add(JsonObject().apply { addProperty("Format", format); addProperty("Method", "External") })
+            }
+        }
+
+        return JsonObject().apply {
+            addProperty("Name", "Xadarr")
+            addProperty("MaxStreamingBitrate", 120_000_000)
+            addProperty("MaxStaticBitrate", 100_000_000)
+            addProperty("MusicStreamingTranscodingBitrate", 384_000)
+            add("DirectPlayProfiles", directPlayProfiles)
+            add("TranscodingProfiles", transcodingProfiles)
+            add("ContainerProfiles", JsonArray())
+            add("CodecProfiles", JsonArray())
+            add("SubtitleProfiles", subtitleProfiles)
+            add("ResponseProfiles", JsonArray())
+        }
     }
 
     private fun HomeServerMediaSource.playbackUrl(connection: HomeServerConnection, itemId: String): String? {
@@ -2359,12 +2454,26 @@ class HomeServerRepository @Inject constructor(
                 sizeBytes = long("size") ?: 0L,
                 transcodingUrl = "",
                 videoWidth = width,
-                videoHeight = height
+                videoHeight = height,
+                // Plex exposes audio codec/channels as flat attributes on the <Media> element
+                // itself (no per-stream lookup needed, unlike Jellyfin/Emby's MediaStreams array).
+                audioFormat = com.arflix.tv.util.AudioFormatUtils.buildLabel(
+                    codec = parentMedia?.string("audioCodec"),
+                    trackLabel = null,
+                    channelCount = parentMedia?.int("audioChannels")
+                )
             )
         }
 
         val streams = array("MediaStreams").mapNotNull { it.asJsonObjectOrNull() }
         val videoStream = streams.firstOrNull { it.string("Type").equals("Video", ignoreCase = true) }
+        val audioStreams = streams.filter { it.string("Type").equals("Audio", ignoreCase = true) }
+        val audioStream = audioStreams.firstOrNull { it.get("IsDefault")?.asStringOrNull() == "true" }
+            ?: audioStreams.firstOrNull()
+        val audioTrackLabel = listOfNotNull(
+            audioStream?.string("Profile")?.takeIf { it.isNotBlank() },
+            audioStream?.string("DisplayTitle")?.takeIf { it.isNotBlank() }
+        ).joinToString(" ")
         return HomeServerMediaSource(
             id = string("Id"),
             key = "",
@@ -2375,7 +2484,12 @@ class HomeServerRepository @Inject constructor(
             sizeBytes = long("Size") ?: long("RunTimeTicks")?.let { 0L } ?: 0L,
             transcodingUrl = string("TranscodingUrl"),
             videoWidth = videoStream?.int("Width") ?: 0,
-            videoHeight = videoStream?.int("Height") ?: 0
+            videoHeight = videoStream?.int("Height") ?: 0,
+            audioFormat = com.arflix.tv.util.AudioFormatUtils.buildLabel(
+                codec = audioStream?.string("Codec"),
+                trackLabel = audioTrackLabel,
+                channelCount = audioStream?.int("Channels")
+            )
         )
     }
 
@@ -2483,7 +2597,8 @@ class HomeServerRepository @Inject constructor(
         val sizeBytes: Long,
         val transcodingUrl: String,
         val videoWidth: Int,
-        val videoHeight: Int
+        val videoHeight: Int,
+        val audioFormat: String? = null
     )
 
     private fun fetchJellyfinResumeItems(connection: HomeServerConnection): List<HomeServerResumeItem> {

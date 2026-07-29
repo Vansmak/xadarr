@@ -697,6 +697,12 @@ fun HomeScreen(
                 // so we can't rely on realtime alone. Throttled internally to avoid
                 // redundant pulls on rapid activity transitions.
                 viewModel.pullCloudStateOnResume()
+                // Re-derive the On Now row / Live TV hero guide from whatever EPG
+                // data is cached now (e.g. just refreshed by the Live TV guide
+                // screen) instead of showing whatever was on screen when Home was
+                // last left — the periodic timer's own first tick can be minutes
+                // away (see startEpgRefreshTimer in HomeViewModel).
+                viewModel.refreshFavoriteTvEpgOnResume()
                 suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
             }
         }
@@ -1368,18 +1374,56 @@ fun HomeScreen(
             // channel found at all) are skipped here; there's no channel to
             // anchor a guide row to.
             val favoriteChannelsGuide = remember(displayCategories, uiState.liveChannelEpg, gameDayEvents) {
+                val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                 val gameDayRows = gameDayEvents.mapNotNull { ev ->
-                    val channelName = ev.channelName ?: return@mapNotNull null
-                    FavoriteChannelGuideEntry(name = channelName, programTitle = ev.matchup, isGameDay = true)
+                    // For a self-created event channel, Dispatcharr's channel_name IS
+                    // the matchup text (events.py names the channel after the game
+                    // itself), so showing it here just duplicates programTitle and
+                    // never tells you where to tune. Only trust channel_name as a
+                    // distinct "channel" label when it's the real carrying network's
+                    // name (the "already airs on ESPN" / local-affiliate case) — i.e.
+                    // it differs from the matchup. Local-affiliate names come back as
+                    // Dispatcharr's full maintenance.sql form ("Los Angeles: FOX 11
+                    // (KTTV)") — too long for this hero row and the call sign/market
+                    // prefix mean nothing to Joe, so trim to just "FOX 11". A bare
+                    // channel number ("Ch 80") means even less on its own (Joe, 2026-
+                    // 07-25) — only true fallback left when there's no name at all.
+                    val channelLabel = when {
+                        ev.channelName != null && ev.channelName != ev.matchup ->
+                            LOCAL_AFFILIATE_NAME_REGEX.find(ev.channelName)?.groupValues?.get(1) ?: ev.channelName
+                        ev.channelNumber != null -> "Ch ${formatChannelNumber(ev.channelNumber)}"
+                        else -> return@mapNotNull null
+                    }
+                    // ev.matchup already has a formatted local start time baked in
+                    // (events.py's _format_matchup_name appends it, e.g. "...4:15pm"),
+                    // so a second timeLabel here was showing the same start time twice
+                    // in two different formats (12h in the title, 24h after it) — drop
+                    // it, matchup is the single source of truth for "when".
+                    FavoriteChannelGuideEntry(name = channelLabel, programTitle = ev.matchup, timeLabel = null, isGameDay = true)
                 }
                 val favoriteRows = displayCategories.firstOrNull { it.id == HomeViewModel.FAVORITE_TV_CATEGORY_ID }
                     ?.items.orEmpty()
+                    // Local OTA affiliates (Locals group: CBS/NBC/CW/ABC/Fox) always sort
+                    // first here since they lead the channel list, crowding out the sports/
+                    // news favorites Joe actually wants to glance at in this guide. Excluded
+                    // outright rather than just deprioritized — he doesn't want them here at
+                    // all, not just last (they're still on their own On Now row / TV guide).
+                    .filter { item -> !viewModel.getIptvChannelGroup(item.id).equals("Locals", ignoreCase = true) }
                     .map { item ->
+                        val now = uiState.liveChannelEpg[item.id]?.now
+                        val nowTime = now?.let { "${timeFmt.format(java.util.Date(it.startUtcMillis))}–${timeFmt.format(java.util.Date(it.endUtcMillis))}" }
                         FavoriteChannelGuideEntry(
                             name = item.title,
-                            programTitle = uiState.liveChannelEpg[item.id]?.now?.title?.ifBlank { null }
+                            programTitle = now?.title?.ifBlank { null },
+                            timeLabel = nowTime
                         )
                     }
+                    // Channels whose EPG never resolves (e.g. Fox News) always land with
+                    // a blank programTitle — push those to the back of the row instead of
+                    // letting them occupy one of the 5 slots ahead of a channel that
+                    // actually has real info to show. sortedByDescending is stable, so
+                    // ties (same info-present state) keep their original relative order.
+                    .sortedByDescending { it.programTitle != null }
                 (gameDayRows + favoriteRows).distinctBy { it.name }.take(5)
             }
             HomeHeroLayer(
@@ -1634,6 +1678,16 @@ fun HomeScreen(
     }
 }
 
+// Drops the trailing ".0" Dispatcharr's float channel_number always carries
+// for whole numbers (e.g. 87.0 -> "87"), keeping fractional numbers as-is.
+private fun formatChannelNumber(number: Double): String =
+    if (number % 1.0 == 0.0) number.toLong().toString() else number.toString()
+
+// Matches maintenance.sql's LA-locals channel naming, e.g. "Los Angeles: FOX
+// 11 (KTTV)" -> captures "FOX 11". Non-matching names (RSNs, cable networks
+// like "ESPN"/"Sportsnet LA") pass through unchanged at the call site.
+private val LOCAL_AFFILIATE_NAME_REGEX = Regex("""^.*?:\s*(.+?)\s*\(.*\)$""")
+
 // Deterministic accent color from channel name -- same palette as
 // LiveTvChannelCard's logo-fallback background, so the hero backdrop and the
 // On Now card agree visually for the same channel.
@@ -1654,6 +1708,7 @@ private fun channelAccentColor(channelName: String): Color {
 private data class FavoriteChannelGuideEntry(
     val name: String,
     val programTitle: String?,
+    val timeLabel: String? = null,
     val isGameDay: Boolean = false
 )
 
@@ -1882,7 +1937,20 @@ private fun HeroSection(
                                                 ),
                                                 color = Color.White.copy(alpha = 0.7f),
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                        }
+                                        if (!entry.timeLabel.isNullOrBlank()) {
+                                            Text(
+                                                text = entry.timeLabel,
+                                                style = ArflixTypography.caption.copy(
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    shadow = textShadow
+                                                ),
+                                                color = Color.White.copy(alpha = 0.55f),
+                                                maxLines = 1
                                             )
                                         }
                                     }

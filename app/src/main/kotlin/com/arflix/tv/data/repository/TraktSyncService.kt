@@ -669,6 +669,33 @@ class TraktSyncService @Inject constructor(
     }
 
     /**
+     * Write movie watched state to Supabase without sending another Trakt history request.
+     */
+    suspend fun markMovieWatchedInSupabaseOnly(tmdbId: Int, traktId: Int? = null): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val userId = getUserId() ?: return@withContext false
+            val now = Instant.now().toString()
+
+            executeSupabaseCall("mark movie watched") { auth ->
+                supabaseApi.markMovieWatched(
+                    auth,
+                    record = WatchedMovieRecord(
+                        userId = userId,
+                        profileId = activeProfileId(),
+                        tmdbId = tmdbId,
+                        traktId = traktId,
+                        watchedAt = now
+                    )
+                )
+            }
+
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Write episode watched state to Supabase without sending another Trakt history request.
      */
     suspend fun markEpisodeWatchedInSupabaseOnly(

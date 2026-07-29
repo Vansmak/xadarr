@@ -185,7 +185,11 @@ data class StreamSource(
     // across more addons.
     val sources: List<String> = emptyList(),
     // Home server item ID, preserved so session reporting can reference the server item after playback starts.
-    val serverItemId: String? = null
+    val serverItemId: String? = null,
+    // Server-reported audio format label (e.g. "TrueHD Atmos"), known before playback starts for
+    // home-server sources. Addon/IPTV sources leave this null; the player falls back to the live
+    // decoded track once playback begins.
+    val audioFormat: String? = null
 ) : Serializable
 
 /**

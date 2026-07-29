@@ -784,6 +784,7 @@ fun DetailsScreen(
                     isInWatchlist = uiState.isInWatchlist,
                     genres = uiState.genres,
                     budget = uiState.budget,
+                    audioFormat = uiState.streams.firstOrNull { !it.audioFormat.isNullOrBlank() }?.audioFormat,
                     seasonProgress = uiState.seasonProgress,
                     playLabel = uiState.playLabel,
                     hasTrailer = uiState.trailerKey != null,
@@ -1236,6 +1237,7 @@ private fun DetailsContent(
     isInWatchlist: Boolean,
     genres: List<String> = emptyList(),
     budget: String? = null,
+    audioFormat: String? = null,
     seasonProgress: Map<Int, Pair<Int, Int>> = emptyMap(),
     playLabel: String? = null,
     hasTrailer: Boolean = false,
@@ -1441,6 +1443,20 @@ private fun DetailsContent(
                                 MobileMetadataSeparator()
                                 Text(
                                     text = item.duration,
+                                    style = ArflixTypography.caption.copy(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        shadow = textShadow
+                                    ),
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (!audioFormat.isNullOrBlank()) {
+                                MobileMetadataSeparator()
+                                Text(
+                                    text = audioFormat,
                                     style = ArflixTypography.caption.copy(
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -1967,6 +1983,19 @@ private fun DetailsContent(
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Text(
                             text = item.duration,
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                shadow = textShadow
+                            ),
+                            color = Color.White
+                        )
+                    }
+
+                    if (!audioFormat.isNullOrBlank()) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(
+                            text = audioFormat,
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,

@@ -5481,6 +5481,21 @@ class IptvRepository @Inject constructor(
 
     private fun buildChannelKeyLookup(channels: List<IptvChannel>): Map<String, IptvChannel> {
         val map = LinkedHashMap<String, IptvChannel>(channels.size * 4)
+        // Exact epgId goes in first, in its own pass, so it can never be shadowed by a
+        // *different* channel's loose/fuzzy candidate. Punctuation-stripped "loose" keys
+        // exist for fuzzy NAME matching (e.g. "US: Fox News HD" vs "USFoxNewsHD"), but
+        // that same stripping collapses a decimal ATSC subchannel id like "11.2" onto a
+        // plain numeric epgId like "112" from a totally different channel -- whichever
+        // one got inserted first silently won the map slot and stole the other's EPG
+        // data (Joe, 2026-07-22: "Chicago: FOX 32 (WFLD)" tvg-id "11.2" was shadowing
+        // "US: Fox News HD" tvg-id "112", which then showed "No Information" forever).
+        // Exact epgId is an authoritative identifier already, not a display name -- it
+        // never needed loose matching and must always win over a fuzzy collision.
+        channels.forEach { channel ->
+            channel.epgId?.takeIf { it.isNotBlank() }?.let { epgId ->
+                map.putIfAbsent(normalizeChannelKey(epgId), channel)
+            }
+        }
         channels.forEach { channel ->
             val candidates = mutableSetOf<String>()
             candidates += normalizeChannelKey(channel.name)
@@ -5488,7 +5503,6 @@ class IptvRepository @Inject constructor(
             candidates += normalizeLooseKey(stripQualitySuffixes(channel.name))
 
             channel.epgId?.takeIf { it.isNotBlank() }?.let { epgId ->
-                candidates += normalizeChannelKey(epgId)
                 candidates += normalizeLooseKey(epgId)
             }
 

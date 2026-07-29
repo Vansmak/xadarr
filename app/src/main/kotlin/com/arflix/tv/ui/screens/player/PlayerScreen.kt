@@ -625,6 +625,17 @@ fun PlayerScreen(
                         markPlaybackStarted("first_frame")
                     }
 
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        if (playerReleasedAtomic.get()) return
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return
+                        if (latestUiState.frameRateMatchingMode == "Off") return
+                        val hostActivity = activity ?: return
+                        val frameRate = this@apply.videoFormat?.frameRate ?: return
+                        if (frameRate == androidx.media3.common.Format.NO_VALUE.toFloat() || frameRate <= 0f) return
+                        val snapped = com.arflix.tv.util.FrameRateUtils.snapToStandardRate(frameRate)
+                        com.arflix.tv.util.FrameRateUtils.applyFrameRateMode(hostActivity, snapped)
+                    }
+
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         if (playerReleasedAtomic.get()) return
 
@@ -892,19 +903,30 @@ fun PlayerScreen(
         }
     }
 
-    // Frame rate matching: set ExoPlayer strategy + actual display mode switching
-    val frameRateActivity = context as? android.app.Activity
+    // Frame rate matching. API 30+ (Build.VERSION_CODES.R) uses ExoPlayer's built-in
+    // Surface.setFrameRate support: setVideoChangeFrameRateStrategy drives Media3's
+    // VideoFrameReleaseHelper to call Surface.setFrameRate(frameRate,
+    // FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, strategy) once player.videoFormat is known,
+    // and Android reverts it automatically when the surface is destroyed — no manual
+    // listener to leak. Below API 30 we drive Display.Mode switching ourselves via
+    // FrameRateUtils (see onVideoSizeChanged below and the pre-emptive apply further
+    // down), so keep Media3's own switching off there to avoid the two fighting.
+    val frameRateActivity = activity
     LaunchedEffect(uiState.frameRateMatchingMode) {
         if (playerReleased) return@LaunchedEffect
-        // We apply display-mode matching explicitly before playback starts.
-        // Keep Media3 runtime switching off to avoid late black-screen switches
-        // once playback has already begun.
-        val effectiveStrategy = resolveFrameRateOffStrategy()
-        runCatching {
-            exoPlayer.javaClass
-                .getMethod("setVideoChangeFrameRateStrategy", Int::class.javaPrimitiveType)
-                .invoke(exoPlayer, effectiveStrategy)
+        // C has no ALWAYS constant — Media3 just forwards whatever non-OFF int is passed
+        // straight to Surface.setFrameRate's changeFrameRateStrategy argument, so we pass
+        // the platform's Surface.CHANGE_FRAME_RATE_ALWAYS value directly.
+        val strategy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            when (uiState.frameRateMatchingMode) {
+                "Always" -> android.view.Surface.CHANGE_FRAME_RATE_ALWAYS
+                "Seamless only" -> C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+                else -> C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            }
+        } else {
+            C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
         }
+        runCatching { exoPlayer.setVideoChangeFrameRateStrategy(strategy) }
     }
 
     // Restore original display mode when leaving the player
@@ -965,22 +987,27 @@ fun PlayerScreen(
                 .orEmpty()
                 .filterKeys { it.isNotBlank() }
 
-            // Never block first frame on MediaExtractor probing. Use a cached
-            // frame-rate if available and prewarm the cache in the background.
-            frameRateActivity?.let { activity ->
-                val mode = uiState.frameRateMatchingMode
-                if (mode == "Off" || mode.isBlank()) {
-                    com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(activity)
-                } else {
-                    val cachedDetection = com.arflix.tv.util.FrameRateUtils.getCachedFrameRate(url)
-                    if (cachedDetection != null) {
-                        com.arflix.tv.util.FrameRateUtils.applyFrameRateMode(activity, cachedDetection.snapped)
+            // API 23-29 only: never block first frame on MediaExtractor probing. Use a
+            // cached frame-rate if available and prewarm the cache in the background.
+            // On API 30+ this is unnecessary — ExoPlayer's own Surface.setFrameRate
+            // switching (configured above) reacts to the decoded video format directly,
+            // including for HLS/DASH sources this URL-based probe deliberately skips.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                frameRateActivity?.let { activity ->
+                    val mode = uiState.frameRateMatchingMode
+                    if (mode == "Off" || mode.isBlank()) {
+                        com.arflix.tv.util.FrameRateUtils.restoreOriginalMode(activity)
                     } else {
-                        launch(kotlinx.coroutines.Dispatchers.IO) {
-                            com.arflix.tv.util.FrameRateUtils.detectFrameRateCached(
-                                sourceUrl = url,
-                                headers = baseRequestHeaders + streamHeaders
-                            )
+                        val cachedDetection = com.arflix.tv.util.FrameRateUtils.getCachedFrameRate(url)
+                        if (cachedDetection != null) {
+                            com.arflix.tv.util.FrameRateUtils.applyFrameRateMode(activity, cachedDetection.snapped)
+                        } else {
+                            launch(kotlinx.coroutines.Dispatchers.IO) {
+                                com.arflix.tv.util.FrameRateUtils.detectFrameRateCached(
+                                    sourceUrl = url,
+                                    headers = baseRequestHeaders + streamHeaders
+                                )
+                            }
                         }
                     }
                 }
@@ -1440,7 +1467,23 @@ fun PlayerScreen(
                     pendingNextBingeGroup = selected?.behaviorHints?.bingeGroup?.takeIf { it.isNotBlank() }
                     nextEpisodePromptButton = 0
                     showNextEpisodePrompt = true
+                } else {
+                    // No Up Next prompt applies here (autoPlayNext off). Surface the normal
+                    // playback controls instead of leaving the user on a silent, input-less
+                    // frozen/black frame with no indication playback has finished or how to
+                    // leave - this was previously the only path with zero UI reaction.
+                    showControls = true
                 }
+            } else if (exoPlayer.playbackState == Player.STATE_ENDED &&
+                mediaType == MediaType.MOVIE &&
+                !showControls &&
+                !showSourceMenu &&
+                !showSubtitleMenu &&
+                uiState.error == null
+            ) {
+                // Movies have no "next episode" concept at all, so the block above never
+                // applies to them - same black-frame problem, so the same fix: show controls.
+                showControls = true
             }
 
             val tickDelayMs = when {
@@ -2162,6 +2205,8 @@ fun PlayerScreen(
                         episodeNumber = episodeNumber,
                         isPaused = isPaused,
                         accentColor = playerAccent,
+                        audioFormatLabel = buildAudioFormatLabel(audioTracks.getOrNull(selectedAudioIndex))
+                            ?: uiState.selectedStream?.audioFormat,
                         modifier = Modifier.weight(1f, fill = false)
                     )
 
@@ -3973,32 +4018,8 @@ private fun formatFileSize(bytes: Long): String {
     }
 }
 
-private fun detectAudioCodecLabel(codec: String?, trackLabel: String?): String? {
-    val haystack = buildString {
-        codec?.let {
-            append(it)
-            append(' ')
-        }
-        trackLabel?.let { append(it) }
-    }.lowercase()
-
-    return when {
-        haystack.isBlank() -> null
-        haystack.contains("dts:x") || haystack.contains("dtsx") || haystack.contains("dts x") -> "DTS:X"
-        haystack.contains("dts-hd") || haystack.contains("dts hd") ||
-            haystack.contains("dtshd") || haystack.contains("dca-ma") || haystack.contains("dca-hd") -> "DTS-HD"
-        haystack.contains("truehd") && haystack.contains("atmos") -> "TrueHD Atmos"
-        haystack.contains("truehd") -> "TrueHD"
-        haystack.contains("eac3") || haystack.contains("e-ac3") || haystack.contains("dd+") -> "E-AC3"
-        haystack.contains("ac3") || haystack.contains("dd ") || haystack.endsWith("dd") -> "AC3"
-        haystack.contains("dts") -> "DTS"
-        haystack.contains("aac") -> "AAC"
-        haystack.contains("mp3") -> "MP3"
-        haystack.contains("opus") -> "Opus"
-        haystack.contains("flac") -> "FLAC"
-        else -> null
-    }
-}
+private fun detectAudioCodecLabel(codec: String?, trackLabel: String?): String? =
+    com.arflix.tv.util.AudioFormatUtils.detectCodecLabel(codec, trackLabel)
 
 private fun subtitleTrackId(subtitle: Subtitle): String {
     val explicit = subtitle.id.trim()
@@ -4208,20 +4229,12 @@ private fun playbackStartupDiag(message: String) {
     }
 }
 
-private fun resolveFrameRateOffStrategy(): Int {
-    return readMedia3FrameRateConst("VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF", fallback = 0)
-}
-
 private tailrec fun Context.findActivity(): Activity? {
     return when (this) {
         is Activity -> this
         is ContextWrapper -> baseContext.findActivity()
         else -> null
     }
-}
-
-private fun readMedia3FrameRateConst(fieldName: String, fallback: Int): Int {
-    return runCatching { C::class.java.getField(fieldName).getInt(null) }.getOrDefault(fallback)
 }
 
 private object PlaybackCacheSingleton {
@@ -4291,13 +4304,14 @@ private fun PlayerMetadataChrome(
     episodeNumber: Int?,
     isPaused: Boolean,
     accentColor: Color,
+    audioFormatLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     val displayTitle = when {
         mediaType == MediaType.TV && !uiState.episodeTitle.isNullOrBlank() -> uiState.episodeTitle
         else -> uiState.title
     }
-    val metaLine = buildPlaybackMetaLine(uiState, mediaType, seasonNumber, episodeNumber)
+    val metaLine = buildPlaybackMetaLine(uiState, mediaType, seasonNumber, episodeNumber, audioFormatLabel)
     val overview = uiState.overview?.trim().orEmpty()
     val logoHeight = 44.dp
     val logoWidth = 230.dp
@@ -4390,7 +4404,8 @@ private fun buildPlaybackMetaLine(
     uiState: PlayerUiState,
     mediaType: MediaType,
     seasonNumber: Int?,
-    episodeNumber: Int?
+    episodeNumber: Int?,
+    audioFormatLabel: String? = null
 ): String {
     val parts = mutableListOf<String>()
     if (mediaType == MediaType.TV) {
@@ -4407,7 +4422,22 @@ private fun buildPlaybackMetaLine(
         size?.let { parts.add(it) }
     }
 
+    audioFormatLabel?.trim()?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+
     return parts.distinct().joinToString(" | ")
+}
+
+/**
+ * Human-readable audio format label for the currently selected track, e.g.
+ * "TrueHD Atmos", "DTS:X", "E-AC3 5.1".
+ */
+private fun buildAudioFormatLabel(track: AudioTrackInfo?): String? {
+    if (track == null) return null
+    return com.arflix.tv.util.AudioFormatUtils.buildLabel(
+        codec = track.codec,
+        trackLabel = track.label ?: track.language,
+        channelCount = track.channelCount
+    )
 }
 
 private fun subtitleMatchScore(streamSource: String, subtitle: Subtitle): Int {

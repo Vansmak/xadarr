@@ -799,7 +799,10 @@ private fun presentSource(stream: StreamSource): SourcePresentation {
         else -> null
     }
 
-    val audioLabel = when {
+    // Home-server sources carry a real audioFormat from MediaStreams/Media attributes — prefer
+    // that over guessing from the filename, which home-server filenames rarely encode (unlike
+    // scene-release names from torrent/debrid addons, where the regex fallback below applies).
+    val audioLabel = stream.audioFormat ?: when {
         StreamRegexes.ATMOS.containsMatchIn(searchBlob) -> "Atmos"
         StreamRegexes.TRUEHD.containsMatchIn(searchBlob) -> "TrueHD"
         StreamRegexes.CH71.containsMatchIn(searchBlob) -> "7.1"

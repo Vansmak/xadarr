@@ -429,6 +429,7 @@ fun LiveTvScreen(
 
     val sidebarExpanded = !useTouchRail
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
     var focusSearchCategorySignal by remember { mutableIntStateOf(1) }
@@ -847,7 +848,7 @@ fun LiveTvScreen(
                             focusedChannelId = channel.id
                             rememberedChannelByCategory[selectedCategoryId] = channel.id
                         },
-                        onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
+                        onChannelLongPress = { channel -> favoriteMenuChannel = channel },
                         favorites = favSet,
                         onMoveLeftFromChannels = { focusPlaylistSearch() },
                         onEnterEpg = { channel -> focusEpg(channel.id) },
@@ -905,7 +906,7 @@ fun LiveTvScreen(
                                 focusedChannelId = channel.id
                                 rememberedChannelByCategory[selectedCategoryId] = channel.id
                             },
-                            onChannelFavoriteToggle = { id -> viewModel.toggleFavoriteChannel(id) },
+                            onChannelLongPress = { channel -> favoriteMenuChannel = channel },
                             favorites = favSet,
                             onMoveLeftFromChannels = { openSidebar() },
                             onMoveUpFromTopOfChannels = {},
@@ -1126,6 +1127,24 @@ fun LiveTvScreen(
                 },
             )
         }
+
+        val menuChannel = favoriteMenuChannel
+        com.arflix.tv.ui.components.ChannelContextMenu(
+            isVisible = menuChannel != null,
+            channelName = menuChannel?.name.orEmpty(),
+            isFavorite = menuChannel != null && menuChannel.id in favSet,
+            onToggleFavorite = { menuChannel?.let { viewModel.toggleFavoriteChannel(it.id) } },
+            onDismiss = {
+                // The popup steals real focus to receive D-pad input; nothing
+                // hands it back when it closes, which left the guide with no
+                // focused node at all (stuck — Back/arrows did nothing).
+                // Explicitly reclaim the channel list, same helper used when
+                // exiting the EPG or fullscreen playback.
+                val id = menuChannel?.id
+                favoriteMenuChannel = null
+                focusChannelList(id ?: focusedChannelId ?: playingChannelId)
+            },
+        )
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arflix.tv.util.Constants
 import com.arflix.tv.util.DeviceIpAddress
 import com.arflix.tv.util.QrCodeGenerator
 import com.arflix.tv.data.api.TraktDeviceCode
@@ -86,7 +87,7 @@ data class SettingsUiState(
     val defaultAudioLanguage: String = "Auto (Original)",
     val audioLanguageOptions: List<String> = emptyList(),
     val cardLayoutMode: String = CARD_LAYOUT_MODE_LANDSCAPE,
-    val frameRateMatchingMode: String = "Off",
+    val frameRateMatchingMode: String = "Always",
     val autoPlayNext: Boolean = true,
     val autoPlaySingleSource: Boolean = true,
     val autoPlayMinQuality: String = "Any",
@@ -201,7 +202,7 @@ data class SettingsUiState(
     val lanSyncMaster: Boolean = false,
     val lanSyncPeerCount: Int = 0,
     val lanSyncLastSyncedAt: Long = 0L,
-    val webhookCompletionPercent: Int = 90,
+    val webhookCompletionPercent: Int = Constants.WATCHED_THRESHOLD,
     // Xadarr sync server URL — xadarr-server instance for full settings sync
     val syncServerUrl: String = "",
     val episeerrUrl: String = "",
@@ -511,7 +512,7 @@ class SettingsViewModel @Inject constructor(
             val watchlistApiPort = prefs[watchlistApiPortKey]?.toIntOrNull() ?: com.arflix.tv.server.WebAppServer.DEFAULT_PORT
             val lanSyncMaster = prefs[com.arflix.tv.data.repository.LAN_SYNC_MASTER_KEY] ?: false
             val lanSyncLastSyncedAt = prefs[com.arflix.tv.data.repository.LAN_SYNC_LAST_MODIFIED_KEY]?.toLongOrNull() ?: 0L
-            val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: 90
+            val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: Constants.WATCHED_THRESHOLD
             val pinnedApps = prefs[com.arflix.tv.data.repository.PINNED_APPS_KEY]
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                 ?: listOf("org.smarttube.stable", "org.smarttube.beta", "com.cxinventor.file.explorer", "com.android.tv.settings")
@@ -1111,7 +1112,7 @@ class SettingsViewModel @Inject constructor(
             "off" -> "Off"
             "seamless", "seamless only", "only if seamless", "only_if_seamless" -> "Seamless only"
             "always" -> "Always"
-            else -> "Off"
+            else -> "Always"
         }
     }
 

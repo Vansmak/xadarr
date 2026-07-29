@@ -595,6 +595,49 @@ class DetailsViewModel @Inject constructor(
                         val fallbackTargetSeason = initialSeason ?: resumeTarget?.season
                         val fallbackTargetEpisode = initialEpisode ?: resumeTarget?.episode
 
+                        // The caller didn't pin an explicit season (Search/Watchlist/Discover/
+                        // Similar all navigate with no season+episode), and we speculatively
+                        // loaded Season 1 above. If the resolved last-watched/next-up episode
+                        // actually lives in a later season, jump straight there instead of
+                        // leaving the user staring at Season 1 with everything checked off.
+                        if (initialSeason == null && fallbackTargetSeason != null && fallbackTargetSeason != seasonToLoad) {
+                            val targetEpisodes = runCatching {
+                                mediaRepository.getSeasonEpisodes(mediaId, fallbackTargetSeason)
+                            }.getOrNull()
+                            if (!targetEpisodes.isNullOrEmpty() && isCurrentRequest()) {
+                                val watchedKeys = runCatching {
+                                    traktRepository.getWatchedEpisodesForShow(mediaId)
+                                }.getOrDefault(emptySet())
+                                val decorated = targetEpisodes.map { ep ->
+                                    val key = "show_tmdb:$mediaId:${ep.seasonNumber}:${ep.episodeNumber}"
+                                    when {
+                                        watchedKeys.contains(key) -> ep.copy(isWatched = true)
+                                        fallbackTargetEpisode != null && ep.episodeNumber < fallbackTargetEpisode -> ep.copy(isWatched = true)
+                                        else -> ep
+                                    }
+                                }
+                                val nextUnwatched = decorated.firstOrNull { !it.isWatched }
+                                val episodeIndex = when {
+                                    fallbackTargetEpisode != null ->
+                                        decorated.indexOfFirst { it.episodeNumber == fallbackTargetEpisode }.coerceAtLeast(0)
+                                    nextUnwatched != null -> decorated.indexOf(nextUnwatched).coerceAtLeast(0)
+                                    else -> 0
+                                }
+                                updateState { state ->
+                                    state.copy(
+                                        episodes = decorated,
+                                        currentSeason = fallbackTargetSeason,
+                                        initialSeasonIndex = (fallbackTargetSeason - 1).coerceAtLeast(0),
+                                        initialEpisodeIndex = episodeIndex
+                                    )
+                                }
+                                launchHasFileDecoration(fallbackTargetSeason)
+                                fetchSonarrStatuses(fallbackTargetSeason)
+                                initialLoadComplete = true
+                                return@launch
+                            }
+                        }
+
                         // Decorate episodes with watched status from cache
                         val watchedKeys = runCatching {
                             traktRepository.getWatchedEpisodesForShow(mediaId)
@@ -1530,13 +1573,20 @@ class DetailsViewModel @Inject constructor(
                     }
 
                     if (resolvedImdbId.isNullOrBlank()) {
+                        // No imdbId means addon (scraping) search can't run, but the home
+                        // server/VOD lookups launched above don't need one — don't kill the
+                        // loading state or clear streams out from under them, or a Jellyfin/Plex
+                        // title with a slow-to-resolve imdbId flashes "No sources found" before
+                        // its own home-server result ever gets a chance to land.
                         Log.w(
                             TAG,
-                            "[MovieSources] loadStreams skipped (missing imdbId) requestId=$requestId mediaId=$requestMediaId"
+                            "[MovieSources] addon search skipped (missing imdbId), home server/VOD still in flight " +
+                                "requestId=$requestId mediaId=$requestMediaId"
                         )
+                        val supplementalSourcesStillLoading =
+                            homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
                         _uiState.value = _uiState.value.copy(
-                            isLoadingStreams = false,
-                            streams = emptyList(),
+                            isLoadingStreams = hasHomeServerConnections || supplementalSourcesStillLoading,
                             subtitles = emptyList(),
                             hasStreamingAddons = streamRepository.installedAddons.first()
                                 .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE } > 0 ||
@@ -1582,9 +1632,18 @@ class DetailsViewModel @Inject constructor(
                     return@launch
                 } else {
                     if (resolvedImdbId.isNullOrBlank()) {
+                        // Same as the movie branch above: don't clear streams / stop loading
+                        // out from under the home server/VOD lookups just because the addon
+                        // (scraping) search can't run without an imdbId.
+                        Log.w(
+                            TAG,
+                            "[EpisodeSources] addon search skipped (missing imdbId), home server/VOD still in flight " +
+                                "requestId=$requestId mediaId=$requestMediaId"
+                        )
+                        val supplementalSourcesStillLoading =
+                            homeServerAppendJob?.isActive == true || vodAppendJob?.isActive == true
                         _uiState.value = _uiState.value.copy(
-                            isLoadingStreams = false,
-                            streams = emptyList(),
+                            isLoadingStreams = hasHomeServerConnections || supplementalSourcesStillLoading,
                             subtitles = emptyList(),
                             hasStreamingAddons = streamRepository.installedAddons.first()
                                 .count { it.isEnabled && it.type != com.arflix.tv.data.model.AddonType.SUBTITLE } > 0 ||

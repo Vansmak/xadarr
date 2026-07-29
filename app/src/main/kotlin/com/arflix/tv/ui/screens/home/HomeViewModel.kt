@@ -63,6 +63,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -519,6 +520,9 @@ class HomeViewModel @Inject constructor(
     /** Get the stream URL for an IPTV MediaItem. */
     fun getIptvStreamUrl(itemId: Int): String? = iptvChannelMap[itemId]?.streamUrl
 
+    /** Get the IPTV group (e.g. "Locals", "Sports", "News") for an IPTV MediaItem. */
+    fun getIptvChannelGroup(itemId: Int): String? = iptvChannelMap[itemId]?.group
+
     /** Get the current EPG (now/next) for an IPTV MediaItem. Updated by the EPG refresh timer. */
     fun getLiveChannelEpg(itemId: Int): com.arflix.tv.data.model.IptvNowNext? = iptvNowNextMap[itemId]
 
@@ -932,6 +936,18 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
+     * Re-derive the Favorite TV row's now/next from already-cached program data
+     * (no network) so returning to Home from the Live TV guide shows current
+     * info immediately, instead of waiting for the periodic timer's first tick
+     * (up to several minutes after Home loads — see startEpgRefreshTimer).
+     * Cheap: reuses whatever IptvRepository.cachedNowNext already holds, which
+     * the guide screen's own fetches keep populated.
+     */
+    fun refreshFavoriteTvEpgOnResume() {
+        refreshFavoriteTvEpg(networkFetch = false)
+    }
+
+    /**
      * Refresh the Favorite TV category's EPG data (Now/Next display).
      * @param networkFetch If true, also fetch fresh EPG from the Xtream short EPG API.
      *                     If false, only re-derive from cached program data (free, no network).
@@ -962,7 +978,27 @@ class HomeViewModel @Inject constructor(
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastEpgNetworkRefreshMs >= EPG_NETWORK_REFRESH_MS) {
                         lastEpgNetworkRefreshMs = now
-                        runCatching { iptvRepository.refreshEpgForChannels(channelIds) }
+                        // refreshEpgForChannels only works for Xtream-API sources (it needs
+                        // username/password to hit the short-EPG endpoint) -- for a plain
+                        // M3U + XMLTV source (no Xtream creds resolvable from the URL) it
+                        // silently returns null and does nothing, which left this row's EPG
+                        // frozen at whatever was last cached during an actual Live TV guide
+                        // visit, sometimes for 10+ minutes or indefinitely for a channel that
+                        // never got merged that visit (Joe, 2026-07-22: "Fox News" stuck
+                        // blank). Fall back to the same XMLTV-merge pipeline the guide screen
+                        // itself uses -- cheap here since the channel list is already cached,
+                        // so this only redoes the EPG-fetch-and-merge portion.
+                        val refreshed = runCatching { iptvRepository.refreshEpgForChannels(channelIds) }.getOrNull()
+                        if (refreshed == null) {
+                            // allowNetworkEpgFetch defaults to false and gates the entire
+                            // fetch -- forceEpgReload alone just walks straight into the
+                            // "use cached fallback" branch and does nothing, silently, same
+                            // failure shape as the Xtream-only path this was meant to
+                            // replace. Both flags are required to actually hit the network.
+                            runCatching {
+                                iptvRepository.loadSnapshot(forceEpgReload = true, allowNetworkEpgFetch = true)
+                            }
+                        }
                     }
                 }
 
@@ -1014,9 +1050,13 @@ class HomeViewModel @Inject constructor(
             var tickCount = 0L
             while (true) {
                 tickCount++
-                // Every tick (60s): local re-derive
-                // Every 5th tick (5 min): also do network refresh
-                val doNetwork = tickCount % ((EPG_NETWORK_REFRESH_MS / EPG_LOCAL_REFRESH_MS).coerceAtLeast(1)) == 0L
+                // First tick does a network refresh immediately instead of waiting for
+                // the 5-minute mark -- otherwise a channel whose EPG never got merged
+                // during the last actual Live TV guide visit (nothing else populates
+                // this row's now/next for a plain M3U+XMLTV source) shows blank for the
+                // first 5+ minutes of every cold start, every time.
+                val doNetwork = tickCount == 1L ||
+                    tickCount % ((EPG_NETWORK_REFRESH_MS / EPG_LOCAL_REFRESH_MS).coerceAtLeast(1)) == 0L
                 refreshFavoriteTvEpg(networkFetch = doNetwork)
                 delay(EPG_LOCAL_REFRESH_MS)
             }
@@ -1628,18 +1668,44 @@ class HomeViewModel @Inject constructor(
         // without re-deriving position, same convergence pattern as the
         // footer-pinning observer above.
         viewModelScope.launch {
+            // Periodic safety-net tick, folded into the SAME single reactive chain
+            // (not a second writer -- still only this one collector ever writes
+            // LIBRARY_TILES_CATEGORY_ID). This is a big ViewModel with ~19 places
+            // that replace _uiState.categories wholesale; auditing every one of
+            // them to confirm each preserves this row is impractical, and this row
+            // was still going missing and staying missing (Joe, 2026-07-19: shows
+            // at first, disappears, never comes back on its own) even after fixing
+            // the two specific culprits found tonight -- meaning at least one more
+            // unaudited write site drops it. Rather than keep hunting blind, this
+            // guarantees the existing self-correcting logic below gets a chance to
+            // run periodically regardless of whether its other inputs fire.
+            val periodicTick = flow {
+                while (true) {
+                    emit(Unit)
+                    delay(5_000L)
+                }
+            }
             navSectionRepository.observeSectionsForActiveProfile()
                 .combine(_uiState.map { it.categories }.distinctUntilChanged()) { sections, categories -> sections to categories }
                 .combine(
                     iptvRepository.observeTvSessionState().map { it.lastChannelId }.distinctUntilChanged()
                 ) { (sections, categories), lastChannelId -> Triple(sections, categories, lastChannelId) }
+                .combine(periodicTick) { triple, _ -> triple }
                 .collect { (sections, categories, lastChannelId) ->
                     lastWatchedIptvChannelId = lastChannelId
                     val tileCategory = buildLibraryTilesCategory(sections, categories)
                     val existingIdx = categories.indexOfFirst { it.id == LIBRARY_TILES_CATEGORY_ID }
                     val updated = categories.toMutableList()
                     when {
-                        tileCategory == null && existingIdx >= 0 -> updated.removeAt(existingIdx)
+                        // Never actively remove an already-present row on a transient empty
+                        // rebuild -- Cameras/Neolink Events/On Now (the other rows managed by
+                        // their own reactive collector) never delete themselves either, only
+                        // insert or update. This row uniquely did, and a transient empty
+                        // navSections emission (plausible during a cloud-restore-triggered
+                        // settings reload, which can rewrite nav section config) was enough to
+                        // wipe an already-correct row rather than just leaving it alone until
+                        // the next real rebuild (Joe, 2026-07-19: "starts correctly on that
+                        // row but it's brief and then kinda reloads" back to Watchlist).
                         tileCategory == null -> return@collect
                         existingIdx >= 0 && updated[existingIdx] == tileCategory -> return@collect
                         existingIdx >= 0 -> updated[existingIdx] = tileCategory
@@ -2061,7 +2127,14 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            delay(if (isLowRamDevice) 8 * 60_000L else 6 * 60_000L)
+            // Was 6-8 minutes -- meant the favorites guide ran on nothing but
+            // whatever now/next happened to survive from the last real Live TV
+            // guide visit for that long on every cold start (Joe, 2026-07-22:
+            // a channel that didn't get merged that visit, e.g. Fox News, sat
+            // blank the entire time). Still deferred past the very first frame
+            // so this doesn't compete with launch animations, just not for
+            // minutes on end.
+            delay(if (isLowRamDevice) 20_000L else 15_000L)
             // Warm IPTV channels + EPG in background after startup settles.
             // First load from disk cache (fast), then do targeted network EPG refresh
             // for favorite channels so home screen shows current program info.
@@ -2084,8 +2157,9 @@ class HomeViewModel @Inject constructor(
             }
         }
         // Periodically refresh EPG data for Favorite TV row after Home settles.
+        // Same 6-8min-to-15-20s rationale as the warm-up block above.
         viewModelScope.launch {
-            delay(if (isLowRamDevice) 8 * 60_000L else 6 * 60_000L)
+            delay(if (isLowRamDevice) 20_000L else 15_000L)
             startEpgRefreshTimer()
         }
         viewModelScope.launch {
@@ -2906,6 +2980,20 @@ class HomeViewModel @Inject constructor(
                                 ?.takeIf { it.items.isNotEmpty() }
                                 ?.let { put(NEOLINK_EVENTS_CATEGORY_ID, it) }
                         }
+                        // LIBRARY_TILES_CATEGORY_ID (Browse) is managed by its own reactive
+                        // collector, same as Cameras/Neolink Events just above -- it was
+                        // missing from this preservation set, so any reload racing that
+                        // collector's own insert silently dropped the row again. That's what
+                        // actually caused Browse to repeatedly appear/disappear on cold start
+                        // (Joe, 2026-07-19): the row itself typically finished building in a
+                        // few seconds, it just kept getting wiped by unrelated reloads during
+                        // the several more seconds of cold-start churn every other source
+                        // (TMDB warmup, cloud sync, etc.) goes through. No hide/placement
+                        // toggle exists for this row (unlike Cameras/Events), so no config
+                        // gate here -- always preserve if present with real content.
+                        latestCats.firstOrNull { it.id == LIBRARY_TILES_CATEGORY_ID }
+                            ?.takeIf { it.items.isNotEmpty() }
+                            ?.let { put(LIBRARY_TILES_CATEGORY_ID, it) }
                     }
 
                     // Split preinstalled into TMDB-based and MDBList-based

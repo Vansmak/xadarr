@@ -5,7 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,12 +43,16 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvNowNext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Channel column row — spec §3.4, mockup layout:
@@ -67,7 +72,7 @@ fun ChannelRow(
     isFavorite: Boolean,
     stripe: Boolean = false,
     onClick: () -> Unit,
-    onFavoriteToggle: () -> Unit,
+    onLongPress: () -> Unit,
     onMoveLeft: () -> Unit = {},
     onMoveRight: () -> Boolean = { false },
     onMoveUp: () -> Boolean = { false },
@@ -80,6 +85,10 @@ fun ChannelRow(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var consumedLongPress by remember { mutableStateOf(false) }
+    var selectPressed by remember { mutableStateOf(false) }
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
     val visuallyFocused = focused || forceFocused
     val bg = when {
         visuallyFocused -> LiveColors.PanelRaised
@@ -129,23 +138,53 @@ fun ChannelRow(
                 }
                 false
             }
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onFavoriteToggle,
-            )
-            // Compose's combinedClickable doesn't catch DPAD long-press on
-            // every TV — the key repeats before the long-click threshold
-            // fires. Catch it here explicitly: the first repeat (native
-            // repeatCount == 1) on CENTER / ENTER / MENU triggers favorite
-            // toggle, giving the user the "hold OK" gesture everywhere.
+            // A held-duration timer (520ms), not a key-repeat-count hack —
+            // repeatCount fires on the first native repeat (~50-100ms into a
+            // hold on most remotes), which read ordinary taps as long-presses
+            // and caused accidental favorite changes. Long-press now opens a
+            // confirmation popup (onLongPress) instead of toggling directly,
+            // so even a deliberate hold can't silently remove a favorite.
             .onKeyEvent { ev ->
-                val isLongHoldCenter = ev.type == KeyEventType.KeyDown &&
-                    (ev.key == Key.DirectionCenter || ev.key == Key.Enter) &&
-                    ev.nativeKeyEvent.repeatCount == 1
-                val isMenu = ev.type == KeyEventType.KeyDown && ev.key == Key.Menu
-                if (isLongHoldCenter || isMenu) {
-                    onFavoriteToggle(); true
-                } else false
+                val isSelect = ev.key == Key.DirectionCenter || ev.key == Key.Enter
+                val isMenuKey = ev.key == Key.Menu
+                when {
+                    isMenuKey && ev.type == KeyEventType.KeyDown -> { onLongPress(); true }
+                    !isSelect -> false
+                    ev.type == KeyEventType.KeyDown -> {
+                        if (!selectPressed) {
+                            selectPressed = true
+                            consumedLongPress = false
+                            longPressJob?.cancel()
+                            longPressJob = scope.launch {
+                                delay(520L)
+                                if (selectPressed) {
+                                    consumedLongPress = true
+                                    onLongPress()
+                                }
+                            }
+                        }
+                        true
+                    }
+                    ev.type == KeyEventType.KeyUp && consumedLongPress -> {
+                        longPressJob?.cancel()
+                        selectPressed = false
+                        consumedLongPress = false
+                        true
+                    }
+                    ev.type == KeyEventType.KeyUp -> {
+                        longPressJob?.cancel()
+                        selectPressed = false
+                        onClick()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .pointerInput(onLongPress) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { onLongPress() },
+                )
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
