@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
@@ -186,6 +187,7 @@ fun DetailsScreen(
     initialSeason: Int? = null,
     initialEpisode: Int? = null,
     viewModel: DetailsViewModel = hiltViewModel(),
+    liveTvPlayerViewModel: com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel? = null,
     currentProfile: com.arflix.tv.data.model.Profile? = null,
     onNavigateToPlayer: (MediaType, Int, Int?, Int?, String?, String?, String?, String?, Long?) -> Unit,
     onNavigateToDetails: (MediaType, Int) -> Unit,
@@ -308,6 +310,11 @@ fun DetailsScreen(
                 } else {
                     viewModel.refreshAfterPlayerReturn()
                 }
+                // Launching Plex (launchPlexApp) hands off the window without leaving this
+                // composable — Compose focus is dropped on the way out and never restored on
+                // return, so the D-pad goes dead. Same root cause/fix as LiveTvScreen.kt and
+                // PlexLibraryScreen.kt's ON_RESUME handlers.
+                runCatching { focusRequester.requestFocus() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -320,6 +327,79 @@ fun DetailsScreen(
         focusRequester.requestFocus()
         suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
     }
+
+    // Once the eager background resolution matches this item to the Plex library, this
+    // Details screen simplifies itself: no season/episode tracking (Xadarr's own Continue
+    // Watching/progress/watched-marks only update from Xadarr's own player session, so once
+    // handoff is used they'd go stale/inaccurate anyway), just a summary and an "Open in
+    // Plex" button in place of Play. Neither Plex nor TiviMate support deep-linking to a
+    // specific title, so this is as close as Xadarr can get. See [[project_dv_atmos_passthrough_2026-07-30]].
+    var isPlexHandoffMode by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.plexHandoffStream) {
+        isPlexHandoffMode = if (uiState.plexHandoffStream != null) {
+            context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false
+        } else {
+            false
+        }
+    }
+    val launchPlexApp: () -> Unit = {
+        val handoffStream = uiState.plexHandoffStream
+        val intent = com.arflix.tv.util.PlexDeepLink.launchIntent(context, handoffStream?.plexServerId, handoffStream?.serverItemId)
+        if (intent != null) {
+            // Pause Xadarr's own live TV player before handing off — same reasoning as
+            // PlexLibraryScreen.kt's activateItem(): this route isn't "player"-prefixed, so
+            // MainActivity's route-based liveTvPlayerViewModel.dismiss() watcher never fires here.
+            liveTvPlayerViewModel?.pauseForVod()
+            context.startActivity(intent)
+        }
+    }
+    // The Play button's action — always plays directly in Xadarr, never detours through the
+    // Sources picker (that's what the separate Sources icon is for — Joe: "skip the sources
+    // screen unless I select it"). autoPlaySingleSource used to gate this; dropped here since
+    // "Play means play" regardless of that setting now.
+    val playNow: () -> Unit = {
+        if (isPlexHandoffMode) {
+            launchPlexApp()
+        } else {
+            val season = if (mediaType == MediaType.TV) {
+                uiState.playSeason
+                    ?: uiState.episodes.getOrNull(episodeIndex)?.seasonNumber
+                    ?: 1
+            } else null
+            val episode = if (mediaType == MediaType.TV) {
+                uiState.playEpisode
+                    ?: uiState.episodes.getOrNull(episodeIndex)?.episodeNumber
+                    ?: 1
+            } else null
+            val startPositionMs = if (
+                mediaType == MediaType.TV &&
+                season == uiState.playSeason &&
+                episode == uiState.playEpisode
+            ) {
+                uiState.playPositionMs
+            } else if (mediaType == MediaType.MOVIE) {
+                uiState.playPositionMs
+            } else null
+
+            onNavigateToPlayer(
+                mediaType,
+                mediaId,
+                season,
+                episode,
+                uiState.imdbId,
+                null,
+                null,
+                null,
+                startPositionMs
+            )
+        }
+    }
+    // Forcing these to "no seasons/episodes" reuses the exact same rendering and focus-
+    // traversal paths movies already use (BUTTONS -> CAST -> REVIEWS -> ...) instead of
+    // teaching every up/down/select branch a new isPlexHandoffMode case. totalSeasons is
+    // still shown as plain info text near the synopsis — see the info row below.
+    val effectiveEpisodes = if (isPlexHandoffMode) emptyList() else uiState.episodes
+    val effectiveTotalSeasons = if (isPlexHandoffMode) 1 else uiState.totalSeasons
 
     LaunchedEffect(pendingAutoPlayRequest, uiState.isLoadingStreams, uiState.streams) {
         val request = pendingAutoPlayRequest ?: return@LaunchedEffect
@@ -392,6 +472,7 @@ fun DetailsScreen(
                         entries = railEntries,
                         focusedIndex = navRailFocusedIndex,
                         onClose = { isNavRailOpen.value = false },
+                        context = context,
                         actions = com.arflix.tv.ui.components.NavRailActions(
                             onNavigateToHome = onNavigateToHome,
                             onNavigateToSearch = onNavigateToSearch,
@@ -488,7 +569,7 @@ fun DetailsScreen(
                             } else {
                                 // Navigation: BUTTONS -> SEASONS -> EPISODES -> CAST -> REVIEWS -> SIMILAR -> COLLECTION
                                 val isTV = mediaType == MediaType.TV
-                                val hasEpisodes = uiState.episodes.isNotEmpty()
+                                val hasEpisodes = effectiveEpisodes.isNotEmpty()
                                 val hasCast = uiState.cast.isNotEmpty()
                                 val hasReviews = uiState.reviews.isNotEmpty()
                                 val hasSimilar = uiState.similar.isNotEmpty()
@@ -500,13 +581,13 @@ fun DetailsScreen(
                                     }
                                     FocusSection.SEASONS -> FocusSection.BUTTONS
                                     FocusSection.EPISODES -> {
-                                        if (uiState.totalSeasons > 1) FocusSection.SEASONS else FocusSection.BUTTONS
+                                        if (effectiveTotalSeasons > 1) FocusSection.SEASONS else FocusSection.BUTTONS
                                     }
                                     FocusSection.CAST -> {
                                         if (isTV) {
                                             when {
                                                 hasEpisodes -> FocusSection.EPISODES
-                                                uiState.totalSeasons > 1 -> FocusSection.SEASONS
+                                                effectiveTotalSeasons > 1 -> FocusSection.SEASONS
                                                 else -> FocusSection.BUTTONS
                                             }
                                         } else FocusSection.BUTTONS
@@ -534,8 +615,8 @@ fun DetailsScreen(
                             } else {
                                 // Navigation: BUTTONS -> SEASONS -> EPISODES -> CAST -> REVIEWS -> SIMILAR -> COLLECTION
                                 val isTV = mediaType == MediaType.TV
-                                val hasEpisodes = uiState.episodes.isNotEmpty()
-                                val hasSeasons = uiState.totalSeasons > 1
+                                val hasEpisodes = effectiveEpisodes.isNotEmpty()
+                                val hasSeasons = effectiveTotalSeasons > 1
                                 val hasCast = uiState.cast.isNotEmpty()
                                 val hasReviews = uiState.reviews.isNotEmpty()
                                 val hasSimilar = uiState.similar.isNotEmpty()
@@ -606,46 +687,7 @@ fun DetailsScreen(
                             when (focusedSection) {
                                 FocusSection.BUTTONS -> {
                                     when (buttonIndex) {
-                                        0 -> { // Play - Auto-play highest quality source
-                                            val season = if (mediaType == MediaType.TV) {
-                                                uiState.playSeason
-                                                    ?: uiState.episodes.getOrNull(episodeIndex)?.seasonNumber
-                                                    ?: 1
-                                            } else null
-                                            val episode = if (mediaType == MediaType.TV) {
-                                                uiState.playEpisode
-                                                    ?: uiState.episodes.getOrNull(episodeIndex)?.episodeNumber
-                                                    ?: 1
-                                            } else null
-                                            val startPositionMs = if (
-                                                mediaType == MediaType.TV &&
-                                                season == uiState.playSeason &&
-                                                episode == uiState.playEpisode
-                                            ) {
-                                                uiState.playPositionMs
-                                            } else if (mediaType == MediaType.MOVIE) {
-                                                uiState.playPositionMs
-                                            } else null
-
-                                            if (!uiState.autoPlaySingleSource) {
-                                                // Autoplay OFF → open the source picker; never auto-play.
-                                                showStreamSelector = true
-                                                viewModel.loadStreams(uiState.imdbId, season, episode)
-                                            } else {
-                                                // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
-                                                onNavigateToPlayer(
-                                                    mediaType,
-                                                    mediaId,
-                                                    season,
-                                                    episode,
-                                                    uiState.imdbId,
-                                                    null,
-                                                    null,
-                                                    null,
-                                                    startPositionMs
-                                                )
-                                            }
-                                        }
+                                        0 -> playNow() // Auto-play highest quality source
                                         1 -> { // Sources - Show StreamSelector for manual selection
                                             showStreamSelector = true
                                             // Pass the currently focused episode for TV shows
@@ -663,6 +705,7 @@ fun DetailsScreen(
                                             focusedSection = FocusSection.COLLECTION
                                             collectionIndex = 0
                                         }
+                                        else -> if (uiState.plexHandoffStream != null && buttonIndex == plexButtonIndex(uiState)) launchPlexApp()
                                     }
                                 }
                                 FocusSection.SEASONS -> {
@@ -763,8 +806,8 @@ fun DetailsScreen(
                 DetailsContent(
                     item = item,
                     logoUrl = uiState.logoUrl,
-                    episodes = uiState.episodes,
-                    totalSeasons = uiState.totalSeasons,
+                    episodes = effectiveEpisodes,
+                    totalSeasons = effectiveTotalSeasons,
                     currentSeason = uiState.currentSeason,
                     cast = uiState.cast,
                     reviews = uiState.reviews,
@@ -787,6 +830,10 @@ fun DetailsScreen(
                     audioFormat = uiState.streams.firstOrNull { !it.audioFormat.isNullOrBlank() }?.audioFormat,
                     seasonProgress = uiState.seasonProgress,
                     playLabel = uiState.playLabel,
+                    upcomingEpisodeLabel = uiState.upcomingEpisodeLabel,
+                    hasPlexOption = uiState.plexHandoffStream != null,
+                    isPlexHandoffMode = isPlexHandoffMode,
+                    realTotalSeasons = uiState.totalSeasons,
                     hasTrailer = uiState.trailerKey != null,
                     contentHasFocus = !isSidebarFocused,
                     usePosterCards = usePosterCards,
@@ -797,39 +844,7 @@ fun DetailsScreen(
                     onBack = onBack,
                     onButtonClick = { idx ->
                         when (idx) {
-                            0 -> { // Play
-                                val season = if (mediaType == MediaType.TV) {
-                                    uiState.playSeason
-                                        ?: uiState.episodes.getOrNull(episodeIndex)?.seasonNumber
-                                        ?: 1
-                                } else null
-                                val episode = if (mediaType == MediaType.TV) {
-                                    uiState.playEpisode
-                                        ?: uiState.episodes.getOrNull(episodeIndex)?.episodeNumber
-                                        ?: 1
-                                } else null
-                                val startPositionMs = if (
-                                    mediaType == MediaType.TV &&
-                                    season == uiState.playSeason &&
-                                    episode == uiState.playEpisode
-                                ) {
-                                    uiState.playPositionMs
-                                } else if (mediaType == MediaType.MOVIE) {
-                                    uiState.playPositionMs
-                                } else null
-
-                                if (!uiState.autoPlaySingleSource) {
-                                    // Autoplay OFF → open the source picker; never auto-play.
-                                    showStreamSelector = true
-                                    viewModel.loadStreams(uiState.imdbId, season, episode)
-                                } else {
-                                    // Autoplay ON → go straight to the player; PlayerScreen auto-picks.
-                                    onNavigateToPlayer(
-                                        mediaType, mediaId, season, episode,
-                                        uiState.imdbId, null, null, null, startPositionMs
-                                    )
-                                }
-                            }
+                            0 -> playNow() // Play
                             1 -> { // Sources
                                 showStreamSelector = true
                                 val ep = uiState.episodes.getOrNull(episodeIndex)
@@ -844,6 +859,7 @@ fun DetailsScreen(
                                 focusedSection = FocusSection.COLLECTION
                                 collectionIndex = 0
                             }
+                            else -> if (uiState.plexHandoffStream != null && idx == plexButtonIndex(uiState)) launchPlexApp()
                         }
                     },
                     onSeasonClick = { idx ->
@@ -904,6 +920,7 @@ fun DetailsScreen(
                     currentScreen = null,
                     navSections = navSections,
                     neolinkConfigured = neolinkConfigured,
+                    currentProfile = currentProfile,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToSearch = onNavigateToSearch,
@@ -1151,6 +1168,11 @@ private fun isPendingDebridStream(stream: com.arflix.tv.data.model.StreamSource)
     ).any { text.contains(it) }
 }
 
+// Slot for the "Open in Plex" button — appended after the fixed 0-4 buttons and the
+// conditional View Collection slot (index 5, movies-in-a-collection only) rather than inserted
+// adjacent to Play, so nothing else in this file's many index-based switches needs renumbering.
+private fun plexButtonIndex(uiState: DetailsUiState): Int = if (uiState.collectionId != null) 6 else 5
+
 private fun handleLeft(
     section: FocusSection,
     buttonIdx: Int, episodeIdx: Int, seasonIdx: Int, castIdx: Int, reviewIdx: Int, similarIdx: Int,
@@ -1182,7 +1204,12 @@ private fun handleRight(
 ): Boolean {
     when (section) {
         FocusSection.BUTTONS -> {
-            val maxButton = if (uiState.collectionId != null) 5 else 4
+            val hasCollection = uiState.collectionId != null
+            val maxButton = when {
+                uiState.plexHandoffStream != null -> plexButtonIndex(uiState)
+                hasCollection -> 5
+                else -> 4
+            }
             if (buttonIdx < maxButton) setButton(buttonIdx + 1)
         }
         FocusSection.EPISODES -> if (episodeIdx < uiState.episodes.size - 1) setEpisode(episodeIdx + 1)
@@ -1240,6 +1267,10 @@ private fun DetailsContent(
     audioFormat: String? = null,
     seasonProgress: Map<Int, Pair<Int, Int>> = emptyMap(),
     playLabel: String? = null,
+    hasPlexOption: Boolean = false,
+    upcomingEpisodeLabel: String? = null,
+    isPlexHandoffMode: Boolean = false,
+    realTotalSeasons: Int = 0,
     hasTrailer: Boolean = false,
     contentHasFocus: Boolean = true,
     usePosterCards: Boolean = false,
@@ -1467,6 +1498,20 @@ private fun DetailsContent(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            if (isPlexHandoffMode && item.mediaType == MediaType.TV && realTotalSeasons > 0) {
+                                MobileMetadataSeparator()
+                                Text(
+                                    text = if (realTotalSeasons == 1) "1 Season" else "$realTotalSeasons Seasons",
+                                    style = ArflixTypography.caption.copy(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        shadow = textShadow
+                                    ),
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
 
                         if (genreText.isNotEmpty()) {
@@ -1499,7 +1544,7 @@ private fun DetailsContent(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Primary mobile actions
-                    val playButtonLabel = if (!playLabel.isNullOrBlank()) playLabel else "Play"
+                    val playButtonLabel = if (isPlexHandoffMode) "Open in Plex" else if (!playLabel.isNullOrBlank()) playLabel else "Play"
                     MobileActionButton(
                         icon = Icons.Default.PlayArrow,
                         text = playButtonLabel,
@@ -1552,6 +1597,16 @@ private fun DetailsContent(
                                 .height(54.dp),
                             onClick = { onButtonClick(4) }
                         )
+                        if (hasPlexOption) {
+                            MobileIconActionButton(
+                                icon = Icons.Default.OpenInNew,
+                                contentDescription = "Open in Plex",
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(54.dp),
+                                onClick = { onButtonClick(if (hasCollectionAction) 6 else 5) }
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
@@ -2005,6 +2060,19 @@ private fun DetailsContent(
                         )
                     }
 
+                    if (isPlexHandoffMode && item.mediaType == MediaType.TV && realTotalSeasons > 0) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(
+                            text = if (realTotalSeasons == 1) "1 Season" else "$realTotalSeasons Seasons",
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                shadow = textShadow
+                            ),
+                            color = Color.White
+                        )
+                    }
+
                     if (primaryNetworkLogo != null) {
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         AsyncImage(
@@ -2034,6 +2102,19 @@ private fun DetailsContent(
                         Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
                         Text(
                             text = "${stringResource(R.string.budget)} $budgetText",
+                            style = ArflixTypography.caption.copy(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                shadow = textShadow
+                            ),
+                            color = Color.White
+                        )
+                    }
+
+                    if (!isPlexHandoffMode && item.mediaType == MediaType.TV && !upcomingEpisodeLabel.isNullOrBlank()) {
+                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(
+                            text = upcomingEpisodeLabel,
                             style = ArflixTypography.caption.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -2089,7 +2170,9 @@ private fun DetailsContent(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val playButtonLabel = if (!playLabel.isNullOrBlank()) {
+                val playButtonLabel = if (isPlexHandoffMode) {
+                    "Open in Plex"
+                } else if (!playLabel.isNullOrBlank()) {
                     playLabel
                 } else {
                     "Play"
@@ -2147,6 +2230,21 @@ private fun DetailsContent(
                             icon = Icons.Default.Star,
                             text = stringResource(R.string.view_collection),
                             isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == 5,
+                            isIconOnly = true
+                        )
+                    }
+                }
+
+                // Direct "Open in Plex" — only shown when a Plex match exists for this title.
+                // Appended after View Collection (see plexButtonIndex()) rather than placed
+                // right next to Play so nothing else keyed on the fixed 0-4 indices shifts.
+                if (hasPlexOption) {
+                    val plexIdx = if (hasCollectionAction) 6 else 5
+                    Box(modifier = Modifier.clickable { onButtonClick(plexIdx) }) {
+                        PremiumActionButton(
+                            icon = Icons.Default.OpenInNew,
+                            text = "Open in Plex",
+                            isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == plexIdx,
                             isIconOnly = true
                         )
                     }

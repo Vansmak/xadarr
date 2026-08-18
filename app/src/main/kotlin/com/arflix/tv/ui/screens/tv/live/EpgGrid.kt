@@ -249,13 +249,25 @@ fun EpgGrid(
         // styling) while no row actually held real input focus, so up/down did
         // nothing until another left/right re-triggered this signal. Retry instead
         // of guessing one delay, same fix as the browse-overlay focus bug.
-        repeat(6) { attempt ->
-            delay(if (attempt == 0) 32L else 24L)
-            if (runCatching { selectedChannelFocusRequester.requestFocus() }.isSuccess) {
-                return@LaunchedEffect
-            }
+        //
+        // When this fires because the sidebar just closed (CategorySidebar's
+        // onMoveRight -> focusChannelList), requestFocus() can report success here
+        // and still lose the row's real focus a moment later: CategorySidebar sits
+        // behind an AnimatedVisibility with a 180ms exit animation, and the old
+        // sidebar composable — with its own focused row — isn't disposed until that
+        // finishes. If this row grabs focus before that disposal happens, the
+        // disposal can silently clear focus again afterward, with no exception and
+        // no onFocusChanged callback to catch it (confirmed via instrumented logcat:
+        // requestFocus() reported success in both the working and the stuck case —
+        // it only proves the call didn't throw, not that focus survived). So this
+        // no longer stops at the first non-throwing requestFocus() — it keeps
+        // re-asserting across a window that comfortably outlasts the sidebar's
+        // 180ms exit animation, so the last attempt always lands after that
+        // disposal, not before it.
+        repeat(7) { attempt ->
+            delay(if (attempt == 0) 32L else 40L)
+            runCatching { selectedChannelFocusRequester.requestFocus() }
         }
-        // All retries exhausted — clear pending so future onFocused calls aren't blocked.
         if (pendingChannelFocusId == id) pendingChannelFocusId = null
     }
 
@@ -666,13 +678,15 @@ private fun ProgramsRow(
                     isFocusTarget = placement.isNow,
                     focusable = isFocusable,
                     isCatchupSupported = isCatchupSupported,
-                    onClick = {
-                        if (placement.isPast && isCatchupSupported) {
-                            onClick(placement.program)
-                        } else if (!placement.isPast) {
-                            onClick(null)
-                        }
-                    },
+                    // Always pass the real program through — ProgramInfoPopup (the receiver at
+                    // the call site) decides what's watchable (live/catchup) vs. info-only
+                    // (future) itself. Used to null this out for anything that wasn't past+
+                    // catchup-eligible, which was correct back when this click went straight to
+                    // playback (blind-playing a future program's nonexistent catchup URL would
+                    // have been worse than doing nothing) but now just silently swallows the
+                    // program and skips the info popup entirely for live/future cells (Joe,
+                    // 2026-08-14: "I goto the program I press and it goes back").
+                    onClick = { onClick(placement.program) },
                     onFocused = onFocused,
                     onMoveLeft = {
                         if (focusableIndex > 0) {
@@ -809,7 +823,7 @@ private fun ProgramPlacement.isCatchupSupported(channel: EnrichedChannel, nowMil
         program.startUtcMillis >= nowMillis - days * 24L * 60L * 60_000L
 }
 
-private fun effectiveCatchupDays(channel: EnrichedChannel): Int {
+internal fun effectiveCatchupDays(channel: EnrichedChannel): Int {
     val explicitDays = channel.catchupDays.coerceIn(0, 7)
     if (explicitDays > 0) return explicitDays
     val source = channel.source

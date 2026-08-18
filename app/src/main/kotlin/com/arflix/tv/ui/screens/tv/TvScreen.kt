@@ -838,7 +838,12 @@ fun TvScreen(
                                 onSwitchProfile()
                             } else {
                                 val customEntry = com.arflix.tv.ui.components.topBarFocusedCustomEntry(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)
-                                if (customEntry != null) {
+                                if (customEntry?.customId == "plex_library") {
+                                    // Plex Launcher Mode's merged Movies & Shows entry — same
+                                    // hand-off as NavRail.activateNavRailEntry, this touch top
+                                    // bar has its own independent dispatch site.
+                                    context.packageManager.getLaunchIntentForPackage("com.plexapp.android")?.let { context.startActivity(it) }
+                                } else if (customEntry != null) {
                                     com.arflix.tv.navigation.NavTargets.activate(customEntry.target, onNavigateToHome, onNavigateToSearch, onNavigateToTv = {}, onNavigateToCameras = onNavigateToCameras)
                                 } else when (topBarFocusedItem(sidebarFocusIndex, hasProfile, neolinkConfigured, navSections)) {
                                     SidebarItem.SEARCH -> onNavigateToSearch()

@@ -43,6 +43,13 @@ val CW_PLACEMENT_KEY = stringPreferencesKey("cw_placement")
 val CW_SORT_ORDER_KEY = stringPreferencesKey("cw_sort_order")
 val CW_HIDDEN_KEY = booleanPreferencesKey("cw_hidden")
 val LAUNCHER_MODE_KEY = booleanPreferencesKey("launcher_mode")
+// External-app playback handoff (device-local — depends on what's installed on this box, not synced).
+// See [[project_dv_atmos_passthrough_2026-07-30]]: Xadarr's own ExoPlayer hangs on some Dolby
+// Vision profiles this device's decoder actually supports (proven by the native Plex app playing
+// them flawlessly), so this routes playback to the native apps instead of fixing that at the
+// Media3 level.
+val PLAY_VOD_VIA_PLEX_KEY = booleanPreferencesKey("play_vod_via_plex")
+val PLAY_LIVETV_VIA_TIVIMATE_KEY = booleanPreferencesKey("play_livetv_via_tivimate")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"

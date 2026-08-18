@@ -34,6 +34,7 @@ object Constants {
     // Optional local direct-call credentials. Release builds should use the Edge
     // Function proxies so these values do not have to be shipped in the client.
     val TMDB_API_KEY: String get() = usableSecret(BuildConfig.TMDB_API_KEY)
+    val DOOFLIX_SCRAPER_API_KEY: String get() = usableSecret(BuildConfig.DOOFLIX_SCRAPER_API_KEY)
     val TRAKT_CLIENT_ID: String get() = usableSecret(BuildConfig.TRAKT_CLIENT_ID)
     val TRAKT_CLIENT_SECRET: String
         get() = usableSecret(BuildConfig.TRAKT_CLIENT_SECRET)

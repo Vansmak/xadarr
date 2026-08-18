@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.view.WindowManager
 import com.arflix.tv.R
+import coil.imageLoader
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -85,7 +87,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -110,15 +115,11 @@ import com.arflix.tv.data.repository.WatchlistRepository
 import com.arflix.tv.data.repository.toLauncherContinueWatchingRequest
 import com.arflix.tv.navigation.AppNavigation
 import com.arflix.tv.navigation.Screen
-import com.arflix.tv.ui.screens.tv.live.LiveTvMiniPlayerOverlay
 import com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.ui.graphics.TransformOrigin
 import com.arflix.tv.ui.screens.login.LoginScreen
 import com.arflix.tv.ui.startup.StartupViewModel
 import com.arflix.tv.ui.theme.ArflixTvTheme
@@ -202,6 +203,7 @@ class MainActivity : ComponentActivity() {
 
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
+    private var pendingReminderChannelId by mutableStateOf<String?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
     val navigateSmartHomeSignal = MutableStateFlow(0)
@@ -281,6 +283,14 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         overridePendingTransition(0, 0)
         pendingLauncherRequest = parseLauncherRequest(intent)
+        pendingReminderChannelId = intent.getStringExtra(
+            com.arflix.tv.worker.ProgramReminderWorker.EXTRA_REMINDER_CHANNEL_ID
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
+            )
+        }
 
         // Set orientation based on device type
         requestedOrientation = when (initialDeviceType) {
@@ -422,6 +432,8 @@ class MainActivity : ComponentActivity() {
                         skipProfileSelection = skipProfileSelection,
                         pendingLauncherRequest = pendingLauncherRequest,
                         onConsumeLauncherRequest = { pendingLauncherRequest = null },
+                        pendingReminderChannelId = pendingReminderChannelId,
+                        onConsumeReminderRequest = { pendingReminderChannelId = null },
                         preloadedCategories = startupState.categories,
                         preloadedHeroItem = startupState.heroItem,
                         preloadedHeroLogoUrl = startupState.heroLogoUrl,
@@ -485,6 +497,19 @@ class MainActivity : ComponentActivity() {
         wasInBackground = true
     }
 
+    // Xadarr is single-activity/singleTask and never finishes when another app takes the
+    // foreground (e.g. the Plex/TiviMate playback handoff — see
+    // [[project_dv_atmos_passthrough_2026-07-30]]), so its whole Compose tree, ViewModels, and
+    // image cache stay fully resident unless something proactively releases them. Trim the image
+    // cache under real memory pressure so backgrounded Xadarr isn't a dead weight contributing to
+    // OOM risk on constrained devices (measured 321MB RSS backgrounded on a 3GB Shield tonight).
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            runCatching { imageLoader.memoryCache?.clear() }
+        }
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -494,7 +519,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         pendingLauncherRequest = parseLauncherRequest(intent)
-        if (pendingLauncherRequest == null) {
+        pendingReminderChannelId = intent.getStringExtra(
+            com.arflix.tv.worker.ProgramReminderWorker.EXTRA_REMINDER_CHANNEL_ID
+        )
+        if (pendingLauncherRequest == null && pendingReminderChannelId == null) {
             navigateHomeSignal.value++
         }
     }
@@ -666,6 +694,8 @@ fun ArflixApp(
     skipProfileSelection: Boolean? = null,
     pendingLauncherRequest: LauncherContinueWatchingRequest? = null,
     onConsumeLauncherRequest: () -> Unit = {},
+    pendingReminderChannelId: String? = null,
+    onConsumeReminderRequest: () -> Unit = {},
     preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
     preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
     preloadedHeroLogoUrl: String? = null,
@@ -705,6 +735,22 @@ fun ArflixApp(
     // so hiltViewModel() uses the Activity's ViewModelStoreOwner.
     val liveTvPlayerViewModel: LiveTvPlayerViewModel = hiltViewModel()
 
+    // Belt-and-suspenders alongside LiveTvPlayerViewModel's own ProcessLifecycleOwner observer
+    // (which should already pause on backgrounding, but evidently didn't reliably in practice —
+    // audio kept playing after launching a different app entirely). Wired directly to this
+    // Activity's own lifecycle (the same one MainActivity.onStop() observes) rather than trusting
+    // the global process-level observer alone.
+    val activityLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(activityLifecycleOwner, liveTvPlayerViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                liveTvPlayerViewModel.pauseForVod()
+            }
+        }
+        activityLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { activityLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(episeerrPollManager) { episeerrPollManager?.startPolling() }
     LaunchedEffect(notificationPollManager) { notificationPollManager?.startPolling() }
 
@@ -729,7 +775,7 @@ fun ArflixApp(
         navigateHomeSignal.collect { count ->
             if (count > seen) {
                 seen = count
-                navController.navigate(Screen.Home.route) {
+                navController.navigate(Screen.Home.createRoute()) {
                     popUpTo(Screen.Home.route) { inclusive = false }
                     launchSingleTop = true
                 }
@@ -761,11 +807,11 @@ fun ArflixApp(
     LaunchedEffect(navController) {
         navigateToSignal.collect { destination ->
             val route = when (destination) {
-                "live_tv" -> "tv"
+                "live_tv" -> Screen.Home.createRoute()
                 "cameras" -> Screen.Cameras.route
                 "discover" -> Screen.Discover.route
                 "search" -> Screen.Search.route
-                "home" -> Screen.Home.route
+                "home" -> Screen.Home.createRoute()
                 "settings" -> Screen.Settings.route
                 else -> null
             }
@@ -787,6 +833,10 @@ fun ArflixApp(
         }
     }
 
+    // NavHost's startDestination matches by exact route-pattern ID (NavGraph.setStartDestination
+    // hashes the literal string passed against each destination's registered `route`), unlike
+    // navigate() which goes through real URI-template/deep-link matching — so this must stay the
+    // raw pattern (Screen.Home.route), not a resolved Screen.Home.createRoute() value.
     val startDestination = if (skipProfileSelection == true && activeProfile != null) {
         Screen.Home.route
     } else {
@@ -800,14 +850,27 @@ fun ArflixApp(
             prefs[NEOLINK_URL_KEY]?.isNotBlank() == true
         }
     }.collectAsStateWithLifecycle(initialValue = false)
-    val navSections by remember(navSectionRepository) {
+    val plexLauncherModeActive by remember {
+        context.settingsDataStore.data.map { prefs ->
+            (prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false) &&
+                (prefs[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false)
+        }
+    }.collectAsStateWithLifecycle(initialValue = false)
+    // TiviMate-clone redesign: the nav-section list from NavSectionRepository.defaultSections()
+    // (Guide/Movies/Shows/Apps/Cameras/Settings) is now the permanent, unconditional default —
+    // no runtime filtering needed. This used to conditionally merge Movies+Shows into one
+    // "plex_library" row and hide Search/Discover only when Plex Launcher Mode was on; that
+    // whole transform is superseded now that separate Movies/Shows-launch-Plex entries and the
+    // absence of Search/Discover are just how the nav model is seeded by default.
+    val rawNavSections by remember(navSectionRepository) {
         navSectionRepository.observeSectionsForActiveProfile()
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val navSections = rawNavSections
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     var iptvFullscreen by remember { mutableStateOf(false) }
     LaunchedEffect(currentRoute) {
-        if (currentRoute?.startsWith("tv") != true) {
+        if (currentRoute?.startsWith("home") != true) {
             iptvFullscreen = false
         }
     }
@@ -831,6 +894,7 @@ fun ArflixApp(
     CompositionLocalProvider(
         LocalNeolinkConfigured provides neolinkConfigured,
         com.arflix.tv.util.LocalNavSections provides navSections,
+        com.arflix.tv.util.LocalPlexLauncherMode provides plexLauncherModeActive,
         com.arflix.tv.util.LocalEpiseerrPendingIds provides episeerrPendingIds,
         com.arflix.tv.util.LocalGameDayEvents provides gameDayEvents,
     ) {
@@ -884,49 +948,19 @@ fun ArflixApp(
                 onExitApp = onExitApp
             )
 
-            // ── Mini-player overlay ──────────────────────────────────────────────
-            val miniPlayerState by liveTvPlayerViewModel.state.collectAsStateWithLifecycle()
-            val onTvScreen = currentRoute?.startsWith("tv") == true
+            // Roaming mini-player pip (floating tile that followed live TV across other
+            // screens) removed — belonged to the old Home/Movies/Shows-as-peer-screens model.
+            // Live TV is its own TiviMate-style screen now, not something that needs to keep
+            // playing in a corner while browsing elsewhere. Still stop live playback when a VOD
+            // or standalone camera player opens, so audio doesn't keep running underneath.
             val onPlayerScreen = currentRoute?.startsWith("player") == true
             val onCameraPlayerScreen = currentRoute?.startsWith("camera_player") == true
-            val onSettingsScreen = currentRoute?.startsWith("settings") == true
-            val showMiniPlayer = miniPlayerState.isActive
-                && !onTvScreen
-                && !onPlayerScreen
-                && !onCameraPlayerScreen
-                && !onSettingsScreen
-
-            // Dismiss mini-player when a VOD or standalone camera player opens.
             LaunchedEffect(onPlayerScreen) {
                 if (onPlayerScreen) liveTvPlayerViewModel.dismiss()
             }
             LaunchedEffect(onCameraPlayerScreen) {
                 if (onCameraPlayerScreen) liveTvPlayerViewModel.dismiss()
             }
-
-            // Extracted into a standalone composable to avoid ColumnScope.AnimatedVisibility
-            // being selected over the general overload from the outer Column context.
-            LiveTvMiniPlayerLayer(
-                visible = showMiniPlayer,
-                player = liveTvPlayerViewModel.player,
-                channelName = miniPlayerState.channelName,
-                programTitle = miniPlayerState.programTitle,
-                onNavigateToTv = {
-                    val channelId = miniPlayerState.channelId
-                    // Camera streams use "camera:..." as the channelId — expand to Cameras screen
-                    val route = when {
-                        channelId?.startsWith("camera:") == true -> Screen.Cameras.route
-                        channelId != null -> Screen.Tv.createRoute(channelId)
-                        else -> Screen.Tv.route
-                    }
-                    navController.navigate(route) {
-                        popUpTo(Screen.Home.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-                onDismiss = { liveTvPlayerViewModel.dismiss() },
-            )
 
             // ── App notification toast ───────────────────────────────────────────
             androidx.compose.animation.AnimatedVisibility(
@@ -971,50 +1005,15 @@ fun ArflixApp(
         }
         onConsumeLauncherRequest()
     }
-}
 
-/**
- * Standalone composable so [AnimatedVisibility] resolves to the general top-level overload
- * rather than [ColumnScope.AnimatedVisibility] from the outer Column in [ArflixApp].
- */
-@Composable
-private fun LiveTvMiniPlayerLayer(
-    visible: Boolean,
-    player: androidx.media3.exoplayer.ExoPlayer,
-    channelName: String,
-    programTitle: String,
-    onNavigateToTv: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(200)) + scaleIn(
-                initialScale = 0.8f,
-                animationSpec = tween(200),
-                transformOrigin = TransformOrigin(1f, 1f),
-            ),
-            exit = fadeOut(tween(150)) + scaleOut(
-                targetScale = 0.8f,
-                animationSpec = tween(150),
-                transformOrigin = TransformOrigin(1f, 1f),
-            ),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 16.dp, end = 16.dp),
-        ) {
-            LiveTvMiniPlayerOverlay(
-                player = player,
-                channelName = channelName,
-                programTitle = programTitle,
-                onClick = onNavigateToTv,
-                onDismiss = onDismiss,
-            )
+    LaunchedEffect(activeProfile?.id, pendingReminderChannelId) {
+        val channelId = pendingReminderChannelId ?: return@LaunchedEffect
+        if (activeProfile == null) return@LaunchedEffect
+        navController.navigate(Screen.Home.createRoute(channelId = channelId)) {
+            popUpTo(Screen.ProfileSelection.route) { inclusive = true }
+            launchSingleTop = true
         }
-
-        // Dismiss mini-player on Back before allowing underlying screens to handle it.
-        // Registered here (deepest level) so it has priority over screens' back handlers.
-        BackHandler(enabled = visible, onBack = onDismiss)
+        onConsumeReminderRequest()
     }
 }
 

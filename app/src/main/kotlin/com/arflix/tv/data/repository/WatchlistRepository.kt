@@ -135,9 +135,36 @@ class WatchlistRepository @Inject constructor(
     }
 
     /**
-     * Add item to watchlist
+     * Pushes the item onto the *real* Plex watchlist via Episeerr, which then runs its
+     * existing Plex-watchlist → Radarr/Sonarr auto-add sync pass immediately (rather than
+     * waiting for its periodic interval). Returns false — not an exception — on any failure
+     * (Episeerr unreachable, Plex not configured, no match found), so callers can show an
+     * honest result instead of assuming success like the old local-only write did.
      */
-    suspend fun addToWatchlist(mediaType: MediaType, tmdbId: Int, mediaItem: MediaItem? = null) {
+    private fun pushToPlexWatchlist(base: String, tmdbId: Int, typeStr: String, title: String): Boolean {
+        return runCatching {
+            val payload = org.json.JSONObject().apply {
+                put("tmdb_id", tmdbId.toString())
+                put("media_type", typeStr)
+                put("title", title)
+            }.toString()
+            val req = Request.Builder()
+                .url("$base/api/integration/plex/watchlist/add")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                val json = org.json.JSONObject(resp.body?.string().orEmpty())
+                resp.isSuccessful && json.optBoolean("success", false)
+            }
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Add item to watchlist. Returns true if the item was also successfully pushed onto the
+     * real Plex watchlist (so Episeerr's auto-add pipeline will pick it up) — false if that
+     * push failed for any reason, even though the local watchlist write above always succeeds.
+     */
+    suspend fun addToWatchlist(mediaType: MediaType, tmdbId: Int, mediaItem: MediaItem? = null): Boolean {
         val key = cacheKey(mediaType, tmdbId)
         val typeStr = if (mediaType == MediaType.TV) "tv" else "movie"
 
@@ -165,8 +192,10 @@ class WatchlistRepository @Inject constructor(
             cacheLoaded = true
         }
 
-        // Fire webhook + notify sync server (best-effort, non-blocking)
-        withContext(Dispatchers.IO) {
+        // Fire webhook + notify sync server (best-effort, non-blocking) + push to the real
+        // Plex watchlist so Episeerr's auto-add pipeline picks it up (this one we do care
+        // about the result of — see pushToPlexWatchlist doc).
+        return withContext(Dispatchers.IO) {
             progressWebhookRepository.fireWatchlistEvent(
                 event = "watchlist.add",
                 title = mediaItem?.title ?: localItem.title,
@@ -175,15 +204,15 @@ class WatchlistRepository @Inject constructor(
                 year = mediaItem?.year
             )
             val base = syncServerUrl()
-            if (base.isNotBlank()) {
-                val payload = org.json.JSONObject().apply {
-                    put("id", tmdbId)
-                    put("mediaType", typeStr)
-                    put("title", localItem.title)
-                    localItem.posterPath?.let { put("posterPath", it) }
-                }.toString()
-                notifySyncServer("POST", "$base/api/media/watchlist", payload)
-            }
+            if (base.isBlank()) return@withContext false
+            val payload = org.json.JSONObject().apply {
+                put("id", tmdbId)
+                put("mediaType", typeStr)
+                put("title", localItem.title)
+                localItem.posterPath?.let { put("posterPath", it) }
+            }.toString()
+            notifySyncServer("POST", "$base/api/media/watchlist", payload)
+            pushToPlexWatchlist(base, tmdbId, typeStr, localItem.title)
         }
     }
 
@@ -390,6 +419,52 @@ class WatchlistRepository @Inject constructor(
         }
 
         enrichedItems
+    }
+
+    /**
+     * Plex Launcher Mode watchlist source: live pull from Episeerr's
+     * /api/integration/xadarr/watchlist/plex, which is itself a live read of
+     * the user's actual Plex watchlist (episeerr_custom's plex.py) — not the
+     * local Trakt-reconciled cache the rest of this class manages. Items come
+     * back already TMDB-enriched (title/posterPath/backdropPath as full
+     * URLs) server-side, so no local persistence or further enrichment is
+     * needed here — just overwrite the in-memory StateFlow every call.
+     * Returns the local cache unchanged (does not clear it) on any failure —
+     * a transient Episeerr outage shouldn't blank the row.
+     */
+    suspend fun loadFromPlex(): List<MediaItem> = withContext(Dispatchers.IO) {
+        val base = context.settingsDataStore.data.first()[SYNC_SERVER_URL_KEY].orEmpty().trim().trimEnd('/')
+        if (base.isBlank()) return@withContext itemsCache.toList()
+        try {
+            val req = Request.Builder().url("$base/api/integration/xadarr/watchlist/plex").get().build()
+            val body = okHttpClient.newCall(req).execute().use { it.body?.string() ?: "[]" }
+            val arr = org.json.JSONArray(body)
+            val items = (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                val type = if (obj.optString("mediaType") == "show") MediaType.TV else MediaType.MOVIE
+                MediaItem(
+                    id = obj.optInt("tmdbId"),
+                    title = obj.optString("title"),
+                    subtitle = if (type == MediaType.TV) "TV Series" else "Movie",
+                    mediaType = type,
+                    image = obj.optString("posterPath"),
+                    backdrop = obj.optString("backdropPath").ifBlank { null },
+                    addedAt = obj.optLong("addedAt", System.currentTimeMillis()),
+                )
+            }
+            cacheMutex.withLock {
+                itemsCache.clear()
+                itemsCache.addAll(items)
+                keyCache.clear()
+                items.forEach { keyCache.add(cacheKey(it.mediaType, it.id)) }
+                _watchlistItems.value = items
+                cacheLoaded = true
+            }
+            items
+        } catch (e: Exception) {
+            AppLogger.d("WatchlistRepository", "loadFromPlex failed: ${e.message}")
+            itemsCache.toList()
+        }
     }
 
     /**

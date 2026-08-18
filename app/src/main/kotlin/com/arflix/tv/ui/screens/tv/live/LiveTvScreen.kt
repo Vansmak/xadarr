@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -77,13 +78,17 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvProgram
+import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.data.repository.RawProviderStream
+import com.arflix.tv.data.repository.reminderKey
 import com.arflix.tv.ui.screens.tv.TvUiState
 import com.arflix.tv.ui.screens.tv.TvViewModel
 import com.arflix.tv.ui.components.AppTopBarHeight
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -109,11 +114,11 @@ private fun chooseStartupChannelId(
         ?.let { return it }
     if (explicitInitialChannelId != null && !isFullyEnriched) return null
 
-    favoriteChannelIds
-        .firstOrNull { id -> filteredChannels.any { it.id == id } }
-        ?.let { return it }
-    if (favoriteChannelIds.isNotEmpty() && !isFullyEnriched) return null
-
+    // Resume where the last session left off before falling back to favorites — favorites
+    // used to be checked first, which meant the startup channel never varied for anyone with
+    // favorites set: it always won over sessionLastChannelId below, no matter what was last
+    // watched. Favorites are still the right fallback for a brand-new session that has no
+    // watch history yet.
     if (hasOpenedBefore) {
         sessionLastChannelId
             .takeIf { id -> id.isNotBlank() && filteredChannels.any { it.id == id } }
@@ -121,6 +126,11 @@ private fun chooseStartupChannelId(
 
         if (sessionLastChannelId.isNotBlank() && !isFullyEnriched) return null
     }
+
+    favoriteChannelIds
+        .firstOrNull { id -> filteredChannels.any { it.id == id } }
+        ?.let { return it }
+    if (favoriteChannelIds.isNotEmpty() && !isFullyEnriched) return null
 
     return filteredChannels.first().id
 }
@@ -144,6 +154,10 @@ fun LiveTvScreen(
     onNavigateToDiscover: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAllApps: () -> Unit = {},
+    onNavigateToMovies: () -> Unit = {},
+    onNavigateToShows: () -> Unit = {},
+    onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
 ) {
@@ -181,6 +195,18 @@ fun LiveTvScreen(
     val newGroupSet = remember(state.snapshot.newGroups) { state.snapshot.newGroups.toSet() }
     val removedGroupSet = remember(state.snapshot.removedGroups) { state.snapshot.removedGroups.toSet() }
     var seededRecentSessionChannel by rememberSaveable { mutableStateOf(false) }
+    // Channels pinned from a full-provider catalog search (see SearchOverlay) — not part of
+    // the Dispatcharr M3U, merged in here purely for guide rendering/playback so they behave
+    // like any other channel without touching IptvRepository's M3U cache pipeline.
+    val pinnedProviderChannels by viewModel.pinnedProviderChannels.collectAsStateWithLifecycle()
+    val dispatcharrCatalogAvailable by viewModel.dispatcharrCatalogAvailable.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshDispatcharrCatalogAvailability() }
+    // A "watch now" (not pinned) full-provider search pick — same reason pinned channels are
+    // merged below: playback is derived from enrichedState.index.byId, so anything not merged
+    // into it never actually resolves to a stream URL and playback silently no-ops (Joe,
+    // 2026-08-14: "pressed something and it just returned to guide"). Single slot — a new pick
+    // replaces the last one; pinning moves it into the persisted list instead.
+    var ephemeralSearchPick by remember { mutableStateOf<IptvChannel?>(null) }
     LaunchedEffect(state.tvSession.lastChannelId) {
         if (!seededRecentSessionChannel && state.tvSession.lastChannelId.isNotBlank()) {
             recents.value = LinkedHashSet<String>().apply { add(state.tvSession.lastChannelId) }
@@ -208,9 +234,13 @@ fun LiveTvScreen(
     // background). nowNext itself is passed to EpgGrid separately (state.snapshot.nowNext)
     // so it keeps updating live regardless of this effect's key.
     val channelsIdentitySignature = "${state.snapshot.channels.size}:" +
-        "${state.snapshot.channels.firstOrNull()?.id}:${state.snapshot.channels.lastOrNull()?.id}"
+        "${state.snapshot.channels.firstOrNull()?.id}:${state.snapshot.channels.lastOrNull()?.id}:" +
+        "pinned=${pinnedProviderChannels.size}:${pinnedProviderChannels.joinToString(",") { it.id }}:" +
+        "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
-        val snapshot = state.snapshot.channels
+        val snapshot = state.snapshot.channels +
+            pinnedProviderChannels.map { it.toIptvChannel() } +
+            listOfNotNull(ephemeralSearchPick)
         if (snapshot.isEmpty()) {
             enrichedState.value = EnrichedChannels.Empty
             return@LaunchedEffect
@@ -429,7 +459,20 @@ fun LiveTvScreen(
 
     val sidebarExpanded = !useTouchRail
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // Long-press Down in fullscreen jumps to the Recent category (TiviMate convention, Joe
+    // 2026-08-15) instead of the normal quick-zap-to-next-channel a short press does.
+    val fsScope = rememberCoroutineScope()
+    var downPressed by remember { mutableStateOf(false) }
+    var downLongPressConsumed by remember { mutableStateOf(false) }
+    var downLongPressJob by remember { mutableStateOf<Job?>(null) }
+    // Long-press Up opens search — same reasoning as long-press Down above, but for search
+    // specifically: Key.Search (bound elsewhere) is unreliable across remotes (Shield's has no
+    // dedicated search key), so this is the guaranteed-to-work path (Joe, 2026-08-15).
+    var upPressed by remember { mutableStateOf(false) }
+    var upLongPressConsumed by remember { mutableStateOf(false) }
+    var upLongPressJob by remember { mutableStateOf<Job?>(null) }
     var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
+    var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
     var focusSearchCategorySignal by remember { mutableIntStateOf(1) }
@@ -534,16 +577,22 @@ fun LiveTvScreen(
             rememberedChannelByCategory[selectedCategoryId] = it
         }
         focusZone = LiveTvFocusZone.CHANNEL_LIST
+        // Only bump the signal — EpgGrid's own LaunchedEffect(focusSelectedChannelSignal, ...)
+        // retries onto the specific row's FocusRequester (the one that actually handles
+        // Key.DirectionLeft etc). A synchronous epgFocus.requestFocus() here used to win that
+        // race and land on the grid's outer container instead — a target with no Left-key
+        // handling of its own — so the very next Left press (right after exiting fullscreen)
+        // was silently swallowed until the row-level retry corrected focus ~30-180ms later.
         focusSelectedChannelSignal += 1
-        runCatching { epgFocus.requestFocus() }
     }
 
     fun focusEpg(channelId: String) {
         focusedChannelId = channelId
         rememberedChannelByCategory[selectedCategoryId] = channelId
         focusZone = LiveTvFocusZone.EPG
+        // Same reasoning as focusChannelList() above — let EpgGrid's own
+        // LaunchedEffect(focusEpgSignal, ...) retry onto the actual program cell.
         focusEpgSignal += 1
-        runCatching { epgFocus.requestFocus() }
     }
 
     fun exitFullScreenPlayback() {
@@ -602,6 +651,18 @@ fun LiveTvScreen(
                 Lifecycle.Event.ON_RESUME -> {
                     guideClockMillis = System.currentTimeMillis()
                     epgScrollToNowSignal++
+                    // Losing and regaining window focus (e.g. handing off to Plex/TiviMate and
+                    // coming back) drops real Compose focus without restoring it. The highlighted
+                    // channel row is just styling (the isActive prop), not real focus, so D-pad
+                    // input silently went nowhere on return until backing all the way out of the
+                    // screen. Re-request focus onto whatever's logically current so the remote
+                    // works immediately again.
+                    when {
+                        isFullScreen -> runCatching { fsFocus.requestFocus() }
+                        guideGroupsVisible -> focusActiveCategorySignal++
+                        focusZone == LiveTvFocusZone.EPG -> focusEpgSignal++
+                        else -> focusSelectedChannelSignal++
+                    }
                     // Resume if the ViewModel still has an active stream
                     if (playingChannelId != null && playerViewModel.state.value.isActive) {
                         exoPlayer.play()
@@ -680,8 +741,8 @@ fun LiveTvScreen(
                 lastFocusedZone = "GUIDE",
                 markOpened = true,
             )
-            // Tell the ViewModel which channel/stream is active so the mini-player
-            // overlay can show the right info when the user navigates away.
+            // Tell the ViewModel which channel/stream is active — used for pause/resume around
+            // VOD and camera playback (LiveTvPlayerViewModel.pauseForVod()/resumeIfActive()).
             playerViewModel.setActiveChannel(
                 channelId = id,
                 streamUrl = stream,
@@ -715,6 +776,14 @@ fun LiveTvScreen(
         }
     }
 
+    // Cold launch lands in the windowed grid on the startup channel (selected/
+    // highlighted, previewing in the mini-player box) instead of jumping straight
+    // to fullscreen — lets the user glance at what's on and either select that
+    // channel or navigate elsewhere first. Explicit "resume this channel"
+    // requests (e.g. mini-player expand, initialStreamUrl != null) still land in
+    // fullscreen immediately via isFullScreen's own initial value above — this
+    // only removes the *automatic* jump on a plain cold start.
+
     // If a channel was started from outside the TV screen (e.g. Home On Now row),
     // sync the playing channel ID so the guide follows the mini-player's channel.
     LaunchedEffect(playerViewModel.state.value.channelId) {
@@ -727,11 +796,26 @@ fun LiveTvScreen(
 
     BackHandler(enabled = searchOpen) { searchOpen = false }
     BackHandler(enabled = !searchOpen && isFullScreen) { exitFullScreenPlayback() }
-    BackHandler(enabled = !searchOpen && !isFullScreen) {
+    // ProgramInfoPopup traps Back itself via onPreviewKeyEvent once it actually has
+    // Compose focus, but its focus-acquisition LaunchedEffect retries across a few
+    // frames after opening — a Back press in that window has nothing to consume it
+    // there yet and falls through to the dispatcher-registered BackHandler below,
+    // which moves focus in the guide underneath without closing the popup (Joe,
+    // 2026-08-17: "stuck popup, navigate is behind it"). Gate this handler so a
+    // stray early Back closes the popup instead.
+    BackHandler(enabled = !searchOpen && !isFullScreen && programInfoTarget != null) {
+        programInfoTarget = null
+        focusChannelList(focusedChannelId ?: playingChannelId)
+    }
+    // Back always steps back exactly one level: fullscreen -> windowed grid (handled by the
+    // isFullScreen BackHandler above) -> [categories close first if open] -> exit screen.
+    // CATEGORY_LIST used to jump straight to onBack() (exit), skipping the "close sidebar"
+    // step entirely — the one gap in an otherwise consistent one-step-back model.
+    BackHandler(enabled = !searchOpen && !isFullScreen && programInfoTarget == null) {
         when (focusZone) {
             LiveTvFocusZone.EPG -> focusChannelList(focusedChannelId ?: playingChannelId)
+            LiveTvFocusZone.CATEGORY_LIST -> focusChannelList(focusedChannelId ?: playingChannelId)
             LiveTvFocusZone.CHANNEL_LIST -> onBack()
-            LiveTvFocusZone.CATEGORY_LIST -> onBack()
         }
     }
 
@@ -743,6 +827,10 @@ fun LiveTvScreen(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (searchOpen || isFullScreen) return@onPreviewKeyEvent false
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Search) {
+                            searchOpen = true
+                            return@onPreviewKeyEvent true
+                        }
                         if (event.type == KeyEventType.KeyUp && event.key == pendingRailKeyUp) {
                             pendingRailKeyUp = null
                             return@onPreviewKeyEvent true
@@ -759,6 +847,7 @@ fun LiveTvScreen(
                                 entries = railEntries,
                                 focusedIndex = navRailFocusedIndex,
                                 onClose = { isNavRailOpen.value = false },
+                                context = context,
                                 actions = com.arflix.tv.ui.components.NavRailActions(
                                     onNavigateToHome = onNavigateToHome,
                                     onNavigateToSearch = onNavigateToSearch,
@@ -766,6 +855,15 @@ fun LiveTvScreen(
                                     onNavigateToCameras = onNavigateToCameras,
                                     onNavigateToSettings = onNavigateToSettings,
                                     onNavigateToWatchlist = onNavigateToWatchlist,
+                                    onNavigateToAllApps = onNavigateToAllApps,
+                    onNavigateToMovies = onNavigateToMovies,
+                    onNavigateToShows = onNavigateToShows,
+                                    onNavigateToPlex = {
+                                        playerViewModel.pauseForVod()
+                                        context.packageManager.getLaunchIntentForPackage("com.plexapp.android")?.let {
+                                            context.startActivity(it)
+                                        }
+                                    },
                                 ),
                             )
                             true
@@ -843,7 +941,13 @@ fun LiveTvScreen(
                             focusZone = LiveTvFocusZone.CHANNEL_LIST
                             selectChannel(channel)
                         },
-                        onProgramSelect = { channel, program -> playProgramInMini(channel, program) },
+                        onProgramSelect = { channel, program ->
+                            if (program != null) {
+                                programInfoTarget = channel to program
+                            } else {
+                                playProgramInMini(channel, null)
+                            }
+                        },
                         onChannelFocused = { channel ->
                             focusedChannelId = channel.id
                             rememberedChannelByCategory[selectedCategoryId] = channel.id
@@ -901,7 +1005,13 @@ fun LiveTvScreen(
                             compact = compactTouchLayout,
                             gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
                             onChannelSelect = { channel, _ -> selectChannel(channel) },
-                            onProgramSelect = { channel, program -> playProgramInMini(channel, program) },
+                            onProgramSelect = { channel, program ->
+                            if (program != null) {
+                                programInfoTarget = channel to program
+                            } else {
+                                playProgramInMini(channel, null)
+                            }
+                        },
                             onChannelFocused = { channel ->
                                 focusedChannelId = channel.id
                                 rememberedChannelByCategory[selectedCategoryId] = channel.id
@@ -1017,14 +1127,86 @@ fun LiveTvScreen(
                     .focusRequester(fsFocus)
                     .focusable()
                     .onPreviewKeyEvent { ev ->
-                        if (!isFullScreen || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        if (!isFullScreen) return@onPreviewKeyEvent false
+                        if (ev.key == Key.DirectionUp || ev.key == Key.ChannelUp) {
+                            // Short press: existing quick-zap-to-next-channel-up. Long press:
+                            // open search instead of the unreliable Key.Search shortcut.
+                            return@onPreviewKeyEvent when (ev.type) {
+                                KeyEventType.KeyDown -> {
+                                    if (!upPressed) {
+                                        upPressed = true
+                                        upLongPressConsumed = false
+                                        upLongPressJob?.cancel()
+                                        upLongPressJob = fsScope.launch {
+                                            delay(520L)
+                                            if (upPressed) {
+                                                upLongPressConsumed = true
+                                                searchOpen = true
+                                            }
+                                        }
+                                    }
+                                    true
+                                }
+                                KeyEventType.KeyUp -> {
+                                    upLongPressJob?.cancel()
+                                    upPressed = false
+                                    if (!upLongPressConsumed) { zap(+1); hudPokeSignal++ }
+                                    upLongPressConsumed = false
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        if (ev.key == Key.DirectionDown || ev.key == Key.ChannelDown) {
+                            // Short press: existing quick-zap-to-next-channel. Long press
+                            // (520ms, matching the pin-toggle precedent in SearchOverlay's
+                            // RemoteStreamRow): jump straight to the Recent category instead.
+                            return@onPreviewKeyEvent when (ev.type) {
+                                KeyEventType.KeyDown -> {
+                                    if (!downPressed) {
+                                        downPressed = true
+                                        downLongPressConsumed = false
+                                        downLongPressJob?.cancel()
+                                        downLongPressJob = fsScope.launch {
+                                            delay(520L)
+                                            if (downPressed) {
+                                                downLongPressConsumed = true
+                                                selectedCategoryId = "recent"
+                                                // exitFullScreenPlayback() alone leaves the
+                                                // category sidebar closed (focusChannelList()
+                                                // hides it) — no on-screen sign anything
+                                                // changed (Joe, 2026-08-15: "not doing
+                                                // anything but going to guide"). Open it so
+                                                // Recent is visibly the highlighted category.
+                                                exitFullScreenPlayback()
+                                                openSidebar()
+                                            }
+                                        }
+                                    }
+                                    true
+                                }
+                                KeyEventType.KeyUp -> {
+                                    downLongPressJob?.cancel()
+                                    downPressed = false
+                                    if (!downLongPressConsumed) { zap(-1); hudPokeSignal++ }
+                                    downLongPressConsumed = false
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
                             Key.Back, Key.Escape -> { exitFullScreenPlayback(); true }
-                            Key.DirectionUp, Key.ChannelUp -> { zap(+1); hudPokeSignal++; true }
-                            Key.DirectionDown, Key.ChannelDown -> { zap(-1); hudPokeSignal++; true }
                             Key.DirectionCenter, Key.Enter -> { hudPokeSignal++; true }
                             Key.DirectionRight -> { returnToPreviousChannel(); true }
-                            Key.DirectionLeft -> { hudPokeSignal++; false }
+                            // Matches TiviMate's cascade: Left/Back from fullscreen both drop to
+                            // the windowed grid first (not straight to the sidebar) — a second
+                            // Left from the channel list opens the sidebar (onMoveLeftFromChannels
+                            // below), and a third Left from within the sidebar opens the nav rail
+                            // (CategorySidebar's own Key.DirectionLeft -> onOpenNavRail()).
+                            Key.DirectionLeft -> { exitFullScreenPlayback(); true }
+                            Key.Search -> { searchOpen = true; true }
                             else -> false
                         }
                     }
@@ -1095,6 +1277,7 @@ fun LiveTvScreen(
                 currentScreen = com.arflix.tv.data.model.NavSectionKind.TV,
                 navSections = navSections,
                 neolinkConfigured = neolinkConfigured,
+                currentProfile = currentProfile,
                 actions = com.arflix.tv.ui.components.NavRailActions(
                     onNavigateToHome = onNavigateToHome,
                     onNavigateToSearch = onNavigateToSearch,
@@ -1102,6 +1285,15 @@ fun LiveTvScreen(
                     onNavigateToCameras = onNavigateToCameras,
                     onNavigateToSettings = onNavigateToSettings,
                     onNavigateToWatchlist = onNavigateToWatchlist,
+                    onNavigateToAllApps = onNavigateToAllApps,
+                    onNavigateToMovies = onNavigateToMovies,
+                    onNavigateToShows = onNavigateToShows,
+                    onNavigateToPlex = {
+                        playerViewModel.pauseForVod()
+                        context.packageManager.getLaunchIntentForPackage("com.plexapp.android")?.let {
+                            context.startActivity(it)
+                        }
+                    },
                 ),
                 focusedIndex = navRailFocusedIndex.value,
             )
@@ -1115,11 +1307,41 @@ fun LiveTvScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             SearchOverlay(
-                channels = enrichedState.value.all,
+                channels = remember(enrichedState.value.all, state.snapshot.removedGroups) {
+                    val removed = state.snapshot.removedGroups.toSet()
+                    enrichedState.value.all.filterNot { it.source.group in removed }
+                },
+                nowNext = state.snapshot.nowNext,
+                offLineupGroups = remember(state.snapshot.hiddenGroups, state.snapshot.newGroups) {
+                    (state.snapshot.hiddenGroups + state.snapshot.newGroups).toSet()
+                },
+                remoteSearchAvailable = dispatcharrCatalogAvailable,
+                onRemoteSearch = { q -> viewModel.dispatcharrCatalogRepository.search(q) },
+                pinnedStreamIds = remember(pinnedProviderChannels) { pinnedProviderChannels.map { it.id }.toSet() },
+                onTogglePin = { stream ->
+                    if (pinnedProviderChannels.any { it.id == stream.id }) {
+                        viewModel.unpinProviderStream(stream.id)
+                    } else {
+                        viewModel.pinProviderStream(stream)
+                    }
+                },
+                onMediaSearch = { q -> viewModel.searchMedia(q) },
+                onPickMedia = { media ->
+                    searchOpen = false
+                    onNavigateToDetails(media.mediaType, media.id)
+                },
                 onDismiss = { searchOpen = false },
                 onPick = { channel ->
                     previousChannelId = playingChannelId
-                    selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
+                    // A raw provider-search pick not already resolvable (i.e. not pinned) isn't
+                    // in the tree yet, so bestCategoryIdForChannel would look it up against a
+                    // tree that doesn't know it exists — queue it into the enrichment merge
+                    // instead of touching category selection off a stale tree.
+                    if (channel.id.startsWith("raw:") && enrichedState.value.index.byId[channel.id] == null) {
+                        ephemeralSearchPick = channel.source
+                    } else {
+                        selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
+                    }
                     playingChannelId = channel.id
                     focusedChannelId = channel.id
                     searchOpen = false
@@ -1145,10 +1367,51 @@ fun LiveTvScreen(
                 focusChannelList(id ?: focusedChannelId ?: playingChannelId)
             },
         )
+
+        programInfoTarget?.let { (infoChannel, infoProgram) ->
+            val reminders by viewModel.programReminders.collectAsStateWithLifecycle()
+            val reminderKey = remember(infoChannel.id, infoProgram) { reminderKey(infoChannel.id, infoProgram) }
+            ProgramInfoPopup(
+                channel = infoChannel,
+                program = infoProgram,
+                nowMillis = guideClockMillis,
+                isReminderSet = reminders.any { it.key == reminderKey },
+                notificationsEnabled = remember(infoChannel.id, infoProgram) { viewModel.notificationsEnabled() },
+                onToggleReminder = {
+                    if (reminders.any { it.key == reminderKey }) {
+                        viewModel.cancelProgramReminder(infoChannel.id, infoProgram)
+                    } else {
+                        viewModel.setProgramReminder(infoChannel.id, infoChannel.name, infoProgram)
+                    }
+                },
+                onWatch = {
+                    playProgramInMini(infoChannel, infoProgram)
+                    programInfoTarget = null
+                },
+                onDismiss = {
+                    // Same fix as ChannelContextMenu's onDismiss above: this popup
+                    // steals real focus, so closing it without reclaiming a target
+                    // leaves the guide with no focused node at all.
+                    val id = infoChannel.id
+                    programInfoTarget = null
+                    focusChannelList(id)
+                },
+            )
+        }
     }
 }
 
 /** State bundle of the enriched channel list + category tree. */
+/** A pinned full-provider search result, as an ordinary playable channel in the guide. */
+fun RawProviderStream.toIptvChannel(): IptvChannel = IptvChannel(
+    id = id,
+    name = name,
+    streamUrl = streamUrl,
+    group = group,
+    logo = logo,
+    epgId = tvgId,
+)
+
 data class EnrichedChannels(
     val all: List<EnrichedChannel>,
     val tree: LiveCategoryTree,

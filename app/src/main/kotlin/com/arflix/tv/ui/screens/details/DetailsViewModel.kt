@@ -14,10 +14,12 @@ import com.arflix.tv.data.model.StreamSource
 import com.arflix.tv.data.model.Subtitle
 import com.arflix.tv.data.api.TmdbApi
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.LauncherContinueWatchingRepository
 import com.arflix.tv.data.repository.MediaRepository
 import com.arflix.tv.data.repository.ProfileManager
+import com.arflix.tv.data.repository.SonarrCalendarEntry
 import com.arflix.tv.data.repository.SonarrEpisodeInfo
 import com.arflix.tv.data.repository.SonarrEpisodeStatus
 import com.arflix.tv.data.repository.SonarrRepository
@@ -100,6 +102,13 @@ data class DetailsUiState(
     val collectionPosterPath: String? = null,
     // Sonarr episode statuses for the current season (key = episode number)
     val sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
+    // First Plex-backed source found for this item — set as soon as the eager background
+    // resolution matches it to the Plex library, so DetailsScreen can hand off to the native
+    // Plex app immediately when the toggle is on, without waiting for Play to be pressed.
+    val plexHandoffStream: StreamSource? = null,
+    // Next not-yet-available episode from Sonarr's calendar (e.g. "S3E2 · Aug 15") — shown
+    // alongside the Play button so "what's next" doesn't depend on guessing watch progress.
+    val upcomingEpisodeLabel: String? = null,
 )
 
 data class StreamingServiceUi(
@@ -186,6 +195,7 @@ class DetailsViewModel @Inject constructor(
     private val homeServerRepository: HomeServerRepository,
     private val sonarrRepository: SonarrRepository,
     private val traktOutboxRepository: TraktOutboxRepository,
+    private val episeerrRepository: EpiseerrRepository,
 ) : ViewModel() {
 
     companion object {
@@ -605,9 +615,7 @@ class DetailsViewModel @Inject constructor(
                                 mediaRepository.getSeasonEpisodes(mediaId, fallbackTargetSeason)
                             }.getOrNull()
                             if (!targetEpisodes.isNullOrEmpty() && isCurrentRequest()) {
-                                val watchedKeys = runCatching {
-                                    traktRepository.getWatchedEpisodesForShow(mediaId)
-                                }.getOrDefault(emptySet())
+                                val watchedKeys = fetchPlexWatchedKeys(mediaId, _uiState.value.item?.title.orEmpty())
                                 val decorated = targetEpisodes.map { ep ->
                                     val key = "show_tmdb:$mediaId:${ep.seasonNumber}:${ep.episodeNumber}"
                                     when {
@@ -638,10 +646,8 @@ class DetailsViewModel @Inject constructor(
                             }
                         }
 
-                        // Decorate episodes with watched status from cache
-                        val watchedKeys = runCatching {
-                            traktRepository.getWatchedEpisodesForShow(mediaId)
-                        }.getOrDefault(emptySet())
+                        // Decorate episodes with watched status from Plex
+                        val watchedKeys = fetchPlexWatchedKeys(mediaId, _uiState.value.item?.title.orEmpty())
                         val decoratedEpisodes = if (watchedKeys.isNotEmpty()) {
                             episodes.map { ep ->
                                 val key = "show_tmdb:$mediaId:${ep.seasonNumber}:${ep.episodeNumber}"
@@ -795,6 +801,37 @@ class DetailsViewModel @Inject constructor(
                             )
                         }
                     }
+                    if (mediaType == MediaType.TV) {
+                        val title = baseState.item?.title.orEmpty().ifBlank { mergedItem.title }
+                        // Sonarr availability first (always present, no watch-history needed),
+                        // Episeerr's last-watched next — see resolveAvailablePlayTarget()'s
+                        // doc comment for why Sonarr leads.
+                        val availableTarget = resolveAvailablePlayTarget(mediaId)
+                            ?: resolveEpiseerrPlayTarget(mediaId, title)
+                        if (availableTarget != null) {
+                            updateState { state ->
+                                state.copy(
+                                    playSeason = availableTarget.season,
+                                    playEpisode = availableTarget.episode,
+                                    playLabel = availableTarget.label,
+                                    playPositionMs = availableTarget.positionMs
+                                )
+                            }
+                            // Keep the season tab in sync with the resolved target — otherwise the
+                            // button says "Continue S3E1" while Season 1 stays expanded/highlighted
+                            // (this override lands after the season-jump logic above already
+                            // settled on Season 1 from the initial/Trakt-based target).
+                            val targetSeason = availableTarget.season
+                            if (targetSeason != null && _uiState.value.currentSeason != targetSeason) {
+                                loadSeason(targetSeason)
+                            }
+                        }
+                        val tvdbId = resolveExternalIds(mediaType, mediaId).tvdbId
+                        val upcoming = resolveUpcomingEpisode(tvdbId)
+                        if (upcoming != null) {
+                            updateState { state -> state.copy(upcomingEpisodeLabel = upcoming) }
+                        }
+                    }
                 }
 
                 if (mediaType == MediaType.TV) {
@@ -861,10 +898,8 @@ class DetailsViewModel @Inject constructor(
             try {
                 val episodes = mediaRepository.getSeasonEpisodes(currentMediaId, seasonNumber)
                 if (episodes.isNotEmpty()) {
-                    // Decorate episodes with watched status from cache
-                    val watchedKeys = runCatching {
-                        traktRepository.getWatchedEpisodesForShow(currentMediaId)
-                    }.getOrDefault(emptySet())
+                    // Decorate episodes with watched status from Plex
+                    val watchedKeys = fetchPlexWatchedKeys(currentMediaId, _uiState.value.item?.title.orEmpty())
                     val decoratedEpisodes = if (watchedKeys.isNotEmpty()) {
                         episodes.map { ep ->
                             val key = "show_tmdb:$currentMediaId:${ep.seasonNumber}:${ep.episodeNumber}"
@@ -1024,12 +1059,22 @@ class DetailsViewModel @Inject constructor(
                     }
 
                     val episodeWatched = !targetEpisode.isWatched
-                    if (episodeWatched) {
-                        traktRepository.markEpisodeWatched(
-                            currentMediaId,
-                            targetEpisode.seasonNumber,
-                            targetEpisode.episodeNumber
+                    // Plex is the watched-status source now, not Trakt — see
+                    // [[feedback_no_trakt]] and resolveAvailablePlayTarget()'s doc comment.
+                    // Fire-and-forget: the optimistic local episode-list update below is what
+                    // the user actually sees; this just makes it stick in Plex for next visit.
+                    runCatching {
+                        homeServerRepository.setPlexEpisodeWatched(
+                            imdbId = _uiState.value.imdbId,
+                            title = currentItem.title,
+                            season = targetEpisode.seasonNumber,
+                            episode = targetEpisode.episodeNumber,
+                            tmdbId = currentMediaId,
+                            tvdbId = _uiState.value.tvdbId,
+                            watched = episodeWatched
                         )
+                    }
+                    if (episodeWatched) {
                         watchHistoryRepository.removeFromHistory(
                             currentMediaId,
                             targetEpisode.seasonNumber,
@@ -1067,12 +1112,6 @@ class DetailsViewModel @Inject constructor(
                                 position = 0L
                             )
                         } catch (_: Exception) {}
-                    } else {
-                        traktRepository.markEpisodeUnwatched(
-                            currentMediaId,
-                            targetEpisode.seasonNumber,
-                            targetEpisode.episodeNumber
-                        )
                     }
 
                     val updatedEpisodes = _uiState.value.episodes.map { ep ->
@@ -1116,6 +1155,7 @@ class DetailsViewModel @Inject constructor(
             try {
                 val traktConnected = runCatching { traktRepository.hasTrakt() }.getOrDefault(false)
                 val traktMediaType = if (currentMediaType == MediaType.MOVIE) "movie" else "tv"
+                var plexPushOk = true
                 if (newInWatchlist) {
                     // Trakt may be disconnected (expired/never-connected token) at the moment
                     // of adding — queue it so a later reconnect/sync backfills it instead of
@@ -1130,8 +1170,10 @@ class DetailsViewModel @Inject constructor(
                             )
                         )
                     }
-                    // Pass the full MediaItem so it appears instantly in watchlist
-                    watchlistRepository.addToWatchlist(currentMediaType, currentMediaId, currentItem)
+                    // Pass the full MediaItem so it appears instantly in watchlist. Also pushes
+                    // to the real Plex watchlist so Episeerr auto-grabs it — plexPushOk reflects
+                    // whether that half actually worked, since the local write always succeeds.
+                    plexPushOk = watchlistRepository.addToWatchlist(currentMediaType, currentMediaId, currentItem)
                 } else {
                     val traktSyncOk = traktConnected && traktRepository.removeFromWatchlist(currentMediaType, currentMediaId)
                     if (!traktSyncOk) {
@@ -1149,8 +1191,12 @@ class DetailsViewModel @Inject constructor(
 
                 _uiState.value = _uiState.value.copy(
                     isInWatchlist = newInWatchlist,
-                    toastMessage = if (newInWatchlist) "Added to watchlist" else "Removed from watchlist",
-                    toastType = ToastType.SUCCESS
+                    toastMessage = when {
+                        !newInWatchlist -> "Removed from watchlist"
+                        plexPushOk -> "Added to watchlist — grabbing automatically"
+                        else -> "Added to watchlist, but couldn't reach Episeerr to auto-grab it"
+                    },
+                    toastType = if (newInWatchlist && !plexPushOk) ToastType.INFO else ToastType.SUCCESS
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -1208,11 +1254,10 @@ class DetailsViewModel @Inject constructor(
         val mediaType = currentMediaType
 
         viewModelScope.launch {
-            // Force-refresh watched episodes from backend (not just in-memory cache)
-            // to pick up episodes marked watched during playback.
+            // Force-refresh watched episodes from Plex to pick up anything watched during
+            // this playback session (Xadarr's own player or, via handoff, native Plex).
             val watchedKeys = if (mediaType == MediaType.TV) {
-                runCatching { traktRepository.getWatchedEpisodesForShow(tmdbId) }
-                    .getOrDefault(traktRepository.getWatchedEpisodesFromCache())
+                fetchPlexWatchedKeys(tmdbId, _uiState.value.item?.title.orEmpty())
             } else {
                 emptySet()
             }
@@ -1253,7 +1298,7 @@ class DetailsViewModel @Inject constructor(
 
             // 3. Re-derive play target: try resume info first, then next unwatched episode
             val quickResume = fetchResumeInfoFromHistoryOnly(tmdbId, mediaType)
-            val playTarget = if (quickResume != null) {
+            val traktPlayTarget = if (quickResume != null) {
                 PlayTarget(
                     season = quickResume.season,
                     episode = quickResume.episode,
@@ -1265,6 +1310,14 @@ class DetailsViewModel @Inject constructor(
                 deriveNextUnwatchedPlayTarget(tmdbId, watchedKeys)
             } else {
                 null
+            }
+            // Sonarr availability overrides Trakt when it has a match, Episeerr's last-watched
+            // next — see resolveAvailablePlayTarget()'s doc comment for why Sonarr leads.
+            val playTarget = if (mediaType == MediaType.TV) {
+                val title = _uiState.value.item?.title.orEmpty()
+                resolveAvailablePlayTarget(tmdbId) ?: resolveEpiseerrPlayTarget(tmdbId, title) ?: traktPlayTarget
+            } else {
+                traktPlayTarget
             }
 
             // Read latest state to avoid overwriting concurrent updates (e.g. seasonProgress)
@@ -1282,6 +1335,103 @@ class DetailsViewModel @Inject constructor(
                 playPositionMs = playTarget?.positionMs ?: 0L
             )
         }
+    }
+
+    private fun normalizeEpiseerrTitle(s: String): String =
+        s.lowercase().trim().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    // Episode watched-badge source, Plex-backed — same "show_tmdb:$tmdbId:$season:$episode"
+    // key shape the rest of this file's badge/season-progress code already expects, so this
+    // is a drop-in replacement for traktRepository.getWatchedEpisodesForShow() at the call
+    // sites that decorate the visible episode list (initial load, season switch, post-playback
+    // refresh). See [[feedback_no_trakt]] — Trakt's watch data doesn't reliably reflect Joe's
+    // actual viewing; Plex's own per-episode viewCount does, for whatever was watched through
+    // Plex itself. Deeper resume/continue-watching Trakt reads elsewhere in this file are
+    // intentionally untouched for now — separate concern (resume position, not watched status).
+    private suspend fun fetchPlexWatchedKeys(tmdbId: Int, title: String): Set<String> {
+        val imdbId = _uiState.value.imdbId
+        val tvdbId = _uiState.value.tvdbId
+        val watched = runCatching {
+            homeServerRepository.getPlexWatchedEpisodes(imdbId, title, tmdbId, tvdbId)
+        }.getOrDefault(emptySet())
+        return watched.map { (season, episode) -> "show_tmdb:$tmdbId:$season:$episode" }.toSet()
+    }
+
+    // The rest of this file's play-target logic (deriveNextUnwatchedPlayTarget,
+    // fetchSeasonProgress, resume history) is Trakt-sourced — accurate for playback that
+    // actually went through Xadarr's own player, but silently stale for anything watched in
+    // the native Plex app (Joe's primary path since the DV/Atmos handoff work), since nothing
+    // ever calls Trakt's markEpisodeWatched for that playback. This resolves the same
+    // cross-service "real last watched" signal PlexLibraryScreen's Continue Watching row
+    // already uses (Episeerr, fed by Tautulli/Jellyfin webhooks — see [[feedback_no_trakt]],
+    // Trakt was explicitly rejected as a watch-tracking source for this app) and, when it has
+    // a match, overrides whatever the Trakt-based target came up with. 7-day rolling window
+    // on Episeerr's side (self-pruning activity log) — falls through to the existing
+    // Trakt-based target for anything older than that.
+    private suspend fun resolveEpiseerrPlayTarget(tmdbId: Int, title: String): PlayTarget? {
+        if (title.isBlank()) return null
+        val normalized = normalizeEpiseerrTitle(title)
+        val watched = runCatching { episeerrRepository.getRecentlyWatched() }.getOrNull().orEmpty()
+        val match = watched.firstOrNull { normalizeEpiseerrTitle(it.seriesTitle) == normalized } ?: return null
+        val season = match.season ?: return null
+        val episode = match.episode ?: return null
+        return runCatching {
+            val seasonDetails = tmdbApi.getTvSeason(tmdbId, season, Constants.TMDB_API_KEY)
+            if (episode < seasonDetails.episodes.size) {
+                PlayTarget(season = season, episode = episode + 1, label = "Continue S${season}E${episode + 1}")
+            } else {
+                val tvDetails = tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY)
+                if (season < tvDetails.numberOfSeasons) {
+                    PlayTarget(season = season + 1, episode = 1, label = "Continue S${season + 1}E1")
+                } else {
+                    null // caught up through the finale — let the Trakt-based target stand
+                }
+            }
+        }.getOrNull()
+    }
+
+    // Primary "what's next" signal, per Joe: watch history is fragmented across years and
+    // servers and often just doesn't exist, but Sonarr always knows what's actually on disk —
+    // and Episeerr's grab rules fetch the next episode once you've moved past the current one,
+    // so in normal (non-showcase/non-full-season) operation the *last available* episode is a
+    // reliable proxy for "what to watch next" without needing real watch-history data at all.
+    // Breaks down for "showcase" rules that intentionally keep only the premiere of every
+    // season (e.g. an old show like Mad Men sampled one episode at a time) — accepted
+    // limitation, not something to solve here; resolveEpiseerrPlayTarget() below is the
+    // fallback for shows Sonarr isn't tracking at all.
+    private suspend fun resolveAvailablePlayTarget(tmdbId: Int): PlayTarget? {
+        val tvdbId = resolveExternalIds(MediaType.TV, tmdbId).tvdbId ?: return null
+        return runCatching {
+            val tvDetails = tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY)
+            var lastAvailable: Pair<Int, Int>? = null
+            for (seasonNum in 1..tvDetails.numberOfSeasons) {
+                val statuses = runCatching {
+                    sonarrRepository.getEpisodeStatuses(tvdbId.toString(), seasonNum)
+                }.getOrNull() ?: continue
+                val availableEpisodes = statuses.filterValues { it.status == SonarrEpisodeStatus.AVAILABLE }.keys
+                if (availableEpisodes.isNotEmpty()) {
+                    lastAvailable = seasonNum to availableEpisodes.max()
+                }
+            }
+            val (season, episode) = lastAvailable ?: return@runCatching null
+            PlayTarget(season = season, episode = episode, label = "Continue S${season}E${episode}")
+        }.getOrNull()
+    }
+
+    // Next episode Sonarr expects but doesn't have on disk yet — shown alongside Play so
+    // "what's coming" is also availability-driven, not a watch-history guess.
+    private suspend fun resolveUpcomingEpisode(tvdbId: Int?): String? {
+        if (tvdbId == null) return null
+        return runCatching {
+            val entry = sonarrRepository.getCalendar(daysAhead = 120)
+                .filter { it.tvdbId == tvdbId }
+                .minByOrNull { it.airDate } ?: return@runCatching null
+            val dateLabel = runCatching {
+                java.time.LocalDate.parse(entry.airDate.take(10))
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM d"))
+            }.getOrDefault(entry.airDate.take(10))
+            "Next: S${entry.season}E${entry.episode} · $dateLabel"
+        }.getOrNull()
     }
 
     /**
@@ -1360,13 +1510,14 @@ class DetailsViewModel @Inject constructor(
             runCatching {
                 if (requestMediaType == MediaType.MOVIE) {
                     launch {
-                        streamRepository.resolveMovieHomeServerSources(
+                        val homeServerSources = streamRepository.resolveMovieHomeServerSources(
                             imdbId = imdbId,
                             title = _uiState.value.item?.title.orEmpty(),
                             year = _uiState.value.item?.year?.toIntOrNull(),
                             tmdbId = requestMediaId,
                             timeoutMs = 5_000L
                         )
+                        applyPlexHandoffIfMatched(homeServerSources)
                     }
                     streamRepository.resolveMovieStreamsProgressive(
                         imdbId = imdbId,
@@ -1383,7 +1534,7 @@ class DetailsViewModel @Inject constructor(
                     }
                 } else if (season != null && episode != null) {
                     launch {
-                        streamRepository.resolveEpisodeHomeServerSources(
+                        val homeServerSources = streamRepository.resolveEpisodeHomeServerSources(
                             imdbId = imdbId,
                             season = season,
                             episode = episode,
@@ -1392,6 +1543,7 @@ class DetailsViewModel @Inject constructor(
                             tvdbId = _uiState.value.tvdbId,
                             timeoutMs = 5_000L
                         )
+                        applyPlexHandoffIfMatched(homeServerSources)
                     }
                     val prefetchAirDate = _uiState.value.episodes
                         .firstOrNull { it.seasonNumber == season && it.episodeNumber == episode }
@@ -1420,6 +1572,13 @@ class DetailsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // First-match-wins: only set once per Details load, ignore late/duplicate resolutions.
+    private fun applyPlexHandoffIfMatched(sources: List<StreamSource>) {
+        if (_uiState.value.plexHandoffStream != null) return
+        val plexSource = sources.firstOrNull { it.isPlexSource } ?: return
+        _uiState.value = _uiState.value.copy(plexHandoffStream = plexSource)
     }
 
     fun prewarmStream(stream: StreamSource) {

@@ -337,8 +337,8 @@ class WebAppServer @Inject constructor(
             overview = body.optString("overview"),
             year = body.optString("year"),
         )
-        watchlistRepository.addToWatchlist(mediaType, id, mediaItem)
-        return json(JSONObject().put("status", "added"))
+        val plexPushOk = watchlistRepository.addToWatchlist(mediaType, id, mediaItem)
+        return json(JSONObject().put("status", "added").put("plexPushOk", plexPushOk))
     }
 
     private suspend fun handleRemoveFromWatchlist(uri: String): NanoHTTPD.Response {

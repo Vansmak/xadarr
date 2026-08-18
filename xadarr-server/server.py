@@ -1004,6 +1004,11 @@ def episeerr_pending():
     return _episeerr_proxy("/api/integration/xadarr/pending")
 
 
+@app.route("/api/episeerr/recently-watched", methods=["GET"])
+def episeerr_recently_watched():
+    return _episeerr_proxy("/api/integration/xadarr/recently-watched")
+
+
 @app.route("/api/episeerr/rules", methods=["GET"])
 def episeerr_rules():
     return _episeerr_proxy("/api/rules-list")
@@ -1375,6 +1380,21 @@ def post_settings():
 
 @app.route("/api/media/watchlist", methods=["GET"])
 def get_watchlist():
+    # When Episeerr is configured, defer to its own watchlist route entirely —
+    # it already decides Plex-vs-Trakt server-side (Plex preferred whenever
+    # configured there), so xadarr-server doesn't need to duplicate that
+    # decision a third time. Falls back to this server's own local Trakt
+    # reconcile below when Episeerr isn't configured or isn't reachable,
+    # keeping xadarr-server usable standalone without Episeerr.
+    episeerr_url = _get_episeerr_url()
+    if episeerr_url:
+        try:
+            r = requests.get(f"{episeerr_url}/xadarr/api/media/watchlist", timeout=10)
+            r.raise_for_status()
+            return jsonify(r.json())
+        except requests.RequestException:
+            pass
+
     blob = _get_blob()
     _migrate_watchlist_to_blob(blob)
     _flush_trakt_outbox(blob)

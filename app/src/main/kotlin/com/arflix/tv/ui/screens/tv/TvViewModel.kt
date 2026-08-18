@@ -5,10 +5,18 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
 import com.arflix.tv.data.model.IptvSnapshot
+import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.DispatcharrCatalogRepository
 import com.arflix.tv.data.repository.IptvConfig
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.IptvTvSessionState
+import com.arflix.tv.data.repository.MediaRepository
+import com.arflix.tv.data.repository.PinnedProviderChannelsRepository
+import com.arflix.tv.data.repository.ProgramReminder
+import com.arflix.tv.data.repository.ProgramReminderRepository
+import com.arflix.tv.data.repository.RawProviderStream
+import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.ui.screens.tv.live.FavoriteSortMode
 import com.arflix.tv.util.AppLogger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -53,11 +62,54 @@ data class TvUiState(
 @HiltViewModel
 class TvViewModel @Inject constructor(
     val iptvRepository: IptvRepository,
-    private val cloudSyncRepository: CloudSyncRepository
+    private val cloudSyncRepository: CloudSyncRepository,
+    val dispatcharrCatalogRepository: DispatcharrCatalogRepository,
+    private val pinnedProviderChannelsRepository: PinnedProviderChannelsRepository,
+    private val programReminderRepository: ProgramReminderRepository,
+    private val mediaRepository: MediaRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
     val uiState: StateFlow<TvUiState> = _uiState.asStateFlow()
+
+    val pinnedProviderChannels: StateFlow<List<RawProviderStream>> =
+        pinnedProviderChannelsRepository.observePinned()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    private val _dispatcharrCatalogAvailable = MutableStateFlow(false)
+    val dispatcharrCatalogAvailable: StateFlow<Boolean> = _dispatcharrCatalogAvailable.asStateFlow()
+
+    fun refreshDispatcharrCatalogAvailability() {
+        viewModelScope.launch { _dispatcharrCatalogAvailable.value = dispatcharrCatalogRepository.isAvailable() }
+    }
+
+    val programReminders: StateFlow<List<ProgramReminder>> =
+        programReminderRepository.observeReminders()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    fun notificationsEnabled(): Boolean = programReminderRepository.notificationsEnabled()
+
+    /** Backs the "MOVIES & SHOWS" section of [SearchOverlay] — same TMDB search used by the
+     *  (currently unreachable, retired) standalone Search screen, so Live TV is the one place
+     *  left in the app where general search actually works. */
+    suspend fun searchMedia(query: String): List<MediaItem> =
+        runCatching { mediaRepository.search(query) }.getOrDefault(emptyList())
+
+    fun setProgramReminder(channelId: String, channelName: String, program: IptvProgram) {
+        viewModelScope.launch { programReminderRepository.schedule(channelId, channelName, program) }
+    }
+
+    fun cancelProgramReminder(channelId: String, program: IptvProgram) {
+        viewModelScope.launch { programReminderRepository.cancel(channelId, program) }
+    }
+
+    fun pinProviderStream(stream: RawProviderStream) {
+        viewModelScope.launch { pinnedProviderChannelsRepository.pin(stream) }
+    }
+
+    fun unpinProviderStream(id: String) {
+        viewModelScope.launch { pinnedProviderChannelsRepository.unpin(id) }
+    }
     private var refreshJob: Job? = null
     private var epgRefreshJob: Job? = null
     private var warmVodJob: Job? = null

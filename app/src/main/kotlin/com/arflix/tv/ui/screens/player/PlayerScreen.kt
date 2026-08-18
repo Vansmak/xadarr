@@ -155,6 +155,7 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.rememberCoroutineScope
@@ -202,6 +203,17 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // Read synchronously (via collectAsState) rather than async .first() inside the handoff
+    // effect below — the async read used to leave a window where the "start playback" effect
+    // (no suspension before it touches the player) won a race against the handoff decision,
+    // so Xadarr's own player would start *and* Plex would open a moment later. Both effects now
+    // gate on this same plain, already-resolved value instead of each deciding independently.
+    val playViaPlexToggle by context.settingsDataStore.data
+        .map { it[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false }
+        .collectAsStateWithLifecycle(initialValue = false)
+    val pendingPlexHandoff = uiState.selectedStream?.let { selected ->
+        selected.isPlexSource && (streamUrl != null || playViaPlexToggle)
+    } ?: false
     val latestUiState by rememberUpdatedState(uiState)
     val clockFormat = rememberPlayerClockFormat()
     val focusManager = LocalFocusManager.current
@@ -367,6 +379,13 @@ fun PlayerScreen(
     var playbackIssueReported by remember { mutableStateOf(false) }
     var startupRecoverAttempted by remember { mutableStateOf(false) }
     var startupHardFailureReported by remember { mutableStateOf(false) }
+    // Fast safety net for Dolby Vision streams specifically: the device's DV decoder can hang
+    // (not throw) on a profile/level it can't handle, burning memory the whole time it's stuck —
+    // the generic hard-timeout watchdog below fires too late to avoid that. This one only arms
+    // for streams tagged DV via real server metadata (StreamSource.dolbyVisionProfile — never
+    // relies on the text-heuristic isLikelyDolbyVisionStream(), which Jellyfin sources never
+    // match) and fires much sooner. See [[project_dv_atmos_passthrough_2026-07-30]].
+    var dvFastFailureReported by remember { mutableStateOf(false) }
     var startupSameSourceRetryCount by remember { mutableIntStateOf(0) }
     var startupSameSourceRefreshAttempted by remember { mutableStateOf(false) }
     var startupUrlLock by remember { mutableStateOf<String?>(null) }
@@ -391,6 +410,7 @@ fun PlayerScreen(
         playbackIssueReported = false
         startupRecoverAttempted = false
         startupHardFailureReported = false
+        dvFastFailureReported = false
         startupSameSourceRetryCount = 0
         startupSameSourceRefreshAttempted = false
         startupUrlLock = null
@@ -451,6 +471,7 @@ fun PlayerScreen(
                 playbackIssueReported = false
                 startupRecoverAttempted = false
                 startupHardFailureReported = false
+                dvFastFailureReported = false
                 startupSameSourceRetryCount = 0
                 startupSameSourceRefreshAttempted = false
                 startupUrlLock = null
@@ -936,6 +957,25 @@ fun PlayerScreen(
         }
     }
 
+    // Hand off to the native Plex app instead of decoding here, when enabled: Xadarr's own
+    // ExoPlayer hangs on some Dolby Vision profiles this device's decoder actually supports
+    // (proven by the native Plex app playing them flawlessly), and that's not fixable from
+    // Xadarr's side without a Media3 upgrade blocked by the Jellyfin ffmpeg-decoder audio plugin.
+    // See [[project_dv_atmos_passthrough_2026-07-30]]. Falls through to Xadarr's own player when
+    // the toggle is off or Plex isn't installed — UNLESS this specific stream was explicitly
+    // hand-picked from the Sources list (streamUrl passed in, vs. null on the default Play/
+    // Continue path where PlayerViewModel auto-picks). Most titles play fine in Xadarr's own
+    // player; a few play better natively in Plex — the global toggle sets the default, but
+    // deliberately choosing "the Plex source" from Sources for one title is trusted outright
+    // regardless of that default.
+    LaunchedEffect(uiState.selectedStream, pendingPlexHandoff) {
+        if (!pendingPlexHandoff) return@LaunchedEffect
+        val selected = uiState.selectedStream ?: return@LaunchedEffect
+        val plexIntent = com.arflix.tv.util.PlexDeepLink.launchIntent(context, selected.plexServerId, selected.serverItemId) ?: return@LaunchedEffect
+        context.startActivity(plexIntent)
+        onBack()
+    }
+
     LaunchedEffect(uiState.selectedStreamUrl, uiState.streams) {
         val currentUrl = uiState.selectedStreamUrl ?: return@LaunchedEffect
         val selected = uiState.selectedStream
@@ -964,8 +1004,13 @@ fun PlayerScreen(
 
     // Update player when stream URL changes. Attach currently-known external subtitle tracks once,
     // then switch subtitle tracks via track overrides (no media source rebuild needed).
-    LaunchedEffect(uiState.selectedStreamUrl, uiState.streamSelectionNonce) {
+    LaunchedEffect(uiState.selectedStreamUrl, uiState.streamSelectionNonce, pendingPlexHandoff) {
         if (playerReleased) return@LaunchedEffect
+        // Don't start decoding a stream that's about to be handed off to Plex instead — this used
+        // to race the handoff effect above (that one needed an async settings read before it could
+        // decide; this one didn't need to wait for anything), so Xadarr would start playing *and*
+        // Plex would open a moment later. Both now key off the same synchronously-known value.
+        if (pendingPlexHandoff) return@LaunchedEffect
         val url = uiState.selectedStreamUrl
         if (BuildConfig.DEBUG) {
         }
@@ -1018,6 +1063,7 @@ fun PlayerScreen(
                 startupUrlLock = url
                 startupRecoverAttempted = false
                 startupHardFailureReported = false
+                dvFastFailureReported = false
                 startupSameSourceRetryCount = 0
                 startupSameSourceRefreshAttempted = false
                 dvStartupFallbackStage = 0
@@ -1337,6 +1383,38 @@ fun PlayerScreen(
                 val selectedAt = streamSelectedTime ?: System.currentTimeMillis()
                 val startupBufferDuration = System.currentTimeMillis() - selectedAt
                 val isHeavyStartupSource = isLikelyHeavyStream(uiState.selectedStream)
+
+                // Fast DV-specific safety net (see dvFastFailureReported declaration above): a
+                // device DV decoder that hangs on an unsupported profile/level burns memory the
+                // whole time it's stuck, so this has to fire well before the generic timeouts
+                // below — those exist to survive slow starts, not to catch a decoder that will
+                // never come back. Only arms when server metadata actually tags the stream as DV
+                // (uiState.selectedStream?.dolbyVisionProfile != null) — this is deliberately not
+                // the isLikelyDolbyVisionStream() text heuristic, which never matches Jellyfin
+                // sources. If the pre-flight DolbyVisionCapability check in HomeServerRepository
+                // was wrong about this device supporting this profile/level, this is what limits
+                // the blast radius instead of another OOM kill.
+                if (!dvFastFailureReported &&
+                    uiState.selectedStream?.dolbyVisionProfile != null &&
+                    exoPlayer.playbackState == Player.STATE_BUFFERING &&
+                    startupBufferDuration > 4_000L
+                ) {
+                    dvFastFailureReported = true
+                    startupHardFailureReported = true
+                    playbackStartupDiag(
+                        "DV fast-fail elapsedMs=$startupBufferDuration profile=${uiState.selectedStream?.dolbyVisionProfile} " +
+                            "level=${uiState.selectedStream?.dolbyVisionLevel} state=${exoPlayer.playbackState}"
+                    )
+                    if (allowStartupSourceFallback && !userSelectedSourceManually && tryAdvanceToNextStream()) {
+                        continue
+                    }
+                    playbackIssueReported = true
+                    viewModel.onSelectedStreamPlaybackFailure()
+                    viewModel.reportPlaybackError(
+                        "This device can't decode this file's Dolby Vision profile. Try another source."
+                    )
+                }
+
                 if (!startupRecoverAttempted && startupBufferDuration > initialBufferingTimeoutMs) {
                     startupRecoverAttempted = true
                     playbackStartupDiag(
@@ -2593,6 +2671,7 @@ fun PlayerScreen(
                 playbackIssueReported = false
                 startupRecoverAttempted = false
                 startupHardFailureReported = false
+                dvFastFailureReported = false
                 startupSameSourceRetryCount = 0
                 startupSameSourceRefreshAttempted = false
                 startupUrlLock = null

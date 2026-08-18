@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvNowNext
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
@@ -98,39 +98,47 @@ fun FullscreenHud(
             )
 
             if (channel != null) {
-                Row(
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = if (onBackClick != null) 80.dp else 20.dp, top = 20.dp, end = 20.dp, bottom = 20.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x66000000))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        .padding(start = if (onBackClick != null) 80.dp else 20.dp, top = 20.dp, end = 20.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    ChannelLogo(channel = channel, size = 40.dp)
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "CH ${channel.number}",
-                            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
-                        )
-                        Text(
-                            text = channel.name,
-                            style = LiveType.ChannelName.copy(
-                                color = LiveColors.Fg,
-                                fontSize = 16.sp,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            HudBadge(channel.quality.label, LiveColors.Fg, LiveColors.Panel)
-                            channel.country?.takeIf { it != channel.lang }?.let {
-                                HudBadge(it.uppercase(), LiveColors.FgDim, LiveColors.Panel)
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0x66000000))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ChannelLogo(channel = channel, size = 40.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "CH ${channel.number}",
+                                style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                            )
+                            Text(
+                                text = channel.name,
+                                style = LiveType.ChannelName.copy(
+                                    color = LiveColors.Fg,
+                                    fontSize = 16.sp,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                HudBadge(channel.quality.label, LiveColors.Fg, LiveColors.Panel)
+                                channel.country?.takeIf { it != channel.lang }?.let {
+                                    HudBadge(it.uppercase(), LiveColors.FgDim, LiveColors.Panel)
+                                }
+                                HudBadge(channel.lang.uppercase(), LiveColors.FgDim, LiveColors.Panel)
                             }
-                            HudBadge(channel.lang.uppercase(), LiveColors.FgDim, LiveColors.Panel)
                         }
                     }
+                    // Favorites quick bar removed — duplicated the sidebar's own favorites list.
+                    // Left-on-remote favorites cycling (cycleFavorite() in LiveTvScreen) still
+                    // works without this visual strip.
                 }
             }
 

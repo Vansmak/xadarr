@@ -464,9 +464,9 @@ class HttpLocalScraperRuntime @Inject constructor(
         episode: Int?
     ): List<HttpResolvedStream> = runCatching {
         val requestUrl = if (mediaType == "tv") {
-            "https://panel.watchkaroabhi.com/api/3/tv/$tmdbId/season/${season ?: 1}/episode/${episode ?: 1}/links?api_key=qNhKLJiZVyoKdi9NCQGz8CIGrpUijujE"
+            "https://panel.watchkaroabhi.com/api/3/tv/$tmdbId/season/${season ?: 1}/episode/${episode ?: 1}/links?api_key=${Constants.DOOFLIX_SCRAPER_API_KEY}"
         } else {
-            "https://panel.watchkaroabhi.com/api/3/movie/$tmdbId/links?api_key=qNhKLJiZVyoKdi9NCQGz8CIGrpUijujE"
+            "https://panel.watchkaroabhi.com/api/3/movie/$tmdbId/links?api_key=${Constants.DOOFLIX_SCRAPER_API_KEY}"
         }
         val apiHeaders = mapOf(
             "X-Package-Name" to "com.king.moja",

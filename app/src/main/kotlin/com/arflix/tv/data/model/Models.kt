@@ -189,7 +189,22 @@ data class StreamSource(
     // Server-reported audio format label (e.g. "TrueHD Atmos"), known before playback starts for
     // home-server sources. Addon/IPTV sources leave this null; the player falls back to the live
     // decoded track once playback begins.
-    val audioFormat: String? = null
+    val audioFormat: String? = null,
+    // Dolby Vision profile/level tagged by the home server (Jellyfin's MediaStreams
+    // DvProfile/DvLevel), when present. Ground-truth metadata for detecting DV streams from
+    // sources whose text labels don't mention it (Jellyfin never does) — used by PlayerScreen's
+    // fast stuck-detection watchdog. See [[project_dv_atmos_passthrough_2026-07-30]].
+    val dolbyVisionProfile: Int? = null,
+    val dolbyVisionLevel: Int? = null,
+    // True when this source's home server connection is Plex. Lets PlayerScreen hand playback
+    // off to the native Plex app instead of Xadarr's own ExoPlayer when that's enabled in
+    // Settings. See [[project_dv_atmos_passthrough_2026-07-30]].
+    val isPlexSource: Boolean = false,
+    // Plex server machine identifier, set alongside isPlexSource. Combined with serverItemId
+    // (the Plex ratingKey for this source), lets the Plex handoff deep-link straight to this
+    // title (plex://play?server=...&key=/library/metadata/...) instead of just opening the
+    // app. See util/PlexDeepLink.kt.
+    val plexServerId: String? = null
 ) : Serializable
 
 /**

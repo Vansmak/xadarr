@@ -29,43 +29,59 @@ class NavSectionRepository @Inject constructor(
     private val listType = TypeToken.getParameterized(List::class.java, NavSectionConfig::class.java).type
 
     // CUSTOM is excluded from fixedKinds: it has no single default instance
-    // (customId/target are always explicit) — the three CUSTOM defaults below
-    // (Movies/Shows/Watchlist) are seeded directly, not derived from this list.
-    private val fixedKinds = NavSectionKind.entries.filter { it != NavSectionKind.CUSTOM }
+    // (customId/target are always explicit) — the CUSTOM defaults below
+    // (Movies/Shows/Apps) are seeded directly, not derived from this list.
+    // HOME/SEARCH/DISCOVER are also excluded: retired by the TiviMate-clone
+    // redesign (Home IS the guide now; Movies/Shows launch Plex directly, no
+    // in-app TMDB browsing/search) — excluding them here stops the upgrade-merge
+    // path below from ever re-adding them to a profile that doesn't have them.
+    private val retiredKinds = setOf(NavSectionKind.HOME, NavSectionKind.SEARCH, NavSectionKind.DISCOVER)
+    private val fixedKinds = NavSectionKind.entries.filter { it != NavSectionKind.CUSTOM && it !in retiredKinds }
 
-    // Discover has no tile/rail slot in the current design — kept as a real,
-    // resolvable kind (route still works) but hidden by default rather than
-    // removed, so it's a one-toggle re-enable rather than lost functionality.
+    // Kept for backward-compat parsing of pre-redesign persisted profiles; no
+    // longer used to gate anything, since HOME/SEARCH/DISCOVER are filtered out
+    // entirely rather than hidden-but-present now.
     private fun defaultVisibility(kind: NavSectionKind): Boolean = kind != NavSectionKind.DISCOVER
 
-    // The three CUSTOM defaults every profile should have — seeded directly
-    // since CUSTOM has no single default instance the way fixedKinds does.
-    // Shared with the upgrade-merge path in readSectionsFromPrefs() below so
-    // profiles that predate these (Movies/Shows/Watchlist) get them retrofitted
-    // instead of silently missing three of the six "Your library" tiles.
+    // The CUSTOM defaults every profile should have — seeded directly since
+    // CUSTOM has no single default instance the way fixedKinds does. Shared
+    // with the upgrade-merge path in readSectionsFromPrefs() below so profiles
+    // that predate these get them retrofitted instead of silently missing entries.
+    // Movies/Shows launch Plex directly (no in-app deep link to a specific
+    // library section exists — see PlexDeepLink.kt); Apps opens Screen.AllApps.
     private fun defaultCustomEntries(startOrder: Int): List<NavSectionConfig> = listOf(
-        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "movies", label = "Movies", target = "seeall:trending_movies", order = startOrder),
-        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "shows", label = "Shows", target = "seeall:trending_tv", order = startOrder + 1),
-        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "watchlist", label = "Watchlist", target = "watchlist", order = startOrder + 2),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "movies", label = "Movies", order = startOrder),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "shows", label = "Shows", order = startOrder + 1),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "apps", label = "Apps", order = startOrder + 2),
+        // Direct, generic launch into the native Plex app — not tied to a specific title (that's
+        // Movies/Shows -> a title's own "Open in Plex"/long-press). Joe: "plex is also where I
+        // may go to discover stuff" — browsing Plex's own recommendations, separate from Xadarr's
+        // own Movies/Shows grid. Could live under the generic "Apps" screen instead, but he wants
+        // it as its own rail entry rather than buried there.
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "plex", label = "Plex Discover", order = startOrder + 3),
     )
 
-    // Matches the Home "Your library" tiles / NavRail mockup exactly — used
-    // whenever a profile has no stored config yet (fresh install or a device
-    // from before this existed).
+    // TiviMate-clone side menu: Guide (Home IS the guide) / Movies / Shows / Apps /
+    // Plex Discover / Cameras / Settings — used whenever a profile has no stored config yet.
     fun defaultSections(): List<NavSectionConfig> {
-        val customs = defaultCustomEntries(startOrder = 2)
+        val customs = defaultCustomEntries(startOrder = 1)
         return listOf(
-            NavSectionConfig(kind = NavSectionKind.HOME, order = 0),
-            NavSectionConfig(kind = NavSectionKind.TV, label = "Live TV", order = 1),
+            NavSectionConfig(kind = NavSectionKind.TV, label = "Guide", order = 0),
             customs[0],
             customs[1],
-            NavSectionConfig(kind = NavSectionKind.CAMERAS, order = 4),
-            NavSectionConfig(kind = NavSectionKind.SEARCH, order = 5),
             customs[2],
-            NavSectionConfig(kind = NavSectionKind.SETTINGS, order = 7),
-            NavSectionConfig(kind = NavSectionKind.DISCOVER, visible = defaultVisibility(NavSectionKind.DISCOVER), order = 8),
+            customs[3],
+            NavSectionConfig(kind = NavSectionKind.CAMERAS, order = 5),
+            NavSectionConfig(kind = NavSectionKind.SETTINGS, order = 6),
         )
     }
+
+    // Retired by the TiviMate-clone redesign — filtered here (not just excluded from
+    // defaultSections()) so a profile with pre-redesign persisted JSON doesn't
+    // resurrect Home/Search/Discover/the old Watchlist entry on the next read.
+    private fun isRetiredEntry(section: NavSectionConfig): Boolean =
+        section.kind in retiredKinds ||
+            (section.kind == NavSectionKind.CUSTOM && section.customId == "watchlist")
 
     private fun readSectionsFromPrefs(profileId: String, prefs: Preferences): List<NavSectionConfig> {
         val raw = prefs[navSectionsKey(profileId)]
@@ -79,13 +95,15 @@ class NavSectionRepository @Inject constructor(
             val storedKinds = stored.map { it.kind }.toSet()
             val missingFixed = fixedKinds.filter { it !in storedKinds }
                 .mapIndexed { i, kind -> NavSectionConfig(kind = kind, visible = defaultVisibility(kind), order = stored.size + i) }
-            // Same idea for the CUSTOM defaults (Movies/Shows/Watchlist) — a stored
+            // Same idea for the CUSTOM defaults (Movies/Shows/Apps) — a stored
             // list from before they existed has no CUSTOM entries at all, and CUSTOM
             // isn't in fixedKinds, so the merge above alone would never add them.
             val storedCustomIds = stored.filter { it.kind == NavSectionKind.CUSTOM }.mapNotNull { it.customId }.toSet()
             val missingCustom = defaultCustomEntries(startOrder = stored.size + missingFixed.size)
                 .filter { it.customId !in storedCustomIds }
-            (stored + missingFixed + missingCustom).sortedBy { it.order }
+            (stored + missingFixed + missingCustom)
+                .filterNot { isRetiredEntry(it) }
+                .sortedBy { it.order }
         } catch (_: Exception) {
             defaultSections()
         }

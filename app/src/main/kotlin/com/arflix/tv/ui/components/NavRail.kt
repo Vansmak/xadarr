@@ -15,10 +15,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tv
@@ -66,7 +69,27 @@ data class NavRailActions(
     val onNavigateToCameras: () -> Unit = {},
     val onNavigateToSettings: () -> Unit = {},
     val onNavigateToWatchlist: () -> Unit = {},
+    val onNavigateToAllApps: () -> Unit = {},
+    val onNavigateToMovies: () -> Unit = {},
+    val onNavigateToShows: () -> Unit = {},
+    // Optional — only the Guide (LiveTvScreen) wires this, so it can pause its own live audio
+    // before handing off. Every other screen the rail opens from already paused on the way in
+    // (see AppNavigation.kt's navigateTopLevel()), so the plain context-based launch below is
+    // enough there and they can leave this null.
+    val onNavigateToPlex: (() -> Unit)? = null,
 )
+
+// Plex-style grouping — mirrors the real Plex TV app's rail: an ungrouped top block
+// (Home/Search/Discover-equivalent core nav), a "LIBRARIES" header over the
+// browsable-content entries, an "ON PLEX" header over anything Plex-branded, and
+// Settings pinned below a divider with no header at all. Returns null for the
+// ungrouped top block.
+private fun sectionLabelFor(entry: NavSectionConfig): String? = when {
+    entry.kind == NavSectionKind.DISCOVER -> "ON PLEX"
+    entry.kind == NavSectionKind.CUSTOM && entry.customId == "plex" -> "ON PLEX"
+    entry.kind == NavSectionKind.CUSTOM && entry.customId in setOf("movies", "shows", "apps", "plex_library") -> "LIBRARIES"
+    else -> null
+}
 
 private fun NavSectionKind.toRailLabel(): String = when (this) {
     NavSectionKind.SEARCH -> "Search"
@@ -80,7 +103,7 @@ private fun NavSectionKind.toRailLabel(): String = when (this) {
 
 /**
  * Icon for a nav entry — fixed kinds map directly; CUSTOM entries (Movies/
- * Shows/Watchlist by default, see NavSectionRepository.defaultSections())
+ * Shows/Apps by default, see NavSectionRepository.defaultSections())
  * resolve by customId with a generic fallback for anything unrecognized.
  * Shared by NavRail and Home's "Your library" tile row so both presentations
  * of the same config look consistent.
@@ -93,8 +116,10 @@ fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry
     NavSectionKind.CAMERAS -> SidebarItem.CAMERAS.icon
     NavSectionKind.SETTINGS -> SidebarItem.SETTINGS.icon
     NavSectionKind.CUSTOM -> when (entry.customId) {
-        "movies" -> Icons.Outlined.Movie
+        "movies", "plex_library" -> Icons.Outlined.Movie
         "shows" -> Icons.Outlined.Tv
+        "apps" -> Icons.Outlined.Apps
+        "plex" -> Icons.Outlined.Explore
         "watchlist" -> Icons.Outlined.Bookmark
         else -> Icons.Outlined.Star
     }
@@ -103,9 +128,12 @@ fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry
 /**
  * Pure computation of what the rail shows, extracted so a screen's own key
  * handler can compute bounds (entries.size) without composing the rail.
- * Home is always offered first regardless of its configured `order` — it has
- * no chip for itself in its own hub row, so the rail is the only place all
- * other screens see a "back to Home" entry at all.
+ *
+ * TiviMate-clone redesign: Home no longer exists as a separate screen (it IS
+ * the Live TV guide, kind == TV), so there's no synthetic "Home" entry to
+ * prepend anymore — TV/"Guide" is just an ordinary sortable, filterable entry
+ * like the rest, and the `it.kind != currentScreen` filter below naturally
+ * hides it while already on the guide.
  */
 fun computeNavRailEntries(
     currentScreen: NavSectionKind?,
@@ -113,27 +141,54 @@ fun computeNavRailEntries(
     neolinkConfigured: Boolean,
     restrictToKinds: Set<NavSectionKind>? = null,
 ): List<NavSectionConfig> {
-    val homeEntry = navSections.firstOrNull { it.kind == NavSectionKind.HOME }
-        ?: NavSectionConfig(kind = NavSectionKind.HOME, order = -1)
     // Settings sorts last regardless of its configured order — it's the "everything
     // else" destination, not something users reorder ahead of real nav targets.
-    // Discover sorts last among the remaining browsable entries (just ahead of
-    // Settings) for the same reason — mirrors HomeViewModel.buildLibraryTilesCategory's
-    // treatment of Discover in the Home "Browse" tile row.
     val rest = navSections
-        .filter { it.visible && it.kind != NavSectionKind.HOME && it.kind != currentScreen }
+        .filter { it.visible && it.kind != currentScreen }
         .filter { it.kind != NavSectionKind.CAMERAS || neolinkConfigured }
         .filter { restrictToKinds == null || it.kind in restrictToKinds }
-        // Watchlist dropped from NavRail (Joe 2026-07-11) — same reasoning as its
-        // removal from Home's Browse tile row: it's already reachable as Home's
-        // selected row / a Discover-placed catalogue, no need for a third path.
-        .filter { !(it.kind == NavSectionKind.CUSTOM && it.customId == "watchlist") }
-        .sortedWith(compareBy({ it.kind == NavSectionKind.SETTINGS }, { it.kind == NavSectionKind.DISCOVER }, { it.order }))
-    return if (restrictToKinds != null) rest else listOf(homeEntry) + rest
+        .sortedWith(compareBy({ it.kind == NavSectionKind.SETTINGS }, { it.order }))
+    return rest
 }
 
-/** Pure dispatch, extracted so a screen's own key handler can invoke it directly. */
-fun activateNavRailEntry(entry: NavSectionConfig, actions: NavRailActions) {
+/**
+ * Pure dispatch, extracted so a screen's own key handler can invoke it directly.
+ * `context` is currently unused by any branch here (kept nullable/optional so existing
+ * call sites don't need changes) — Movies/Shows used to do a `context`-based generic
+ * Plex app-launch directly from this dispatch; that moved into PlexLibraryScreen
+ * per-item instead (see below), leaving this a pure navigation dispatch.
+ */
+fun activateNavRailEntry(entry: NavSectionConfig, actions: NavRailActions, context: android.content.Context? = null) {
+    // Movies/Shows open a live Plex poster grid in-app (PlexLibraryScreen) — browsing
+    // happens in Xadarr, only selecting a specific title deep-links out to Plex (see
+    // PlexDeepLink.kt usage inside that screen). No generic app-launch at the menu level.
+    if (entry.kind == NavSectionKind.CUSTOM && entry.customId == "movies") {
+        actions.onNavigateToMovies()
+        return
+    }
+    if (entry.kind == NavSectionKind.CUSTOM && entry.customId == "shows") {
+        actions.onNavigateToShows()
+        return
+    }
+    if (entry.kind == NavSectionKind.CUSTOM && entry.customId == "apps") {
+        actions.onNavigateToAllApps()
+        return
+    }
+    // Direct, generic launch into the native Plex app — not tied to any title. Prefers the
+    // caller's own onNavigateToPlex (Guide/LiveTvScreen wires one that pauses its live audio
+    // first); every other screen falls back to the plain context-based launch since they've
+    // already paused on the way in via navigateTopLevel().
+    if (entry.kind == NavSectionKind.CUSTOM && entry.customId == "plex") {
+        val custom = actions.onNavigateToPlex
+        if (custom != null) {
+            custom()
+        } else {
+            context?.packageManager?.getLaunchIntentForPackage("com.plexapp.android")?.let {
+                context.startActivity(it)
+            }
+        }
+        return
+    }
     if (entry.kind == NavSectionKind.CUSTOM) {
         NavTargets.activate(
             entry.target,
@@ -193,6 +248,10 @@ fun NavRail(
     // Which entry is selected, 0..entries.lastIndex. Owned and mutated by the
     // caller's own key handler; see navRailHandleKey().
     focusedIndex: Int = 0,
+    // Plex-style avatar+name row at the top of the rail. Null (e.g. a screen that hasn't
+    // resolved a profile yet) just omits the row — every other screen already has this in
+    // scope for its own top-chrome avatar, so passing it through is a no-op for them.
+    currentProfile: com.arflix.tv.data.model.Profile? = null,
 ) {
     if (!isOpen) return
 
@@ -201,6 +260,7 @@ fun NavRail(
     // the screen's own BackHandler, so it takes priority while the rail is open.
     BackHandler(enabled = isOpen) { onClose() }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val entries = computeNavRailEntries(currentScreen, navSections, neolinkConfigured, restrictToKinds)
 
     val railWidth by animateDpAsState(
@@ -221,11 +281,52 @@ fun NavRail(
                 .padding(top = 64.dp, start = 16.dp, end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (currentProfile != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ProfileAvatarVisual(
+                        profile = currentProfile,
+                        modifier = Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape),
+                        letterFontSize = 14.sp,
+                    )
+                    Text(
+                        text = currentProfile.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.92f),
+                    )
+                }
+            }
             entries.forEachIndexed { index, entry ->
+                if (entry.kind == NavSectionKind.SETTINGS) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                            .height(1.dp)
+                            .background(Color.White.copy(alpha = 0.10f))
+                    )
+                } else {
+                    val label = sectionLabelFor(entry)
+                    val prevLabel = entries.getOrNull(index - 1)?.let { if (it.kind == NavSectionKind.SETTINGS) null else sectionLabelFor(it) }
+                    if (label != null && label != prevLabel) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp,
+                            color = Color.White.copy(alpha = 0.38f),
+                            modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 2.dp),
+                        )
+                    }
+                }
                 RailRow(
                     entry = entry,
                     isFocused = focusedIndex == index,
-                    onClick = { onClose(); activateNavRailEntry(entry, actions) },
+                    onClick = { onClose(); activateNavRailEntry(entry, actions, context) },
                 )
             }
         }
@@ -244,6 +345,7 @@ fun navRailHandleKey(
     focusedIndex: androidx.compose.runtime.MutableState<Int>,
     onClose: () -> Unit,
     actions: NavRailActions,
+    context: android.content.Context? = null,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val maxIndex = entries.lastIndex
@@ -258,7 +360,7 @@ fun navRailHandleKey(
             true
         }
         Key.Enter, Key.DirectionCenter -> {
-            entries.getOrNull(focusedIndex.value)?.let { onClose(); activateNavRailEntry(it, actions) }
+            entries.getOrNull(focusedIndex.value)?.let { onClose(); activateNavRailEntry(it, actions, context) }
             true
         }
         else -> false

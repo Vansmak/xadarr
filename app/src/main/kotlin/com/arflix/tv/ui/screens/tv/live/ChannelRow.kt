@@ -196,24 +196,6 @@ fun ChannelRow(
                 .background(if (isActive) LiveColors.Accent else Color.Transparent),
         )
 
-        // ─ channel number ────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .width(48.dp)
-                .padding(start = 10.dp, end = 6.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Text(
-                text = channel.number.toString(),
-                style = LiveType.NumberMono.copy(
-                    color = if (isActive) LiveColors.Accent else LiveColors.FgMute,
-                ),
-            )
-        }
-
-        // ─ logo ──────────────────────────────────────────────
-        ChannelLogo(channel = channel, size = 36.dp)
-
         Spacer(Modifier.width(10.dp))
 
         // ─ name / program / progress / time ──────────────────
@@ -221,7 +203,10 @@ fun ChannelRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(
                     text = channel.name,
                     style = LiveType.CellTitle.copy(
@@ -229,8 +214,22 @@ fun ChannelRow(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
                 )
+                // Inline now-playing title, TiviMate-style — was deliberately left out in favor
+                // of only the time-aligned grid cells, but product direction moved to matching
+                // TiviMate's row layout, where every channel row carries its own program title.
+                if (!now?.title.isNullOrBlank()) {
+                    Text(
+                        text = "  •  ${now?.title}",
+                        style = LiveType.CellTitle.copy(
+                            color = LiveColors.FgDim,
+                            fontSize = 11.sp,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 if (isFavorite) {
                     Spacer(Modifier.width(4.dp))
                     Icon(

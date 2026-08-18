@@ -652,6 +652,8 @@ class CloudSyncRepository @Inject constructor(
         prefs[WEBHOOK_COMPLETION_PERCENT_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("webhook_completion_percent", it) }
         root.put("webhook_enabled", prefs[WEBHOOK_ENABLED_KEY] ?: false)
         root.put("watchlist_api_enabled", prefs[WATCHLIST_API_ENABLED_KEY] ?: false)
+        // play_vod_via_plex / play_livetv_via_tivimate intentionally NOT synced —
+        // device-local (depends on what's installed on this box), see WebhookRepository.kt.
         prefs[WATCHLIST_API_PORT_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("watchlist_api_port", it) }
         root.put("lan_sync_is_master", prefs[LAN_SYNC_MASTER_KEY] ?: false)
         val lanTs = latestLocalDirtyAt.takeIf { it > 0L }

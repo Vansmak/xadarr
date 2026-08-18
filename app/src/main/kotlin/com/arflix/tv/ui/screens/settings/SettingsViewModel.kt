@@ -196,6 +196,9 @@ data class SettingsUiState(
     val webhookEnabled: Boolean = false,
     val webhookUrls: List<com.arflix.tv.data.repository.WebhookUrlConfig> = emptyList(),
     val webhookIntervalSeconds: Int = 30,
+    // Native-app playback handoff (device-local) — see [[project_dv_atmos_passthrough_2026-07-30]]
+    val playVodViaPlex: Boolean = false,
+    val playLivetvViaTivimate: Boolean = false,
     // LAN Sync
     val watchlistApiEnabled: Boolean = false,
     val watchlistApiPort: Int = com.arflix.tv.server.WebAppServer.DEFAULT_PORT,
@@ -310,6 +313,8 @@ class SettingsViewModel @Inject constructor(
     private val watchlistApiEnabledKey = com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
     private val watchlistApiPortKey = com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
     private val watchlistPlacementKey = com.arflix.tv.data.repository.WATCHLIST_PLACEMENT_KEY
+    private val playVodViaPlexKey = com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY
+    private val playLivetvViaTivimateKey = com.arflix.tv.data.repository.PLAY_LIVETV_VIA_TIVIMATE_KEY
     private fun includeSpecialsKeyFor(profileId: String) = profileManager.profileBooleanKeyFor(profileId, "include_specials")
     private val gson = Gson()
     private var lastObservedIptvM3u: String = ""
@@ -479,6 +484,8 @@ class SettingsViewModel @Inject constructor(
             }.getOrDefault(emptyList())
 
             val webhookEnabled = prefs[webhookEnabledKey] ?: false
+            val playVodViaPlex = prefs[playVodViaPlexKey] ?: false
+            val playLivetvViaTivimate = prefs[playLivetvViaTivimateKey] ?: false
             val webhookUrlsJson = prefs[com.arflix.tv.data.repository.WEBHOOK_URLS_KEY].orEmpty()
             val webhookUrls = if (webhookUrlsJson.isNotBlank()) {
                 com.arflix.tv.data.repository.parseWebhookUrlConfigs(webhookUrlsJson)
@@ -585,6 +592,8 @@ class SettingsViewModel @Inject constructor(
                 webhookEnabled = webhookEnabled,
                 webhookUrls = webhookUrls,
                 webhookIntervalSeconds = webhookIntervalSeconds,
+                playVodViaPlex = playVodViaPlex,
+                playLivetvViaTivimate = playLivetvViaTivimate,
                 watchlistApiEnabled = watchlistApiEnabled,
                 watchlistApiPort = watchlistApiPort,
                 lanSyncMaster = lanSyncMaster,
@@ -1317,6 +1326,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[webhookEnabledKey] = enabled }
             _uiState.value = _uiState.value.copy(webhookEnabled = enabled)
+        }
+    }
+
+    fun setPlayVodViaPlex(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[playVodViaPlexKey] = enabled }
+            _uiState.value = _uiState.value.copy(playVodViaPlex = enabled)
+        }
+    }
+
+    fun setPlayLivetvViaTivimate(enabled: Boolean) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[playLivetvViaTivimateKey] = enabled }
+            _uiState.value = _uiState.value.copy(playLivetvViaTivimate = enabled)
         }
     }
 

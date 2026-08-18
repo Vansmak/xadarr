@@ -9,6 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -21,20 +25,19 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
 import com.arflix.tv.data.repository.AuthState
+import com.arflix.tv.util.settingsDataStore
+import kotlinx.coroutines.flow.first
 import com.arflix.tv.ui.screens.cameras.CameraPlayerScreen
 import com.arflix.tv.ui.screens.cameras.CamerasScreen
 import com.arflix.tv.ui.screens.home.AllAppsScreen
 import com.arflix.tv.ui.screens.details.DetailsScreen
-import com.arflix.tv.ui.screens.discover.DiscoverScreen
-import com.arflix.tv.ui.screens.home.HomeScreen
+import com.arflix.tv.ui.screens.library.PlexLibraryScreen
 import com.arflix.tv.ui.screens.login.LoginScreen
 import com.arflix.tv.ui.screens.player.PlayerScreen
 import com.arflix.tv.ui.screens.collections.CollectionDetailsScreen
-import com.arflix.tv.ui.screens.search.SearchScreen
 import com.arflix.tv.ui.screens.settings.SettingsScreen
 import com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel
 import com.arflix.tv.ui.screens.tv.live.LiveTvScreen
-import com.arflix.tv.ui.screens.watchlist.WatchlistScreen
 import com.arflix.tv.ui.screens.profile.ProfileSelectionScreen
 import com.arflix.tv.util.LocalDeviceType
 
@@ -43,7 +46,21 @@ import com.arflix.tv.util.LocalDeviceType
  */
 sealed class Screen(val route: String) {
     object Login : Screen("login")
-    object Home : Screen("home")
+    // Home IS the Live TV guide (TiviMate-style redesign) — folded from the old Screen.Tv
+    // rather than kept as a second route to the same place, so there's exactly one
+    // back-stack entry for "the guide" instead of two logically-identical ones.
+    object Home : Screen("home?channelId={channelId}&streamUrl={streamUrl}") {
+        fun createRoute(channelId: String? = null, streamUrl: String? = null): String {
+            if (channelId == null) return "home"
+            val enc = java.net.URLEncoder.encode(channelId, "UTF-8")
+            val streamEnc = streamUrl?.let { java.net.URLEncoder.encode(it, "UTF-8") }
+            return if (streamEnc != null) "home?channelId=$enc&streamUrl=$streamEnc" else "home?channelId=$enc"
+        }
+    }
+    // Search/Watchlist/Discover: retired from the nav model (Movies/Shows browse a live Plex
+    // poster grid in-app now — see PlexLibrary below — instead of in-app TMDB browsing/search).
+    // Routes kept as harmless redirect-to-Home stubs rather than deleted, so no stray deep
+    // link or leftover call site can crash the app.
     object Search : Screen("search")
     object Watchlist : Screen("watchlist")
     object CollectionDetails : Screen("collections/{catalogId}") {
@@ -51,15 +68,12 @@ sealed class Screen(val route: String) {
             return "collections/${android.net.Uri.encode(catalogId)}"
         }
     }
-    object Tv : Screen("tv?channelId={channelId}&streamUrl={streamUrl}") {
-        fun createRoute(channelId: String? = null, streamUrl: String? = null): String {
-            if (channelId == null) return "tv"
-            val enc = java.net.URLEncoder.encode(channelId, "UTF-8")
-            val streamEnc = streamUrl?.let { java.net.URLEncoder.encode(it, "UTF-8") }
-            return if (streamEnc != null) "tv?channelId=$enc&streamUrl=$streamEnc" else "tv?channelId=$enc"
-        }
-    }
     object Discover : Screen("discover")
+    // Live Plex library poster grid — Movies/Shows destination. Browsing happens in-app;
+    // selecting a title deep-links out to Plex (PlexDeepLink.kt), it doesn't play in-app.
+    object PlexLibrary : Screen("plex_library/{mediaType}") {
+        fun createRoute(mediaType: MediaType): String = "plex_library/${mediaType.name.lowercase()}"
+    }
     object Settings : Screen("settings")
     object Cameras : Screen("cameras")
     object SmartHome : Screen("smart_home")
@@ -134,20 +148,41 @@ fun AppNavigation(
     onExitApp: () -> Unit = {}
 ) {
     val navigateTopLevel: (String) -> Unit = { route ->
+        // Every destination this reaches (Movies, Shows, Cameras, Settings; Search/Discover/
+        // Watchlist are harmless redirect-to-Home stubs) is somewhere other than the guide —
+        // Home is reached via navigateHome() below, not this. Live TV audio should only play on
+        // the guide or in an actual fullscreen show, so pause it here rather than let it keep
+        // playing silently behind the side-menu screens.
+        liveTvPlayerViewModel.pauseForVod()
+        // launchSingleTop/saveState/restoreState used to be set here (the standard "bottom nav
+        // tabs" pattern) — but Movies and Shows both resolve to the *same* parameterized
+        // destination pattern (Screen.PlexLibrary = "plex_library/{mediaType}", differing only
+        // in the mediaType argument), and Navigation-Compose's launchSingleTop/restoreState
+        // matching operates on the destination pattern, not the fully-resolved argument-specific
+        // route. Dpad-ing out of Movies into the nav rail then picking Shows landed back on
+        // Movies — it treated "plex_library/{mediaType}" as already at the top and silently
+        // no-op'd instead of navigating to the new argument. Going via Back first worked because
+        // that actually popped the destination off first, leaving nothing to collide with.
+        // popUpTo(Home) below already clears the stack back to Home on every call, so there's no
+        // real back-stack-bloat risk from dropping the singleTop/restore optimization — the only
+        // cost is not remembering scroll position when returning to a tab, an acceptable trade
+        // for switching between tabs actually working.
         navController.navigate(route) {
-            popUpTo(Screen.Home.route) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+            popUpTo(Screen.Home.route)
         }
     }
+    val navigateToAllApps: () -> Unit = {
+        liveTvPlayerViewModel.pauseForVod()
+        navController.navigate(Screen.AllApps.route)
+    }
 
-    // Dismiss mini-player first if active; otherwise allow normal back navigation.
+    // Used to dismiss the roaming mini-player pip first (now removed — see
+    // [[project_tivimate_redesign_2026-08-08]]) before allowing normal back navigation. That
+    // indirection made Back from the live guide's windowed-grid state look like it froze: the
+    // first press silently stopped playback (isActive was true, so it hit the dismiss branch and
+    // never navigated), and only a second press actually went back.
     val goBack: () -> Unit = {
-        if (liveTvPlayerViewModel.state.value.isActive) {
-            liveTvPlayerViewModel.dismiss()
-        } else {
-            navController.popBackStack()
-        }
+        navController.popBackStack()
     }
 
     val navigateHome: () -> Unit = {
@@ -155,7 +190,10 @@ fun AppNavigation(
         // Uses navigate() instead of popBackStack() because popBackStack can
         // silently fail if Home is not found, and restoreState on other
         // navigateTopLevel calls can bring back stale Details pages.
-        navController.navigate(Screen.Home.route) {
+        // Screen.Home.createRoute() (not Screen.Home.route) — Home's route is now a
+        // parameterized pattern, navigating to the raw pattern string would pass the
+        // literal "{channelId}" placeholder text as an argument value.
+        navController.navigate(Screen.Home.createRoute()) {
             popUpTo(Screen.Home.route) { inclusive = true; saveState = false }
             launchSingleTop = true
             restoreState = false
@@ -178,136 +216,16 @@ fun AppNavigation(
         composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = {
-                    navController.navigate(Screen.Home.route) {
+                    navController.navigate(Screen.Home.createRoute()) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 }
             )
         }
-        
-        // Home screen
-        composable(Screen.Home.route) {
-            HomeScreen(
-                preloadedCategories = preloadedCategories,
-                preloadedHeroItem = preloadedHeroItem,
-                preloadedHeroLogoUrl = preloadedHeroLogoUrl,
-                preloadedLogoCache = preloadedLogoCache,
-                currentProfile = currentProfile,
-                onNavigateToDetails = { mediaType, mediaId, initialSeason, initialEpisode ->
-                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId, initialSeason, initialEpisode))
-                },
-                onNavigateToCollection = { catalogId ->
-                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
-                },
-                onNavigateToSearch = {
-                    navigateTopLevel(Screen.Search.route)
-                },
-                onNavigateToDiscover = {
-                    navigateTopLevel(Screen.Discover.route)
-                },
-                onNavigateToTv = { channelId, streamUrl ->
-                    navigateTopLevel(Screen.Tv.createRoute(channelId, streamUrl))
-                },
-                onNavigateToCameras = {
-                    navigateTopLevel(Screen.Cameras.route)
-                },
-                onNavigateToCameraPlayer = { streamUrl, cameraName ->
-                    navController.navigate(Screen.CameraPlayer.createRoute(streamUrl, cameraName))
-                },
-                onNavigateToSettings = {
-                    navigateTopLevel(Screen.Settings.route)
-                },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onExitApp = onExitApp,
-                onNavigateToAllApps = {
-                    navController.navigate(Screen.AllApps.route)
-                },
-                onInterceptBack = {
-                    val active = liveTvPlayerViewModel.state.value.isActive
-                    if (active) liveTvPlayerViewModel.dismiss()
-                    active
-                },
-                onDismissMiniPlayer = { liveTvPlayerViewModel.dismiss() },
-                onPlayChannelInMiniPlayer = { streamUrl, channelId, channelName, programTitle ->
-                    liveTvPlayerViewModel.playFromHome(
-                        channelId = channelId,
-                        streamUrl = streamUrl,
-                        channelName = channelName,
-                        programTitle = programTitle,
-                    )
-                },
-            )
-        }
 
-        // Search screen
-        composable(Screen.Search.route) {
-            SearchScreen(
-                currentProfile = currentProfile,
-                onNavigateToDetails = { mediaType, mediaId ->
-                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
-                },
-                onNavigateToHome = { navigateHome() },
-                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
-                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
-                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onNavigateToCollection = { catalogId ->
-                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
-                },
-                onBack = goBack
-            )
-        }
-
-        // Watchlist route redirects to Discover (watchlist is now a catalogue row, not a tab)
-        composable(Screen.Watchlist.route) {
-            LaunchedEffect(Unit) {
-                navController.navigate(Screen.Discover.route) {
-                    popUpTo(Screen.Home.route) { saveState = false }
-                    launchSingleTop = true
-                    restoreState = false
-                }
-            }
-        }
-
-        // Discover screen
-        composable(Screen.Discover.route) {
-            DiscoverScreen(
-                currentProfile = currentProfile,
-                onNavigateToDetails = { mediaType, mediaId ->
-                    navController.navigate(Screen.Details.createRoute(mediaType, mediaId))
-                },
-                onNavigateToCollection = { catalogId ->
-                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
-                },
-                onNavigateToHome = { navigateHome() },
-                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
-                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
-                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onBack = goBack
-            )
-        }
-
-        // TV screen
+        // Home screen — IS the Live TV guide (folded from the old Screen.Tv route).
         composable(
-            route = Screen.Tv.route,
+            route = Screen.Home.route,
             arguments = listOf(
                 navArgument("channelId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("streamUrl") { type = NavType.StringType; nullable = true; defaultValue = null }
@@ -315,24 +233,103 @@ fun AppNavigation(
         ) { backStackEntry ->
             val initialChannelId = backStackEntry.arguments?.getString("channelId")
             val initialStreamUrl = backStackEntry.arguments?.getString("streamUrl")
-            LiveTvScreen(
-                playerViewModel = liveTvPlayerViewModel,
+            val tvContext = LocalContext.current
+            // Hand off to TiviMate instead, when enabled: mirrors the Plex VOD handoff in
+            // PlayerScreen.kt for the same reason (Xadarr's own player can hang on Dolby Vision
+            // content a native app plays fine) — see [[project_dv_atmos_passthrough_2026-07-30]].
+            // Gated on initialChannelId != null (an explicit "resume this channel" request, e.g.
+            // the mini-player's expand action) rather than every Home mount — Home now IS the
+            // guide, so an unconditional check here bounced every cold launch and every plain
+            // return-to-Home straight to TiviMate before Xadarr's own UI ever rendered, locking
+            // out Movies/Shows/Cameras/Settings entirely since they're all reached via the guide's
+            // side menu. Falls through to Xadarr's own LiveTvScreen otherwise.
+            var tvHandoffChecked by remember(backStackEntry) { mutableStateOf(false) }
+            LaunchedEffect(backStackEntry) {
+                val playViaTivimate = initialChannelId != null &&
+                    (tvContext.settingsDataStore.data.first()[com.arflix.tv.data.repository.PLAY_LIVETV_VIA_TIVIMATE_KEY] ?: false)
+                val tivimateIntent = if (playViaTivimate) {
+                    tvContext.packageManager.getLaunchIntentForPackage("ar.tvplayer.tv")
+                } else null
+                if (tivimateIntent != null) {
+                    liveTvPlayerViewModel.pauseForVod()
+                    tvContext.startActivity(tivimateIntent)
+                    // No goBack() here — this route IS Home/root now, nothing to pop back to.
+                    // The composable stays blank until the user returns from TiviMate.
+                } else {
+                    tvHandoffChecked = true
+                }
+            }
+            if (tvHandoffChecked) {
+                LiveTvScreen(
+                    playerViewModel = liveTvPlayerViewModel,
+                    currentProfile = currentProfile,
+                    initialChannelId = initialChannelId,
+                    initialStreamUrl = initialStreamUrl,
+                    onFullscreenChanged = onTvFullscreenChanged,
+                    onNavigateToHome = { /* already home */ },
+                    onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                    onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                    onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
+                    onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                    onNavigateToAllApps = navigateToAllApps,
+                    onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                    onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
+                    onNavigateToDetails = { type, id ->
+                        navController.navigate(Screen.Details.createRoute(type, id))
+                    },
+                    onSwitchProfile = {
+                        onSwitchProfile()
+                        navController.navigate(Screen.ProfileSelection.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    },
+                    onBack = goBack
+                )
+            }
+        }
+
+        // Search/Watchlist/Discover — retired, kept as harmless redirect-to-Home stubs
+        // (Movies/Shows browse a live Plex poster grid in-app now — see PlexLibrary below).
+        composable(Screen.Search.route) {
+            LaunchedEffect(Unit) { navigateHome() }
+        }
+        composable(Screen.Watchlist.route) {
+            LaunchedEffect(Unit) { navigateHome() }
+        }
+        composable(Screen.Discover.route) {
+            LaunchedEffect(Unit) { navigateHome() }
+        }
+
+        // Plex library poster grid — Movies/Shows destination
+        composable(
+            route = Screen.PlexLibrary.route,
+            arguments = listOf(navArgument("mediaType") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val mediaTypeStr = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+            val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
+            PlexLibraryScreen(
+                mediaType = mediaType,
                 currentProfile = currentProfile,
-                initialChannelId = initialChannelId,
-                initialStreamUrl = initialStreamUrl,
-                onFullscreenChanged = onTvFullscreenChanged,
+                liveTvPlayerViewModel = liveTvPlayerViewModel,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onNavigateToAllApps = navigateToAllApps,
+                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
+                onNavigateToDetails = { type, id ->
+                    navController.navigate(Screen.Details.createRoute(type, id))
+                },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onBack = goBack
+                onBack = goBack,
             )
         }
 
@@ -352,10 +349,13 @@ fun AppNavigation(
                 autoStartCloudAuth = autoCloudAuth,
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSmartHome = { navController.navigate(Screen.SmartHome.route) },
+                onNavigateToAllApps = navigateToAllApps,
+                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {
@@ -370,7 +370,7 @@ fun AppNavigation(
         composable(Screen.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onProfileSelected = {
-                    navController.navigate(Screen.Home.route) {
+                    navController.navigate(Screen.Home.createRoute()) {
                         popUpTo(Screen.ProfileSelection.route) { inclusive = true }
                     }
                 },
@@ -396,7 +396,7 @@ fun AppNavigation(
                 },
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
                 onBack = goBack
             )
@@ -434,6 +434,7 @@ fun AppNavigation(
                 initialSeason = initialSeason,
                 initialEpisode = initialEpisode,
                 currentProfile = currentProfile,
+                liveTvPlayerViewModel = liveTvPlayerViewModel,
                 onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs ->
                     navController.navigate(
                         Screen.Player.createRoute(
@@ -462,7 +463,7 @@ fun AppNavigation(
                     navigateTopLevel(Screen.Search.route)
                 },
                 onNavigateToTv = {
-                    navigateTopLevel(Screen.Tv.createRoute())
+                    navigateTopLevel(Screen.Home.createRoute())
                 },
                 onNavigateToDiscover = {
                     navigateTopLevel(Screen.Discover.route)
@@ -573,8 +574,11 @@ fun AppNavigation(
                 onNavigateToHome = { navigateHome() },
                 onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
                 onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Tv.createRoute()) },
+                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onNavigateToAllApps = navigateToAllApps,
+                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {

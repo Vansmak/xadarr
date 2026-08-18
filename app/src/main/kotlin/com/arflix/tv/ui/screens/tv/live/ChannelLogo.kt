@@ -53,11 +53,21 @@ fun ChannelLogo(
     val logoUrl = channel.logo
     var logoLoaded by remember(logoUrl) { mutableStateOf(false) }
     val showPlaceholder = logoUrl.isNullOrBlank() || !logoLoaded
+    // The colored rounded-square badge is only the placeholder look, shown while there's no real
+    // logo yet — a successfully loaded logo renders flat with no badge container, matching
+    // TiviMate's style (real network logo on the dark row, not boxed into an app-icon badge).
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape((size.value / 5.5f).dp))
-            .background(channel.brandBg),
+            .then(
+                if (showPlaceholder) {
+                    Modifier
+                        .clip(RoundedCornerShape((size.value / 5.5f).dp))
+                        .background(channel.brandBg)
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (showPlaceholder) {

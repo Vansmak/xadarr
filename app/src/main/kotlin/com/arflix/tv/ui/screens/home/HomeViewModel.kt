@@ -683,6 +683,7 @@ class HomeViewModel @Inject constructor(
     private suspend fun buildLibraryTilesCategory(
         navSections: List<com.arflix.tv.data.model.NavSectionConfig>,
         categories: List<Category>,
+        plexLauncherMode: Boolean = false,
     ): Category? {
         // Discover sorts last regardless of its stored `order` — mirrors NavRail's
         // same treatment of Settings. Discover predates this row's design and many
@@ -698,7 +699,12 @@ class HomeViewModel @Inject constructor(
                 // still shows on Home as the user-selected row (see HomeScreen.kt's
                 // pruneHomeCategories) and is still reachable via NavRail if enabled
                 // there; just not duplicated as a destination tile here too.
-                !(it.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM && it.customId == "watchlist")
+                !(it.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM && it.customId == "watchlist") &&
+                // Plex Launcher Mode: Movies and Shows collapse into one tile below
+                // (the "movies" entry, relabeled) that hands off to Plex instead of
+                // Xadarr's own library browse — drop the standalone "shows" entry
+                // here so it isn't also rendered as a second tile.
+                !(plexLauncherMode && it.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM && it.customId == "shows")
         }.sortedWith(compareBy({ it.kind == com.arflix.tv.data.model.NavSectionKind.DISCOVER }, { it.order }))
         if (entries.isEmpty()) return null
         fun firstItem(categoryId: String) = categories.firstOrNull { it.id == categoryId }?.items?.firstOrNull()
@@ -743,12 +749,30 @@ class HomeViewModel @Inject constructor(
         val heroSources = mutableMapOf<Int, MediaItem>()
         val items = entries.map { entry ->
             val isCustom = entry.kind == com.arflix.tv.data.model.NavSectionKind.CUSTOM
-            val statusId = if (isCustom) "navtile:custom:${entry.customId}" else "navtile:kind:${entry.kind.name}"
-            val label = entry.label ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
+            val isMergedPlexTile = plexLauncherMode && isCustom && entry.customId == "movies"
+            // Tagged to match the customId MainActivity's navSections transform gives this
+            // same entry in LocalNavSections ("plex_library", see MainActivity.kt) — the
+            // click handler (HomeScreen.kt's handleLibraryTileClick) resolves this status
+            // back to a NavSectionConfig via LocalNavSections, not this ViewModel's own
+            // navSectionRepository copy, so the two ids have to agree or the click silently
+            // finds no matching entry and does nothing.
+            val statusId = if (isMergedPlexTile) "navtile:custom:plex_library"
+                else if (isCustom) "navtile:custom:${entry.customId}" else "navtile:kind:${entry.kind.name}"
+            val label = if (isMergedPlexTile) "Movies & Shows" else entry.label ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
             val sourceItem = when {
                 entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> onNowChannelItem()
                 entry.kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> firstItem(CAMERAS_CATEGORY_ID)
                 isCustom && entry.customId == "watchlist" -> firstItem(WATCHLIST_CATEGORY_ID)
+                // Plex Launcher Mode: combined tile's art comes from whichever of
+                // movies/shows shows up first (i.e. most recent/relevant), not just
+                // movies — same non-IPTV exclusion as the standalone "shows" case
+                // below applies since a TV-tagged item could be a live channel.
+                isMergedPlexTile ->
+                    otherCategories.asSequence().flatMap { it.items }.firstOrNull {
+                        it.mediaType == com.arflix.tv.data.model.MediaType.MOVIE ||
+                            (it.mediaType == com.arflix.tv.data.model.MediaType.TV &&
+                                it.status?.startsWith(IPTV_STATUS_PREFIX) != true)
+                    }
                 isCustom && entry.customId == "movies" ->
                     otherCategories.asSequence().flatMap { it.items }.firstOrNull { it.mediaType == com.arflix.tv.data.model.MediaType.MOVIE }
                 isCustom && entry.customId == "shows" ->
@@ -792,6 +816,13 @@ class HomeViewModel @Inject constructor(
                 isCustom && entry.customId == "watchlist" -> {
                     val count = categories.firstOrNull { it.id == WATCHLIST_CATEGORY_ID }?.items?.size ?: 0
                     if (count > 0) "$count saved" else ""
+                }
+                isMergedPlexTile -> {
+                    // Names the recent/up-next title behind the tile's art, same framing
+                    // as the On Now tile's "Now: X" — there's no library browse behind
+                    // this tile anymore in Plex Launcher Mode, just the hand-off, so a
+                    // count of what's in the library is less useful than what's fresh.
+                    sourceItem?.let { "Recent: ${it.title}" } ?: ""
                 }
                 isCustom && entry.customId == "movies" -> {
                     val count = otherCategories.asSequence().flatMap { it.items.asSequence() }
@@ -1691,9 +1722,26 @@ class HomeViewModel @Inject constructor(
                     iptvRepository.observeTvSessionState().map { it.lastChannelId }.distinctUntilChanged()
                 ) { (sections, categories), lastChannelId -> Triple(sections, categories, lastChannelId) }
                 .combine(periodicTick) { triple, _ -> triple }
-                .collect { (sections, categories, lastChannelId) ->
+                .combine(
+                    context.settingsDataStore.data.map { prefs ->
+                        (prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false) &&
+                            (prefs[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false)
+                    }.distinctUntilChanged()
+                ) { triple, plexLauncherMode -> triple to plexLauncherMode }
+                .collect { (triple, plexLauncherMode) ->
+                    val (rawSections, categories, lastChannelId) = triple
+                    // Plex Launcher Mode: Browse tile row drops its Search/Discover
+                    // tiles same as the nav rail does (MainActivity.kt) — this
+                    // ViewModel reads navSectionRepository directly rather than
+                    // through LocalNavSections, so it needs its own copy of the
+                    // same filter rather than inheriting MainActivity's.
+                    val sections = if (!plexLauncherMode) rawSections else rawSections.map {
+                        if (it.kind == com.arflix.tv.data.model.NavSectionKind.SEARCH ||
+                            it.kind == com.arflix.tv.data.model.NavSectionKind.DISCOVER
+                        ) it.copy(visible = false) else it
+                    }
                     lastWatchedIptvChannelId = lastChannelId
-                    val tileCategory = buildLibraryTilesCategory(sections, categories)
+                    val tileCategory = buildLibraryTilesCategory(sections, categories, plexLauncherMode)
                     val existingIdx = categories.indexOfFirst { it.id == LIBRARY_TILES_CATEGORY_ID }
                     val updated = categories.toMutableList()
                     when {
@@ -1839,11 +1887,21 @@ class HomeViewModel @Inject constructor(
                 }
         }
 
-        // Pre-load watchlist items: sync from server first (server is source of truth),
-        // then enrich with TMDB data so posters appear. If Trakt is connected and local
-        // state is empty after server sync, pull from Trakt so the home row shows without
-        // requiring the user to visit the Watchlist/Discover screen first.
+        // Pre-load watchlist items. In Plex Launcher Mode (launcherModeEnabled &&
+        // playVodViaPlex both on — Joe, 2026-07-31: additions always happen in the
+        // Plex app now, Xadarr just displays), pull live from Episeerr's Plex-sourced
+        // endpoint instead — no local sync/Trakt fallback, Plex is the sole source.
+        // Otherwise unchanged: sync from server first (server is source of truth),
+        // enrich with TMDB, and if Trakt is connected and local state is still empty,
+        // pull from Trakt so the home row shows without visiting Watchlist/Discover.
         viewModelScope.launch(Dispatchers.IO) {
+            val prefs = context.settingsDataStore.data.first()
+            val plexLauncherMode = (prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false) &&
+                (prefs[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false)
+            if (plexLauncherMode) {
+                runCatching { watchlistRepository.loadFromPlex() }
+                return@launch
+            }
             runCatching { watchlistRepository.syncFromSyncServer() }
             runCatching { watchlistRepository.getWatchlistItems() }
             if (watchlistRepository.watchlistItems.value.isEmpty()) {
@@ -5297,6 +5355,7 @@ class HomeViewModel @Inject constructor(
                 val isInWatchlist = watchlistRepository.isInWatchlist(item.mediaType, item.id)
                 val traktConnected = runCatching { traktRepository.hasTrakt() }.getOrDefault(false)
                 val traktMediaType = if (item.mediaType == MediaType.MOVIE) "movie" else "tv"
+                var plexPushOk = true
                 if (isInWatchlist) {
                     val traktSyncOk = traktConnected && traktRepository.removeFromWatchlist(item.mediaType, item.id)
                     if (!traktSyncOk) {
@@ -5323,7 +5382,7 @@ class HomeViewModel @Inject constructor(
                             )
                         )
                     }
-                    watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
+                    plexPushOk = watchlistRepository.addToWatchlist(item.mediaType, item.id, item)
                 }
                 runCatching { cloudSyncRepository.pushToCloud() }
                     .onFailure { error ->
@@ -5338,8 +5397,12 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 _uiState.value = _uiState.value.copy(
-                    toastMessage = if (isInWatchlist) "Removed from watchlist" else "Added to watchlist",
-                    toastType = ToastType.SUCCESS
+                    toastMessage = when {
+                        isInWatchlist -> "Removed from watchlist"
+                        plexPushOk -> "Added to watchlist — grabbing automatically"
+                        else -> "Added to watchlist, but couldn't reach Episeerr to auto-grab it"
+                    },
+                    toastType = if (!isInWatchlist && !plexPushOk) ToastType.INFO else ToastType.SUCCESS
                 )
             } catch (e: Exception) {
                 AppLogger.recordException(

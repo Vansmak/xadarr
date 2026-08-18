@@ -38,6 +38,9 @@ val LocalGameDayEvents = compositionLocalOf { emptyList<com.arflix.tv.data.repos
  */
 val LocalNavSections = compositionLocalOf { emptyList<com.arflix.tv.data.model.NavSectionConfig>() }
 
+/** True when Launcher Mode + Play VOD via Plex are both on — see MainActivity's plexLauncherModeActive. */
+val LocalPlexLauncherMode = compositionLocalOf { false }
+
 fun deviceHasTouchScreen(context: Context): Boolean {
     return context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
 }

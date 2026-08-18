@@ -2870,6 +2870,34 @@ class MediaRepository @Inject constructor(
     }
 
     /**
+     * Resolve a plain title (+ optional year) to a TMDB id — used when a source has no TMDB id
+     * of its own (e.g. Plex's ratingKey-only library items) but needs to route into the shared
+     * TMDB-backed Details screen. Same strict-year-then-fallback matching already used for
+     * Trakt watchlist reconciliation (TraktRepository.searchTmdbWatchlistMatch) — not
+     * duplicating that one since it also handles Trakt-specific batching/direct-id shortcuts.
+     */
+    suspend fun resolveTmdbId(title: String, year: Int?, mediaType: MediaType): Int? {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return null
+        return runCatching {
+            val search = tmdbApi.searchMulti(apiKey, trimmed, language = contentLanguage).results
+            val typeMatched = search.filter { result ->
+                val resultType = when (result.mediaType) {
+                    "movie" -> MediaType.MOVIE
+                    "tv" -> MediaType.TV
+                    else -> null
+                }
+                resultType == mediaType
+            }
+            val strictYear = typeMatched.firstOrNull { result ->
+                val yearText = (result.releaseDate ?: result.firstAirDate)?.take(4)?.toIntOrNull()
+                year == null || yearText == year
+            }
+            (strictYear ?: typeMatched.firstOrNull())?.id
+        }.getOrNull()
+    }
+
+    /**
      * Search people and expose their known-for media as result rows.
      *
      * TMDB multi-search already returns person hits, but normal title search

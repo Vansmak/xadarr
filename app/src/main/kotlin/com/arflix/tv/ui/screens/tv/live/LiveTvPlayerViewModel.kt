@@ -218,7 +218,7 @@ class LiveTvPlayerViewModel @Inject constructor(
         if (_state.value.isActive) player.play()
     }
 
-    /** Stop playback and clear mini-player state (user explicitly dismissed). */
+    /** Stop playback and clear state (e.g. before a VOD or camera player opens). */
     fun dismiss() {
         errorRetryJob?.cancel()
         player.stop()

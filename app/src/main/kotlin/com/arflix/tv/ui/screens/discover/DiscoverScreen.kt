@@ -77,6 +77,7 @@ fun DiscoverScreen(
     val navSections = com.arflix.tv.util.LocalNavSections.current
     val hasProfile = currentProfile != null
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
     // Driven directly by this screen's own key handler below rather than NavRail's
     // internal FocusRequester — see NavRail.kt's doc comment / HomeScreen.kt's
@@ -143,6 +144,7 @@ fun DiscoverScreen(
                         entries = railEntries,
                         focusedIndex = navRailFocusedIndex,
                         onClose = { isNavRailOpen.value = false },
+                        context = context,
                         actions = com.arflix.tv.ui.components.NavRailActions(
                             onNavigateToHome = onNavigateToHome,
                             onNavigateToSearch = onNavigateToSearch,
@@ -277,6 +279,7 @@ fun DiscoverScreen(
                 currentScreen = com.arflix.tv.data.model.NavSectionKind.DISCOVER,
                 navSections = navSections,
                 neolinkConfigured = neolinkConfigured,
+                currentProfile = currentProfile,
                 actions = com.arflix.tv.ui.components.NavRailActions(
                     onNavigateToHome = onNavigateToHome,
                     onNavigateToSearch = onNavigateToSearch,

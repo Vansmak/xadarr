@@ -117,6 +117,7 @@ fun SearchScreen(
     val aiUsePosterCards = rememberCatalogueRowLayoutMode("search:ai") == CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
     val isCompactHeight = configuration.screenHeightDp <= 780
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
     val searchBarWidth = if (isTouchDevice) configuration.screenWidthDp.dp - 24.dp
         else (configuration.screenWidthDp.dp * 0.48f).coerceIn(460.dp, 680.dp)
@@ -300,6 +301,7 @@ fun SearchScreen(
                     entries = railEntries,
                     focusedIndex = navRailFocusedIndex,
                     onClose = { isNavRailOpen.value = false },
+                    context = context,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToDiscover = onNavigateToDiscover,
@@ -503,6 +505,7 @@ fun SearchScreen(
                     currentScreen = com.arflix.tv.data.model.NavSectionKind.SEARCH,
                     navSections = navSections,
                     neolinkConfigured = neolinkConfigured,
+                    currentProfile = currentProfile,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToDiscover = onNavigateToDiscover,

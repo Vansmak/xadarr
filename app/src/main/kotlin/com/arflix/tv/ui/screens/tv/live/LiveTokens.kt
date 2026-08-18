@@ -82,9 +82,11 @@ object LiveDims {
     val MiniPlayerWidth  = 300.dp
     val MiniPlayerHeight = 168.dp
 
-    val EpgChannelColWidth = 240.dp
-    val EpgRowHeight       = 62.dp
-    val EpgHeaderHeight    = 38.dp
+    // Tightened from 240/62/38 to pack more rows on screen at once, TiviMate-style —
+    // still comfortably fits the 36dp ChannelLogo + two-line text in ChannelRow.
+    val EpgChannelColWidth = 200.dp
+    val EpgRowHeight       = 50.dp
+    val EpgHeaderHeight    = 30.dp
     val EpgPxPerMinute     = 5
     val EpgHalfHourWidth   = 120.dp
 

@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,22 +47,28 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.arflix.tv.R
+import com.arflix.tv.data.model.MediaType
+import com.arflix.tv.navigation.Screen
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 
+// TiviMate-clone redesign: mirrors the TV side menu (NavRail/NavSectionRepository —
+// Guide/Movies/Shows/Apps/Cameras/Settings), not the old Home/Search/Discover/Tv set.
+// Movies/Shows route to the live Plex poster grid (PlexLibraryScreen) — browsing happens
+// in-app, only selecting a specific title deep-links out to Plex from inside that screen.
 data class BottomBarItem(
     @StringRes val labelRes: Int,
     val icon: ImageVector,
-    val route: String
+    val route: String,
 )
 
 val bottomBarItems = listOf(
-    BottomBarItem(R.string.home, Icons.Default.Home, "home"),
-    BottomBarItem(R.string.search, Icons.Default.Search, "search"),
-    BottomBarItem(R.string.discover, Icons.Default.Explore, "discover"),
-    BottomBarItem(R.string.topbar_tv, Icons.Default.LiveTv, "tv"),
+    BottomBarItem(R.string.guide, Icons.Default.LiveTv, "home"),
+    BottomBarItem(R.string.movies, Icons.Default.Movie, Screen.PlexLibrary.createRoute(MediaType.MOVIE)),
+    BottomBarItem(R.string.shows, Icons.Default.Tv, Screen.PlexLibrary.createRoute(MediaType.TV)),
+    BottomBarItem(R.string.apps, Icons.Default.Apps, "all_apps"),
     BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )

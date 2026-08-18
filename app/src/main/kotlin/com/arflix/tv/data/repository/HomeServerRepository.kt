@@ -107,6 +107,32 @@ data class HomeServerCatalogPage(
     val hasMore: Boolean
 )
 
+// Plex-only, live-poster-grid item — deliberately separate from HomeServerCatalogItem
+// (which is shared with Jellyfin/Emby's TMDB-matching path and has no poster URL / Plex
+// ratingKey pairing). Feeds a poster grid inside Xadarr; selecting an item deep-links
+// straight into the Plex app at that title via PlexDeepLink.launchIntent(plexServerId, ratingKey).
+data class PlexLibraryItem(
+    val ratingKey: String,
+    val title: String,
+    val posterUrl: String?,
+    // Widescreen backdrop image (Plex's `art` field) — null falls back to posterUrl for the hero.
+    val artUrl: String? = null,
+    val year: Int?,
+    val plexServerId: String,
+    // 0f..1f watched fraction, null when there's no watch data at all. Movies: viewOffset/duration
+    // while in progress, 1f once fully watched (viewCount >= 1). Shows: viewedLeafCount/leafCount.
+    val progressFraction: Float?,
+    // Shows only (null for movies) — raw counts backing progressFraction, so the UI can show
+    // "7/10 watched" rather than just a bar.
+    val watchedEpisodeCount: Int? = null,
+    val totalEpisodeCount: Int? = null,
+)
+
+data class PlexLibraryPage(
+    val items: List<PlexLibraryItem>,
+    val hasMore: Boolean,
+)
+
 data class HomeServerResumeItem(
     val serverItemId: String,
     val tmdbId: Int,
@@ -483,6 +509,116 @@ class HomeServerRepository @Inject constructor(
         }.getOrDefault(HomeServerCatalogPage(emptyList(), hasMore = false))
     }
 
+    private val plexMovieTypeAliases = setOf("movie", "movies")
+    private val plexShowTypeAliases = setOf("show", "shows", "series", "tvshows")
+
+    // Live Plex library browse — bypasses loadCatalogItems/HomeServerCatalogItem entirely
+    // (that path is shared with Jellyfin/Emby's TMDB-matching flow and has no poster URL).
+    // Picks the first library section matching the requested type; if a server has more
+    // than one Movies (or Shows) section, only the first is browsed — a known simplification.
+    suspend fun loadPlexLibraryItems(
+        mediaType: MediaType,
+        offset: Int,
+        limit: Int,
+        // Overrides the default sort below. Needed by PlexLibraryScreen's New Episodes/
+        // Premiering matching: the default sort puts recently-*watched* shows first, so a
+        // show with a brand new unwatched episode (exactly what those rows exist to find)
+        // can fall outside a capped page entirely on a large library. Passing
+        // "episode.addedAt:desc" here fetches a small pool guaranteed to have fresh
+        // imports near the top regardless of watch history.
+        sortOverride: String? = null,
+    ): PlexLibraryPage = withContext(Dispatchers.IO) {
+        if (limit <= 0 || offset < 0) return@withContext PlexLibraryPage(emptyList(), hasMore = false)
+        val connection = currentConnections().firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX }
+            ?: return@withContext PlexLibraryPage(emptyList(), hasMore = false)
+        val typeAliases = if (mediaType == MediaType.TV) plexShowTypeAliases else plexMovieTypeAliases
+        val section = connection.collections.firstOrNull {
+            it.enabled && it.id.isNotBlank() && it.type.lowercase(Locale.US) in typeAliases
+        } ?: return@withContext PlexLibraryPage(emptyList(), hasMore = false)
+        val plexType = if (mediaType == MediaType.TV) "2" else "1"
+        // Shows: active (recently watched) titles float to the top first. Among shows with no
+        // watch history at all, `addedAt` alone doesn't help — that's the SHOW's own creation
+        // date in the library, not when its latest episode arrived, so a show added a year ago
+        // that just got a fresh episode (e.g. Ted Lasso downloading a new premiere) wouldn't
+        // move — `episode.addedAt` is Plex's real "most recently added episode" sort key (the
+        // same one already used for the Recently-Added catalogue row elsewhere in this file, at
+        // loadCatalogPage()'s "episode.addedAt:desc"), so newly-downloaded content actually
+        // surfaces for shows Joe hasn't watched yet. Plain `addedAt` stays as the final
+        // tiebreaker. All three chain in one server-side sort, verified directly against Plex's
+        // API (no client-side reordering needed across pages). Movies unchanged (no per-title
+        // "active"/episode-level signal requested for them).
+        val sort = sortOverride ?: if (mediaType == MediaType.TV) {
+            "lastViewedAt:desc,episode.addedAt:desc,addedAt:desc"
+        } else {
+            "addedAt:desc"
+        }
+
+        val response = runCatching {
+            getJson(
+                buildUrl(
+                    connection.serverUrl,
+                    "/library/sections/${section.id}/all",
+                    mapOf(
+                        "type" to plexType,
+                        "sort" to sort,
+                        "X-Plex-Container-Start" to offset.toString(),
+                        "X-Plex-Container-Size" to limit.toString(),
+                    )
+                ),
+                connection
+            )
+        }.getOrNull() ?: return@withContext PlexLibraryPage(emptyList(), hasMore = false)
+
+        val container = response.obj("MediaContainer")
+        val total = container?.int("totalSize") ?: container?.int("size") ?: 0
+        val items = response.array("MediaContainer", "Metadata").mapNotNull { element ->
+            val item = element.asJsonObjectOrNull() ?: return@mapNotNull null
+            val ratingKey = item.string("ratingKey").ifBlank { item.string("key") }
+            if (ratingKey.isBlank()) return@mapNotNull null
+            val thumbPath = item.string("thumb")
+            val posterUrl = thumbPath.takeIf { it.isNotBlank() }?.let {
+                buildUrl(connection.serverUrl, it, mapOf("X-Plex-Token" to connection.accessToken))
+            }
+            // Plex's separate widescreen backdrop image (vs. `thumb`'s portrait poster) —
+            // backs the Plex-style hero banner on the library screen.
+            val artPath = item.string("art")
+            val artUrl = artPath.takeIf { it.isNotBlank() }?.let {
+                buildUrl(connection.serverUrl, it, mapOf("X-Plex-Token" to connection.accessToken))
+            }
+            var watchedEpisodeCount: Int? = null
+            var totalEpisodeCount: Int? = null
+            val progressFraction = if (mediaType == MediaType.TV) {
+                val leafCount = item.int("leafCount") ?: 0
+                val viewedLeafCount = item.int("viewedLeafCount") ?: 0
+                if (leafCount > 0) {
+                    watchedEpisodeCount = viewedLeafCount
+                    totalEpisodeCount = leafCount
+                    (viewedLeafCount.toFloat() / leafCount.toFloat()).coerceIn(0f, 1f)
+                } else null
+            } else {
+                val viewOffset = item.long("viewOffset") ?: 0L
+                val duration = item.long("duration") ?: 0L
+                when {
+                    viewOffset > 0L && duration > 0L -> (viewOffset.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                    (item.int("viewCount") ?: 0) >= 1 -> 1f
+                    else -> null
+                }
+            }
+            PlexLibraryItem(
+                ratingKey = ratingKey,
+                title = item.string("title"),
+                posterUrl = posterUrl,
+                artUrl = artUrl,
+                year = item.int("year"),
+                plexServerId = connection.serverId,
+                progressFraction = progressFraction,
+                watchedEpisodeCount = watchedEpisodeCount,
+                totalEpisodeCount = totalEpisodeCount,
+            )
+        }
+        PlexLibraryPage(items = items, hasMore = offset + items.size < total)
+    }
+
     suspend fun fetchResumeItems(): List<HomeServerResumeItem> = withContext(Dispatchers.IO) {
         currentConnections()
             .filter { it.isUsable }
@@ -567,6 +703,73 @@ class HomeServerRepository @Inject constructor(
             .distinctBy { "${it.addonId}|${it.source}|${it.url}" }
         putCachedSources(cacheKey, sources)
         sources
+    }
+
+    // Plex-native watched status — Joe's replacement for Trakt as the watched-tracking source:
+    // Trakt's watch data doesn't reliably reflect his actual viewing (see [[feedback_no_trakt]]),
+    // but Plex already knows exactly what's been watched *through Plex itself*. Doesn't recover
+    // history from other servers/years — accepted limitation, not solvable client-side.
+    suspend fun getPlexWatchedEpisodes(
+        imdbId: String?,
+        title: String,
+        tmdbId: Int?,
+        tvdbId: Int?
+    ): Set<Pair<Int, Int>> = withContext(Dispatchers.IO) {
+        val connection = currentConnections()
+            .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext emptySet()
+        runCatching {
+            val series = findBestSeries(connection, imdbId, title, null, tmdbId, tvdbId) ?: return@runCatching emptySet()
+            val response = getJson(
+                buildUrl(
+                    connection.serverUrl,
+                    "/library/metadata/${series.id}/allLeaves",
+                    mapOf("X-Plex-Token" to connection.accessToken)
+                ),
+                connection
+            )
+            response.array("MediaContainer", "Metadata").mapNotNull { element ->
+                val item = element.asJsonObjectOrNull() ?: return@mapNotNull null
+                val season = item.int("parentIndex") ?: return@mapNotNull null
+                val episode = item.int("index") ?: return@mapNotNull null
+                if ((item.int("viewCount") ?: 0) >= 1) season to episode else null
+            }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    suspend fun setPlexEpisodeWatched(
+        imdbId: String?,
+        title: String,
+        season: Int,
+        episode: Int,
+        tmdbId: Int?,
+        tvdbId: Int?,
+        watched: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        val connection = currentConnections()
+            .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext false
+        runCatching {
+            val series = findBestSeries(connection, imdbId, title, null, tmdbId, tvdbId) ?: return@runCatching false
+            val episodeItem = findEpisode(connection, series.id, season, episode) ?: return@runCatching false
+            scrobblePlex(connection, episodeItem.id, watched)
+            true
+        }.getOrDefault(false)
+    }
+
+    // Plex's actual mark-watched/unwatched calls — same GET-with-query-params shape already
+    // used by ServerSessionRepository's /:/timeline progress reporting.
+    private fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean) {
+        val path = if (watched) "/:/scrobble" else "/:/unscrobble"
+        val url = buildUrl(
+            connection.serverUrl,
+            path,
+            mapOf(
+                "key" to ratingKey,
+                "identifier" to "com.plexapp.plugins.library",
+                "X-Plex-Token" to connection.accessToken
+            )
+        )
+        val request = Request.Builder().url(url).get().build()
+        okHttpClient.newCall(request).execute().close()
     }
 
     private suspend fun saveConnection(connection: HomeServerConnection) {
@@ -2085,6 +2288,18 @@ class HomeServerRepository @Inject constructor(
             (refreshedSources + item.mediaSources)
                 .distinctBy { it.identityKey() }
         } else {
+            // Per-title, not blanket: only exclude Dolby Vision from direct-play in the
+            // DeviceProfile we send when THIS item's own tagged profile/level is one this
+            // device's decoder can't actually handle. Lets DV/level combos the Shield genuinely
+            // supports direct-play natively (real DV+Atmos), while known-bad combos still fall
+            // back to the transcode path. See [[project_dv_atmos_passthrough_2026-07-30]].
+            val dvSource = item.mediaSources.firstOrNull { it.dolbyVisionProfile != null }
+            val allowDolbyVisionDirectPlay = dvSource == null || com.arflix.tv.util.DolbyVisionCapability.isDirectPlaySupported(
+                dvProfile = dvSource.dolbyVisionProfile,
+                dvLevel = dvSource.dolbyVisionLevel,
+                videoWidth = dvSource.videoWidth,
+                videoHeight = dvSource.videoHeight
+            )
             val playbackInfoSources = runCatching {
                 postJson(
                     buildUrl(
@@ -2098,7 +2313,7 @@ class HomeServerRepository @Inject constructor(
                             "MaxStreamingBitrate" to "2147483647"
                         )
                     ),
-                    playbackInfoRequestBody(),
+                    playbackInfoRequestBody(allowDolbyVisionDirectPlay),
                     connection
                 ).mediaSources()
             }.getOrDefault(emptyList())
@@ -2130,7 +2345,11 @@ class HomeServerRepository @Inject constructor(
                         proxyHeaders = ProxyHeaders(request = playbackHeaders(connection))
                     ),
                     serverItemId = item.id.takeIf { it.isNotBlank() },
-                    audioFormat = mediaSource.audioFormat
+                    audioFormat = mediaSource.audioFormat,
+                    dolbyVisionProfile = mediaSource.dolbyVisionProfile,
+                    dolbyVisionLevel = mediaSource.dolbyVisionLevel,
+                    isPlexSource = connection.serverKind == HomeServerKind.PLEX,
+                    plexServerId = connection.serverId.takeIf { connection.serverKind == HomeServerKind.PLEX }
                 )
             }
             .distinctBy { "${it.url?.trim().orEmpty()}|${it.source}" }
@@ -2154,11 +2373,11 @@ class HomeServerRepository @Inject constructor(
     // DTS/TrueHD/Atmos/EAC3/etc — see PlayerScreen.kt's EXTENSION_RENDERER_MODE_PREFER/ON
     // setup. A file outside this list (or a device without the FFmpeg fallback) now gets a
     // server-side transcode instead of silently failing or stuttering on-device.
-    private fun playbackInfoRequestBody(): JsonObject = JsonObject().apply {
-        add("DeviceProfile", buildDeviceProfile())
+    private fun playbackInfoRequestBody(allowDolbyVisionDirectPlay: Boolean = false): JsonObject = JsonObject().apply {
+        add("DeviceProfile", buildDeviceProfile(allowDolbyVisionDirectPlay))
     }
 
-    private fun buildDeviceProfile(): JsonObject {
+    private fun buildDeviceProfile(allowDolbyVisionDirectPlay: Boolean = false): JsonObject {
         fun directPlayProfile(container: String, videoCodecs: String?, audioCodecs: String) = JsonObject().apply {
             addProperty("Container", container)
             addProperty("Type", if (videoCodecs != null) "Video" else "Audio")
@@ -2188,7 +2407,13 @@ class HomeServerRepository @Inject constructor(
             add(JsonObject().apply {
                 addProperty("Container", "ts")
                 addProperty("Type", "Video")
-                addProperty("VideoCodec", "h264")
+                // hevc first: with Jellyfin's Intel QuickSync hardware encoder enabled,
+                // this lets 4K/HDR transcodes (e.g. tone-mapped Dolby Vision, see
+                // CodecProfiles below) land at a much better quality-per-bit than a
+                // forced h264 target. ExoPlayer already decodes plain (non-DV) HEVC main10
+                // fine on-device — h264 stays listed as the fallback for any server without
+                // HEVC hardware encoding available.
+                addProperty("VideoCodec", "hevc,h264")
                 addProperty("AudioCodec", "aac,ac3")
                 addProperty("Context", "Streaming")
                 addProperty("Protocol", "hls")
@@ -2215,6 +2440,37 @@ class HomeServerRepository @Inject constructor(
             }
         }
 
+        // Per-title decision (see call site in buildStreamSources): this device's Dolby Vision
+        // decoder genuinely exists and works for *some* profile/level combos — MediaCodecList
+        // only reports NoSupport for specific ones (confirmed via DolbyVisionCapability against
+        // this exact item's tagged DvProfile/DvLevel before we ever get here). When it's
+        // supported, skip this exclusion entirely so Jellyfin offers direct-play and this
+        // device's real DV+Atmos decode path gets used, same as the native Plex app.
+        // When unsupported, excluding it here is what makes Jellyfin transcode/tone-map instead
+        // of handing over the raw file — without this, DirectPlayProfiles above (which allow
+        // "hevc" with no range-type qualifier) tell Jellyfin this device can direct-play any
+        // HEVC stream including DV, and ExoPlayer hangs in BUFFERING until the file's size
+        // triggers an OOM kill. IsRequired=false so files with no VideoRangeType tagged at all
+        // (the common case) aren't penalized into a needless transcode.
+        val codecProfiles = JsonArray().apply {
+            if (!allowDolbyVisionDirectPlay) {
+                add(JsonObject().apply {
+                    addProperty("Type", "Video")
+                    addProperty("Codec", "hevc,av1")
+                    add("Conditions", JsonArray().apply {
+                        listOf("DOVI", "DOVIWithHDR10", "DOVIWithHDR10Plus", "DOVIWithHLG", "DOVIWithSDR").forEach { rangeType ->
+                            add(JsonObject().apply {
+                                addProperty("Condition", "NotEquals")
+                                addProperty("Property", "VideoRangeType")
+                                addProperty("Value", rangeType)
+                                addProperty("IsRequired", false)
+                            })
+                        }
+                    })
+                })
+            }
+        }
+
         return JsonObject().apply {
             addProperty("Name", "Xadarr")
             addProperty("MaxStreamingBitrate", 120_000_000)
@@ -2223,7 +2479,7 @@ class HomeServerRepository @Inject constructor(
             add("DirectPlayProfiles", directPlayProfiles)
             add("TranscodingProfiles", transcodingProfiles)
             add("ContainerProfiles", JsonArray())
-            add("CodecProfiles", JsonArray())
+            add("CodecProfiles", codecProfiles)
             add("SubtitleProfiles", subtitleProfiles)
             add("ResponseProfiles", JsonArray())
         }
@@ -2442,6 +2698,12 @@ class HomeServerRepository @Inject constructor(
         if (kind == HomeServerKind.PLEX) {
             val width = parentMedia?.int("width") ?: int("width") ?: 0
             val height = parentMedia?.int("height") ?: int("height") ?: 0
+            // Unlike audio codec/channels, Dolby Vision tagging isn't flattened onto <Media> —
+            // it only lives on this Part's own video <Stream> (streamType=1). Populating these
+            // lets the DV fast-fail watchdog in PlayerScreen.kt cover Plex sources too, same as
+            // the Jellyfin/Emby path below. See [[project_dv_atmos_passthrough_2026-07-30]].
+            val videoStream = array("Stream").mapNotNull { it.asJsonObjectOrNull() }
+                .firstOrNull { it.int("streamType") == 1 }
             return HomeServerMediaSource(
                 id = string("id"),
                 key = string("key"),
@@ -2461,7 +2723,9 @@ class HomeServerRepository @Inject constructor(
                     codec = parentMedia?.string("audioCodec"),
                     trackLabel = null,
                     channelCount = parentMedia?.int("audioChannels")
-                )
+                ),
+                dolbyVisionProfile = videoStream?.int("DOVIProfile"),
+                dolbyVisionLevel = videoStream?.int("DOVILevel")
             )
         }
 
@@ -2489,7 +2753,9 @@ class HomeServerRepository @Inject constructor(
                 codec = audioStream?.string("Codec"),
                 trackLabel = audioTrackLabel,
                 channelCount = audioStream?.int("Channels")
-            )
+            ),
+            dolbyVisionProfile = videoStream?.int("DvProfile"),
+            dolbyVisionLevel = videoStream?.int("DvLevel")
         )
     }
 
@@ -2598,7 +2864,14 @@ class HomeServerRepository @Inject constructor(
         val transcodingUrl: String,
         val videoWidth: Int,
         val videoHeight: Int,
-        val audioFormat: String? = null
+        val audioFormat: String? = null,
+        // Dolby Vision profile/level for the video track, when tagged (Jellyfin's MediaStreams
+        // DvProfile/DvLevel fields). Used to decide, per title, whether this exact device can
+        // direct-play the DV stream natively or needs the transcode fallback — see
+        // [[project_dv_atmos_passthrough_2026-07-30]] memory. Null for non-DV content.
+        val dolbyVisionProfile: Int? = null,
+        val dolbyVisionLevel: Int? = null,
+        val dolbyVisionCodecTag: String = "dvhe"
     )
 
     private fun fetchJellyfinResumeItems(connection: HomeServerConnection): List<HomeServerResumeItem> {

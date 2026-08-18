@@ -12,6 +12,8 @@
     <string name="cameras">Cameras</string>
     <string name="discover">Discover</string>
     <string name="my_watchlist">My Watchlist</string>
+    <string name="guide">Guide</string>
+    <string name="apps">Apps</string>
 
     <!-- Content types -->
     <string name="general">General</string>

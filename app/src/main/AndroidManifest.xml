@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Google account access for Drive sync -->
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <!-- Program reminder notifications (required at runtime on API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- TV Features (not required so the same APK installs on phones/tablets) -->
     <uses-feature
@@ -30,6 +32,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <package android:name="com.android.tv.settings" />
+        <!-- Explicit package visibility for Plex — without this, resolveActivity() on the
+             plex://play deep link (PlexDeepLink.kt) can silently fail package-visibility
+             filtering on Android 11+ even when Plex is installed, falling back to a plain
+             app launch instead of jumping to the specific title. -->
+        <package android:name="com.plexapp.android" />
     </queries>
 
     <application

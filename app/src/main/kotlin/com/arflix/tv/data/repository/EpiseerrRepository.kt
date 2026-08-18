@@ -31,6 +31,19 @@ data class EpiseerrRule(
     val seriesCount: Int,
 )
 
+// Latest watch event per series from Episeerr's 7-day rolling activity log — cross-service
+// (fed by Tautulli/Jellyfin webhooks into Episeerr, not Plex's own per-item counters), so
+// this reflects real watch progress regardless of which server actually played it. No Plex
+// ratingKey here (Episeerr only knows Sonarr's world) — matched by title against the live
+// Plex library on the client side. See PlexLibraryScreen.kt.
+data class EpiseerrRecentlyWatched(
+    val seriesTitle: String,
+    val season: Int?,
+    val episode: Int?,
+    val timestamp: Long,
+    val backdropUrl: String?,
+)
+
 @Singleton
 class EpiseerrRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -133,6 +146,28 @@ class EpiseerrRepository @Inject constructor(
         } catch (e: Exception) {
             Log.d(tag, "assignRuleToSeries failed: ${e.message}")
             false
+        }
+    }
+
+    suspend fun getRecentlyWatched(): List<EpiseerrRecentlyWatched> = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext emptyList() }
+        try {
+            val req = Request.Builder().url("$base/api/episeerr/recently-watched").get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "[]" }
+            val arr = JSONArray(body)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                EpiseerrRecentlyWatched(
+                    seriesTitle = obj.optString("seriesTitle"),
+                    season      = obj.optInt("season").takeIf { obj.has("season") && !obj.isNull("season") },
+                    episode     = obj.optInt("episode").takeIf { obj.has("episode") && !obj.isNull("episode") },
+                    timestamp   = obj.optLong("timestamp"),
+                    backdropUrl = obj.optString("backdropUrl").ifBlank { null },
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "getRecentlyWatched failed: ${e.message}")
+            emptyList()
         }
     }
 

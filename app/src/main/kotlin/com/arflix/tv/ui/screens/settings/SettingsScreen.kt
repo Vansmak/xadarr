@@ -230,7 +230,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
-        "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27)
+        "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27, 43, 44)
         "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41, 42)
         "profiles" -> listOf(19)
         "android_settings" -> listOf(37)
@@ -294,6 +294,9 @@ fun SettingsScreen(
     onNavigateToDiscover: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSmartHome: () -> Unit = {},
+    onNavigateToAllApps: () -> Unit = {},
+    onNavigateToMovies: () -> Unit = {},
+    onNavigateToShows: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
@@ -336,7 +339,17 @@ fun SettingsScreen(
     // always the standalone gear icon). Falls back to declaration order when
     // no per-profile customization has been saved yet, matching NavSectionRepository.defaultSections().
     val orderableNavSections = remember(navSections) {
-        val fixedKinds = com.arflix.tv.data.model.NavSectionKind.entries.filter { it != com.arflix.tv.data.model.NavSectionKind.CUSTOM }
+        // TiviMate-clone redesign retired Home/Search/Discover from the nav model —
+        // excluded here too so the empty-navSections fallback below (should be rare;
+        // NavSectionRepository.defaultSections() always seeds real entries) can't
+        // resurrect them into this list.
+        val retiredKinds = setOf(
+            com.arflix.tv.data.model.NavSectionKind.HOME,
+            com.arflix.tv.data.model.NavSectionKind.SEARCH,
+            com.arflix.tv.data.model.NavSectionKind.DISCOVER,
+        )
+        val fixedKinds = com.arflix.tv.data.model.NavSectionKind.entries
+            .filter { it != com.arflix.tv.data.model.NavSectionKind.CUSTOM && it !in retiredKinds }
         val effective = navSections.ifEmpty {
             fixedKinds.mapIndexed { index, kind ->
                 com.arflix.tv.data.model.NavSectionConfig(kind = kind, order = index)
@@ -722,6 +735,7 @@ fun SettingsScreen(
                             entries = railEntries,
                             focusedIndex = navRailFocusedIndex,
                             onClose = { isNavRailOpen.value = false },
+                            context = context,
                             actions = com.arflix.tv.ui.components.NavRailActions(
                                 onNavigateToHome = onNavigateToHome,
                                 onNavigateToSearch = onNavigateToSearch,
@@ -729,6 +743,9 @@ fun SettingsScreen(
                                 onNavigateToTv = onNavigateToTv,
                                 onNavigateToCameras = onNavigateToCameras,
                                 onNavigateToWatchlist = onNavigateToWatchlist,
+                                onNavigateToAllApps = onNavigateToAllApps,
+                                onNavigateToMovies = onNavigateToMovies,
+                                onNavigateToShows = onNavigateToShows,
                             ),
                         )
                         return@onPreviewKeyEvent true
@@ -908,6 +925,8 @@ fun SettingsScreen(
                                                 36 -> viewModel.setLauncherMode(!uiState.launcherModeEnabled)
                                                 41 -> showNavCustomizationModal = true
                                                 42 -> viewModel.cycleHomeRowSelection()
+                                                43 -> viewModel.setPlayVodViaPlex(!uiState.playVodViaPlex)
+                                                44 -> viewModel.setPlayLivetvViaTivimate(!uiState.playLivetvViaTivimate)
                                             }
                                         }
                                         "iptv" -> {
@@ -1098,7 +1117,7 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showHaUrlDialog = true
                                                 contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showHaTokenDialog = true
                                                 contentFocusIndex == stremioAddons.size + 8 + uiState.webhookUrls.size -> onNavigateToSmartHome()
-                                                contentFocusIndex == stremioAddons.size + 9 + uiState.webhookUrls.size -> showBlacklistPathDialog = true
+                                                contentFocusIndex == stremioAddons.size + 9 + uiState.webhookUrls.size && uiState.groupBlacklistEnabled -> showBlacklistPathDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1402,6 +1421,10 @@ fun SettingsScreen(
                             onToggleLanSync = { viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled) },
                             onLanSyncPortClick = { showWatchlistApiPortDialog = true },
                             onToggleLanSyncMaster = { viewModel.setLanSyncMaster(!uiState.lanSyncMaster) },
+                            playVodViaPlex = uiState.playVodViaPlex,
+                            onTogglePlayVodViaPlex = { viewModel.setPlayVodViaPlex(!uiState.playVodViaPlex) },
+                            playLivetvViaTivimate = uiState.playLivetvViaTivimate,
+                            onTogglePlayLivetvViaTivimate = { viewModel.setPlayLivetvViaTivimate(!uiState.playLivetvViaTivimate) },
                         )
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
@@ -2370,6 +2393,7 @@ fun SettingsScreen(
                     currentScreen = com.arflix.tv.data.model.NavSectionKind.SETTINGS,
                     navSections = navSections,
                     neolinkConfigured = neolinkConfigured,
+                    currentProfile = currentProfile,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToSearch = onNavigateToSearch,
@@ -2377,6 +2401,9 @@ fun SettingsScreen(
                         onNavigateToTv = onNavigateToTv,
                         onNavigateToCameras = onNavigateToCameras,
                         onNavigateToWatchlist = onNavigateToWatchlist,
+                        onNavigateToAllApps = onNavigateToAllApps,
+                        onNavigateToMovies = onNavigateToMovies,
+                        onNavigateToShows = onNavigateToShows,
                     ),
                     focusedIndex = navRailFocusedIndex.value,
                 )
@@ -3935,6 +3962,23 @@ private fun MobileSettingsSubPage(
                         onClick = openQualityFiltersModal
                     )
                 }
+                MobileSettingsCategory(title = "EXTERNAL PLAYBACK") {
+                    MobileSettingsRow(
+                        icon = Icons.Default.PlayArrow,
+                        title = "Play Movies/Shows via Plex",
+                        value = if (uiState.playVodViaPlex) "On" else "Off",
+                        isFocused = false,
+                        onClick = { viewModel.setPlayVodViaPlex(!uiState.playVodViaPlex) }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.LiveTv,
+                        title = "Play Live TV via TiviMate",
+                        value = if (uiState.playLivetvViaTivimate) "On" else "Off",
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.setPlayLivetvViaTivimate(!uiState.playLivetvViaTivimate) }
+                    )
+                }
                 MobileSettingsCategory(title = "CONTROLS") {
                     MobileSettingsRow(
                         icon = Icons.Default.Person,
@@ -5019,6 +5063,10 @@ private fun TvGeneralSettingsRows(
     onToggleLanSync: () -> Unit = {},
     onLanSyncPortClick: () -> Unit = {},
     onToggleLanSyncMaster: () -> Unit = {},
+    playVodViaPlex: Boolean = false,
+    onTogglePlayVodViaPlex: () -> Unit = {},
+    playLivetvViaTivimate: Boolean = false,
+    onTogglePlayLivetvViaTivimate: () -> Unit = {},
 ) {
     Column {
         tvGeneralRowsForSection(section).forEachIndexed { localIndex, rowId ->
@@ -5144,6 +5192,24 @@ private fun TvGeneralSettingsRows(
                 }
                 39 -> SettingsRow(Icons.Default.CloudSync, "LAN Sync Master", "This device always wins. Without a master, last change wins.", if (lanSyncMaster) "Master" else "Off", focusedIndex == localIndex, onToggleLanSyncMaster, Modifier.settingsFocusSlot(localIndex))
                 40 -> SettingsRow(Icons.Default.Settings, "Local Server Port", "Port for the local API server — used by xadarr-server and LAN sync peers", watchlistApiPort.toString(), focusedIndex == localIndex, onLanSyncPortClick, Modifier.settingsFocusSlot(localIndex))
+                43 -> SettingsRow(
+                    icon = Icons.Default.PlayArrow,
+                    title = "Play Movies/Shows via Plex",
+                    subtitle = "Hand off Plex-backed playback to the native Plex app",
+                    value = if (playVodViaPlex) "On" else "Off",
+                    isFocused = focusedIndex == localIndex,
+                    onClick = onTogglePlayVodViaPlex,
+                    modifier = Modifier.settingsFocusSlot(localIndex)
+                )
+                44 -> SettingsRow(
+                    icon = Icons.Default.LiveTv,
+                    title = "Play Live TV via TiviMate",
+                    subtitle = "Full-screen guide opens TiviMate; mini-player stays native",
+                    value = if (playLivetvViaTivimate) "On" else "Off",
+                    isFocused = focusedIndex == localIndex,
+                    onClick = onTogglePlayLivetvViaTivimate,
+                    modifier = Modifier.settingsFocusSlot(localIndex)
+                )
             }
         }
     }
@@ -8586,7 +8652,6 @@ private fun StremioAddonsSettings(
                 modifier = Modifier.settingsFocusSlot(addons.size + 9 + webhookUrls.size)
             )
         }
-
     }
 }
 

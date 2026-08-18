@@ -63,7 +63,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -97,9 +96,8 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
+import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.ui.screens.tv.live.LiveType
-import com.arflix.tv.ui.theme.XadarrTheme
-import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.util.LocalDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -202,6 +200,9 @@ fun CamerasScreen(
     onNavigateToDiscover: () -> Unit = {},
     onNavigateToTv: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAllApps: () -> Unit = {},
+    onNavigateToMovies: () -> Unit = {},
+    onNavigateToShows: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
 ) {
@@ -336,7 +337,7 @@ fun CamerasScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(XadarrTheme.colors.backgroundDark)
+            .background(LiveColors.Bg)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -352,6 +353,7 @@ fun CamerasScreen(
                         entries = railEntries,
                         focusedIndex = navRailFocusedIndex,
                         onClose = { isNavRailOpen.value = false },
+                        context = context,
                         actions = com.arflix.tv.ui.components.NavRailActions(
                             onNavigateToHome = onNavigateToHome,
                             onNavigateToSearch = onNavigateToSearch,
@@ -359,6 +361,9 @@ fun CamerasScreen(
                             onNavigateToTv = onNavigateToTv,
                             onNavigateToWatchlist = onNavigateToWatchlist,
                             onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToAllApps = onNavigateToAllApps,
+                            onNavigateToMovies = onNavigateToMovies,
+                            onNavigateToShows = onNavigateToShows,
                         ),
                     )
                     return@onPreviewKeyEvent true
@@ -460,7 +465,7 @@ fun CamerasScreen(
                         Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator(color = Pink)
+                        CircularProgressIndicator(color = LiveColors.Accent)
                     }
                 }
                 uiState.error != null -> {
@@ -469,18 +474,18 @@ fun CamerasScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(64.dp))
+                        Icon(Icons.Outlined.Videocam, null, tint = LiveColors.FgMute, modifier = Modifier.size(64.dp))
                         Spacer(Modifier.height(16.dp))
-                        Text(uiState.error!!, color = Color.White.copy(0.6f), fontSize = 14.sp)
+                        Text(uiState.error!!, color = LiveColors.FgDim, style = LiveType.BodySynopsis)
                         Spacer(Modifier.height(16.dp))
                         Box(
                             Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Pink.copy(0.15f))
-                                .border(1.dp, Pink.copy(0.4f), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(LiveDims.CardRadius))
+                                .background(LiveColors.AccentDim.copy(alpha = 0.35f))
+                                .border(1.dp, LiveColors.Accent.copy(alpha = 0.5f), RoundedCornerShape(LiveDims.CardRadius))
                                 .clickable { viewModel.loadCameras() }
                                 .padding(horizontal = 20.dp, vertical = 10.dp),
-                        ) { Text("Retry", color = Pink, fontSize = 14.sp) }
+                        ) { Text("Retry", color = LiveColors.Fg, style = LiveType.CellTitle) }
                     }
                 }
                 else -> {
@@ -519,6 +524,7 @@ fun CamerasScreen(
                     currentScreen = com.arflix.tv.data.model.NavSectionKind.CAMERAS,
                     navSections = navSections,
                     neolinkConfigured = neolinkConfigured,
+                    currentProfile = currentProfile,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToSearch = onNavigateToSearch,
@@ -526,6 +532,9 @@ fun CamerasScreen(
                         onNavigateToTv = onNavigateToTv,
                         onNavigateToWatchlist = onNavigateToWatchlist,
                         onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToAllApps = onNavigateToAllApps,
+                        onNavigateToMovies = onNavigateToMovies,
+                        onNavigateToShows = onNavigateToShows,
                     ),
                     focusedIndex = navRailFocusedIndex.value,
                 )
@@ -613,7 +622,7 @@ private fun CameraGridCard(
         animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse-alpha",
     )
-    val borderColor = if (isFocused) Pink.copy(pulseAlpha) else Color.White.copy(0.06f)
+    val borderColor = if (isFocused) LiveColors.FocusRing.copy(alpha = pulseAlpha) else LiveColors.Divider
 
     // snapshotUrl is a static string, so Coil's in-memory cache would otherwise
     // keep showing whatever bitmap it first decoded for that exact URL for as
@@ -632,12 +641,12 @@ private fun CameraGridCard(
     Column(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(10.dp))
-            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(10.dp))
-            .background(Color(0xFF0E0E14)),
+            .clip(RoundedCornerShape(LiveDims.CardRadius))
+            .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, RoundedCornerShape(LiveDims.CardRadius))
+            .background(LiveColors.Panel),
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().weight(1f).background(Color(0xFF111118)),
+            modifier = Modifier.fillMaxWidth().weight(1f).background(LiveColors.PanelDeep),
             contentAlignment = Alignment.Center,
         ) {
             if (camera.snapshotUrl.isNotBlank()) {
@@ -654,7 +663,7 @@ private fun CameraGridCard(
                     )
                 )
             } else {
-                Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(48.dp))
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.FgMute, modifier = Modifier.size(48.dp))
             }
 
             val dotAlpha by pulseTransition.animateFloat(
@@ -680,7 +689,7 @@ private fun CameraGridCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0A0A10))
+                .background(LiveColors.RowStripe)
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -688,9 +697,8 @@ private fun CameraGridCard(
             Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Accent.copy(0.7f), modifier = Modifier.size(13.dp))
             Text(
                 text = camera.displayName,
-                color = Color.White.copy(if (isFocused) 1f else 0.85f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                color = if (isFocused) LiveColors.Fg else LiveColors.FgDim,
+                style = LiveType.CellTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -737,16 +745,16 @@ private fun EmbeddedCameraPlayer(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(20.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black.copy(0.6f))
+                .clip(RoundedCornerShape(LiveDims.CardRadius))
+                .background(LiveColors.PanelDeep.copy(alpha = 0.85f))
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.8f), modifier = Modifier.size(18.dp))
-                Text(displayName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Fg.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+                Text(displayName, color = LiveColors.Fg, style = LiveType.ChannelName)
             }
         }
 
@@ -755,11 +763,11 @@ private fun EmbeddedCameraPlayer(
                 .align(Alignment.TopEnd)
                 .padding(20.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(0.6f))
+                .background(LiveColors.PanelDeep.copy(alpha = 0.85f))
                 .clickable { onBack() }
                 .padding(10.dp),
         ) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.Fg, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -776,7 +784,7 @@ private fun CameraEventsRow(
     val nowMs = remember { System.currentTimeMillis() }
     Column(
         modifier = modifier
-            .background(Color(0xFF0A0A10))
+            .background(LiveColors.RowStripe)
             .padding(horizontal = 12.dp),
     ) {
         Row(
@@ -787,9 +795,8 @@ private fun CameraEventsRow(
             Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Accent.copy(0.7f), modifier = Modifier.size(13.dp))
             Text(
                 text = "Recent Events",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+                color = LiveColors.Fg,
+                style = LiveType.SectionTag,
             )
         }
         val listState = rememberLazyListState()
@@ -837,21 +844,21 @@ private fun CameraEventCard(
         animationSpec = tween(150, easing = FastOutSlowInEasing),
         label = "event_scale",
     )
-    val borderColor = if (isFocused) Pink.copy(alpha = 0.9f) else Color.White.copy(0.06f)
+    val borderColor = if (isFocused) LiveColors.FocusRing else LiveColors.Divider
 
     Column(
         modifier = Modifier
             .scale(scale)
             .width(175.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
-            .background(Color(0xFF0E0E14)),
+            .clip(RoundedCornerShape(LiveDims.CellRadius))
+            .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, RoundedCornerShape(LiveDims.CellRadius))
+            .background(LiveColors.Panel),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(98.dp)
-                .background(Color(0xFF111118)),
+                .background(LiveColors.PanelDeep),
             contentAlignment = Alignment.Center,
         ) {
             if (thumbnailUrl.isNotBlank()) {
@@ -862,7 +869,7 @@ private fun CameraEventCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(32.dp))
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.FgMute, modifier = Modifier.size(32.dp))
             }
             Box(
                 Modifier.fillMaxSize().background(
@@ -875,23 +882,22 @@ private fun CameraEventCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0A0A10))
+                .background(LiveColors.RowStripe)
                 .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = "$label · $cameraName",
-                color = Color.White.copy(if (isFocused) 1f else 0.75f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
+                color = if (isFocused) LiveColors.Fg else LiveColors.FgDim,
+                style = LiveType.Badge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = timeAgo,
-                color = Color.White.copy(0.45f),
+                color = LiveColors.FgMute,
                 fontSize = 9.sp,
             )
         }
@@ -995,21 +1001,21 @@ fun CameraPlayerScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart).padding(20.dp)
-                .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(0.6f))
+                .clip(RoundedCornerShape(LiveDims.CardRadius)).background(LiveColors.PanelDeep.copy(alpha = 0.85f))
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Videocam, null, tint = Color.White.copy(0.8f), modifier = Modifier.size(18.dp))
-                Text(cameraName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Fg.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+                Text(cameraName, color = LiveColors.Fg, style = LiveType.ChannelName)
             }
         }
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd).padding(20.dp)
-                .clip(CircleShape).background(Color.Black.copy(0.6f))
+                .clip(CircleShape).background(LiveColors.PanelDeep.copy(alpha = 0.85f))
                 .clickable { onBack() }.padding(10.dp),
         ) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.Fg, modifier = Modifier.size(20.dp))
         }
     }
 }

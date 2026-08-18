@@ -94,6 +94,7 @@ fun WatchlistScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val logoUrls by viewModel.logoUrls.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val rowKey = "watchlist"
     val usePosterCards = rememberCatalogueRowLayoutMode(rowKey) == CardLayoutMode.POSTER
     val configuration = LocalConfiguration.current
@@ -218,6 +219,7 @@ fun WatchlistScreen(
                         entries = railEntries,
                         focusedIndex = navRailFocusedIndex,
                         onClose = { isNavRailOpen.value = false },
+                        context = context,
                         actions = com.arflix.tv.ui.components.NavRailActions(
                             onNavigateToHome = onNavigateToHome,
                             onNavigateToSearch = onNavigateToSearch,
@@ -321,6 +323,7 @@ fun WatchlistScreen(
                     currentScreen = null,
                     navSections = navSections,
                     neolinkConfigured = neolinkConfigured,
+                    currentProfile = currentProfile,
                     actions = com.arflix.tv.ui.components.NavRailActions(
                         onNavigateToHome = onNavigateToHome,
                         onNavigateToSearch = onNavigateToSearch,
