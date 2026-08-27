@@ -1014,6 +1014,11 @@ def episeerr_rules():
     return _episeerr_proxy("/api/rules-list")
 
 
+@app.route("/api/episeerr/quick-links", methods=["GET"])
+def episeerr_quick_links():
+    return _episeerr_proxy("/api/quick-links")
+
+
 @app.route("/api/episeerr/assign", methods=["POST"])
 def episeerr_assign():
     body = request.get_json(force=True) or {}

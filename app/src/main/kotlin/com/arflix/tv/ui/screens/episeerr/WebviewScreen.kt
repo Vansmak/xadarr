@@ -29,23 +29,28 @@ fun EpiseerrWebviewScreen(
     onBack: () -> Unit,
 ) {
     BackHandler { onBack() }
+    // Mobile already closes this via the system back gesture/button (BackHandler above) and
+    // Xadarr's own bottom nav is one tap away, so the on-screen header bar is just wasted
+    // vertical space there — kept only for TV, which has no swipe-back gesture.
+    val isTouchDevice = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF111827))
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF1F2937))
-                    .statusBarsPadding()
-            ) {
-                IconButton(onClick = onBack, modifier = Modifier.padding(4.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                    )
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            if (!isTouchDevice) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF1F2937))
+                ) {
+                    IconButton(onClick = onBack, modifier = Modifier.padding(4.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                        )
+                    }
                 }
             }
             AndroidView(

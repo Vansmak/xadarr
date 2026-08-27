@@ -285,6 +285,11 @@ dependencies {
     implementation("androidx.hilt:hilt-work:1.1.0")
     ksp("androidx.hilt:hilt-compiler:1.1.0")
 
+    // Home-screen widget (Activity Feed) — Glance pulls its own compose-runtime; verified
+    // against the compose-bom 2024.06.00 pin above before adding (see build.gradle comment
+    // there) — does not bump the resolved runtime off what tv-foundation:alpha11 needs.
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+
     // Profile installer for baseline profiles
     implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 

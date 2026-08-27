@@ -196,6 +196,13 @@ data class SettingsUiState(
     val webhookEnabled: Boolean = false,
     val webhookUrls: List<com.arflix.tv.data.repository.WebhookUrlConfig> = emptyList(),
     val webhookIntervalSeconds: Int = 30,
+    // Mobile-only "Bookmarks" — arbitrary web shortcuts (Sonarr/Radarr/Prowlarr/Dispatcharr
+    // dashboards etc.) with no Android app of their own, opened via in-app WebView.
+    val bookmarks: List<com.arflix.tv.data.repository.Bookmark> = emptyList(),
+    // Fetched on demand when the Bookmarks settings page opens (see loadEpiseerrQuickLinks) —
+    // Episeerr's own Quick Links, not persisted locally, just displayed with a hide toggle.
+    val episeerrQuickLinks: List<com.arflix.tv.data.repository.Bookmark> = emptyList(),
+    val hiddenQuickLinkNames: Set<String> = emptySet(),
     // Native-app playback handoff (device-local) — see [[project_dv_atmos_passthrough_2026-07-30]]
     val playVodViaPlex: Boolean = false,
     val playLivetvViaTivimate: Boolean = false,
@@ -249,6 +256,7 @@ class SettingsViewModel @Inject constructor(
     private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
     private val driveSyncRepository: DriveSyncRepository,
     private val navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
+    private val episeerrRepository: com.arflix.tv.data.repository.EpiseerrRepository,
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
         return catalogs.filter { config ->
@@ -495,6 +503,11 @@ class SettingsViewModel @Inject constructor(
                 else emptyList()
             }
             val webhookIntervalSeconds = prefs[webhookIntervalKey]?.toIntOrNull() ?: 30
+            val bookmarks = com.arflix.tv.data.repository.parseBookmarks(
+                prefs[com.arflix.tv.data.repository.BOOKMARKS_KEY].orEmpty()
+            )
+            val hiddenQuickLinkNames = prefs[com.arflix.tv.data.repository.HIDDEN_QUICK_LINK_NAMES_KEY]
+                .orEmpty().split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val neolinkUrl = prefs[com.arflix.tv.data.repository.NEOLINK_URL_KEY].orEmpty().trim()
@@ -592,6 +605,8 @@ class SettingsViewModel @Inject constructor(
                 webhookEnabled = webhookEnabled,
                 webhookUrls = webhookUrls,
                 webhookIntervalSeconds = webhookIntervalSeconds,
+                bookmarks = bookmarks,
+                hiddenQuickLinkNames = hiddenQuickLinkNames,
                 playVodViaPlex = playVodViaPlex,
                 playLivetvViaTivimate = playLivetvViaTivimate,
                 watchlistApiEnabled = watchlistApiEnabled,
@@ -1365,6 +1380,49 @@ class SettingsViewModel @Inject constructor(
         val updated = _uiState.value.webhookUrls.toMutableList()
             .also { it[index] = com.arflix.tv.data.repository.WebhookUrlConfig(url.trim(), events) }
         saveWebhookUrls(updated)
+    }
+
+    private fun saveBookmarks(bookmarks: List<com.arflix.tv.data.repository.Bookmark>) {
+        viewModelScope.launch {
+            val json = com.arflix.tv.data.repository.serializeBookmarks(bookmarks)
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.BOOKMARKS_KEY] = json }
+            _uiState.value = _uiState.value.copy(bookmarks = bookmarks)
+        }
+    }
+
+    fun addBookmark(name: String, url: String, icon: String? = null) {
+        if (name.isBlank() || url.isBlank()) return
+        saveBookmarks(_uiState.value.bookmarks + com.arflix.tv.data.repository.Bookmark(name.trim(), url.trim(), icon?.trim()?.ifBlank { null }))
+    }
+
+    fun removeBookmark(index: Int) {
+        val updated = _uiState.value.bookmarks.toMutableList().also { it.removeAt(index) }
+        saveBookmarks(updated)
+    }
+
+    fun updateBookmark(index: Int, name: String, url: String, icon: String? = null) {
+        val updated = _uiState.value.bookmarks.toMutableList()
+            .also { it[index] = com.arflix.tv.data.repository.Bookmark(name.trim(), url.trim(), icon?.trim()?.ifBlank { null }) }
+        saveBookmarks(updated)
+    }
+
+    fun loadEpiseerrQuickLinks() {
+        viewModelScope.launch {
+            val links = runCatching { episeerrRepository.getQuickLinks() }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(episeerrQuickLinks = links)
+        }
+    }
+
+    fun toggleQuickLinkHidden(name: String) {
+        val key = name.trim().lowercase()
+        val current = _uiState.value.hiddenQuickLinkNames
+        val updated = if (key in current) current - key else current + key
+        viewModelScope.launch {
+            context.settingsDataStore.edit {
+                it[com.arflix.tv.data.repository.HIDDEN_QUICK_LINK_NAMES_KEY] = updated.joinToString(",")
+            }
+            _uiState.value = _uiState.value.copy(hiddenQuickLinkNames = updated)
+        }
     }
 
     fun cycleWebhookInterval() {

@@ -171,6 +171,31 @@ class EpiseerrRepository @Inject constructor(
         }
     }
 
+    // Episeerr's own dashboard "Quick Links" (settings_db.quick_links) — Sonarr/Radarr/
+    // Prowlarr/Dispatcharr/etc. shortcuts Joe already maintains there. Reused as the source
+    // for Xadarr's mobile Bookmarks instead of asking him to re-enter the same URLs.
+    suspend fun getQuickLinks(): List<Bookmark> = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext emptyList() }
+        try {
+            val req = Request.Builder().url("$base/api/episeerr/quick-links").get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            val arr = JSONObject(body).optJSONArray("links") ?: return@withContext emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val link = arr.getJSONObject(i)
+                val name = link.optString("name").trim()
+                val url = link.optString("url").trim()
+                // Older Episeerr rows store a Font Awesome class (e.g. "fas fa-link") here
+                // instead of an image URL — only usable as a Coil image source when it's
+                // actually a URL, so anything else falls back to the text-initial tile.
+                val icon = link.optString("icon").trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                if (name.isBlank() || url.isBlank()) null else Bookmark(name, url, icon)
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "getQuickLinks failed: ${e.message}")
+            emptyList()
+        }
+    }
+
     /** Returns recent episeerr activity events from xadarr-server history for toast notifications. */
     suspend fun getRecentEpiseerrEvents(sinceTimestamp: String?): List<JSONObject> = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext emptyList() }

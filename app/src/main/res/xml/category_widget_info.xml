@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared by the four single-category widgets (Premiering/Downloaded/Watched/Game Day) —
+     much smaller footprint than activity_widget_info.xml's combined view, since only one
+     category + its header needs to fit. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="120dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:previewImage="@drawable/app_banner"
+    android:initialLayout="@layout/activity_widget_loading"
+    android:description="@string/activity_widget_description"
+    android:updatePeriodMillis="0" />

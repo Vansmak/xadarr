@@ -121,6 +121,78 @@ fun AppLauncherCard(
     }
 }
 
+// Same tile shape/size as AppLauncherCard so a bookmark (a web shortcut with no Android app of
+// its own — Sonarr, Radarr, Home Assistant, etc.) sits indistinguishably among real app icons
+// in the same grid, instead of reading as a separate "not really an app" chip row.
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun BookmarkTileCard(
+    iconUrl: String?,
+    label: String,
+    isFocused: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+    modifier: Modifier = Modifier,
+    enableSystemFocus: Boolean = false,
+) {
+    val shape = RoundedCornerShape(12.dp)
+
+    Column(
+        modifier = modifier.width(90.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        XadarrFocusableSurface(
+            modifier = Modifier.size(80.dp),
+            shape = shape,
+            backgroundColor = XadarrSkin.colors.surface,
+            outlineColor = XadarrSkin.colors.focusOutline,
+            outlineWidth = XadarrSkin.focus.outlineWidth,
+            focusedScale = 1.08f,
+            pressedScale = 0.97f,
+            enableSystemFocus = enableSystemFocus,
+            isFocusedOverride = isFocused,
+            onClick = onClick,
+            onFocusChanged = { focused -> if (focused) onFocused() },
+        ) { _ ->
+            if (!iconUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = iconUrl,
+                    contentDescription = label,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label.take(1).uppercase(),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (isFocused) TextPrimary else TextSecondary,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(88.dp)
+        )
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun AllAppsCard(

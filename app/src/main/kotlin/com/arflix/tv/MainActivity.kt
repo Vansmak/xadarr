@@ -204,6 +204,7 @@ class MainActivity : ComponentActivity() {
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     private var pendingReminderChannelId by mutableStateOf<String?>(null)
+    private var pendingWidgetDeepLink by mutableStateOf<com.arflix.tv.widget.WidgetDeepLinkRequest?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
     val navigateSmartHomeSignal = MutableStateFlow(0)
@@ -286,6 +287,7 @@ class MainActivity : ComponentActivity() {
         pendingReminderChannelId = intent.getStringExtra(
             com.arflix.tv.worker.ProgramReminderWorker.EXTRA_REMINDER_CHANNEL_ID
         )
+        pendingWidgetDeepLink = com.arflix.tv.widget.parseWidgetDeepLink(intent)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             androidx.core.app.ActivityCompat.requestPermissions(
                 this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
@@ -434,6 +436,8 @@ class MainActivity : ComponentActivity() {
                         onConsumeLauncherRequest = { pendingLauncherRequest = null },
                         pendingReminderChannelId = pendingReminderChannelId,
                         onConsumeReminderRequest = { pendingReminderChannelId = null },
+                        pendingWidgetDeepLink = pendingWidgetDeepLink,
+                        onConsumeWidgetDeepLink = { pendingWidgetDeepLink = null },
                         preloadedCategories = startupState.categories,
                         preloadedHeroItem = startupState.heroItem,
                         preloadedHeroLogoUrl = startupState.heroLogoUrl,
@@ -522,7 +526,8 @@ class MainActivity : ComponentActivity() {
         pendingReminderChannelId = intent.getStringExtra(
             com.arflix.tv.worker.ProgramReminderWorker.EXTRA_REMINDER_CHANNEL_ID
         )
-        if (pendingLauncherRequest == null && pendingReminderChannelId == null) {
+        pendingWidgetDeepLink = com.arflix.tv.widget.parseWidgetDeepLink(intent)
+        if (pendingLauncherRequest == null && pendingReminderChannelId == null && pendingWidgetDeepLink == null) {
             navigateHomeSignal.value++
         }
     }
@@ -696,6 +701,8 @@ fun ArflixApp(
     onConsumeLauncherRequest: () -> Unit = {},
     pendingReminderChannelId: String? = null,
     onConsumeReminderRequest: () -> Unit = {},
+    pendingWidgetDeepLink: com.arflix.tv.widget.WidgetDeepLinkRequest? = null,
+    onConsumeWidgetDeepLink: () -> Unit = {},
     preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
     preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
     preloadedHeroLogoUrl: String? = null,
@@ -837,14 +844,17 @@ fun ArflixApp(
     // hashes the literal string passed against each destination's registered `route`), unlike
     // navigate() which goes through real URI-template/deep-link matching — so this must stay the
     // raw pattern (Screen.Home.route), not a resolved Screen.Home.createRoute() value.
+    val deviceType = LocalDeviceType.current
+    val isMobile = deviceType.isTouchDevice()
+
+    // Mobile lands on the Episeerr dashboard, not Home/Guide — see DashboardScreen.kt and
+    // AppNavigation's postLoginRoute (the *other* entry point, when profile selection isn't
+    // skipped). Home itself is untouched; the Guide bottom-bar tab still goes there.
     val startDestination = if (skipProfileSelection == true && activeProfile != null) {
-        Screen.Home.route
+        if (isMobile) Screen.Dashboard.route else Screen.Home.route
     } else {
         Screen.ProfileSelection.route
     }
-
-    val deviceType = LocalDeviceType.current
-    val isMobile = deviceType.isTouchDevice()
     val neolinkConfigured by remember {
         context.settingsDataStore.data.map { prefs ->
             prefs[NEOLINK_URL_KEY]?.isNotBlank() == true
@@ -1014,6 +1024,20 @@ fun ArflixApp(
             launchSingleTop = true
         }
         onConsumeReminderRequest()
+    }
+
+    // Widget tap deep-link — the TMDB id is pre-resolved at widget-refresh time (see
+    // ActivityFeedRepository), since Glance's actionStartActivity fires a plain Intent
+    // synchronously and can't do an async lookup at tap time. No match / Game Day items carry
+    // no extras at all, so this is a no-op and the app just opens normally (see WidgetTapIntent).
+    LaunchedEffect(activeProfile?.id, pendingWidgetDeepLink) {
+        val request = pendingWidgetDeepLink ?: return@LaunchedEffect
+        if (activeProfile == null) return@LaunchedEffect
+        navController.navigate(Screen.Details.createRoute(request.mediaType, request.tmdbId)) {
+            popUpTo(Screen.ProfileSelection.route) { inclusive = true }
+            launchSingleTop = true
+        }
+        onConsumeWidgetDeepLink()
     }
 }
 

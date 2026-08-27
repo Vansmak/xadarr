@@ -86,6 +86,9 @@ sealed class Screen(val route: String) {
     }
     object ProfileSelection : Screen("profile_selection")
     object AllApps : Screen("all_apps")
+    // Mobile-only landing tab ("Home" in AppBottomBar, ahead of Guide) — Ready to Watch,
+    // Bookmarks, and Upcoming Releases at a glance. See HomeDashboardScreen.kt.
+    object Dashboard : Screen("dashboard")
     
     object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}") {
         fun createRoute(
@@ -147,6 +150,13 @@ fun AppNavigation(
     onTvFullscreenChanged: (Boolean) -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
+    // Mobile lands on the Episeerr dashboard after logging in / picking a profile instead of
+    // Home/Guide (Joe doesn't watch live TV from his phone) — see DashboardScreen.kt and
+    // MainActivity's startDestination (the *other* entry point, when profile selection is
+    // skipped entirely). Home itself is untouched; the Guide bottom-bar tab still goes there.
+    val isMobile = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
+    val postLoginRoute = if (isMobile) Screen.Dashboard.route else Screen.Home.createRoute()
+
     val navigateTopLevel: (String) -> Unit = { route ->
         // Every destination this reaches (Movies, Shows, Cameras, Settings; Search/Discover/
         // Watchlist are harmless redirect-to-Home stubs) is somewhere other than the guide —
@@ -216,7 +226,7 @@ fun AppNavigation(
         composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = {
-                    navController.navigate(Screen.Home.createRoute()) {
+                    navController.navigate(postLoginRoute) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 }
@@ -370,7 +380,7 @@ fun AppNavigation(
         composable(Screen.ProfileSelection.route) {
             ProfileSelectionScreen(
                 onProfileSelected = {
-                    navController.navigate(Screen.Home.createRoute()) {
+                    navController.navigate(postLoginRoute) {
                         popUpTo(Screen.ProfileSelection.route) { inclusive = true }
                     }
                 },
@@ -605,6 +615,20 @@ fun AppNavigation(
             popExitTransition = { fadeOut(tween(150)) },
         ) {
             AllAppsScreen(onBack = goBack)
+        }
+
+        // Mobile-only landing tab — Ready to Watch / Bookmarks / Upcoming Releases.
+        // See HomeDashboardScreen.kt.
+        composable(
+            route = Screen.Dashboard.route,
+            enterTransition = { fadeIn(tween(0)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(0)) },
+            popExitTransition = { fadeOut(tween(150)) },
+        ) {
+            com.arflix.tv.ui.screens.home.HomeDashboardScreen(
+                onNavigateToDetails = { type, id -> navController.navigate(Screen.Details.createRoute(type, id)) },
+            )
         }
 
         // Camera fullscreen player

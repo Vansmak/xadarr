@@ -50,6 +50,18 @@ val LAUNCHER_MODE_KEY = booleanPreferencesKey("launcher_mode")
 // Media3 level.
 val PLAY_VOD_VIA_PLEX_KEY = booleanPreferencesKey("play_vod_via_plex")
 val PLAY_LIVETV_VIA_TIVIMATE_KEY = booleanPreferencesKey("play_livetv_via_tivimate")
+// User-added web shortcuts (Sonarr/Radarr/Prowlarr/etc. dashboards) shown alongside installed
+// apps on mobile's Apps screen — those services have no Android app of their own to list.
+val BOOKMARKS_KEY = stringPreferencesKey("bookmarks") // JSON array of Bookmark objects
+// Names (lowercased) of Episeerr Quick Links the user has hidden from Xadarr's Bookmarks —
+// Episeerr's own list isn't editable from here, so unwanted entries are locally suppressed
+// instead of deleted. Comma-separated, same convention as PINNED_APPS_KEY.
+val HIDDEN_QUICK_LINK_NAMES_KEY = stringPreferencesKey("hidden_quick_link_names")
+// Mobile-only "Apps" tab explicit app selection (comma-separated package names). Absent =
+// never customized, falls back to the media-keyword heuristic in AllAppsScreen.kt; present
+// (even as an empty string) = the user has explicitly picked apps via the Tune icon there,
+// and that list wins outright, same relationship PINNED_APPS_KEY has with defaultPinnedApps.
+val MOBILE_APPS_ALLOWLIST_KEY = stringPreferencesKey("mobile_apps_allowlist")
 
 val ALL_WEBHOOK_EVENTS: Set<String> = linkedSetOf(
     "start", "pause", "resume", "stop", "progress", "watchlist.add", "watchlist.remove"
@@ -92,6 +104,36 @@ fun serializeWebhookUrlConfigs(configs: List<WebhookUrlConfig>): String {
         arr.put(org.json.JSONObject().apply {
             put("url", c.url)
             put("events", org.json.JSONArray(c.events.toList()))
+        })
+    }
+    return arr.toString()
+}
+
+// icon is a URL (e.g. Episeerr's Quick Links already carry a dashboard-icon URL per entry) —
+// null for manually-added bookmarks, which fall back to a text-initial tile like a real app icon.
+data class Bookmark(val name: String, val url: String, val icon: String? = null)
+
+fun parseBookmarks(jsonString: String): List<Bookmark> {
+    if (jsonString.isBlank()) return emptyList()
+    return runCatching {
+        val arr = org.json.JSONArray(jsonString)
+        (0 until arr.length()).mapNotNull { i ->
+            val el = arr.optJSONObject(i) ?: return@mapNotNull null
+            val name = el.optString("name", "").trim()
+            val url = el.optString("url", "").trim()
+            val icon = el.optString("icon", "").trim().ifBlank { null }
+            if (name.isBlank() || url.isBlank()) null else Bookmark(name, url, icon)
+        }
+    }.getOrDefault(emptyList())
+}
+
+fun serializeBookmarks(bookmarks: List<Bookmark>): String {
+    val arr = org.json.JSONArray()
+    bookmarks.forEach { b ->
+        arr.put(org.json.JSONObject().apply {
+            put("name", b.name)
+            put("url", b.url)
+            if (b.icon != null) put("icon", b.icon)
         })
     }
     return arr.toString()

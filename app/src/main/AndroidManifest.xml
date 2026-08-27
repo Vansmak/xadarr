@@ -169,6 +169,72 @@
             </intent-filter>
         </receiver>
 
+        <!-- Activity Feed home-screen widgets (mobile only — Android TV's Leanback launcher
+             doesn't host AppWidgetHost widgets at all, so these are a harmless no-op there).
+             One combined widget (every category, needs a large footprint to be useful) plus
+             four small single-category widgets that can be placed independently — added after
+             the combined one turned out to need too much space just to show one thing you
+             actually care about. -->
+        <receiver
+            android:name=".widget.ActivityWidgetReceiver"
+            android:exported="true"
+            android:label="@string/activity_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/activity_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.PremieringWidgetReceiver"
+            android:exported="true"
+            android:label="@string/premiering_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/category_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.DownloadedWidgetReceiver"
+            android:exported="true"
+            android:label="@string/downloaded_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/category_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.WatchedWidgetReceiver"
+            android:exported="true"
+            android:label="@string/watched_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/category_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.GameDayWidgetReceiver"
+            android:exported="true"
+            android:label="@string/gameday_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/category_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
@@ -65,10 +65,17 @@ data class BottomBarItem(
 )
 
 val bottomBarItems = listOf(
+    // "Home" (the dashboard) and "home" (the route name Guide/Live TV resolves to, folded in
+    // from the old Screen.Tv — see AppNavigation.kt's Screen.Home) are unrelated despite the
+    // near-identical naming: Home the tab is Screen.Dashboard's "dashboard" route.
+    // Former "Apps" tab (installed-app grid, route "all_apps") repurposed into this — Home's
+    // Bookmarks row already covers what mattered there, and the installed-app grid stayed
+    // TV-only (still reachable from TV's own NavRail side menu at Screen.AllApps unaffected by
+    // this) rather than doubling up with its own mobile tab too. See HomeDashboardScreen.kt.
+    BottomBarItem(R.string.home, Icons.Default.Home, "dashboard"),
     BottomBarItem(R.string.guide, Icons.Default.LiveTv, "home"),
     BottomBarItem(R.string.movies, Icons.Default.Movie, Screen.PlexLibrary.createRoute(MediaType.MOVIE)),
     BottomBarItem(R.string.shows, Icons.Default.Tv, Screen.PlexLibrary.createRoute(MediaType.TV)),
-    BottomBarItem(R.string.apps, Icons.Default.Apps, "all_apps"),
     BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )

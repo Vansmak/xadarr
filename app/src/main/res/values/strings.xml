@@ -15,6 +15,14 @@
     <string name="guide">Guide</string>
     <string name="apps">Apps</string>
 
+    <!-- Activity Feed home-screen widgets -->
+    <string name="activity_widget_label">Xadarr Activity</string>
+    <string name="activity_widget_description">What\'s happening in your media stack — premiering, downloaded, watched, and today\'s games.</string>
+    <string name="premiering_widget_label">Xadarr: Premiering</string>
+    <string name="downloaded_widget_label">Xadarr: Downloaded</string>
+    <string name="watched_widget_label">Xadarr: Watched</string>
+    <string name="gameday_widget_label">Xadarr: Game Day</string>
+
     <!-- Content types -->
     <string name="general">General</string>
     <string name="movies">Movies</string>

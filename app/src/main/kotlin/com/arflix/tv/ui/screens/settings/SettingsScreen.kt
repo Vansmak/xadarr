@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Tune
@@ -414,6 +415,7 @@ fun SettingsScreen(
     var qualityFilterDeviceName by remember { mutableStateOf("") }
     var showCustomUserAgentDialog by remember { mutableStateOf(false) }
     var webhookUrlDialogIndex by remember { mutableStateOf<Int?>(null) }
+    var bookmarkDialogIndex by remember { mutableStateOf<Int?>(null) }
     var showWatchlistApiPortDialog by remember { mutableStateOf(false) }
     var showWebhookCompletionDialog by remember { mutableStateOf(false) }
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
@@ -691,6 +693,7 @@ fun SettingsScreen(
         showUiModeWarningDialog ||
         showCustomUserAgentDialog ||
         webhookUrlDialogIndex != null ||
+        bookmarkDialogIndex != null ||
         showWatchlistApiPortDialog ||
         showWebhookCompletionDialog ||
         showSyncServerUrlDialog ||
@@ -1211,6 +1214,7 @@ fun SettingsScreen(
                 onAddCustomAddonClick = { showCustomAddonInput = true },
                 openCustomUserAgentDialog = { showCustomUserAgentDialog = true },
                 onShowWebhookUrlDialog = { idx -> webhookUrlDialogIndex = idx },
+                onShowBookmarkDialog = { idx -> bookmarkDialogIndex = idx },
                 onShowWatchlistApiPortDialog = { showWatchlistApiPortDialog = true },
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
@@ -2155,6 +2159,25 @@ fun SettingsScreen(
                     },
                     onDelete = if (isNew) null else ({ viewModel.removeWebhookUrl(idx); webhookUrlDialogIndex = null }),
                     onDismiss = { webhookUrlDialogIndex = null }
+                )
+            }
+        }
+
+        if (isTouchDevice) {
+            bookmarkDialogIndex?.let { idx ->
+                val isNew = idx < 0
+                val existing = if (isNew) null else uiState.bookmarks.getOrNull(idx)
+                BookmarkDialog(
+                    currentName = existing?.name ?: "",
+                    currentUrl = existing?.url ?: "",
+                    currentIcon = existing?.icon ?: "",
+                    onSave = { name, url, icon ->
+                        if (isNew) viewModel.addBookmark(name, url, icon)
+                        else viewModel.updateBookmark(idx, name, url, icon)
+                        bookmarkDialogIndex = null
+                    },
+                    onDelete = if (isNew) null else ({ viewModel.removeBookmark(idx); bookmarkDialogIndex = null }),
+                    onDismiss = { bookmarkDialogIndex = null }
                 )
             }
         }
@@ -3585,6 +3608,7 @@ private fun MobileSettingsLayout(
     onAddCustomAddonClick: () -> Unit,
     openCustomUserAgentDialog: () -> Unit = {},
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
+    onShowBookmarkDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowSyncServerUrlDialog: () -> Unit = {},
@@ -3683,6 +3707,7 @@ private fun MobileSettingsLayout(
                 onAddCustomAddonClick = onAddCustomAddonClick,
                 openCustomUserAgentDialog = openCustomUserAgentDialog,
                 onShowWebhookUrlDialog = onShowWebhookUrlDialog,
+                onShowBookmarkDialog = onShowBookmarkDialog,
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
                 onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
                 onShowNeolinkUrlDialog = onShowNeolinkUrlDialog,
@@ -3766,6 +3791,7 @@ private fun MobileSettingsMainPage(
                     "Catalogs" to Icons.Default.Widgets,
                     "IPTV" to Icons.Default.LiveTv,
                     "Home Server" to Icons.Default.Cloud,
+                    "Bookmarks" to Icons.Default.Bookmark,
                     "Network" to Icons.Default.Settings
                 )
                 categories.forEachIndexed { index, (name, icon) ->
@@ -3886,6 +3912,7 @@ private fun MobileSettingsSubPage(
     onAddCustomAddonClick: () -> Unit,
     openCustomUserAgentDialog: () -> Unit = {},
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
+    onShowBookmarkDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowNeolinkUrlDialog: () -> Unit = {},
@@ -4153,6 +4180,97 @@ private fun MobileSettingsSubPage(
                     blacklistPath = uiState.blacklistPath,
                     onBlacklistPathClick = onShowBlacklistPathDialog,
                 )
+            }
+            "Bookmarks" -> {
+                LaunchedEffect(Unit) { viewModel.loadEpiseerrQuickLinks() }
+                MobileSettingsCategory(title = "BOOKMARKS") {
+                    Text(
+                        text = "Web shortcuts for services with no Android app of their own — " +
+                            "Sonarr, Radarr, Prowlarr, Dispatcharr, etc. Shown in the Apps tab, " +
+                            "open in an in-app browser.",
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                    )
+                    uiState.bookmarks.forEachIndexed { index, bookmark ->
+                        MobileSettingsRow(
+                            icon = Icons.Default.Language,
+                            title = bookmark.name,
+                            subtitle = bookmark.url,
+                            value = "",
+                            isFocused = false,
+                            showDivider = true,
+                            onClick = { onShowBookmarkDialog(index) }
+                        )
+                    }
+                    MobileSettingsRow(
+                        icon = Icons.Default.Add,
+                        title = "Add Bookmark",
+                        value = "",
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { onShowBookmarkDialog(-1) }
+                    )
+                }
+                val manualNames = uiState.bookmarks.mapTo(mutableSetOf()) { it.name.lowercase() }
+                val episeerrOnly = uiState.episeerrQuickLinks.filterNot { it.name.lowercase() in manualNames }
+                if (episeerrOnly.isNotEmpty()) {
+                    MobileSettingsCategory(title = "FROM EPISEERR") {
+                        Text(
+                            text = "Pulled from Episeerr's own Quick Links. Managed there — " +
+                                "hide the ones you don't want showing in Xadarr's Apps tab.",
+                            style = ArflixTypography.caption,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                        )
+                        episeerrOnly.forEachIndexed { index, link ->
+                            val isHidden = link.name.trim().lowercase() in uiState.hiddenQuickLinkNames
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.toggleQuickLinkHidden(link.name) }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Language,
+                                        contentDescription = null,
+                                        tint = if (isHidden) TextSecondary.copy(alpha = 0.4f) else TextSecondary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        Text(
+                                            text = link.name,
+                                            style = ArflixTypography.body,
+                                            color = if (isHidden) TextSecondary else TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = link.url,
+                                            style = ArflixTypography.caption,
+                                            color = TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = if (isHidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = if (isHidden) "Hidden — tap to show" else "Visible — tap to hide",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            if (index < episeerrOnly.lastIndex) {
+                                Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+                            }
+                        }
+                    }
+                }
             }
             "Catalogs" -> {
                 CatalogsSettings(
@@ -10745,6 +10863,101 @@ private fun WebhookUrlDialog(
             }
         }
     }
+}
+
+// Mobile-only, so unlike WebhookUrlDialog above this doesn't need the TV D-pad
+// Surface/ClickableSurfaceDefaults treatment — a plain Material3 AlertDialog is enough.
+@Composable
+private fun BookmarkDialog(
+    currentName: String,
+    currentUrl: String,
+    currentIcon: String = "",
+    onSave: (String, String, String?) -> Unit,
+    onDelete: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(currentName) { mutableStateOf(currentName) }
+    var url by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var icon by remember(currentIcon) { mutableStateOf(currentIcon) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (onDelete != null) "Edit Bookmark" else "Add Bookmark", color = TextPrimary) },
+        containerColor = BackgroundElevated,
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name (e.g. Sonarr)", color = TextSecondary) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        focusedLabelColor = Pink,
+                        unfocusedLabelColor = TextSecondary,
+                        cursorColor = Pink,
+                    ),
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("URL", color = TextSecondary) },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        focusedLabelColor = Pink,
+                        unfocusedLabelColor = TextSecondary,
+                        cursorColor = Pink,
+                    ),
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = icon,
+                    onValueChange = { icon = it },
+                    label = { Text("Icon URL (optional)", color = TextSecondary) },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = Pink,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        focusedLabelColor = Pink,
+                        unfocusedLabelColor = TextSecondary,
+                        cursorColor = Pink,
+                    ),
+                )
+                if (onDelete != null) {
+                    androidx.compose.material3.TextButton(onClick = onDelete, modifier = Modifier.padding(top = 8.dp)) {
+                        Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFFF4444))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    val trimmedUrl = url.trim().let { if (it.isNotBlank() && !it.contains("://")) "http://$it" else it }
+                    if (name.isNotBlank() && trimmedUrl.isNotBlank()) onSave(name.trim(), trimmedUrl, icon.trim().ifBlank { null })
+                },
+            ) { Text("Save", color = Pink) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel", color = TextSecondary) }
+        },
+    )
 }
 
 @Composable

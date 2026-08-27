@@ -45,6 +45,7 @@ import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.SentryCrashReporter
 import com.arflix.tv.util.detectDeviceType
 import com.arflix.tv.worker.TraktSyncWorker
+import com.arflix.tv.widget.WidgetRefreshWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +94,14 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // not build the OkHttpClient. Safe to keep on the main thread — it's
         // a single volatile assignment.
         OkHttpProvider.init(this)
+
+        // Unlike Trakt sync (scheduled from MainActivity's first draw), this must run
+        // unconditionally here — a placed home-screen widget can be alive with the Activity
+        // never opened. TV never hosts a widget (Leanback has no AppWidgetHost) so this is
+        // skipped there, though enqueueing it harmlessly would just never fire any work either.
+        if (detectDeviceType(this) != DeviceType.TV) {
+            scheduleWidgetRefreshIfNeeded()
+        }
 
         // Initialize global DNS provider and user agent from DataStore before network calls.
         appScope.launch(Dispatchers.IO) {
@@ -310,6 +319,26 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
             TraktSyncWorker.WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             syncRequest
+        )
+    }
+
+    // 15 minutes is the WorkManager platform-enforced floor for periodic work — fine here,
+    // since episode grabs/watches and Game Day start times are hour-granularity, not
+    // sub-15-minute-sensitive. ActivityWidgetReceiver's onEnabled/onUpdate separately enqueue
+    // an immediate one-time refresh so a freshly-placed widget isn't blank until the next tick.
+    private fun scheduleWidgetRefreshIfNeeded() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val refreshRequest = PeriodicWorkRequestBuilder<WidgetRefreshWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            WidgetRefreshWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            refreshRequest
         )
     }
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal RemoteViews placeholder shown before Glance's first real composition lands
+     (required by appwidget-provider's initialLayout) — not the widget's actual UI. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:text="@string/activity_widget_label"
+        android:textColor="#EDEDED"
+        android:padding="16dp" />
+
+</FrameLayout>
