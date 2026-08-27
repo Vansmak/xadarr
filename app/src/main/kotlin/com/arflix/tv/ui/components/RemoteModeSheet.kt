@@ -73,7 +73,12 @@ fun RemoteModeSheet(
     sheetState: SheetState = rememberModalBottomSheetState(),
 ) {
     val scope = rememberCoroutineScope()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = com.arflix.tv.ui.theme.BackgroundDark,
+        contentColor = TextPrimary,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
