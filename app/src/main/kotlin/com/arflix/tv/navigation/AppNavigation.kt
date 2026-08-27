@@ -49,12 +49,14 @@ sealed class Screen(val route: String) {
     // Home IS the Live TV guide (TiviMate-style redesign) — folded from the old Screen.Tv
     // rather than kept as a second route to the same place, so there's exactly one
     // back-stack entry for "the guide" instead of two logically-identical ones.
-    object Home : Screen("home?channelId={channelId}&streamUrl={streamUrl}") {
-        fun createRoute(channelId: String? = null, streamUrl: String? = null): String {
-            if (channelId == null) return "home"
-            val enc = java.net.URLEncoder.encode(channelId, "UTF-8")
-            val streamEnc = streamUrl?.let { java.net.URLEncoder.encode(it, "UTF-8") }
-            return if (streamEnc != null) "home?channelId=$enc&streamUrl=$streamEnc" else "home?channelId=$enc"
+    object Home : Screen("home?channelId={channelId}&streamUrl={streamUrl}&searchQuery={searchQuery}") {
+        fun createRoute(channelId: String? = null, streamUrl: String? = null, searchQuery: String? = null): String {
+            if (channelId == null && searchQuery == null) return "home"
+            val params = mutableListOf<String>()
+            channelId?.let { params.add("channelId=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+            streamUrl?.let { params.add("streamUrl=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+            searchQuery?.let { params.add("searchQuery=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+            return "home?${params.joinToString("&")}"
         }
     }
     // Search/Watchlist/Discover: retired from the nav model (Movies/Shows browse a live Plex
@@ -90,17 +92,21 @@ sealed class Screen(val route: String) {
     // Bookmarks, and Upcoming Releases at a glance. See HomeDashboardScreen.kt.
     object Dashboard : Screen("dashboard")
     
-    object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}") {
+    object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}&autoPlay={autoPlay}") {
         fun createRoute(
             mediaType: MediaType,
             mediaId: Int,
             initialSeason: Int? = null,
-            initialEpisode: Int? = null
+            initialEpisode: Int? = null,
+            // Remote Mode only — a play-title command already decided to play, so Details
+            // should invoke its own playNow() once loaded instead of waiting for a tap.
+            autoPlay: Boolean = false,
         ): String {
             val base = "details/${mediaType.name.lowercase()}/$mediaId"
             val params = mutableListOf<String>()
             initialSeason?.let { params.add("initialSeason=$it") }
             initialEpisode?.let { params.add("initialEpisode=$it") }
+            if (autoPlay) params.add("autoPlay=true")
             return if (params.isNotEmpty()) "$base?${params.joinToString("&")}" else base
         }
     }
@@ -238,11 +244,13 @@ fun AppNavigation(
             route = Screen.Home.route,
             arguments = listOf(
                 navArgument("channelId") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("streamUrl") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("streamUrl") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("searchQuery") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStackEntry ->
             val initialChannelId = backStackEntry.arguments?.getString("channelId")
             val initialStreamUrl = backStackEntry.arguments?.getString("streamUrl")
+            val initialSearchQuery = backStackEntry.arguments?.getString("searchQuery")
             val tvContext = LocalContext.current
             // Hand off to TiviMate instead, when enabled: mirrors the Plex VOD handoff in
             // PlayerScreen.kt for the same reason (Xadarr's own player can hang on Dolby Vision
@@ -275,6 +283,7 @@ fun AppNavigation(
                     currentProfile = currentProfile,
                     initialChannelId = initialChannelId,
                     initialStreamUrl = initialStreamUrl,
+                    initialSearchQuery = initialSearchQuery,
                     onFullscreenChanged = onTvFullscreenChanged,
                     onNavigateToHome = { /* already home */ },
                     onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
@@ -425,6 +434,10 @@ fun AppNavigation(
                 navArgument("initialEpisode") {
                     type = NavType.IntType
                     defaultValue = -1
+                },
+                navArgument("autoPlay") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
@@ -436,6 +449,7 @@ fun AppNavigation(
             }
             val initialSeason = backStackEntry.arguments?.getInt("initialSeason")?.takeIf { it >= 0 }
             val initialEpisode = backStackEntry.arguments?.getInt("initialEpisode")?.takeIf { it >= 0 }
+            val autoPlay = backStackEntry.arguments?.getBoolean("autoPlay") ?: false
             val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
 
             DetailsScreen(
@@ -443,6 +457,7 @@ fun AppNavigation(
                 mediaId = mediaId,
                 initialSeason = initialSeason,
                 initialEpisode = initialEpisode,
+                autoPlay = autoPlay,
                 currentProfile = currentProfile,
                 liveTvPlayerViewModel = liveTvPlayerViewModel,
                 onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs ->

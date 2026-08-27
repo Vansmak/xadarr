@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -39,6 +40,9 @@ fun TouchCategoryRail(
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
+    // Remote Mode entry point — null hides the chip (no LAN Sync configured, e.g.).
+    remoteModeActive: Boolean = false,
+    onOpenRemoteMode: (() -> Unit)? = null,
 ) {
     val items = rememberTouchRailItems(tree, selectedId)
 
@@ -67,6 +71,31 @@ fun TouchCategoryRail(
                     text = "Search channels",
                     style = LiveType.CatLabel.copy(color = LiveColors.Fg),
                 )
+            }
+        }
+
+        if (onOpenRemoteMode != null) {
+            item(key = "remote_mode") {
+                Row(
+                    modifier = Modifier
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (remoteModeActive) LiveColors.Accent else LiveColors.PanelRaised)
+                        .clickable(onClick = onOpenRemoteMode)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SettingsRemote,
+                        contentDescription = "Remote Mode",
+                        tint = if (remoteModeActive) LiveColors.Bg else LiveColors.FgDim,
+                    )
+                    Text(
+                        text = "Remote",
+                        style = LiveType.CatLabel.copy(color = if (remoteModeActive) LiveColors.Bg else LiveColors.Fg),
+                    )
+                }
             }
         }
 

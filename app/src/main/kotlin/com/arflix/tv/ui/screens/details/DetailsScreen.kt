@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.details
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.blur
 import com.arflix.tv.util.settingsDataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -67,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
@@ -186,6 +189,10 @@ fun DetailsScreen(
     mediaId: Int,
     initialSeason: Int? = null,
     initialEpisode: Int? = null,
+    // Remote Mode only — a play-title command already decided to play; invoke playNow()
+    // once data has loaded instead of waiting for a tap. See MainActivity's RemoteCommandBus
+    // collector and Screen.Details.createRoute.
+    autoPlay: Boolean = false,
     viewModel: DetailsViewModel = hiltViewModel(),
     liveTvPlayerViewModel: com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel? = null,
     currentProfile: com.arflix.tv.data.model.Profile? = null,
@@ -357,8 +364,25 @@ fun DetailsScreen(
     // Sources picker (that's what the separate Sources icon is for — Joe: "skip the sources
     // screen unless I select it"). autoPlaySingleSource used to gate this; dropped here since
     // "Play means play" regardless of that setting now.
+    val remoteTarget by viewModel.remoteTarget.collectAsState()
+    val remoteScope = rememberCoroutineScope()
     val playNow: () -> Unit = {
-        if (isPlexHandoffMode) {
+        val target = remoteTarget
+        if (target != null) {
+            // Remote Mode — dispatch to the selected Xadarr instance instead of playing here.
+            // tmdbId/season/episode is the only identifier sent; the target re-resolves its
+            // own stream sources exactly as it would if navigated to Details directly there.
+            val season = if (mediaType == MediaType.TV) uiState.playSeason ?: uiState.episodes.getOrNull(episodeIndex)?.seasonNumber else null
+            val episode = if (mediaType == MediaType.TV) uiState.playEpisode ?: uiState.episodes.getOrNull(episodeIndex)?.episodeNumber else null
+            remoteScope.launch {
+                val ok = viewModel.sendRemotePlayTitle(mediaType, mediaId, season, episode)
+                Toast.makeText(
+                    context,
+                    if (ok) "Playing on ${target.displayName}" else "Couldn't reach ${target.displayName}",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        } else if (isPlexHandoffMode) {
             launchPlexApp()
         } else {
             val season = if (mediaType == MediaType.TV) {
@@ -392,6 +416,16 @@ fun DetailsScreen(
                 null,
                 startPositionMs
             )
+        }
+    }
+    // Remote Mode: a play-title command already decided to play — invoke playNow() once
+    // loaded instead of waiting for a tap. Distinct from pendingAutoPlayRequest below (that's
+    // the single-source-quality auto-play feature); this always mirrors a real button press.
+    var remoteAutoPlayTriggered by remember { mutableStateOf(false) }
+    LaunchedEffect(autoPlay, uiState.isLoading) {
+        if (autoPlay && !uiState.isLoading && !remoteAutoPlayTriggered) {
+            remoteAutoPlayTriggered = true
+            playNow()
         }
     }
     // Forcing these to "no seasons/episodes" reuses the exact same rendering and focus-

@@ -88,6 +88,7 @@ private data class SearchHit(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SearchOverlay(
+    initialQuery: String = "",
     channels: List<EnrichedChannel>,
     nowNext: Map<String, IptvNowNext> = emptyMap(),
     offLineupGroups: Set<String> = emptySet(),
@@ -106,7 +107,7 @@ fun SearchOverlay(
     // the result matched on channel name/genre rather than a program title.
     onShowInfo: (EnrichedChannel, IptvProgram?) -> Unit = { _, _ -> },
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery) }
     var debounced by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var remoteResults by remember { mutableStateOf<List<RawProviderStream>>(emptyList()) }

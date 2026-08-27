@@ -7,9 +7,13 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.repository.AppNotification
 import com.arflix.tv.data.repository.CloudSyncRepository
+import com.arflix.tv.data.repository.DEVICE_NAME_KEY
+import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.HomeServerRepository
 import com.arflix.tv.data.repository.IptvRepository
 import com.arflix.tv.data.repository.NotificationPollManager
+import com.arflix.tv.data.repository.RemoteCommand
+import com.arflix.tv.data.repository.RemoteCommandBus
 import com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_ENABLED_KEY
 import com.arflix.tv.data.repository.WATCHLIST_API_PORT_KEY
@@ -51,6 +55,7 @@ class WebAppServer @Inject constructor(
     private val tmdbApi: TmdbApi,
     private val cloudSyncRepository: CloudSyncRepository,
     private val notificationPollManager: NotificationPollManager,
+    private val remoteCommandBus: RemoteCommandBus,
 ) {
     companion object {
         const val DEFAULT_PORT = 7979
@@ -147,7 +152,16 @@ class WebAppServer @Inject constructor(
                     handleNotify(session)
                 // Device sync endpoints (LAN peer-to-peer)
                 method == NanoHTTPD.Method.GET && uri == "/api/sync/status" ->
-                    handleSyncStatus()
+                    runBlocking { handleSyncStatus() }
+                // Remote Mode (LAN peer-to-peer playback dispatch — see RemoteCommandBus)
+                method == NanoHTTPD.Method.POST && uri == "/api/remote/tune-channel" ->
+                    runBlocking { handleRemoteTuneChannel(session) }
+                method == NanoHTTPD.Method.POST && uri == "/api/remote/play-title" ->
+                    handleRemotePlayTitle(session)
+                method == NanoHTTPD.Method.POST && uri == "/api/remote/dpad" ->
+                    handleRemoteDpad(session)
+                method == NanoHTTPD.Method.POST && uri == "/api/remote/text" ->
+                    handleRemoteText(session)
                 method == NanoHTTPD.Method.GET && uri == "/api/sync/snapshot" ->
                     runBlocking { handleGetSnapshot() }
                 method == NanoHTTPD.Method.PUT && uri == "/api/sync/snapshot" ->
@@ -410,8 +424,63 @@ class WebAppServer @Inject constructor(
 
     // ── Sync handlers ─────────────────────────────────────────────────────────
 
-    private fun handleSyncStatus(): NanoHTTPD.Response =
-        json(JSONObject().put("status", "ok").put("app", "xadarr"))
+    private suspend fun handleSyncStatus(): NanoHTTPD.Response {
+        val prefs = context.settingsDataStore.data.first()
+        val deviceName = prefs[DEVICE_NAME_KEY]?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+        return json(JSONObject().put("status", "ok").put("app", "xadarr").put("deviceName", deviceName))
+    }
+
+    // ── Remote Mode handlers ─────────────────────────────────────────────────
+    // Each resolves anything needing THIS device's own local state, then hands off to
+    // RemoteCommandBus rather than touching a specific screen — the app may be sitting on
+    // any screen, or backgrounded, when a command arrives.
+
+    private suspend fun handleRemoteTuneChannel(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val raw = bodyMap["postData"] ?: return json(JSONObject().put("status", "error").put("message", "empty body"))
+        val epgId = JSONObject(raw).optString("epgId").trim()
+        if (epgId.isBlank()) return json(JSONObject().put("status", "error").put("message", "epgId required"))
+        val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: iptvRepository.getCachedSnapshotOrNull()
+        val channel = snapshot?.channels?.firstOrNull { it.epgId?.equals(epgId, ignoreCase = true) == true }
+            ?: return json(JSONObject().put("status", "not_found"))
+        remoteCommandBus.emit(RemoteCommand.TuneChannel(channel.id))
+        return json(JSONObject().put("status", "tuned").put("name", channel.name))
+    }
+
+    private fun handleRemotePlayTitle(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val raw = bodyMap["postData"] ?: return json(JSONObject().put("status", "error").put("message", "empty body"))
+        val body = JSONObject(raw)
+        val typeStr = body.optString("mediaType")
+        val mediaType = if (typeStr == "show" || typeStr == "tv") MediaType.TV else MediaType.MOVIE
+        val tmdbId = body.optInt("tmdbId", -1)
+        if (tmdbId <= 0) return json(JSONObject().put("status", "error").put("message", "tmdbId required"))
+        val season = body.optInt("season", -1).takeIf { it >= 0 }
+        val episode = body.optInt("episode", -1).takeIf { it >= 0 }
+        remoteCommandBus.emit(RemoteCommand.PlayTitle(mediaType, tmdbId, season, episode))
+        return json(JSONObject().put("status", "queued"))
+    }
+
+    private fun handleRemoteDpad(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val raw = bodyMap["postData"] ?: return json(JSONObject().put("status", "error").put("message", "empty body"))
+        val key = runCatching { DPadKey.valueOf(JSONObject(raw).optString("key").uppercase()) }.getOrNull()
+            ?: return json(JSONObject().put("status", "error").put("message", "unknown key"))
+        remoteCommandBus.emit(RemoteCommand.DPad(key))
+        return json(JSONObject().put("status", "ok"))
+    }
+
+    private fun handleRemoteText(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val bodyMap = HashMap<String, String>()
+        session.parseBody(bodyMap)
+        val raw = bodyMap["postData"] ?: return json(JSONObject().put("status", "error").put("message", "empty body"))
+        val text = JSONObject(raw).optString("text")
+        remoteCommandBus.emit(RemoteCommand.TypeText(text))
+        return json(JSONObject().put("status", "ok"))
+    }
 
     private suspend fun handleGetSnapshot(): NanoHTTPD.Response {
         val payload = runCatching { cloudSyncRepository.buildCloudSnapshotJson() }

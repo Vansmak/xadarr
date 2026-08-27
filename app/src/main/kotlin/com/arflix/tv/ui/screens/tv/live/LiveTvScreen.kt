@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -140,6 +141,7 @@ private fun chooseStartupChannelId(
  * Preserves every IPTV feature from the legacy [com.arflix.tv.ui.screens.tv.TvScreen]
  * (favorites, hidden groups, EPG refresh, cloud sync) — only the UI shell is new.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LiveTvScreen(
     viewModel: TvViewModel = hiltViewModel(),
@@ -147,6 +149,9 @@ fun LiveTvScreen(
     currentProfile: Profile? = null,
     initialChannelId: String? = null,
     initialStreamUrl: String? = null,
+    // Remote Mode text-entry popup: a TypeText command lands here since Home IS the guide and
+    // its own SearchOverlay is the app's only search surface post-TiviMate-redesign.
+    initialSearchQuery: String? = null,
     onFullscreenChanged: (Boolean) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onNavigateToSearch: () -> Unit = {},
@@ -200,6 +205,7 @@ fun LiveTvScreen(
     // like any other channel without touching IptvRepository's M3U cache pipeline.
     val pinnedProviderChannels by viewModel.pinnedProviderChannels.collectAsStateWithLifecycle()
     val dispatcharrCatalogAvailable by viewModel.dispatcharrCatalogAvailable.collectAsStateWithLifecycle()
+    val remoteTarget by viewModel.remoteTarget.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshDispatcharrCatalogAvailability() }
     // A "watch now" (not pinned) full-provider search pick — same reason pinned channels are
     // merged below: playback is derived from enrichedState.index.byId, so anything not merged
@@ -459,6 +465,10 @@ fun LiveTvScreen(
 
     val sidebarExpanded = !useTouchRail
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var showRemoteModeSheet by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(initialSearchQuery) {
+        if (!initialSearchQuery.isNullOrBlank()) searchOpen = true
+    }
     // Long-press Down in fullscreen jumps to the Recent category (TiviMate convention, Joe
     // 2026-08-15) instead of the normal quick-zap-to-next-channel a short press does.
     val fsScope = rememberCoroutineScope()
@@ -600,7 +610,29 @@ fun LiveTvScreen(
         focusChannelList(playingChannelId ?: focusedChannelId)
     }
 
+    // Remote Mode — when a target is set, channel selection dispatches to that device
+    // instead of tuning locally. Returns true if the tap was handled remotely (caller should
+    // do nothing else); false means proceed with normal local tuning.
+    fun remoteTuneOrHandled(channel: EnrichedChannel): Boolean {
+        val target = viewModel.remoteTarget.value ?: return false
+        val epgId = channel.source.epgId
+        if (epgId.isNullOrBlank()) {
+            Toast.makeText(context, "This channel can't be remote-tuned (no EPG id)", Toast.LENGTH_SHORT).show()
+            return true
+        }
+        fsScope.launch {
+            val ok = viewModel.sendRemoteTuneChannel(epgId)
+            Toast.makeText(
+                context,
+                if (ok) "Tuned ${channel.name} on ${target.displayName}" else "Couldn't reach ${target.displayName}",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        return true
+    }
+
     fun selectChannel(channel: EnrichedChannel) {
+        if (remoteTuneOrHandled(channel)) return
         // Selecting any channel goes straight to fullscreen — one press, like
         // TiviMate. Previously a new channel only started in the small
         // MiniPlayerRow, and selecting it again was needed to go fullscreen.
@@ -614,6 +646,7 @@ fun LiveTvScreen(
     }
 
     fun playProgramInMini(channel: EnrichedChannel, program: IptvProgram?) {
+        if (remoteTuneOrHandled(channel)) return
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
         playingChannelId = channel.id
@@ -920,6 +953,8 @@ fun LiveTvScreen(
                         selectedId = selectedCategoryId,
                         onSelect = { id -> selectedCategoryId = id },
                         onOpenSearch = { searchOpen = true },
+                        remoteModeActive = remoteTarget != null,
+                        onOpenRemoteMode = { showRemoteModeSheet = true },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     EpgGrid(
@@ -1264,6 +1299,18 @@ fun LiveTvScreen(
             }
         }
 
+        if (showRemoteModeSheet) {
+            val remoteLanPeers by viewModel.remoteLanPeers.collectAsStateWithLifecycle()
+            com.arflix.tv.ui.components.RemoteModeSheet(
+                peers = remoteLanPeers,
+                target = remoteTarget,
+                onSelectTarget = { viewModel.setRemoteTarget(it) },
+                onSendDpad = { key -> viewModel.sendRemoteDpad(key) },
+                onSendText = { text -> viewModel.sendRemoteText(text) },
+                onDismiss = { showRemoteModeSheet = false },
+            )
+        }
+
         if (showTopBar) {
             // zIndex forces this above the guide/category content regardless of
             // composition order — see HomeScreen.kt/SettingsScreen.kt's identical fix.
@@ -1301,6 +1348,7 @@ fun LiveTvScreen(
         }
 
         fun tuneFromSearch(channel: EnrichedChannel) {
+            if (remoteTuneOrHandled(channel)) { searchOpen = false; return }
             previousChannelId = playingChannelId
             // A raw provider-search pick not already resolvable (i.e. not pinned) isn't
             // in the tree yet, so bestCategoryIdForChannel would look it up against a
@@ -1324,6 +1372,7 @@ fun LiveTvScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             SearchOverlay(
+                initialQuery = initialSearchQuery.orEmpty(),
                 channels = remember(enrichedState.value.all, state.snapshot.removedGroups) {
                     val removed = state.snapshot.removedGroups.toSet()
                     enrichedState.value.all.filterNot { it.source.group in removed }

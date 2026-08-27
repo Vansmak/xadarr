@@ -201,10 +201,18 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var navSectionRepository: Lazy<com.arflix.tv.data.repository.NavSectionRepository>
 
+    // Remote Mode — receiving side. RemoteCommandBus carries commands from WebAppServer's
+    // /api/remote/* handlers (which may fire on any thread, any screen, even backgrounded)
+    // into pending state the Compose tree below reacts to, mirroring pendingReminderChannelId.
+    @Inject
+    lateinit var remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus
+
     private var jankStats: JankStats? = null
     private var pendingLauncherRequest by mutableStateOf<LauncherContinueWatchingRequest?>(null)
     private var pendingReminderChannelId by mutableStateOf<String?>(null)
     private var pendingWidgetDeepLink by mutableStateOf<com.arflix.tv.widget.WidgetDeepLinkRequest?>(null)
+    private var pendingRemotePlayRequest by mutableStateOf<com.arflix.tv.data.repository.RemoteCommand.PlayTitle?>(null)
+    private var pendingRemoteSearchQuery by mutableStateOf<String?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
     val navigateSmartHomeSignal = MutableStateFlow(0)
@@ -438,6 +446,10 @@ class MainActivity : ComponentActivity() {
                         onConsumeReminderRequest = { pendingReminderChannelId = null },
                         pendingWidgetDeepLink = pendingWidgetDeepLink,
                         onConsumeWidgetDeepLink = { pendingWidgetDeepLink = null },
+                        pendingRemotePlayRequest = pendingRemotePlayRequest,
+                        onConsumeRemotePlayRequest = { pendingRemotePlayRequest = null },
+                        pendingRemoteSearchQuery = pendingRemoteSearchQuery,
+                        onConsumeRemoteSearchQuery = { pendingRemoteSearchQuery = null },
                         preloadedCategories = startupState.categories,
                         preloadedHeroItem = startupState.heroItem,
                         preloadedHeroLogoUrl = startupState.heroLogoUrl,
@@ -473,6 +485,21 @@ class MainActivity : ComponentActivity() {
             else
                 android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
             runCatching { packageManager.setComponentEnabledSetting(aliasComponent, state, android.content.pm.PackageManager.DONT_KILL_APP) }
+        }
+
+        lifecycleScope.launch {
+            remoteCommandBus.incoming.collect { command ->
+                when (command) {
+                    is com.arflix.tv.data.repository.RemoteCommand.TuneChannel ->
+                        pendingReminderChannelId = command.localChannelId
+                    is com.arflix.tv.data.repository.RemoteCommand.PlayTitle ->
+                        pendingRemotePlayRequest = command
+                    is com.arflix.tv.data.repository.RemoteCommand.TypeText ->
+                        pendingRemoteSearchQuery = command.text
+                    is com.arflix.tv.data.repository.RemoteCommand.DPad ->
+                        dispatchRemoteDpadKey(command.key)
+                }
+            }
         }
 
         runAfterFirstDraw {
@@ -553,6 +580,23 @@ class MainActivity : ComponentActivity() {
         jankStats?.isTrackingEnabled = false
         jankStats = null
         super.onDestroy()
+    }
+
+    // Remote Mode D-pad popup — synthesizes a matched DOWN/UP pair through the same
+    // dispatchKeyEvent path a physical remote press takes, so it reaches whatever Compose
+    // composable currently has focus regardless of which screen is showing.
+    private fun dispatchRemoteDpadKey(key: com.arflix.tv.data.repository.DPadKey) {
+        val keyCode = when (key) {
+            com.arflix.tv.data.repository.DPadKey.UP -> android.view.KeyEvent.KEYCODE_DPAD_UP
+            com.arflix.tv.data.repository.DPadKey.DOWN -> android.view.KeyEvent.KEYCODE_DPAD_DOWN
+            com.arflix.tv.data.repository.DPadKey.LEFT -> android.view.KeyEvent.KEYCODE_DPAD_LEFT
+            com.arflix.tv.data.repository.DPadKey.RIGHT -> android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+            com.arflix.tv.data.repository.DPadKey.CENTER -> android.view.KeyEvent.KEYCODE_DPAD_CENTER
+            com.arflix.tv.data.repository.DPadKey.BACK -> android.view.KeyEvent.KEYCODE_BACK
+        }
+        val now = android.os.SystemClock.uptimeMillis()
+        dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, keyCode, 0))
+        dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_UP, keyCode, 0))
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -703,6 +747,10 @@ fun ArflixApp(
     onConsumeReminderRequest: () -> Unit = {},
     pendingWidgetDeepLink: com.arflix.tv.widget.WidgetDeepLinkRequest? = null,
     onConsumeWidgetDeepLink: () -> Unit = {},
+    pendingRemotePlayRequest: com.arflix.tv.data.repository.RemoteCommand.PlayTitle? = null,
+    onConsumeRemotePlayRequest: () -> Unit = {},
+    pendingRemoteSearchQuery: String? = null,
+    onConsumeRemoteSearchQuery: () -> Unit = {},
     preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
     preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
     preloadedHeroLogoUrl: String? = null,
@@ -1038,6 +1086,38 @@ fun ArflixApp(
             launchSingleTop = true
         }
         onConsumeWidgetDeepLink()
+    }
+
+    // Remote Mode — receiving side. A play-title command already decided to play; Details
+    // reads autoPlay and invokes its own playNow() once loaded (see DetailsScreen.kt).
+    LaunchedEffect(activeProfile?.id, pendingRemotePlayRequest) {
+        val request = pendingRemotePlayRequest ?: return@LaunchedEffect
+        if (activeProfile == null) return@LaunchedEffect
+        navController.navigate(
+            Screen.Details.createRoute(
+                mediaType = request.mediaType,
+                mediaId = request.tmdbId,
+                initialSeason = request.season,
+                initialEpisode = request.episode,
+                autoPlay = true,
+            )
+        ) {
+            popUpTo(Screen.ProfileSelection.route) { inclusive = true }
+            launchSingleTop = true
+        }
+        onConsumeRemotePlayRequest()
+    }
+
+    // Remote Mode text-entry popup — routes to Home (the guide) with a searchQuery so
+    // LiveTvScreen opens its SearchOverlay pre-filled, the app's only search surface.
+    LaunchedEffect(activeProfile?.id, pendingRemoteSearchQuery) {
+        val query = pendingRemoteSearchQuery ?: return@LaunchedEffect
+        if (activeProfile == null) return@LaunchedEffect
+        navController.navigate(Screen.Home.createRoute(searchQuery = query)) {
+            popUpTo(Screen.Home.route) { inclusive = false }
+            launchSingleTop = true
+        }
+        onConsumeRemoteSearchQuery()
     }
 }
 

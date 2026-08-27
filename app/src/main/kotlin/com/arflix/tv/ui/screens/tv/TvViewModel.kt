@@ -67,10 +67,22 @@ class TvViewModel @Inject constructor(
     private val pinnedProviderChannelsRepository: PinnedProviderChannelsRepository,
     private val programReminderRepository: ProgramReminderRepository,
     private val mediaRepository: MediaRepository,
+    private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
+    private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
     val uiState: StateFlow<TvUiState> = _uiState.asStateFlow()
+
+    // Remote Mode — when a target is set, channel selection dispatches to that device
+    // instead of tuning locally. See RemoteModeRepository / RemoteCommandBus.
+    val remoteTarget: StateFlow<com.arflix.tv.data.repository.LanPeer?> = remoteModeRepository.target
+
+    suspend fun sendRemoteTuneChannel(epgId: String): Boolean = remoteModeRepository.sendTuneChannel(epgId)
+    val remoteLanPeers: StateFlow<List<com.arflix.tv.data.repository.LanPeer>> = lanSyncService.peers
+    fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
+    suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
+    suspend fun sendRemoteText(text: String): Boolean = remoteModeRepository.sendText(text)
 
     val pinnedProviderChannels: StateFlow<List<RawProviderStream>> =
         pinnedProviderChannelsRepository.observePinned()

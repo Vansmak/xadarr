@@ -19,8 +19,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class LanPeer(val host: String, val port: Int) {
+data class LanPeer(val host: String, val port: Int, val deviceName: String = "") {
     val baseUrl: String get() = "http://$host:$port"
+    val displayName: String get() = deviceName.ifBlank { host }
 }
 
 @Singleton
@@ -110,15 +111,21 @@ class LanSyncService @Inject constructor(
     }
 
     private suspend fun validateAndAdd(peer: LanPeer) {
-        val ok = runCatching {
+        // deviceName rides along on the same status check every peer already gets — no extra
+        // round trip, no NSD TXT-record re-registration on every name edit.
+        val deviceName = runCatching {
             val req = Request.Builder().url("${peer.baseUrl}/api/sync/status").get().build()
-            okHttpClient.newCall(req).execute().use { resp -> resp.isSuccessful }
-        }.getOrDefault(false)
-        if (ok) {
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val body = resp.body?.string().orEmpty()
+                runCatching { org.json.JSONObject(body).optString("deviceName") }.getOrNull()
+            }
+        }.getOrNull()
+        if (deviceName != null) {
             val key = "${peer.host}:${peer.port}"
-            knownPeers[key] = peer
+            knownPeers[key] = peer.copy(deviceName = deviceName)
             _peers.value = knownPeers.values.toList()
-            Log.i(TAG, "LAN peer validated: $key")
+            Log.i(TAG, "LAN peer validated: $key ($deviceName)")
         }
     }
 

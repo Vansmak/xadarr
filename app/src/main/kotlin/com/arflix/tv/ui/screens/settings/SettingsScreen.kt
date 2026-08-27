@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.PermDeviceInformation
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -235,7 +236,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41, 42)
         "profiles" -> listOf(19)
         "android_settings" -> listOf(37)
-        "network" -> listOf(25, 26, 35, 38, 39, 40)
+        "network" -> listOf(25, 26, 35, 38, 39, 40, 45)
         else -> emptyList()
     }
 }
@@ -421,6 +422,7 @@ fun SettingsScreen(
     var showSyncServerUrlDialog by remember { mutableStateOf(false) }
     var showEpiseerrUrlDialog by remember { mutableStateOf(false) }
     var showNeolinkUrlDialog by remember { mutableStateOf(false) }
+    var showDeviceNameDialog by remember { mutableStateOf(false) }
     var showHaUrlDialog by remember { mutableStateOf(false) }
     var showHaTokenDialog by remember { mutableStateOf(false) }
     var showBlacklistPathDialog by remember { mutableStateOf(false) }
@@ -699,6 +701,7 @@ fun SettingsScreen(
         showSyncServerUrlDialog ||
         showEpiseerrUrlDialog ||
         showNeolinkUrlDialog ||
+        showDeviceNameDialog ||
         showHaUrlDialog ||
         showHaTokenDialog ||
         showBlacklistPathDialog ||
@@ -919,6 +922,7 @@ fun SettingsScreen(
                                                 38 -> viewModel.setWatchlistApiEnabled(!uiState.watchlistApiEnabled)
                                                 39 -> viewModel.setLanSyncMaster(!uiState.lanSyncMaster)
                                                 40 -> showWatchlistApiPortDialog = true
+                                                45 -> showDeviceNameDialog = true
                                                 37 -> context.startActivity(
                                                     android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
                                                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1216,6 +1220,7 @@ fun SettingsScreen(
                 onShowWebhookUrlDialog = { idx -> webhookUrlDialogIndex = idx },
                 onShowBookmarkDialog = { idx -> bookmarkDialogIndex = idx },
                 onShowWatchlistApiPortDialog = { showWatchlistApiPortDialog = true },
+                onShowDeviceNameDialog = { showDeviceNameDialog = true },
                 onShowWebhookCompletionDialog = { showWebhookCompletionDialog = true },
                 onShowSyncServerUrlDialog = { showSyncServerUrlDialog = true },
                 onShowEpiseerrUrlDialog = { showEpiseerrUrlDialog = true },
@@ -1429,6 +1434,8 @@ fun SettingsScreen(
                             onTogglePlayVodViaPlex = { viewModel.setPlayVodViaPlex(!uiState.playVodViaPlex) },
                             playLivetvViaTivimate = uiState.playLivetvViaTivimate,
                             onTogglePlayLivetvViaTivimate = { viewModel.setPlayLivetvViaTivimate(!uiState.playLivetvViaTivimate) },
+                            deviceName = uiState.deviceName,
+                            onDeviceNameClick = { showDeviceNameDialog = true },
                         )
                         if (showCustomUserAgentDialog) {
                             CustomUserAgentDialog(
@@ -1674,6 +1681,18 @@ fun SettingsScreen(
                     showNeolinkUrlDialog = false
                 },
                 onDismiss = { showNeolinkUrlDialog = false }
+            )
+        }
+
+        if (showDeviceNameDialog) {
+            ApiKeyDialog(
+                title = "Device Name",
+                currentValue = uiState.deviceName,
+                onSave = { name ->
+                    viewModel.saveDeviceName(name)
+                    showDeviceNameDialog = false
+                },
+                onDismiss = { showDeviceNameDialog = false }
             )
         }
 
@@ -2234,6 +2253,18 @@ fun SettingsScreen(
                     showNeolinkUrlDialog = false
                 },
                 onDismiss = { showNeolinkUrlDialog = false }
+            )
+        }
+
+        if (isTouchDevice && showDeviceNameDialog) {
+            ApiKeyDialog(
+                title = "Device Name",
+                currentValue = uiState.deviceName,
+                onSave = { name ->
+                    viewModel.saveDeviceName(name)
+                    showDeviceNameDialog = false
+                },
+                onDismiss = { showDeviceNameDialog = false }
             )
         }
 
@@ -3610,6 +3641,7 @@ private fun MobileSettingsLayout(
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
     onShowBookmarkDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
+    onShowDeviceNameDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowSyncServerUrlDialog: () -> Unit = {},
     onShowEpiseerrUrlDialog: () -> Unit = {},
@@ -3709,6 +3741,7 @@ private fun MobileSettingsLayout(
                 onShowWebhookUrlDialog = onShowWebhookUrlDialog,
                 onShowBookmarkDialog = onShowBookmarkDialog,
                 onShowWatchlistApiPortDialog = onShowWatchlistApiPortDialog,
+                onShowDeviceNameDialog = onShowDeviceNameDialog,
                 onShowWebhookCompletionDialog = onShowWebhookCompletionDialog,
                 onShowNeolinkUrlDialog = onShowNeolinkUrlDialog,
                 onShowHaUrlDialog = onShowHaUrlDialog,
@@ -3914,6 +3947,7 @@ private fun MobileSettingsSubPage(
     onShowWebhookUrlDialog: (Int?) -> Unit = {},
     onShowBookmarkDialog: (Int?) -> Unit = {},
     onShowWatchlistApiPortDialog: () -> Unit = {},
+    onShowDeviceNameDialog: () -> Unit = {},
     onShowWebhookCompletionDialog: () -> Unit = {},
     onShowNeolinkUrlDialog: () -> Unit = {},
     onShowHaUrlDialog: () -> Unit = {},
@@ -4369,10 +4403,10 @@ private fun MobileSettingsSubPage(
                     uiState.lanSyncPeerCount > 0 -> "${uiState.lanSyncPeerCount} peer${if (uiState.lanSyncPeerCount == 1) "" else "s"} found · not yet synced"
                     else -> "Searching for peers on the network…"
                 }
-                MobileSettingsCategory(title = "LAN SYNC") {
+                MobileSettingsCategory(title = "LAN SYNC & REMOTE CONTROL") {
                     MobileSettingsRow(
                         icon = Icons.Default.Cloud,
-                        title = "LAN Sync",
+                        title = "LAN Sync & Remote Control",
                         subtitle = lanSubtitle,
                         value = if (uiState.watchlistApiEnabled) "On :${uiState.watchlistApiPort}" else "Off",
                         isFocused = false,
@@ -4392,8 +4426,16 @@ private fun MobileSettingsSubPage(
                         subtitle = "Port for the local API server — used by xadarr-server and LAN sync peers",
                         value = uiState.watchlistApiPort.toString(),
                         isFocused = false,
-                        showDivider = false,
                         onClick = onShowWatchlistApiPortDialog
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.PermDeviceInformation,
+                        title = "Device Name",
+                        subtitle = "Shown to other Xadarr devices picking a Remote Mode target",
+                        value = uiState.deviceName,
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = onShowDeviceNameDialog
                     )
                 }
             }
@@ -5185,6 +5227,8 @@ private fun TvGeneralSettingsRows(
     onTogglePlayVodViaPlex: () -> Unit = {},
     playLivetvViaTivimate: Boolean = false,
     onTogglePlayLivetvViaTivimate: () -> Unit = {},
+    deviceName: String = "",
+    onDeviceNameClick: () -> Unit = {},
 ) {
     Column {
         tvGeneralRowsForSection(section).forEachIndexed { localIndex, rowId ->
@@ -5306,10 +5350,11 @@ private fun TvGeneralSettingsRows(
                         lanSyncPeerCount > 0 -> "$lanSyncPeerCount peer${if (lanSyncPeerCount == 1) "" else "s"} found · not yet synced"
                         else -> "Searching for peers on the network…"
                     }
-                    SettingsRow(Icons.Default.Cloud, "LAN Sync", lanSubtitle, if (watchlistApiEnabled) "On :$watchlistApiPort" else "Off", focusedIndex == localIndex, onToggleLanSync, Modifier.settingsFocusSlot(localIndex))
+                    SettingsRow(Icons.Default.Cloud, "LAN Sync & Remote Control", lanSubtitle, if (watchlistApiEnabled) "On :$watchlistApiPort" else "Off", focusedIndex == localIndex, onToggleLanSync, Modifier.settingsFocusSlot(localIndex))
                 }
                 39 -> SettingsRow(Icons.Default.CloudSync, "LAN Sync Master", "This device always wins. Without a master, last change wins.", if (lanSyncMaster) "Master" else "Off", focusedIndex == localIndex, onToggleLanSyncMaster, Modifier.settingsFocusSlot(localIndex))
                 40 -> SettingsRow(Icons.Default.Settings, "Local Server Port", "Port for the local API server — used by xadarr-server and LAN sync peers", watchlistApiPort.toString(), focusedIndex == localIndex, onLanSyncPortClick, Modifier.settingsFocusSlot(localIndex))
+                45 -> SettingsRow(Icons.Default.PermDeviceInformation, "Device Name", "Shown to other Xadarr devices picking a Remote Mode target", deviceName, focusedIndex == localIndex, onDeviceNameClick, Modifier.settingsFocusSlot(localIndex))
                 43 -> SettingsRow(
                     icon = Icons.Default.PlayArrow,
                     title = "Play Movies/Shows via Plex",

@@ -43,6 +43,10 @@ val CW_PLACEMENT_KEY = stringPreferencesKey("cw_placement")
 val CW_SORT_ORDER_KEY = stringPreferencesKey("cw_sort_order")
 val CW_HIDDEN_KEY = booleanPreferencesKey("cw_hidden")
 val LAUNCHER_MODE_KEY = booleanPreferencesKey("launcher_mode")
+// Human-readable per-device name for the Remote Mode target picker ("Shield — Living Room"
+// vs. a raw IP) — surfaced to LAN peers via /api/sync/status, not an NSD TXT record (avoids
+// re-registering the NSD service on every edit). Defaults to Build.MODEL when unset.
+val DEVICE_NAME_KEY = stringPreferencesKey("device_name")
 // External-app playback handoff (device-local — depends on what's installed on this box, not synced).
 // See [[project_dv_atmos_passthrough_2026-07-30]]: Xadarr's own ExoPlayer hangs on some Dolby
 // Vision profiles this device's decoder actually supports (proven by the native Plex app playing

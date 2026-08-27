@@ -196,7 +196,15 @@ class DetailsViewModel @Inject constructor(
     private val sonarrRepository: SonarrRepository,
     private val traktOutboxRepository: TraktOutboxRepository,
     private val episeerrRepository: EpiseerrRepository,
+    private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
 ) : ViewModel() {
+
+    // Remote Mode — when a target is set, the Play button dispatches to that device instead
+    // of playing locally. See RemoteModeRepository / RemoteCommandBus.
+    val remoteTarget: StateFlow<com.arflix.tv.data.repository.LanPeer?> = remoteModeRepository.target
+
+    suspend fun sendRemotePlayTitle(mediaType: MediaType, tmdbId: Int, season: Int?, episode: Int?): Boolean =
+        remoteModeRepository.sendPlayTitle(mediaType, tmdbId, season, episode)
 
     companion object {
         private const val TAG = "DetailsViewModel"

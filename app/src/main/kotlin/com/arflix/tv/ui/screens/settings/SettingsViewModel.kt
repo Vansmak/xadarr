@@ -219,6 +219,7 @@ data class SettingsUiState(
     val driveAccountName: String? = null,
     val driveAvailableAccounts: List<String> = emptyList(),
     val neolinkUrl: String = "",
+    val deviceName: String = "",
     val haUrl: String = "",
     val haToken: String = "",
     val blacklistPath: String = "",
@@ -511,6 +512,8 @@ class SettingsViewModel @Inject constructor(
             val syncServerUrl = prefs[com.arflix.tv.data.repository.SYNC_SERVER_URL_KEY].orEmpty().trim()
             val episeerrUrl = prefs[com.arflix.tv.data.repository.EPISEERR_URL_KEY].orEmpty().trim()
             val neolinkUrl = prefs[com.arflix.tv.data.repository.NEOLINK_URL_KEY].orEmpty().trim()
+            val deviceName = prefs[com.arflix.tv.data.repository.DEVICE_NAME_KEY]?.trim()?.takeIf { it.isNotBlank() }
+                ?: android.os.Build.MODEL
             val haUrl = prefs[com.arflix.tv.data.repository.HA_URL_KEY].orEmpty().trim()
             val haToken = prefs[com.arflix.tv.data.repository.HA_TOKEN_KEY].orEmpty().trim()
             val blacklistPath = prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY].orEmpty().trim()
@@ -617,6 +620,7 @@ class SettingsViewModel @Inject constructor(
                 syncServerUrl = syncServerUrl,
                 episeerrUrl = episeerrUrl,
                 neolinkUrl = neolinkUrl,
+                deviceName = deviceName,
                 haUrl = haUrl,
                 haToken = haToken,
                 blacklistPath = blacklistPath,
@@ -1464,6 +1468,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.NEOLINK_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(neolinkUrl = url.trim())
+        }
+    }
+
+    fun saveDeviceName(name: String) {
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.data.repository.DEVICE_NAME_KEY] = name.trim() }
+            _uiState.value = _uiState.value.copy(deviceName = name.trim())
         }
     }
 
