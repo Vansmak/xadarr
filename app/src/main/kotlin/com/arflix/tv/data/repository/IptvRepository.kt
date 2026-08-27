@@ -235,10 +235,12 @@ class IptvRepository @Inject constructor(
     private val playlistCacheMs = staleAfterMs
     private val epgCacheMs = staleAfterMs
     private val epgEmptyRetryMs = 30_000L
-    private val epgUpcomingProgramLimit = 14
+    // Was 14 — too shallow for multi-day-out events (e.g. a game airing in 3 days) to ever
+    // reach program-title search, since dense channels exhaust 14 slots within ~24h.
+    private val epgUpcomingProgramLimit = 200
     private val epgRecentProgramLimit = 2
     private val completeEpgCoverageTarget = 0.98f
-    private val xtreamShortEpgLimit = 8
+    private val xtreamShortEpgLimit = 40
     private val startupShortEpgChannelLimit = 1200
     private val xtreamShortEpgBatchSize = 512
     private val xtreamShortEpgConcurrency = 32
@@ -1216,7 +1218,17 @@ class IptvRepository @Inject constructor(
                         }
                     }
                     if (resolved) {
-                        shortEpgResult?.let { mergedXmlNowNext.putAll(it) } // Short EPG wins for channels it covers
+                        // Short EPG is fresher for now/next/later, but its `upcoming` is shallow
+                        // (provider-capped). Union it with XMLTV's deeper upcoming instead of
+                        // overwriting, so multi-day-out events stay discoverable via search.
+                        shortEpgResult?.forEach { (channelId, shortEntry) ->
+                            val xmlEntry = mergedXmlNowNext[channelId]
+                            mergedXmlNowNext[channelId] = if (xmlEntry == null) {
+                                shortEntry
+                            } else {
+                                mergeShortEpgWithXmlEpg(shortEntry, xmlEntry)
+                            }
+                        }
                         resolvedNowNext = mergedXmlNowNext
                         cachedNowNext = ConcurrentHashMap(mergedXmlNowNext)
                         cachedEpgAt = System.currentTimeMillis()
@@ -5247,6 +5259,17 @@ class IptvRepository @Inject constructor(
         if (!candidate.isLive(nowUtcMillis)) return existing
         if (existing == null) return candidate
         return if (candidate.startUtcMillis >= existing.startUtcMillis) candidate else existing
+    }
+
+    private fun mergeShortEpgWithXmlEpg(shortEntry: IptvNowNext, xmlEntry: IptvNowNext): IptvNowNext {
+        val combinedUpcoming = LinkedHashMap<Triple<Long, Long, String>, IptvProgram>()
+        (shortEntry.upcoming + xmlEntry.upcoming).forEach { p ->
+            combinedUpcoming[Triple(p.startUtcMillis, p.endUtcMillis, p.title.lowercase())] = p
+        }
+        val upcoming = combinedUpcoming.values
+            .sortedBy { it.startUtcMillis }
+            .take(epgUpcomingProgramLimit)
+        return shortEntry.copy(upcoming = upcoming)
     }
 
     private fun addUpcomingCandidate(

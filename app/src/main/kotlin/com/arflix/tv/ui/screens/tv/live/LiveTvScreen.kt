@@ -1300,6 +1300,23 @@ fun LiveTvScreen(
             }
         }
 
+        fun tuneFromSearch(channel: EnrichedChannel) {
+            previousChannelId = playingChannelId
+            // A raw provider-search pick not already resolvable (i.e. not pinned) isn't
+            // in the tree yet, so bestCategoryIdForChannel would look it up against a
+            // tree that doesn't know it exists — queue it into the enrichment merge
+            // instead of touching category selection off a stale tree.
+            if (channel.id.startsWith("raw:") && enrichedState.value.index.byId[channel.id] == null) {
+                ephemeralSearchPick = channel.source
+            } else {
+                selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
+            }
+            playingChannelId = channel.id
+            focusedChannelId = channel.id
+            searchOpen = false
+            focusChannelList(channel.id)
+        }
+
         AnimatedVisibility(
             visible = searchOpen,
             enter = fadeIn(),
@@ -1331,21 +1348,18 @@ fun LiveTvScreen(
                     onNavigateToDetails(media.mediaType, media.id)
                 },
                 onDismiss = { searchOpen = false },
-                onPick = { channel ->
-                    previousChannelId = playingChannelId
-                    // A raw provider-search pick not already resolvable (i.e. not pinned) isn't
-                    // in the tree yet, so bestCategoryIdForChannel would look it up against a
-                    // tree that doesn't know it exists — queue it into the enrichment merge
-                    // instead of touching category selection off a stale tree.
-                    if (channel.id.startsWith("raw:") && enrichedState.value.index.byId[channel.id] == null) {
-                        ephemeralSearchPick = channel.source
+                onPick = { channel -> tuneFromSearch(channel) },
+                onShowInfo = { channel, program ->
+                    // No specific program matched (a plain channel/genre-name hit) — fall back to
+                    // whatever's live on that channel right now; if even that's unknown, there's
+                    // nothing to show info about, so just tune like a normal pick.
+                    val resolvedProgram = program ?: state.snapshot.nowNext[channel.id]?.now
+                    if (resolvedProgram != null) {
+                        searchOpen = false
+                        programInfoTarget = channel to resolvedProgram
                     } else {
-                        selectedCategoryId = bestCategoryIdForChannel(channel, enrichedState.value.tree)
+                        tuneFromSearch(channel)
                     }
-                    playingChannelId = channel.id
-                    focusedChannelId = channel.id
-                    searchOpen = false
-                    focusChannelList(channel.id)
                 },
             )
         }

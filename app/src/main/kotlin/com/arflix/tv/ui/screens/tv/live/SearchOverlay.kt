@@ -99,6 +99,12 @@ fun SearchOverlay(
     onPickMedia: (MediaItem) -> Unit = {},
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
+    // Long-press (520ms hold, Menu key, or touch long-press — same gesture as RemoteStreamRow's
+    // pin toggle) on a result opens program info instead of tuning immediately, so a program
+    // match (as opposed to a bare channel/genre-name match) can be inspected/reminded on before
+    // committing to it. `program` is the specific EPG hit that matched the query, or null when
+    // the result matched on channel name/genre rather than a program title.
+    onShowInfo: (EnrichedChannel, IptvProgram?) -> Unit = { _, _ -> },
 ) {
     var query by remember { mutableStateOf("") }
     var debounced by remember { mutableStateOf("") }
@@ -279,6 +285,7 @@ fun SearchOverlay(
                     SearchResultRow(
                         hit = hit,
                         onPick = onPick,
+                        onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
                         onMoveUp = if (results.isNotEmpty() && hit.channel.id == results.first().channel.id) {
                             { runCatching { focusRequester.requestFocus() } }
                         } else {
@@ -400,11 +407,18 @@ private fun MediaSearchResultRow(
 private fun SearchResultRow(
     hit: SearchHit,
     onPick: (EnrichedChannel) -> Unit,
+    onShowInfo: () -> Unit = {},
     onMoveUp: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val channel = hit.channel
     var focused by remember { mutableStateOf(false) }
+    // Same 520ms-hold / Menu-key / touch-long-press pattern as RemoteStreamRow's pin toggle —
+    // a quick tap/OK tunes the channel immediately, a hold opens program info instead.
+    var selectPressed by remember { mutableStateOf(false) }
+    var consumedLongPress by remember { mutableStateOf(false) }
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -419,14 +433,39 @@ private fun SearchResultRow(
             .onFocusChanged { focused = it.hasFocus }
             .focusable()
             .onKeyEvent { ev ->
-                if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (ev.key) {
-                    Key.DirectionCenter, Key.Enter -> {
+                val isSelect = ev.key == Key.DirectionCenter || ev.key == Key.Enter
+                val isMenuKey = ev.key == Key.Menu
+                when {
+                    isMenuKey && ev.type == KeyEventType.KeyDown -> { onShowInfo(); true }
+                    isSelect && ev.type == KeyEventType.KeyDown -> {
+                        if (!selectPressed) {
+                            selectPressed = true
+                            consumedLongPress = false
+                            longPressJob?.cancel()
+                            longPressJob = scope.launch {
+                                delay(520L)
+                                if (selectPressed) {
+                                    consumedLongPress = true
+                                    onShowInfo()
+                                }
+                            }
+                        }
+                        true
+                    }
+                    isSelect && ev.type == KeyEventType.KeyUp && consumedLongPress -> {
+                        longPressJob?.cancel()
+                        selectPressed = false
+                        consumedLongPress = false
+                        true
+                    }
+                    isSelect && ev.type == KeyEventType.KeyUp -> {
+                        longPressJob?.cancel()
+                        selectPressed = false
                         onPick(channel)
                         true
                     }
-
-                    Key.DirectionUp -> {
+                    ev.type != KeyEventType.KeyDown -> false
+                    ev.key == Key.DirectionUp -> {
                         if (onMoveUp != null) {
                             onMoveUp()
                             true
@@ -434,12 +473,14 @@ private fun SearchResultRow(
                             false
                         }
                     }
-
                     else -> false
                 }
             }
             .pointerInput(channel.id) {
-                detectTapGestures(onTap = { onPick(channel) })
+                detectTapGestures(
+                    onTap = { onPick(channel) },
+                    onLongPress = { onShowInfo() },
+                )
             }
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
