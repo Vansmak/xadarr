@@ -664,8 +664,21 @@ fun LiveTvScreen(
         viewModel.incomingRemoteCommands.collect { command ->
             when (command) {
                 is com.arflix.tv.data.repository.RemoteCommand.TuneChannel -> {
-                    val channel = enrichedState.value.index.byId[command.localChannelId]
-                    if (channel != null) selectChannel(channel)
+                    // Deliberately not an enrichedState.value.index.byId lookup — that index is
+                    // scoped to the currently-selected category's enrichment batch (see
+                    // buildInitialCategoryChannels), so a channel outside whatever category
+                    // happened to be selected here would silently fail to resolve. Mirrors
+                    // selectChannel()'s own body: it never requires the tapped EnrichedChannel
+                    // to already be indexed either, it just assigns the id directly and lets
+                    // playback resolution catch up from state.snapshot.channels.
+                    val id = command.localChannelId
+                    focusedChannelId = id
+                    rememberedChannelByCategory[selectedCategoryId] = id
+                    if (id != playingChannelId) previousChannelId = playingChannelId
+                    playingChannelId = id
+                    playingCatchupProgram = null
+                    isFullScreen = true
+                    hudPokeSignal++
                 }
                 is com.arflix.tv.data.repository.RemoteCommand.TypeText -> {
                     remoteSearchQuery = command.text

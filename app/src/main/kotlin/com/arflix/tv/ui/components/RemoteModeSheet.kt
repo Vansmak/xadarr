@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,8 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,19 +30,17 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -174,22 +171,32 @@ private fun RemoteModeContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 28.dp)
+            .padding(horizontal = 18.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        androidx.tv.material3.Text(
-                text = "Remote Mode",
-                fontSize = 18.sp,
-                color = TextPrimary,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            androidx.tv.material3.Text(
-                text = if (target != null) "Channel taps and title plays go to ${target.displayName}" else "Browsing plays locally on this device",
-                fontSize = 13.sp,
-                color = TextSecondary,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Pink.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.SettingsRemote, contentDescription = null, tint = Pink, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                androidx.tv.material3.Text(text = "Remote Mode", fontSize = 17.sp, color = TextPrimary)
+                androidx.tv.material3.Text(
+                    text = if (target != null) "Controlling ${target.displayName}" else "Browsing plays locally on this device",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                )
+            }
+        }
 
+        RemoteSection(title = "DEVICE") {
             RemoteDeviceRow(
                 name = "This device (Local)",
                 selected = target == null,
@@ -201,47 +208,50 @@ private fun RemoteModeContent(
                     text = "No other Xadarr devices found — enable LAN Sync on the target device too.",
                     fontSize = 12.sp,
                     color = TextSecondary,
-                    modifier = Modifier.padding(top = 12.dp, start = 4.dp)
+                    modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
                 )
             } else {
-                LazyColumn(modifier = Modifier.height((peers.size * 56).coerceAtMost(280).dp)) {
-                    items(peers) { peer ->
-                        RemoteDeviceRow(
-                            name = peer.displayName,
-                            selected = target?.host == peer.host,
-                            icon = Icons.Default.SettingsRemote,
-                            onClick = { onSelectTarget(peer) },
-                        )
-                    }
+                peers.forEach { peer ->
+                    RemoteDeviceRow(
+                        name = peer.displayName,
+                        selected = target?.host == peer.host,
+                        icon = Icons.Default.SettingsRemote,
+                        onClick = { onSelectTarget(peer) },
+                    )
                 }
             }
+        }
 
-            if (target != null) {
-                Spacer(modifier = Modifier.height(20.dp))
-                androidx.tv.material3.Text(text = "D-pad", fontSize = 13.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
+        if (target != null) {
+            RemoteSection(title = "D-PAD") {
                 RemoteDpadCross(onPress = { key -> scope.launch { onSendDpad(key) } })
+            }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                androidx.tv.material3.Text(text = "Playback", fontSize = 13.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            RemoteSection(title = "PLAYBACK & VOLUME") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
                     DpadButton(Icons.Default.FastRewind, "Rewind") { scope.launch { onSendDpad(DPadKey.REWIND) } }
                     DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
                     DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
                     DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                androidx.tv.material3.Text(text = "Volume", fontSize = 13.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Divider(color = TextSecondary.copy(alpha = 0.12f))
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     DpadButton(Icons.Default.VolumeDown, "Volume down") { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } }
+                    Spacer(modifier = Modifier.width(28.dp))
                     DpadButton(Icons.Default.VolumeUp, "Volume up") { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                androidx.tv.material3.Text(text = "Type / search", fontSize = 13.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(8.dp))
+            RemoteSection(title = "TYPE / SEARCH") {
                 var text by remember { mutableStateOf("") }
                 var sending by remember { mutableStateOf(false) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -250,79 +260,121 @@ private fun RemoteModeContent(
                         onValueChange = { text = it },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
-                        placeholder = { androidx.tv.material3.Text("Search on ${target.displayName}…") },
+                        shape = RoundedCornerShape(10.dp),
+                        placeholder = { androidx.tv.material3.Text("Search on ${target.displayName}…", fontSize = 14.sp) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
                             focusedBorderColor = Pink,
-                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.25f),
                         ),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        enabled = text.isNotBlank() && !sending,
-                        onClick = {
-                            val query = text
-                            sending = true
-                            scope.launch {
-                                onSendText(query)
-                                sending = false
-                                text = ""
-                            }
-                        },
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (text.isNotBlank() && !sending) Pink.copy(alpha = 0.18f) else BackgroundElevated)
+                            .clickable(enabled = text.isNotBlank() && !sending) {
+                                val query = text
+                                sending = true
+                                scope.launch {
+                                    onSendText(query)
+                                    sending = false
+                                    text = ""
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Pink)
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = if (text.isNotBlank() && !sending) Pink else TextSecondary.copy(alpha = 0.4f),
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun RemoteSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(BackgroundElevated.copy(alpha = 0.6f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        androidx.tv.material3.Text(
+            text = title,
+            fontSize = 11.sp,
+            color = TextSecondary.copy(alpha = 0.7f),
+            letterSpacing = 1.sp,
+        )
+        content()
+    }
+}
 
 @Composable
 private fun RemoteDeviceRow(name: String, selected: Boolean, icon: ImageVector, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Pink.copy(alpha = 0.14f) else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = if (selected) Pink else TextSecondary, modifier = Modifier.size(22.dp))
-        Spacer(modifier = Modifier.width(14.dp))
+        Icon(icon, contentDescription = null, tint = if (selected) Pink else TextSecondary, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         androidx.tv.material3.Text(text = name, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-        Icon(
-            imageVector = if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (selected) Pink else TextSecondary.copy(alpha = 0.4f),
-            modifier = Modifier.size(20.dp),
-        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = Pink,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
 @Composable
 private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         DpadButton(Icons.Default.KeyboardArrowUp, "Up") { onPress(DPadKey.UP) }
-        Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(44.dp), verticalAlignment = Alignment.CenterVertically) {
             DpadButton(Icons.Default.KeyboardArrowLeft, "Left") { onPress(DPadKey.LEFT) }
-            DpadButton(Icons.Default.RadioButtonUnchecked, "OK", filled = true) { onPress(DPadKey.CENTER) }
+            Box(
+                modifier = Modifier
+                    .padding(4.dp)
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(Pink)
+                    .clickable { onPress(DPadKey.CENTER) },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.tv.material3.Text(text = "OK", fontSize = 13.sp, color = com.arflix.tv.ui.theme.BackgroundDark)
+            }
             DpadButton(Icons.Default.KeyboardArrowRight, "Right") { onPress(DPadKey.RIGHT) }
         }
         DpadButton(Icons.Default.KeyboardArrowDown, "Down") { onPress(DPadKey.DOWN) }
-        Spacer(modifier = Modifier.height(10.dp))
-        Surface(
-            onClick = { onPress(DPadKey.BACK) },
-            shape = RoundedCornerShape(8.dp),
-            color = BackgroundElevated,
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onPress(DPadKey.BACK) }
+                .padding(horizontal = 18.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                androidx.tv.material3.Text(text = "Back", fontSize = 13.sp, color = TextSecondary)
-            }
+            Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            androidx.tv.material3.Text(text = "Back", fontSize = 13.sp, color = TextSecondary)
         }
     }
 }
@@ -332,11 +384,12 @@ private fun DpadButton(icon: ImageVector, label: String, filled: Boolean = false
     Box(
         modifier = Modifier
             .padding(4.dp)
-            .size(52.dp)
-            .background(if (filled) Pink.copy(alpha = 0.25f) else BackgroundElevated, CircleShape)
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(if (filled) Pink.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = if (filled) Pink else TextPrimary)
+        Icon(icon, contentDescription = label, tint = if (filled) Pink else TextPrimary, modifier = Modifier.size(22.dp))
     }
 }
