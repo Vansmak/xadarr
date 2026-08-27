@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -124,17 +127,14 @@ fun RemoteModeTopPanel(
                     onClick = onDismiss,
                 )
         ) {
+            val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.82f
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = maxHeight)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
                     .background(com.arflix.tv.ui.theme.BackgroundDark)
                     .statusBarsPadding()
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount < -12f) onDismiss()
-                        }
-                    }
                     // Absorb taps on the panel itself so they don't fall through to the scrim's
                     // onDismiss above.
                     .clickable(
@@ -142,18 +142,35 @@ fun RemoteModeTopPanel(
                         interactionSource = remember { MutableInteractionSource() },
                         onClick = {},
                     )
-                    .padding(top = 4.dp)
             ) {
+                // Drag-to-dismiss lives only on the handle, not the whole panel — putting it on
+                // the full column would eat every vertical drag before the scrollable content
+                // below ever saw it, breaking scroll entirely (first cut of this panel had no
+                // scrolling at all, which was the actual bug: Volume/Search were simply pushed
+                // off the bottom of the screen with nothing to reveal them).
                 Box(
                     modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(vertical = 8.dp)
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(TextSecondary.copy(alpha = 0.4f))
-                )
-                RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures { _, dragAmount ->
+                                if (dragAmount < -12f) onDismiss()
+                            }
+                        }
+                        .padding(top = 4.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = 8.dp)
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(TextSecondary.copy(alpha = 0.4f))
+                    )
+                }
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+                }
             }
         }
     }
