@@ -620,6 +620,9 @@ fun LiveTvScreen(
             Toast.makeText(context, "This channel can't be remote-tuned (no EPG id)", Toast.LENGTH_SHORT).show()
             return true
         }
+        // This device's own live audio shouldn't keep playing once we're redirecting to the
+        // target — same reasoning as DetailsScreen's remote-play branch.
+        playerViewModel.pauseForVod()
         fsScope.launch {
             val ok = viewModel.sendRemoteTuneChannel(epgId)
             Toast.makeText(

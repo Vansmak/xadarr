@@ -20,13 +20,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -129,6 +135,23 @@ fun RemoteModeSheet(
                 androidx.tv.material3.Text(text = "D-pad", fontSize = 13.sp, color = TextSecondary)
                 Spacer(modifier = Modifier.height(8.dp))
                 RemoteDpadCross(onPress = { key -> scope.launch { onSendDpad(key) } })
+
+                Spacer(modifier = Modifier.height(20.dp))
+                androidx.tv.material3.Text(text = "Playback", fontSize = 13.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    DpadButton(Icons.Default.FastRewind, "Rewind") { scope.launch { onSendDpad(DPadKey.REWIND) } }
+                    DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
+                    DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
+                    DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                androidx.tv.material3.Text(text = "Volume", fontSize = 13.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    DpadButton(Icons.Default.VolumeDown, "Volume down") { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } }
+                    DpadButton(Icons.Default.VolumeUp, "Volume up") { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } }
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
                 androidx.tv.material3.Text(text = "Type / search", fontSize = 13.sp, color = TextSecondary)

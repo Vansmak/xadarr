@@ -26,7 +26,14 @@ sealed class RemoteCommand {
     data class TypeText(val text: String) : RemoteCommand()
 }
 
-enum class DPadKey { UP, DOWN, LEFT, RIGHT, CENTER, BACK }
+enum class DPadKey {
+    UP, DOWN, LEFT, RIGHT, CENTER, BACK,
+    // Media transport — dispatched the same way as the D-pad keys (see MainActivity's
+    // dispatchRemoteDpadKey), landing on PlayerScreen's existing Key.MediaPlayPause/etc.
+    // handling. VOLUME_UP/DOWN are the one exception: routed through AudioManager directly
+    // instead of a synthetic key event, since that's the reliable way to move device volume.
+    PLAY_PAUSE, STOP, REWIND, FAST_FORWARD, VOLUME_UP, VOLUME_DOWN,
+}
 
 @Singleton
 class RemoteCommandBus @Inject constructor() {
