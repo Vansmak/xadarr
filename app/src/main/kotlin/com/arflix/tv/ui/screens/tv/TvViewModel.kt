@@ -69,6 +69,7 @@ class TvViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
     private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
+    private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -83,6 +84,17 @@ class TvViewModel @Inject constructor(
     fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
     suspend fun sendRemoteText(text: String): Boolean = remoteModeRepository.sendText(text)
+
+    // Receiving side, delivered directly rather than via navigation args: when this device is
+    // the Remote Mode target and this screen (Home/the guide) is already composed and already
+    // showing a channel, re-navigating to Home with a new channelId query param is a singleTop
+    // reuse of the same backStackEntry — Compose does not recompose just because a Bundle
+    // argument changed, so a rememberSaveable-seeded-once channel id never picks up the new
+    // value (confirmed on-device: nav fires, screen flashes, channel doesn't change). This
+    // ViewModel is scoped to that same backStackEntry, so LiveTvScreen can collect commands
+    // directly here and react regardless of whether the screen was already showing.
+    val incomingRemoteCommands: kotlinx.coroutines.flow.SharedFlow<com.arflix.tv.data.repository.RemoteCommand> =
+        remoteCommandBus.incoming
 
     val pinnedProviderChannels: StateFlow<List<RawProviderStream>> =
         pinnedProviderChannelsRepository.observePinned()

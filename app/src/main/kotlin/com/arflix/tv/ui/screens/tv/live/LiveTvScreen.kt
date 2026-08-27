@@ -654,6 +654,25 @@ fun LiveTvScreen(
         focusChannelList(channel.id)
     }
 
+    // Remote Mode, receiving side — see TvViewModel.incomingRemoteCommands doc comment for
+    // why this can't just rely on the initialChannelId/initialSearchQuery nav args.
+    var remoteSearchQuery by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(viewModel) {
+        viewModel.incomingRemoteCommands.collect { command ->
+            when (command) {
+                is com.arflix.tv.data.repository.RemoteCommand.TuneChannel -> {
+                    val channel = enrichedState.value.index.byId[command.localChannelId]
+                    if (channel != null) selectChannel(channel)
+                }
+                is com.arflix.tv.data.repository.RemoteCommand.TypeText -> {
+                    remoteSearchQuery = command.text
+                    searchOpen = true
+                }
+                else -> Unit
+            }
+        }
+    }
+
     // ExoPlayer lives in playerViewModel (activity-scoped) so it survives navigation.
     // The player config (OkHttp, load control) is set up once in LiveTvPlayerViewModel.
     val exoPlayer = playerViewModel.player
@@ -1372,7 +1391,7 @@ fun LiveTvScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             SearchOverlay(
-                initialQuery = initialSearchQuery.orEmpty(),
+                initialQuery = remoteSearchQuery ?: initialSearchQuery.orEmpty(),
                 channels = remember(enrichedState.value.all, state.snapshot.removedGroups) {
                     val removed = state.snapshot.removedGroups.toSet()
                     enrichedState.value.all.filterNot { it.source.group in removed }

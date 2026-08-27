@@ -107,7 +107,7 @@ fun SearchOverlay(
     // the result matched on channel name/genre rather than a program title.
     onShowInfo: (EnrichedChannel, IptvProgram?) -> Unit = { _, _ -> },
 ) {
-    var query by remember { mutableStateOf(initialQuery) }
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     var debounced by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var remoteResults by remember { mutableStateOf<List<RawProviderStream>>(emptyList()) }
