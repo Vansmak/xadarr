@@ -197,16 +197,14 @@ class DetailsViewModel @Inject constructor(
     private val traktOutboxRepository: TraktOutboxRepository,
     private val episeerrRepository: EpiseerrRepository,
     private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
-    private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
 ) : ViewModel() {
 
     // Remote Mode — when a target is set, the Play button dispatches to that device instead
-    // of playing locally. See RemoteModeRepository / RemoteCommandBus.
+    // of playing locally. See RemoteModeRepository / RemoteCommandBus. The control-panel side
+    // (device picker, D-pad, transport/volume, text) lives globally in RemoteModeViewModel now
+    // (see MainActivity's ArflixApp), reachable from any screen via swipe-down — not duplicated
+    // here.
     val remoteTarget: StateFlow<com.arflix.tv.data.repository.LanPeer?> = remoteModeRepository.target
-    val remoteLanPeers: StateFlow<List<com.arflix.tv.data.repository.LanPeer>> = lanSyncService.peers
-    fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
-    suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
-    suspend fun sendRemoteText(text: String): Boolean = remoteModeRepository.sendText(text)
 
     suspend fun sendRemotePlayTitle(mediaType: MediaType, tmdbId: Int, season: Int?, episode: Int?): Boolean =
         remoteModeRepository.sendPlayTitle(mediaType, tmdbId, season, episode)

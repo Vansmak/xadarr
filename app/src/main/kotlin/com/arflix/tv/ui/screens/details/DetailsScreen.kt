@@ -22,10 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -185,7 +182,7 @@ import androidx.compose.ui.res.stringResource
 /**
  * Details screen for movies and TV shows
  */
-@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun DetailsScreen(
     mediaType: MediaType,
@@ -972,65 +969,6 @@ fun DetailsScreen(
                         onNavigateToWatchlist = onNavigateToWatchlist,
                     ),
                     focusedIndex = navRailFocusedIndex.value,
-                )
-            }
-        }
-
-        // Remote Mode — mobile-only swipe-down zone plus a chip when a target is active.
-        // Details is the one screen we know from a real report is the friction point: a title
-        // was just launched on the target, but there's no way to reach pause/volume/D-pad
-        // short of navigating all the way back to the guide's own "Remote" entry point. This
-        // gives every screen using this exact block (currently just Details) a shortcut; other
-        // MinimalTopChrome screens don't have it yet.
-        if (isMobile) {
-            var showRemoteModeSheet by remember { mutableStateOf(false) }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(28.dp)
-                    .zIndex(20f)
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount > 12f) showRemoteModeSheet = true
-                        }
-                    }
-            )
-            if (remoteTarget != null) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 16.dp)
-                        .zIndex(20f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .clickable { showRemoteModeSheet = true }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SettingsRemote,
-                        contentDescription = "Remote Mode",
-                        tint = com.arflix.tv.ui.theme.Pink,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    androidx.tv.material3.Text(
-                        text = remoteTarget!!.displayName,
-                        fontSize = 12.sp,
-                        color = Color.White,
-                    )
-                }
-            }
-            if (showRemoteModeSheet) {
-                val remoteLanPeers by viewModel.remoteLanPeers.collectAsState()
-                com.arflix.tv.ui.components.RemoteModeSheet(
-                    peers = remoteLanPeers,
-                    target = remoteTarget,
-                    onSelectTarget = { viewModel.setRemoteTarget(it) },
-                    onSendDpad = { key -> viewModel.sendRemoteDpad(key) },
-                    onSendText = { text -> viewModel.sendRemoteText(text) },
-                    onDismiss = { showRemoteModeSheet = false },
                 )
             }
         }

@@ -2,15 +2,19 @@ package com.arflix.tv.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,7 +53,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,20 +85,99 @@ fun RemoteModeSheet(
     onDismiss: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(),
 ) {
-    val scope = rememberCoroutineScope()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        Column(
+        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+    }
+}
+
+/**
+ * Top-anchored variant for the global swipe-down entry point (see MainActivity's ArflixApp) —
+ * a notification-shade-style panel: drops down from the top edge, dismissed by swiping up on
+ * it or tapping the scrim, so it reads as "reveal/retract" rather than a bottom sheet (which
+ * would conventionally dismiss by dragging it back down, the wrong direction for what was
+ * asked: swipe down to open, swipe up to go back to browsing).
+ */
+@Composable
+fun RemoteModeTopPanel(
+    visible: Boolean,
+    peers: List<LanPeer>,
+    target: LanPeer?,
+    onSelectTarget: (LanPeer?) -> Unit,
+    onSendDpad: suspend (DPadKey) -> Boolean,
+    onSendText: suspend (String) -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.slideInVertically(initialOffsetY = { -it }) + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }) + androidx.compose.animation.fadeOut(),
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onDismiss,
+                )
         ) {
-            androidx.tv.material3.Text(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+                    .background(com.arflix.tv.ui.theme.BackgroundDark)
+                    .statusBarsPadding()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { _, dragAmount ->
+                            if (dragAmount < -12f) onDismiss()
+                        }
+                    }
+                    // Absorb taps on the panel itself so they don't fall through to the scrim's
+                    // onDismiss above.
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {},
+                    )
+                    .padding(top = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(vertical = 8.dp)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(TextSecondary.copy(alpha = 0.4f))
+                )
+                RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteModeContent(
+    peers: List<LanPeer>,
+    target: LanPeer?,
+    onSelectTarget: (LanPeer?) -> Unit,
+    onSendDpad: suspend (DPadKey) -> Boolean,
+    onSendText: suspend (String) -> Boolean,
+) {
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 28.dp)
+    ) {
+        androidx.tv.material3.Text(
                 text = "Remote Mode",
                 fontSize = 18.sp,
                 color = TextPrimary,
@@ -191,7 +277,6 @@ fun RemoteModeSheet(
             }
         }
     }
-}
 
 @Composable
 private fun RemoteDeviceRow(name: String, selected: Boolean, icon: ImageVector, onClick: () -> Unit) {

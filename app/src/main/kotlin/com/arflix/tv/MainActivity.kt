@@ -59,6 +59,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SettingsRemote
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.arflix.tv.ui.components.AppBottomBar
 import androidx.core.view.WindowCompat
@@ -745,7 +751,7 @@ fun XadarrLoadingScreen() {
 /**
  * Root composable for the Xadarr app
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ArflixApp(
     authRepository: AuthRepository,
@@ -1026,16 +1032,74 @@ fun ArflixApp(
 
             // Roaming mini-player pip (floating tile that followed live TV across other
             // screens) removed — belonged to the old Home/Movies/Shows-as-peer-screens model.
-            // Live TV is its own TiviMate-style screen now, not something that needs to keep
-            // playing in a corner while browsing elsewhere. Still stop live playback when a VOD
-            // or standalone camera player opens, so audio doesn't keep running underneath.
-            val onPlayerScreen = currentRoute?.startsWith("player") == true
-            val onCameraPlayerScreen = currentRoute?.startsWith("camera_player") == true
-            LaunchedEffect(onPlayerScreen) {
-                if (onPlayerScreen) liveTvPlayerViewModel.dismiss()
+            // Live TV is its own TiviMate-style screen now: audio only plays while the Guide
+            // itself is the visible screen, full stop — Joe: "no more mini player, just on the
+            // guide." Every other route (Player, Cameras, Details, Settings, Movies/Shows, the
+            // mobile dashboard, ...) stops it, not just the two that used to be special-cased.
+            val onGuide = currentRoute == Screen.Home.route
+            LaunchedEffect(onGuide) {
+                if (!onGuide) liveTvPlayerViewModel.dismiss()
             }
-            LaunchedEffect(onCameraPlayerScreen) {
-                if (onCameraPlayerScreen) liveTvPlayerViewModel.dismiss()
+
+            // Remote Mode control panel — mobile-only, works from any tab/screen: swipe down
+            // from the top edge to reveal it (notification-shade style), swipe up on the panel
+            // or tap the scrim to dismiss back to browsing. Distinct from the Guide's own
+            // "Remote" pill, which is the explicit per-channel redirect toggle and stays scoped
+            // to TvViewModel/LiveTvScreen — this is purely a control surface (pick a device,
+            // D-pad, transport, volume, text) for whatever's already playing on the target, so
+            // it can coexist with normal local browsing/watching. See RemoteModeViewModel.
+            if (isMobile) {
+                val remoteModeViewModel: com.arflix.tv.ui.components.RemoteModeViewModel = hiltViewModel()
+                val remoteTarget by remoteModeViewModel.target.collectAsState()
+                var showRemoteModeSheet by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .zIndex(30f)
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures { _, dragAmount ->
+                                if (dragAmount > 12f) showRemoteModeSheet = true
+                            }
+                        }
+                )
+                if (remoteTarget != null) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 12.dp, end = 16.dp)
+                            .zIndex(30f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clickable { showRemoteModeSheet = true }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Default.SettingsRemote,
+                            contentDescription = "Remote Mode",
+                            tint = com.arflix.tv.ui.theme.Pink,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        androidx.tv.material3.Text(
+                            text = remoteTarget!!.displayName,
+                            fontSize = 12.sp,
+                            color = Color.White,
+                        )
+                    }
+                }
+                val remoteLanPeers by remoteModeViewModel.peers.collectAsState()
+                com.arflix.tv.ui.components.RemoteModeTopPanel(
+                    visible = showRemoteModeSheet,
+                    peers = remoteLanPeers,
+                    target = remoteTarget,
+                    onSelectTarget = { remoteModeViewModel.setTarget(it) },
+                    onSendDpad = { key -> remoteModeViewModel.sendDpad(key) },
+                    onSendText = { text -> remoteModeViewModel.sendText(text) },
+                    onDismiss = { showRemoteModeSheet = false },
+                )
             }
 
             // ── App notification toast ───────────────────────────────────────────
