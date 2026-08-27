@@ -11,28 +11,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Movie
@@ -105,49 +94,20 @@ data class PlexLibraryUiState(
     val isLoadingMore: Boolean = false,
     val hasMore: Boolean = true,
     val error: String? = null,
-    val continueWatching: List<ContinueWatchingCard> = emptyList(),
-    val newEpisodes: List<NewEpisodeCard> = emptyList(),
-    val premiering: List<PremieringCard> = emptyList(),
-)
-
-// Real cross-service watch position (Episeerr, fed by Tautulli/Jellyfin), matched to a live
-// Plex item by title for poster art + the deep-link target. Deliberately just "where you left
-// off" (S{season} E{episode}), not a computed "next episode" — that would need full per-show
-// episode-list data this doesn't have.
-data class ContinueWatchingCard(
-    val plexItem: PlexLibraryItem,
-    val season: Int?,
-    val episode: Int?,
-)
-
-// Upcoming episode from Sonarr's calendar, matched to a live Plex item the same way.
-data class PremieringCard(
-    val plexItem: PlexLibraryItem,
-    val season: Int,
-    val episode: Int,
-    val episodeTitle: String,
-    val airDate: String,
-)
-
-// A series with an episode Sonarr imported recently — the gap between Continue Watching
-// (needs watch activity) and Premiering Soon (future air dates only). An already-aired,
-// already-downloaded episode you haven't watched yet has no other row that ever surfaces
-// it, so it just silently sits in the alphabetical/lastViewedAt-sorted grid until you
-// happen to scroll to it. See lastEpisodeAddedEpochMs on SonarrSeriesSummary.
-data class NewEpisodeCard(
-    val plexItem: PlexLibraryItem,
-    val addedEpochMs: Long,
+    // "New Episode" (unwatched Sonarr import) or "S# · E#" (Continue Watching position),
+    // shown on the card itself instead of a separate row — see relevance sort below.
+    val subtitleByRatingKey: Map<String, String> = emptyMap(),
 )
 
 private const val PAGE_SIZE = 60
 
-// How far back "New Episodes" looks for a Sonarr import — long enough to survive a few
+// How far back "has a new episode" looks for a Sonarr import — long enough to survive a few
 // days of not opening the app, short enough that it clears out once you've caught up.
 private const val NEW_EPISODES_WINDOW_MS = 21L * 24 * 60 * 60 * 1000
 
-// Larger than PAGE_SIZE deliberately — Continue Watching/Premiering need to match against
-// more of the library than what's currently scrolled into the grid (which loads PAGE_SIZE at
-// a time sorted by addedAt; a show watched or airing soon may not be in the first page).
+// Larger than PAGE_SIZE deliberately — relevance matching needs more of the library than
+// what's currently scrolled into the grid (which loads PAGE_SIZE at a time); a show watched
+// or with a new episode may not be in the first page.
 private const val MATCH_POOL_LIMIT = 300
 
 // Kept small — this pool's whole point is "sorted so fresh imports are near the top",
@@ -170,12 +130,25 @@ class PlexLibraryViewModel @Inject constructor(
 
     private var loadedMediaType: MediaType? = null
 
+    // Fetch order (Plex's own lastViewedAt-first sort), kept separate from the displayed,
+    // relevance-sorted `uiState.items` so relevance data arriving later (or loadMore
+    // appending more pages) can just re-sort this instead of re-fetching.
+    private var rawItems: List<PlexLibraryItem> = emptyList()
+    private var newEpisodeAddedMsByKey: Map<String, Long> = emptyMap()
+    private var watchedRankByKey: Map<String, Int> = emptyMap()
+    private var subtitleByRatingKey: Map<String, String> = emptyMap()
+
     fun load(mediaType: MediaType) {
         if (loadedMediaType == mediaType && _uiState.value.items.isNotEmpty()) return
         loadedMediaType = mediaType
+        rawItems = emptyList()
+        newEpisodeAddedMsByKey = emptyMap()
+        watchedRankByKey = emptyMap()
+        subtitleByRatingKey = emptyMap()
         viewModelScope.launch {
             _uiState.value = PlexLibraryUiState(isLoading = true)
             val page = homeServerRepository.loadPlexLibraryItems(mediaType, offset = 0, limit = PAGE_SIZE)
+            rawItems = page.items
             _uiState.value = if (page.items.isEmpty()) {
                 PlexLibraryUiState(
                     isLoading = false,
@@ -185,20 +158,35 @@ class PlexLibraryViewModel @Inject constructor(
                 PlexLibraryUiState(items = page.items, isLoading = false, hasMore = page.hasMore)
             }
             if (mediaType == MediaType.TV && page.items.isNotEmpty()) {
-                loadContinueWatchingAndPremiering()
+                loadRelevanceData()
             }
         }
     }
 
-    private suspend fun loadContinueWatchingAndPremiering() {
+    // Sorts shows with a ready-to-watch new episode to the top (newest import first), then
+    // shows with recent watch history (most-recently-watched first), then leaves everything
+    // else in whatever order it already had — a single sorted grid instead of separate
+    // Continue Watching / New Episodes / Premiering rows.
+    private fun sortForRelevance(list: List<PlexLibraryItem>): List<PlexLibraryItem> =
+        list.sortedWith(
+            compareByDescending<PlexLibraryItem> { newEpisodeAddedMsByKey[it.ratingKey] ?: -1L }
+                .thenBy { watchedRankByKey[it.ratingKey] ?: Int.MAX_VALUE }
+        )
+
+    private fun applyRelevance() {
+        _uiState.value = _uiState.value.copy(
+            items = sortForRelevance(rawItems),
+            subtitleByRatingKey = subtitleByRatingKey,
+        )
+    }
+
+    private suspend fun loadRelevanceData() {
         val pool = runCatching {
             homeServerRepository.loadPlexLibraryItems(MediaType.TV, offset = 0, limit = MATCH_POOL_LIMIT).items
         }.getOrDefault(emptyList())
         // Second pool sorted purely by episode-add date, not the default's lastViewedAt-first
-        // order — a show with a brand new unwatched episode (exactly what New Episodes/
-        // Premiering exist to find) can rank far outside `pool`'s cap under that watch-biased
-        // sort on a large library, so `match()` would silently drop it. This pool guarantees
-        // recently-imported shows are near the top regardless of watch history.
+        // order — a show with a brand new unwatched episode can rank far outside `pool`'s cap
+        // under that watch-biased sort on a large library, so `match()` would silently drop it.
         val freshPool = runCatching {
             homeServerRepository.loadPlexLibraryItems(
                 MediaType.TV, offset = 0, limit = FRESH_MATCH_POOL_LIMIT, sortOverride = "episode.addedAt:desc",
@@ -209,34 +197,33 @@ class PlexLibraryViewModel @Inject constructor(
         fun match(title: String): PlexLibraryItem? = byNormalizedTitle[normalizeTitle(title)]?.firstOrNull()
 
         val recentlyWatched = runCatching { episeerrRepository.getRecentlyWatched() }.getOrDefault(emptyList())
-        val continueWatching = recentlyWatched.mapNotNull { w ->
-            match(w.seriesTitle)?.let { ContinueWatchingCard(it, w.season, w.episode) }
+        val watchedRank = mutableMapOf<String, Int>()
+        val watchedSubtitle = mutableMapOf<String, String>()
+        recentlyWatched.forEachIndexed { index, w ->
+            val item = match(w.seriesTitle) ?: return@forEachIndexed
+            watchedRank.putIfAbsent(item.ratingKey, index)
+            val subtitle = listOfNotNull(w.season?.let { "S$it" }, w.episode?.let { "E$it" }).joinToString(" · ")
+            if (subtitle.isNotBlank()) watchedSubtitle.putIfAbsent(item.ratingKey, subtitle)
         }
-        val continueWatchingTitles = continueWatching.mapTo(mutableSetOf()) { normalizeTitle(it.plexItem.title) }
+        watchedRankByKey = watchedRank
 
         val cutoff = System.currentTimeMillis() - NEW_EPISODES_WINDOW_MS
         val allSeries = runCatching { sonarrRepository.getAllSeries() }.getOrDefault(emptyList())
-        val newEpisodes = allSeries
+        val newEpisodeMs = mutableMapOf<String, Long>()
+        val newEpisodeSubtitle = mutableMapOf<String, String>()
+        allSeries
             .filter { (it.lastEpisodeAddedEpochMs ?: 0L) >= cutoff }
-            .sortedByDescending { it.lastEpisodeAddedEpochMs }
-            .mapNotNull { s ->
-                match(s.title)
-                    ?.takeIf { normalizeTitle(it.title) !in continueWatchingTitles }
-                    ?.let { NewEpisodeCard(it, s.lastEpisodeAddedEpochMs!!) }
+            .forEach { s ->
+                val item = match(s.title) ?: return@forEach
+                newEpisodeMs[item.ratingKey] = s.lastEpisodeAddedEpochMs!!
+                newEpisodeSubtitle[item.ratingKey] = "New Episode"
             }
+        newEpisodeAddedMsByKey = newEpisodeMs
 
-        val calendar = runCatching { sonarrRepository.getCalendar(daysAhead = 30) }.getOrDefault(emptyList())
-        val premiering = calendar
-            .groupBy { it.seriesId }
-            .mapNotNull { (_, entries) -> entries.minByOrNull { it.airDate } }
-            .sortedBy { it.airDate }
-            .mapNotNull { e -> match(e.title)?.let { PremieringCard(it, e.season, e.episode, e.episodeTitle, e.airDate) } }
+        // New-episode subtitle wins over a stale "where you left off" position for the same show.
+        subtitleByRatingKey = watchedSubtitle + newEpisodeSubtitle
 
-        _uiState.value = _uiState.value.copy(
-            continueWatching = continueWatching,
-            newEpisodes = newEpisodes,
-            premiering = premiering,
-        )
+        applyRelevance()
     }
 
     // Plex library items only carry a ratingKey (Plex-native identity), no TMDB id — resolve
@@ -253,9 +240,10 @@ class PlexLibraryViewModel @Inject constructor(
         if (state.isLoading || state.isLoadingMore || !state.hasMore) return
         viewModelScope.launch {
             _uiState.value = state.copy(isLoadingMore = true)
-            val page = homeServerRepository.loadPlexLibraryItems(mediaType, offset = state.items.size, limit = PAGE_SIZE)
+            val page = homeServerRepository.loadPlexLibraryItems(mediaType, offset = rawItems.size, limit = PAGE_SIZE)
+            rawItems = rawItems + page.items
             _uiState.value = _uiState.value.copy(
-                items = _uiState.value.items + page.items,
+                items = sortForRelevance(rawItems),
                 isLoadingMore = false,
                 hasMore = page.hasMore,
             )
@@ -264,8 +252,6 @@ class PlexLibraryViewModel @Inject constructor(
 }
 
 // ── Screen ───────────────────────────────────────────────────────────────────
-
-private enum class LibraryFocusZone { CONTINUE_WATCHING, NEW_EPISODES, PREMIERING, GRID }
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -293,9 +279,6 @@ fun PlexLibraryScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val items = uiState.items
-    val continueWatching = uiState.continueWatching
-    val newEpisodes = uiState.newEpisodes
-    val premiering = uiState.premiering
 
     // Fixed 6 columns reads fine on a ~1920px-wide TV but crushes posters to ~40dp on a
     // ~400dp-wide phone — size to device type instead, same LocalDeviceType/isTouchDevice
@@ -309,23 +292,6 @@ fun PlexLibraryScreen(
     }
     val gridHPad = if (isTouchDevice) 16.dp else 32.dp
     val gridGap = if (isTouchDevice) 10.dp else 14.dp
-    // Continue Watching/New Episodes/Premiering cards are deliberately smaller than the main
-    // grid's — the outer Column (rows + grid) isn't scrollable, grid gets whatever's left via
-    // weight(1f), and at full poster size two rows alone could eat the entire remaining screen
-    // height on a TV, squeezing the grid to nothing ("the grid flashes in then vanishes" — not a
-    // focus/scroll bug). Shrunk further (110→88dp) 2026-08-18 when a third row (New Episodes)
-    // joined Continue Watching/Premiering and a hero banner landed above all of them the same
-    // day — the previous size was tuned for two rows with no hero eating space first, and on a
-    // real device it clipped mid-card rather than fitting even one full row. See
-    // ROW_BLOCK_HEIGHT below — the container height is now sized off this constant instead of
-    // an arbitrary screen-height fraction, specifically so it can't clip a row's content.
-    val rowCardWidth = if (isTouchDevice) 68.dp else 88.dp
-    // Real, derived-from-geometry row height — poster (2:3 aspect) + caption strip + this row's
-    // own label/top-padding (see PlexPosterCard/LibraryRow below) — instead of a screen-height
-    // fraction that doesn't actually guarantee a whole row fits. The +84dp buffer covers the
-    // taller 2-line caption a focused card grows to, so the currently-focused row is never
-    // itself clipped either.
-    val rowBlockHeight = rowCardWidth * 1.5f + 84.dp
 
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
@@ -335,48 +301,13 @@ fun PlexLibraryScreen(
         if (isNavRailOpen.value) navRailFocusedIndex.value = 0
     }
 
-    // The grid is the primary view — Continue Watching/Premiering load in shortly after and used
-    // to steal focus (and the scroll position with it) up to themselves the moment they arrived,
-    // which looked like the full grid flashing in then immediately vanishing behind those two
-    // rows. Focus now stays on the grid unless the user explicitly navigates up to them.
-    var focusZone by remember { mutableStateOf(LibraryFocusZone.GRID) }
     var gridFocusedIndex by remember { mutableIntStateOf(0) }
-    var cwFocusedIndex by remember { mutableIntStateOf(0) }
-    var newEpFocusedIndex by remember { mutableIntStateOf(0) }
-    var premFocusedIndex by remember { mutableIntStateOf(0) }
-
     val gridState = rememberLazyGridState()
-    val cwListState = rememberLazyListState()
-    val newEpListState = rememberLazyListState()
-    val premListState = rememberLazyListState()
     val rootFocusRequester = remember { FocusRequester() }
-
-    // The CW/New Episodes/Premiering block is capped to a fraction of screen height and
-    // scrollable, but this is a TV D-pad screen — there's no touch gesture to scroll it, and
-    // nothing was driving that scroll at all, so a row pushed below the cap (e.g. Premiering
-    // when Continue Watching + New Episodes already fill the visible area) was focusable but
-    // permanently invisible with no way to reach it. Each row asks to be scrolled into view
-    // when its zone gains focus, same idea as gridFocusedIndex's own animateScrollToItem below.
-    val cwBringIntoView = remember { BringIntoViewRequester() }
-    val newEpBringIntoView = remember { BringIntoViewRequester() }
-    val premBringIntoView = remember { BringIntoViewRequester() }
-    LaunchedEffect(focusZone) {
-        when (focusZone) {
-            LibraryFocusZone.CONTINUE_WATCHING -> runCatching { cwBringIntoView.bringIntoView() }
-            LibraryFocusZone.NEW_EPISODES -> runCatching { newEpBringIntoView.bringIntoView() }
-            LibraryFocusZone.PREMIERING -> runCatching { premBringIntoView.bringIntoView() }
-            LibraryFocusZone.GRID -> Unit
-        }
-    }
 
     // Plex-style hero banner tracks whichever card currently has focus, falling back to the
     // grid's first item — the same "backdrop follows selection" behavior Plex's own TV app uses.
-    val heroItem = when (focusZone) {
-        LibraryFocusZone.CONTINUE_WATCHING -> continueWatching.getOrNull(cwFocusedIndex)?.plexItem
-        LibraryFocusZone.NEW_EPISODES -> newEpisodes.getOrNull(newEpFocusedIndex)?.plexItem
-        LibraryFocusZone.PREMIERING -> premiering.getOrNull(premFocusedIndex)?.plexItem
-        LibraryFocusZone.GRID -> items.getOrNull(gridFocusedIndex)
-    } ?: items.firstOrNull()
+    val heroItem = items.getOrNull(gridFocusedIndex) ?: items.firstOrNull()
 
     LaunchedEffect(Unit) {
         runCatching { rootFocusRequester.requestFocus() }
@@ -402,9 +333,6 @@ fun PlexLibraryScreen(
             viewModel.loadMore()
         }
     }
-    LaunchedEffect(cwFocusedIndex) { runCatching { cwListState.animateScrollToItem(cwFocusedIndex) } }
-    LaunchedEffect(newEpFocusedIndex) { runCatching { newEpListState.animateScrollToItem(newEpFocusedIndex) } }
-    LaunchedEffect(premFocusedIndex) { runCatching { premListState.animateScrollToItem(premFocusedIndex) } }
 
     fun activateItem(item: PlexLibraryItem) {
         val intent = PlexDeepLink.launchIntent(context, item.plexServerId, item.ratingKey)
@@ -475,94 +403,23 @@ fun PlexLibraryScreen(
                 when (event.key) {
                     Key.Back, Key.Escape -> { onBack(); true }
                     Key.DirectionUp -> {
-                        when (focusZone) {
-                            LibraryFocusZone.CONTINUE_WATCHING -> Unit
-                            LibraryFocusZone.NEW_EPISODES -> {
-                                if (continueWatching.isNotEmpty()) focusZone = LibraryFocusZone.CONTINUE_WATCHING
-                            }
-                            LibraryFocusZone.PREMIERING -> {
-                                focusZone = when {
-                                    newEpisodes.isNotEmpty() -> LibraryFocusZone.NEW_EPISODES
-                                    continueWatching.isNotEmpty() -> LibraryFocusZone.CONTINUE_WATCHING
-                                    else -> LibraryFocusZone.PREMIERING
-                                }
-                            }
-                            LibraryFocusZone.GRID -> {
-                                if (gridFocusedIndex < colCount) {
-                                    focusZone = when {
-                                        premiering.isNotEmpty() -> LibraryFocusZone.PREMIERING
-                                        newEpisodes.isNotEmpty() -> LibraryFocusZone.NEW_EPISODES
-                                        continueWatching.isNotEmpty() -> LibraryFocusZone.CONTINUE_WATCHING
-                                        else -> LibraryFocusZone.GRID
-                                    }
-                                } else {
-                                    gridFocusedIndex -= colCount
-                                }
-                            }
-                        }
+                        if (gridFocusedIndex >= colCount) { gridFocusedIndex -= colCount }
                         true
                     }
                     Key.DirectionDown -> {
-                        when (focusZone) {
-                            LibraryFocusZone.CONTINUE_WATCHING -> {
-                                focusZone = when {
-                                    newEpisodes.isNotEmpty() -> LibraryFocusZone.NEW_EPISODES
-                                    premiering.isNotEmpty() -> LibraryFocusZone.PREMIERING
-                                    else -> LibraryFocusZone.GRID
-                                }
-                                true
-                            }
-                            LibraryFocusZone.NEW_EPISODES -> {
-                                focusZone = if (premiering.isNotEmpty()) LibraryFocusZone.PREMIERING else LibraryFocusZone.GRID
-                                true
-                            }
-                            LibraryFocusZone.PREMIERING -> { focusZone = LibraryFocusZone.GRID; true }
-                            LibraryFocusZone.GRID -> {
-                                if (gridFocusedIndex + colCount < items.size) { gridFocusedIndex += colCount; true } else false
-                            }
-                        }
+                        if (gridFocusedIndex + colCount < items.size) { gridFocusedIndex += colCount; true } else false
                     }
-                    Key.DirectionLeft -> when (focusZone) {
-                        LibraryFocusZone.CONTINUE_WATCHING -> {
-                            if (cwFocusedIndex > 0) cwFocusedIndex-- else isNavRailOpen.value = true
-                            true
-                        }
-                        LibraryFocusZone.NEW_EPISODES -> {
-                            if (newEpFocusedIndex > 0) newEpFocusedIndex-- else isNavRailOpen.value = true
-                            true
-                        }
-                        LibraryFocusZone.PREMIERING -> {
-                            if (premFocusedIndex > 0) premFocusedIndex-- else isNavRailOpen.value = true
-                            true
-                        }
-                        LibraryFocusZone.GRID -> when {
-                            gridFocusedIndex % colCount > 0 -> { gridFocusedIndex--; true }
-                            else -> { isNavRailOpen.value = true; true }
-                        }
+                    Key.DirectionLeft -> when {
+                        gridFocusedIndex % colCount > 0 -> { gridFocusedIndex--; true }
+                        else -> { isNavRailOpen.value = true; true }
                     }
-                    Key.DirectionRight -> when (focusZone) {
-                        LibraryFocusZone.CONTINUE_WATCHING -> {
-                            if (cwFocusedIndex < continueWatching.size - 1) { cwFocusedIndex++; true } else false
-                        }
-                        LibraryFocusZone.NEW_EPISODES -> {
-                            if (newEpFocusedIndex < newEpisodes.size - 1) { newEpFocusedIndex++; true } else false
-                        }
-                        LibraryFocusZone.PREMIERING -> {
-                            if (premFocusedIndex < premiering.size - 1) { premFocusedIndex++; true } else false
-                        }
-                        LibraryFocusZone.GRID -> {
-                            if (gridFocusedIndex % colCount < colCount - 1 && gridFocusedIndex + 1 < items.size) {
-                                gridFocusedIndex++; true
-                            } else false
-                        }
+                    Key.DirectionRight -> {
+                        if (gridFocusedIndex % colCount < colCount - 1 && gridFocusedIndex + 1 < items.size) {
+                            gridFocusedIndex++; true
+                        } else false
                     }
                     Key.Enter, Key.DirectionCenter -> {
-                        when (focusZone) {
-                            LibraryFocusZone.CONTINUE_WATCHING -> continueWatching.getOrNull(cwFocusedIndex)?.let { openItem(it.plexItem) }
-                            LibraryFocusZone.NEW_EPISODES -> newEpisodes.getOrNull(newEpFocusedIndex)?.let { openItem(it.plexItem) }
-                            LibraryFocusZone.PREMIERING -> premiering.getOrNull(premFocusedIndex)?.let { openItem(it.plexItem) }
-                            LibraryFocusZone.GRID -> items.getOrNull(gridFocusedIndex)?.let { openItem(it) }
-                        }
+                        items.getOrNull(gridFocusedIndex)?.let { openItem(it) }
                         true
                     }
                     else -> false
@@ -588,139 +445,39 @@ fun PlexLibraryScreen(
                     }
                 }
                 else -> {
-                    val activeRowCount = listOf(continueWatching, newEpisodes, premiering).count { it.isNotEmpty() }
-                    // Round 8's fix (rowBlockHeight * activeRowCount.coerceAtMost(2)) assumed the
-                    // screen always had enough leftover height for 2 full rows above the grid. On
-                    // this device (1080p @ 320dpi -> 540dp tall), topInset(98) + hero(160) alone
-                    // already consume 258dp, leaving well under 2 rows' worth (432dp) once cards
-                    // load in — the header block still rendered at its full natural/capped size
-                    // regardless (Column doesn't shrink non-weighted siblings to make room), so the
-                    // grid's weight(1f) share was squeezed to 0dp: invisible, along with whatever
-                    // card had focus in it. Measuring real available space via BoxWithConstraints
-                    // and reserving a hard floor for the grid fixes this generally instead of
-                    // re-tuning constants for one more device.
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         val cellWidth = (maxWidth - gridHPad * 2 - gridGap * (colCount - 1).coerceAtLeast(0)) / colCount
                         val minGridHeight = (cellWidth * 1.05f).coerceIn(140.dp, 220.dp)
-                        val compactHero = activeRowCount > 0
-                        val heroHeight = if (isTouchDevice) 110.dp else if (compactHero) 130.dp else 160.dp
-                        val headerBudget = (maxHeight - heroHeight - minGridHeight).coerceAtLeast(0.dp)
-                        val headerMaxHeight = minOf(headerBudget, rowBlockHeight * activeRowCount.coerceAtMost(3))
+                        val heroHeight = if (isTouchDevice) 110.dp else 160.dp
                         Column(modifier = Modifier.fillMaxSize()) {
                             PlexHeroBanner(item = heroItem, isTouchDevice = isTouchDevice, heroHeight = heroHeight)
-                            if (activeRowCount > 0 && headerMaxHeight > 0.dp) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = headerMaxHeight)
-                                        .verticalScroll(rememberScrollState()),
-                                ) {
-                                    if (continueWatching.isNotEmpty()) {
-                                        LibraryRow(
-                                            title = "Continue Watching",
-                                            hPad = gridHPad,
-                                            listState = cwListState,
-                                            modifier = Modifier.bringIntoViewRequester(cwBringIntoView),
-                                        ) {
-                                            itemsIndexed(continueWatching, key = { _, c -> "cw:${c.plexItem.ratingKey}" }) { index, card ->
-                                                PlexPosterCard(
-                                                    item = card.plexItem,
-                                                    isFocused = focusZone == LibraryFocusZone.CONTINUE_WATCHING && cwFocusedIndex == index,
-                                                    subtitleOverride = listOfNotNull(
-                                                        card.season?.let { "S$it" },
-                                                        card.episode?.let { "E$it" },
-                                                    ).joinToString(" · ").ifBlank { null },
-                                                    modifier = Modifier.width(rowCardWidth),
-                                                    onClick = {
-                                                        if (focusZone == LibraryFocusZone.CONTINUE_WATCHING && cwFocusedIndex == index) {
-                                                            openItem(card.plexItem)
-                                                        } else {
-                                                            focusZone = LibraryFocusZone.CONTINUE_WATCHING
-                                                            cwFocusedIndex = index
-                                                        }
-                                                    },
-                                                )
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(colCount),
+                                state = gridState,
+                                contentPadding = PaddingValues(horizontal = gridHPad, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(gridGap),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                            ) {
+                                itemsIndexed(items, key = { _, item -> item.ratingKey }) { index, item ->
+                                    PlexPosterCard(
+                                        item = item,
+                                        isFocused = gridFocusedIndex == index,
+                                        subtitleOverride = uiState.subtitleByRatingKey[item.ratingKey],
+                                        onClick = {
+                                            if (gridFocusedIndex == index) {
+                                                openItem(item)
+                                            } else {
+                                                gridFocusedIndex = index
                                             }
-                                        }
-                                    }
-                                    if (newEpisodes.isNotEmpty()) {
-                                        LibraryRow(
-                                            title = "New Episodes",
-                                            hPad = gridHPad,
-                                            listState = newEpListState,
-                                            modifier = Modifier.bringIntoViewRequester(newEpBringIntoView),
-                                        ) {
-                                            itemsIndexed(newEpisodes, key = { _, c -> "newep:${c.plexItem.ratingKey}" }) { index, card ->
-                                                PlexPosterCard(
-                                                    item = card.plexItem,
-                                                    isFocused = focusZone == LibraryFocusZone.NEW_EPISODES && newEpFocusedIndex == index,
-                                                    modifier = Modifier.width(rowCardWidth),
-                                                    onClick = {
-                                                        if (focusZone == LibraryFocusZone.NEW_EPISODES && newEpFocusedIndex == index) {
-                                                            openItem(card.plexItem)
-                                                        } else {
-                                                            focusZone = LibraryFocusZone.NEW_EPISODES
-                                                            newEpFocusedIndex = index
-                                                        }
-                                                    },
-                                                )
-                                            }
-                                        }
-                                    }
-                                    if (premiering.isNotEmpty()) {
-                                        LibraryRow(
-                                            title = "Premiering Soon",
-                                            hPad = gridHPad,
-                                            listState = premListState,
-                                            modifier = Modifier.bringIntoViewRequester(premBringIntoView),
-                                        ) {
-                                            itemsIndexed(premiering, key = { _, p -> "prem:${p.plexItem.ratingKey}:${p.season}:${p.episode}" }) { index, card ->
-                                                PlexPosterCard(
-                                                    item = card.plexItem,
-                                                    isFocused = focusZone == LibraryFocusZone.PREMIERING && premFocusedIndex == index,
-                                                    subtitleOverride = "S${card.season} · E${card.episode}",
-                                                    modifier = Modifier.width(rowCardWidth),
-                                                    onClick = {
-                                                        if (focusZone == LibraryFocusZone.PREMIERING && premFocusedIndex == index) {
-                                                            openItem(card.plexItem)
-                                                        } else {
-                                                            focusZone = LibraryFocusZone.PREMIERING
-                                                            premFocusedIndex = index
-                                                        }
-                                                    },
-                                                )
-                                            }
-                                        }
-                                    }
+                                        },
+                                    )
                                 }
-                        }
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(colCount),
-                            state = gridState,
-                            contentPadding = PaddingValues(horizontal = gridHPad, vertical = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(gridGap),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxWidth().weight(1f),
-                        ) {
-                            itemsIndexed(items, key = { _, item -> item.ratingKey }) { index, item ->
-                                PlexPosterCard(
-                                    item = item,
-                                    isFocused = focusZone == LibraryFocusZone.GRID && gridFocusedIndex == index,
-                                    onClick = {
-                                        if (focusZone == LibraryFocusZone.GRID && gridFocusedIndex == index) {
-                                            openItem(item)
-                                        } else {
-                                            focusZone = LibraryFocusZone.GRID
-                                            gridFocusedIndex = index
-                                        }
-                                    },
-                                )
                             }
                         }
                     }
                 }
             }
-        }
         }
 
         com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
@@ -762,7 +519,7 @@ private fun PlexHeroBanner(item: PlexLibraryItem?, isTouchDevice: Boolean, heroH
             Box(Modifier.fillMaxSize().background(LiveColors.PanelDeep))
         }
         // Left-to-right + bottom fades, both landing on the exact page background color so the
-        // banner blends seamlessly into the rows/grid below rather than reading as a hard-edged
+        // banner blends seamlessly into the grid below rather than reading as a hard-edged
         // photo tile — matches how Plex's own hero never looks like a pasted-in image.
         Box(
             modifier = Modifier.fillMaxSize().background(
@@ -794,32 +551,6 @@ private fun PlexHeroBanner(item: PlexLibraryItem?, isTouchDevice: Boolean, heroH
                 }
             }
         }
-    }
-}
-
-// ── Shared horizontal row shell (Continue Watching / Premiering) ─────────────
-
-@Composable
-private fun LibraryRow(
-    title: String,
-    hPad: Dp,
-    listState: LazyListState,
-    modifier: Modifier = Modifier,
-    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
-) {
-    Column(modifier = modifier.padding(top = 10.dp)) {
-        Text(
-            text = title,
-            color = LiveColors.Fg,
-            style = LiveType.SectionTag,
-            modifier = Modifier.padding(horizontal = hPad, vertical = 4.dp),
-        )
-        LazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = hPad),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
     }
 }
 
@@ -863,10 +594,6 @@ private fun PlexPosterCard(
 
         // Focused card gets a taller info panel (full title, subtitle line) — this IS the
         // "preview" step: focusing/tapping once shows this, selecting again opens Plex.
-        // No Plex-native watch-progress badge here — Plex's own per-item counters
-        // (viewCount/leafCount) proved unreliable for a library split across Plex+Jellyfin
-        // playback with only a partial/sample Plex library; real progress now lives in the
-        // Continue Watching / Premiering rows above, backed by Episeerr/Sonarr instead.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
