@@ -56,7 +56,18 @@ class RemoteModeRepository @Inject constructor(
         runCatching {
             val requestBody = body.toString().toRequestBody("application/json".toMediaType())
             val req = Request.Builder().url("${peer.baseUrl}$path").post(requestBody).build()
-            okHttpClient.newCall(req).execute().use { it.isSuccessful }
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use false
+                // HTTP 200 alone isn't success — WebAppServer's json() helper always returns
+                // 200 even for a semantic failure (e.g. handleRemoteTuneChannel's "not_found"
+                // when the epgId doesn't match anything on the target's own snapshot), so a
+                // caller relying only on isSuccessful gets a false "it worked" toast while
+                // nothing actually happened on the target. Confirmed on-device: tune reported
+                // success, target never changed channel.
+                val responseBody = resp.body?.string().orEmpty()
+                val status = runCatching { JSONObject(responseBody).optString("status") }.getOrNull()
+                status != "not_found" && status != "error"
+            }
         }.getOrDefault(false)
     }
 }

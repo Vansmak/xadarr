@@ -214,29 +214,7 @@ private fun RemoteModeContent(
         }
 
         RemoteSection(title = "DEVICE") {
-            RemoteDeviceRow(
-                name = "This device (Local)",
-                selected = target == null,
-                icon = Icons.Default.Smartphone,
-                onClick = { onSelectTarget(null) },
-            )
-            if (peers.isEmpty()) {
-                androidx.tv.material3.Text(
-                    text = "No other Xadarr devices found — enable LAN Sync on the target device too.",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
-                )
-            } else {
-                peers.forEach { peer ->
-                    RemoteDeviceRow(
-                        name = peer.displayName,
-                        selected = target?.host == peer.host,
-                        icon = Icons.Default.SettingsRemote,
-                        onClick = { onSelectTarget(peer) },
-                    )
-                }
-            }
+            RemoteDevicePicker(peers = peers, target = target, onSelectTarget = onSelectTarget)
         }
 
         if (target != null) {
@@ -333,6 +311,70 @@ private fun RemoteSection(title: String, content: @Composable ColumnScope.() -> 
             letterSpacing = 1.sp,
         )
         content()
+    }
+}
+
+/**
+ * Single collapsed box showing the current selection; tap opens a dropdown with the rest —
+ * replaces a permanently-expanded list of device rows, which alone was eating close to a
+ * quarter of the panel's height (Joe: "can[']t remote all fit without scrolling? make the
+ * devices a one box select").
+ */
+@Composable
+private fun RemoteDevicePicker(peers: List<LanPeer>, target: LanPeer?, onSelectTarget: (LanPeer?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentName = target?.displayName ?: "This device (Local)"
+    val currentIcon = if (target == null) Icons.Default.Smartphone else Icons.Default.SettingsRemote
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color.White.copy(alpha = 0.05f))
+                .clickable { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(currentIcon, contentDescription = null, tint = Pink, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            androidx.tv.material3.Text(text = currentName, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .fillMaxWidth(0.86f)
+                .background(BackgroundElevated),
+        ) {
+            RemoteDeviceRow(
+                name = "This device (Local)",
+                selected = target == null,
+                icon = Icons.Default.Smartphone,
+                onClick = { onSelectTarget(null); expanded = false },
+            )
+            peers.forEach { peer ->
+                RemoteDeviceRow(
+                    name = peer.displayName,
+                    selected = target?.host == peer.host,
+                    icon = Icons.Default.SettingsRemote,
+                    onClick = { onSelectTarget(peer); expanded = false },
+                )
+            }
+            if (peers.isEmpty()) {
+                androidx.tv.material3.Text(
+                    text = "No other Xadarr devices found — enable LAN Sync on the target device too.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
     }
 }
 
