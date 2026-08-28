@@ -43,6 +43,11 @@ class TvRemoteControlClient(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var readLoopJob: Job? = null
 
+    /** Whether this connection is still usable — the TV drops us after ~16s without a ping
+     * response, and the read loop ends when that happens, so check both. */
+    val isConnected: Boolean
+        get() = socket?.let { it.isConnected && !it.isClosed } == true && readLoopJob?.isActive == true
+
     suspend fun connect(host: String, port: Int = 6466) {
         withContext(Dispatchers.IO) {
             certManager.ensureKeyPair(clientName)

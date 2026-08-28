@@ -8,12 +8,23 @@ import com.arflix.tv.remoteservice.proto.RemoteDirection
 import com.arflix.tv.remoteservice.proto.RemoteKeyCode
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
 val TV_REMOTE_PAIRED_HOSTS_KEY = stringSetPreferencesKey("tv_remote_paired_hosts")
+
+/** Long enough that it never lands near an in-flight key press (see scheduleIdleDisconnect). */
+private const val IDLE_DISCONNECT_MS = 5 * 60 * 1000L
 
 // LanSyncService's own advertised port — reused as the default when reconstructing a synthetic
 // LanPeer for a paired-but-currently-unreachable device (see pairedPeers() below). Only matters
@@ -39,6 +50,12 @@ class TvRemoteService @Inject constructor(
 ) {
     private val clientName: String get() = "Xadarr"
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val connectionLock = Mutex()
+    private var activeClient: TvRemoteControlClient? = null
+    private var activeHost: String? = null
+    private var idleJob: Job? = null
+
     // Entries are "$host::$deviceName" rather than bare hosts, so a paired device can still be
     // shown (and selected, e.g. to send a power-on) via pairedPeers() below even once it's dropped
     // out of LanSyncService's live peers list — which happens more readily than you'd expect once
@@ -62,6 +79,7 @@ class TvRemoteService @Inject constructor(
             val current = prefs[TV_REMOTE_PAIRED_HOSTS_KEY] ?: emptySet()
             prefs[TV_REMOTE_PAIRED_HOSTS_KEY] = current.filterNot { it.substringBefore("::") == host }.toSet()
         }
+        if (activeHost == host) connectionLock.withLock { closeActive() }
     }
 
     /** Paired devices as selectable LanPeers, independent of whether LanSyncService currently
@@ -91,15 +109,60 @@ class TvRemoteService @Inject constructor(
      */
     suspend fun sendKeyCode(host: String, keyCode: RemoteKeyCode, direction: RemoteDirection = RemoteDirection.SHORT): Boolean {
         if (!isPaired(host)) return false
+        return connectionLock.withLock {
+            try {
+                try {
+                    clientFor(host).sendKeyCode(keyCode, direction)
+                } catch (e: Exception) {
+                    // Most likely a connection the TV had already dropped (idle timeout, standby,
+                    // network blip) — rebuild it once and retry before reporting failure.
+                    closeActive()
+                    clientFor(host).sendKeyCode(keyCode, direction)
+                }
+                scheduleIdleDisconnect()
+                true
+            } catch (e: Exception) {
+                closeActive()
+                false
+            }
+        }
+    }
+
+    private suspend fun clientFor(host: String): TvRemoteControlClient {
+        val existing = activeClient
+        if (existing != null && activeHost == host && existing.isConnected) return existing
+        closeActive()
         val client = TvRemoteControlClient(certManager, clientName)
-        return try {
-            client.connect(host)
-            client.sendKeyCode(keyCode, direction)
-            true
-        } catch (e: Exception) {
-            false
-        } finally {
-            client.disconnect()
+        client.connect(host)
+        activeClient = client
+        activeHost = host
+        return client
+    }
+
+    private fun closeActive() {
+        idleJob?.cancel()
+        idleJob = null
+        runCatching { activeClient?.disconnect() }
+        activeClient = null
+        activeHost = null
+    }
+
+    /**
+     * Drops the connection only after a long quiet period, never right after a key press.
+     *
+     * Disconnecting immediately after sending a key crashed a real Shield's `system_server`
+     * outright (NPE in `PhoneWindowManager.deviceSupportsVolumeMuteHotkey` — an AOSP missing
+     * null check): closing the control channel tears down the remote service's virtual input
+     * device while the key is still queued in the accessibility `KeyboardInterceptor`, so the
+     * device lookup for the in-flight event returns null. Holding the connection open is also
+     * simply what a real remote does — Unimote keeps its channel up for the whole session — and
+     * it avoids a TLS handshake's latency on every single press.
+     */
+    private fun scheduleIdleDisconnect() {
+        idleJob?.cancel()
+        idleJob = scope.launch {
+            delay(IDLE_DISCONNECT_MS)
+            connectionLock.withLock { closeActive() }
         }
     }
 
