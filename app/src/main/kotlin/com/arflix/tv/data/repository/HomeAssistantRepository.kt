@@ -211,6 +211,39 @@ class HomeAssistantRepository @Inject constructor(
     }
 
     /**
+     * entity_id -> area name, via the template API.
+     *
+     * Areas aren't in `/api/states` at all (they live in the entity/device registry), but the
+     * picker badly needs them: one house can have several near-identical media_player names
+     * ("Office TV 2" vs "Office TV 3", two different LG TVs), because `cast` and
+     * `androidtv_remote` each register their own entity for the same physical TV. Without the
+     * area the choice is a guess. Failure is non-fatal — labels just fall back to bare names.
+     */
+    private suspend fun areaNames(): Map<String, String> = withContext(Dispatchers.IO) {
+        val cfg = config()
+        if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) return@withContext emptyMap()
+        runCatching {
+            val template = "{% for e in states.media_player %}{{ e.entity_id }}|{{ area_name(e.entity_id) }}\n{% endfor %}"
+            val body = JSONObject().put("template", template).toString()
+                .toRequestBody("application/json".toMediaType())
+            val req = Request.Builder()
+                .url("${cfg.baseUrl}/api/template")
+                .header("Authorization", "Bearer ${cfg.token}")
+                .post(body)
+                .build()
+            OkHttpProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use emptyMap()
+                resp.body?.string().orEmpty().lineSequence().mapNotNull { line ->
+                    val parts = line.split("|", limit = 2)
+                    if (parts.size != 2) return@mapNotNull null
+                    val area = parts[1].trim()
+                    if (area.isBlank() || area == "None") null else parts[0].trim() to area
+                }.toMap()
+            }
+        }.getOrElse { emptyMap() }
+    }
+
+    /**
      * Speakers/receivers that can act as a room's volume target. Deliberately a separate fetch
      * from [getAllEntities] rather than widening its `relevantDomains`: that set scopes the Smart
      * Home screen to lights/fans/AC/windows, and adding media_player there would dump every TV
@@ -229,6 +262,7 @@ class HomeAssistantRepository @Inject constructor(
                 if (!resp.isSuccessful) return@withContext emptyList() else resp.body?.string()
             } ?: return@withContext emptyList()
 
+            val areas = areaNames()
             val arr = JSONArray(body)
             (0 until arr.length()).mapNotNull { i ->
                 val obj = arr.optJSONObject(i) ?: return@mapNotNull null
@@ -243,9 +277,12 @@ class HomeAssistantRepository @Inject constructor(
                 val supportsVolume = attrs.has("volume_level") ||
                     (features and (VOLUME_SET or VOLUME_STEP or VOLUME_MUTE)) != 0
                 if (!supportsVolume) return@mapNotNull null
+                // Area-qualified so near-identical names stay distinguishable in the picker.
+                val friendly = attrs.optString("friendly_name").ifBlank { entityId }
+                val area = areas[entityId]
                 HaEntity(
                     entityId = entityId,
-                    name = attrs.optString("friendly_name").ifBlank { entityId },
+                    name = if (area != null && !friendly.contains(area, ignoreCase = true)) "$friendly · $area" else friendly,
                     domain = "media_player",
                     state = obj.optString("state"),
                     deviceClass = attrs.optString("device_class").takeIf { it.isNotBlank() },
