@@ -1402,8 +1402,9 @@ fun LiveTvScreen(
                     host = pairingHost,
                     onStart = { viewModel.startTvRemotePairing() },
                     onFinished = {
+                        val deviceName = remoteTarget?.takeIf { it.host == pairingHost }?.displayName ?: pairingHost
                         fsScope.launch {
-                            viewModel.onTvRemotePairingFinished(pairingHost)
+                            viewModel.onTvRemotePairingFinished(pairingHost, deviceName)
                             tvRemotePaired = true
                         }
                     },

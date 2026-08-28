@@ -81,7 +81,16 @@ class TvViewModel @Inject constructor(
     val remoteTarget: StateFlow<com.arflix.tv.data.repository.LanPeer?> = remoteModeRepository.target
 
     suspend fun sendRemoteTuneChannel(epgId: String): Boolean = remoteModeRepository.sendTuneChannel(epgId)
-    val remoteLanPeers: StateFlow<List<com.arflix.tv.data.repository.LanPeer>> = lanSyncService.peers
+
+    // Live NSD peers merged with paired-but-currently-unreachable devices — see the matching
+    // comment in RemoteModeViewModel.peers for why (a sleeping TV drops out of lanSyncService's
+    // live list well before you'd want to give up on reaching its Power button).
+    val remoteLanPeers: StateFlow<List<com.arflix.tv.data.repository.LanPeer>> =
+        combine(lanSyncService.peers, tvRemoteService.pairedPeers) { live, paired ->
+            val liveHosts = live.map { it.host }.toSet()
+            live + paired.filterNot { it.host in liveHosts }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
     suspend fun sendRemoteText(text: String): Boolean = remoteModeRepository.sendText(text)
@@ -90,7 +99,8 @@ class TvViewModel @Inject constructor(
     // same wiring on the global panel; this is the Guide's own "Remote" pill sheet.
     suspend fun isTvRemotePaired(host: String): Boolean = tvRemoteService.isPaired(host)
     fun startTvRemotePairing(): com.arflix.tv.data.repository.tvremote.TvRemotePairingClient = tvRemoteService.startPairing()
-    suspend fun onTvRemotePairingFinished(host: String) = tvRemoteService.onPairingFinished(host)
+    suspend fun onTvRemotePairingFinished(host: String, deviceName: String) =
+        tvRemoteService.onPairingFinished(host, deviceName)
 
     suspend fun sendRemoteVolumeUp(host: String): Boolean =
         tvRemoteService.sendVolumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP)

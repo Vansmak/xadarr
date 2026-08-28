@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.components
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.data.repository.LanSyncService
@@ -8,7 +9,10 @@ import com.arflix.tv.data.repository.RemoteModeRepository
 import com.arflix.tv.data.repository.tvremote.TvRemotePairingClient
 import com.arflix.tv.data.repository.tvremote.TvRemoteService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 /**
@@ -27,7 +31,17 @@ class RemoteModeViewModel @Inject constructor(
     private val tvRemoteService: TvRemoteService,
 ) : ViewModel() {
     val target: StateFlow<LanPeer?> = remoteModeRepository.target
-    val peers: StateFlow<List<LanPeer>> = lanSyncService.peers
+
+    // Live NSD-discovered peers merged with paired-but-currently-unreachable devices (asleep,
+    // screen off — NSD stops seeing them well before you'd want to give up on them, and a failed
+    // background settings-sync push actively prunes them from lanSyncService.peers). Live entry
+    // wins on host collision since it has an accurate port/name; paired-only entries are what
+    // keeps a sleeping TV selectable so its Power button is actually reachable.
+    val peers: StateFlow<List<LanPeer>> = combine(lanSyncService.peers, tvRemoteService.pairedPeers) { live, paired ->
+        val liveHosts = live.map { it.host }.toSet()
+        live + paired.filterNot { it.host in liveHosts }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun setTarget(peer: LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendDpad(key: DPadKey): Boolean = remoteModeRepository.sendDpad(key)
     suspend fun sendText(text: String): Boolean = remoteModeRepository.sendText(text)
@@ -37,7 +51,8 @@ class RemoteModeViewModel @Inject constructor(
     // to the existing HTTP dpad path automatically when the target isn't paired for this yet.
     suspend fun isTvRemotePaired(host: String): Boolean = tvRemoteService.isPaired(host)
     fun startTvRemotePairing(): TvRemotePairingClient = tvRemoteService.startPairing()
-    suspend fun onTvRemotePairingFinished(host: String) = tvRemoteService.onPairingFinished(host)
+    suspend fun onTvRemotePairingFinished(host: String, deviceName: String) =
+        tvRemoteService.onPairingFinished(host, deviceName)
     suspend fun forgetTvRemotePairing(host: String) = tvRemoteService.forgetPairing(host)
 
     suspend fun sendVolumeUp(host: String): Boolean =

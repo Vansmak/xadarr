@@ -3,15 +3,23 @@ package com.arflix.tv.data.repository.tvremote
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.remoteservice.proto.RemoteDirection
 import com.arflix.tv.remoteservice.proto.RemoteKeyCode
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 val TV_REMOTE_PAIRED_HOSTS_KEY = stringSetPreferencesKey("tv_remote_paired_hosts")
+
+// LanSyncService's own advertised port — reused as the default when reconstructing a synthetic
+// LanPeer for a paired-but-currently-unreachable device (see pairedPeers() below). Only matters
+// if some other Remote Mode action (dpad/tune, which go over this HTTP port) is attempted against
+// a device that's actually offline; it'll just fail cleanly like any unreachable peer does today.
+private const val DEFAULT_XADARR_PORT = 7979
 
 /**
  * Orchestrates the Android TV Remote Service client — pairing state (which hosts we've
@@ -31,20 +39,39 @@ class TvRemoteService @Inject constructor(
 ) {
     private val clientName: String get() = "Xadarr"
 
-    suspend fun isPaired(host: String): Boolean =
-        context.settingsDataStore.data.first()[TV_REMOTE_PAIRED_HOSTS_KEY]?.contains(host) == true
+    // Entries are "$host::$deviceName" rather than bare hosts, so a paired device can still be
+    // shown (and selected, e.g. to send a power-on) via pairedPeers() below even once it's dropped
+    // out of LanSyncService's live peers list — which happens more readily than you'd expect once
+    // a TV actually goes to sleep, see project_remote_mode_device_visibility_2026-08-28 memory.
+    private fun entryFor(host: String, current: Set<String>): String? =
+        current.firstOrNull { it.substringBefore("::") == host }
 
-    suspend fun markPaired(host: String) {
+    suspend fun isPaired(host: String): Boolean =
+        entryFor(host, context.settingsDataStore.data.first()[TV_REMOTE_PAIRED_HOSTS_KEY] ?: emptySet()) != null
+
+    suspend fun markPaired(host: String, deviceName: String) {
         context.settingsDataStore.edit { prefs ->
             val current = prefs[TV_REMOTE_PAIRED_HOSTS_KEY] ?: emptySet()
-            prefs[TV_REMOTE_PAIRED_HOSTS_KEY] = current + host
+            val withoutHost = current.filterNot { it.substringBefore("::") == host }.toSet()
+            prefs[TV_REMOTE_PAIRED_HOSTS_KEY] = withoutHost + "$host::${deviceName.ifBlank { host }}"
         }
     }
 
     suspend fun forgetPairing(host: String) {
         context.settingsDataStore.edit { prefs ->
             val current = prefs[TV_REMOTE_PAIRED_HOSTS_KEY] ?: emptySet()
-            prefs[TV_REMOTE_PAIRED_HOSTS_KEY] = current - host
+            prefs[TV_REMOTE_PAIRED_HOSTS_KEY] = current.filterNot { it.substringBefore("::") == host }.toSet()
+        }
+    }
+
+    /** Paired devices as selectable LanPeers, independent of whether LanSyncService currently
+     * sees them live — the whole point being a device you can't currently reach (asleep, screen
+     * off) must still show up so you can send it a power command in the first place. */
+    val pairedPeers = context.settingsDataStore.data.map { prefs ->
+        (prefs[TV_REMOTE_PAIRED_HOSTS_KEY] ?: emptySet()).map { entry ->
+            val host = entry.substringBefore("::")
+            val name = entry.substringAfter("::", host)
+            LanPeer(host = host, port = DEFAULT_XADARR_PORT, deviceName = name)
         }
     }
 
@@ -52,8 +79,8 @@ class TvRemoteService @Inject constructor(
      * the user has typed in the code shown on the TV, then must call close() either way. */
     fun startPairing(): TvRemotePairingClient = TvRemotePairingClient(certManager, clientName)
 
-    suspend fun onPairingFinished(host: String) {
-        markPaired(host)
+    suspend fun onPairingFinished(host: String, deviceName: String) {
+        markPaired(host, deviceName)
     }
 
     /**

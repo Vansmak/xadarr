@@ -1153,7 +1153,8 @@ fun ArflixApp(
                         host = pairingHost,
                         onStart = { remoteModeViewModel.startTvRemotePairing() },
                         onFinished = {
-                            appCoroutineScope.launch { remoteModeViewModel.onTvRemotePairingFinished(pairingHost) }
+                            val deviceName = remoteTarget?.takeIf { it.host == pairingHost }?.displayName ?: pairingHost
+                            appCoroutineScope.launch { remoteModeViewModel.onTvRemotePairingFinished(pairingHost, deviceName) }
                         },
                         onDismiss = { showTvRemotePairingDialogFor = null },
                     )
