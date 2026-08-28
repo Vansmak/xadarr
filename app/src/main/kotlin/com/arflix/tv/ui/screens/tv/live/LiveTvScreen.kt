@@ -109,9 +109,17 @@ private fun chooseStartupChannelId(
     hasOpenedBefore: Boolean,
     favoriteChannelIds: List<String>,
     isFullyEnriched: Boolean,
+    // Every channel id regardless of category, not just the currently-selected one.
+    // explicitInitialChannelId is an explicit request (program reminder deep link, or a Remote
+    // Mode tune) — it must be honored no matter what category happens to be selected, but
+    // non-touch devices default selectedCategoryId to "fav" on a fresh composition (see its
+    // declaration), so gating this against filteredChannels silently dropped any tune to a
+    // non-favorited channel on a TV. Confirmed on-device: toast said "Tuned", server emitted
+    // correctly, fresh screen recomposed (the flicker), and it still stayed on the old channel.
+    allChannelIds: Set<String> = emptySet(),
 ): String? {
     explicitInitialChannelId
-        ?.takeIf { id -> filteredChannels.any { it.id == id } }
+        ?.takeIf { id -> allChannelIds.contains(id) || filteredChannels.any { it.id == id } }
         ?.let { return it }
     if (explicitInitialChannelId != null && !isFullyEnriched) return null
 
@@ -442,6 +450,7 @@ fun LiveTvScreen(
         }
     }
 
+    val allChannelIds = remember(state.snapshot.channels) { state.snapshot.channels.mapTo(mutableSetOf()) { it.id } }
     // Pick the startup channel only after saved IPTV preferences/session have
     // loaded. Favorites win over a stale recent channel, then we fall back to
     // the persisted recent channel, then the first filtered entry.
@@ -455,7 +464,17 @@ fun LiveTvScreen(
                 hasOpenedBefore = state.tvSession.lastOpenedAt > 0L,
                 favoriteChannelIds = state.snapshot.favoriteChannels,
                 isFullyEnriched = enrichedState.value.all.size >= state.snapshot.channels.size,
+                allChannelIds = allChannelIds,
             )
+            // An explicit request (deep link / Remote Mode tune) just got honored outside
+            // whatever category was selected (e.g. this device's default "fav" on first
+            // launch) — switch to "all" so the guide actually shows the channel that's now
+            // playing instead of a category list that doesn't contain it.
+            if (playingChannelId != null && initialChannelId == playingChannelId &&
+                filteredChannels.none { it.id == playingChannelId }
+            ) {
+                selectedCategoryId = "all"
+            }
         }
         if (focusedChannelId == null || filteredChannels.none { it.id == focusedChannelId }) {
             focusedChannelId = playingChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
