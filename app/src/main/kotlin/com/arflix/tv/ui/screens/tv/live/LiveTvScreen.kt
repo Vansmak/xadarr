@@ -677,16 +677,21 @@ fun LiveTvScreen(
 
     fun selectChannel(channel: EnrichedChannel) {
         if (remoteTuneOrHandled(channel)) return
-        // Selecting any channel goes straight to fullscreen — one press, like
-        // TiviMate. Previously a new channel only started in the small
-        // MiniPlayerRow, and selecting it again was needed to go fullscreen.
+        // Two-step, back to the pre-TiviMate-redesign behavior at Joe's request: selecting a
+        // channel that isn't already the mini-playing one just loads it into the mini preview
+        // and keeps the guide open, so surfing channel-to-channel doesn't force fullscreen each
+        // time. Selecting the SAME channel again (already mini-playing) commits to fullscreen —
+        // that's the explicit "I want to actually watch this" signal.
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
-        if (channel.id != playingChannelId) previousChannelId = playingChannelId
-        playingChannelId = channel.id
-        playingCatchupProgram = null
-        isFullScreen = true
-        hudPokeSignal++
+        if (channel.id == playingChannelId) {
+            isFullScreen = true
+            hudPokeSignal++
+        } else {
+            previousChannelId = playingChannelId
+            playingChannelId = channel.id
+            playingCatchupProgram = null
+        }
     }
 
     fun playProgramInMini(channel: EnrichedChannel, program: IptvProgram?) {
