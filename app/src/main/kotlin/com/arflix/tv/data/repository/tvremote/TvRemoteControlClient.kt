@@ -48,12 +48,9 @@ class TvRemoteControlClient(
             certManager.ensureKeyPair(clientName)
             val sslContext = certManager.buildSslContext()
             val s = sslContext.socketFactory.createSocket(host, port) as SSLSocket
-            // See TvRemotePairingClient's identical block — prefer TLS 1.2 to sidestep 1.3's
-            // mandatory RSA-PSS CertificateVerify step.
-            runCatching {
-                s.enabledProtocols = s.supportedProtocols.filter { it == "TLSv1.2" }.toTypedArray()
-                    .ifEmpty { s.enabledProtocols }
-            }
+            // See TvRemotePairingClient's identical comment — do NOT force TLS 1.2, it broke
+            // pairing against a real Shield's pairing server (no cert for the resulting RSA
+            // cipher suite). Left unset so it negotiates TLS 1.3 like the server actually wants.
             try {
                 s.startHandshake()
             } catch (e: Exception) {

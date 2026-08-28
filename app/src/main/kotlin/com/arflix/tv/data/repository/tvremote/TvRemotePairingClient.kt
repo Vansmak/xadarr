@@ -33,15 +33,14 @@ class TvRemotePairingClient(
             certManager.ensureKeyPair(clientName)
             val sslContext = certManager.buildSslContext()
             val s = sslContext.socketFactory.createSocket(host, port) as SSLSocket
-            // Prefer TLS 1.2 — the reference implementation's Python client (and by extension
-            // the Android TV Remote Service it talks to) was verified against 1.2, and 1.3's
-            // mandatory RSA-PSS CertificateVerify step is exactly what tripped up the first
-            // attempt here (see TvRemoteCertManager's ALIAS comment). Falls back gracefully if
-            // the device doesn't offer 1.2 for some reason.
-            runCatching {
-                s.enabledProtocols = s.supportedProtocols.filter { it == "TLSv1.2" }.toTypedArray()
-                    .ifEmpty { s.enabledProtocols }
-            }
+            // Do NOT force TLS 1.2 here — tried that as a "defense in depth" alongside the
+            // RSA-PSS key-authorization fix (see TvRemoteCertManager's ALIAS comment for that
+            // one, which is the actual fix and stays). Confirmed on a real Shield that forcing
+            // 1.2 backfires: its own AtvRemote.TcpPairingServer logs "No local certificate for
+            // TLSv1.2 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" — the server-side pairing service
+            // doesn't have a cert usable for a TLS-1.2-forced RSA cipher suite. Left unset, the
+            // client negotiates whatever the server actually supports (TLS 1.3 in practice), and
+            // the PSS key fix already covers 1.3's CertificateVerify requirement.
             try {
                 s.startHandshake()
             } catch (e: Exception) {
