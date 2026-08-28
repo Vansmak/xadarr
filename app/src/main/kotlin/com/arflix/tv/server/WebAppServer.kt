@@ -443,7 +443,8 @@ class WebAppServer @Inject constructor(
         if (epgId.isBlank()) return json(JSONObject().put("status", "error").put("message", "epgId required"))
         val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: iptvRepository.getCachedSnapshotOrNull()
         val channel = snapshot?.channels?.firstOrNull { it.epgId?.equals(epgId, ignoreCase = true) == true }
-            ?: return json(JSONObject().put("status", "not_found"))
+        android.util.Log.i("RemoteTuneDebug", "handleRemoteTuneChannel: epgId=$epgId snapshotSize=${snapshot?.channels?.size} resolvedId=${channel?.id} resolvedName=${channel?.name}")
+        if (channel == null) return json(JSONObject().put("status", "not_found"))
         remoteCommandBus.emit(RemoteCommand.TuneChannel(channel.id))
         return json(JSONObject().put("status", "tuned").put("name", channel.name))
     }

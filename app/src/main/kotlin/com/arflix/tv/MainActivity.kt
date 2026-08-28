@@ -506,8 +506,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             remoteCommandBus.incoming.collect { command ->
                 when (command) {
-                    is com.arflix.tv.data.repository.RemoteCommand.TuneChannel ->
+                    is com.arflix.tv.data.repository.RemoteCommand.TuneChannel -> {
+                        android.util.Log.i("RemoteTuneDebug", "MainActivity collector: TuneChannel(${command.localChannelId})")
                         pendingRemoteChannelId = command.localChannelId
+                    }
                     is com.arflix.tv.data.repository.RemoteCommand.PlayTitle ->
                         pendingRemotePlayRequest = command
                     is com.arflix.tv.data.repository.RemoteCommand.TypeText ->
@@ -1223,6 +1225,7 @@ fun ArflixApp(
     // the path already confirmed to work correctly on-device.
     LaunchedEffect(activeProfile?.id, pendingRemoteChannelId) {
         val channelId = pendingRemoteChannelId ?: return@LaunchedEffect
+        android.util.Log.i("RemoteTuneDebug", "MainActivity nav effect: channelId=$channelId activeProfile=${activeProfile?.id}")
         if (activeProfile == null) return@LaunchedEffect
         navController.navigate(Screen.Home.createRoute(channelId = channelId)) {
             popUpTo(Screen.Home.route) { inclusive = true }

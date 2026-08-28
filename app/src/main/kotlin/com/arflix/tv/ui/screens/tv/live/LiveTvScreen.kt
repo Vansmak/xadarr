@@ -468,6 +468,7 @@ fun LiveTvScreen(
         if (initialChannelId != null) {
             debugTuneInfo = "DEBUG: want=$initialChannelId enters=$entersBlock playingId=$playingChannelId " +
                 "filteredSize=${filteredChannels.size} startupReady=$startupStateReady"
+            android.util.Log.i("RemoteTuneDebug", "LiveTvScreen gate: $debugTuneInfo")
         }
         if (entersBlock) {
             val result = chooseStartupChannelId(
@@ -484,6 +485,7 @@ fun LiveTvScreen(
                     "inCat($selectedCategoryId)=${filteredChannels.any { it.id == initialChannelId }} " +
                     "fullyEnriched=${enrichedState.value.all.size >= state.snapshot.channels.size} " +
                     "(${enrichedState.value.all.size}/${state.snapshot.channels.size}) got=$result"
+                android.util.Log.i("RemoteTuneDebug", "LiveTvScreen result: $debugTuneInfo")
             }
             playingChannelId = result
             // An explicit request (deep link / Remote Mode tune) just got honored outside
