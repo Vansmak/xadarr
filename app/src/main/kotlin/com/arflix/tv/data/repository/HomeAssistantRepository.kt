@@ -203,6 +203,13 @@ class HomeAssistantRepository @Inject constructor(
      * rooms where the speaker is on the network, driving it through Home Assistant is the fix,
      * not a workaround — see [TvRemoteService] for the key-injection path this supersedes.
      */
+    // HA MediaPlayerEntityFeature bits, for spotting entities that can change volume.
+    private companion object {
+        const val VOLUME_SET = 4
+        const val VOLUME_MUTE = 8
+        const val VOLUME_STEP = 1024
+    }
+
     /**
      * Speakers/receivers that can act as a room's volume target. Deliberately a separate fetch
      * from [getAllEntities] rather than widening its `relevantDomains`: that set scopes the Smart
@@ -228,9 +235,14 @@ class HomeAssistantRepository @Inject constructor(
                 val entityId = obj.optString("entity_id")
                 if (entityId.substringBefore(".", "") != "media_player") return@mapNotNull null
                 val attrs = obj.optJSONObject("attributes") ?: JSONObject()
-                // Only entities actually reporting a volume level can serve as a volume target;
-                // a TV that's off/unavailable exposes none and would just be a dead choice.
-                if (!attrs.has("volume_level")) return@mapNotNull null
+                // Accept anything that can change volume at all, by either route. Filtering on
+                // `volume_level` alone silently dropped every Android TV: HA's Android TV Remote
+                // integration supports step-based volume (VOLUME_STEP) with no absolute level to
+                // report, which is precisely the case for a TV using its own speakers.
+                val features = attrs.optInt("supported_features", 0)
+                val supportsVolume = attrs.has("volume_level") ||
+                    (features and (VOLUME_SET or VOLUME_STEP or VOLUME_MUTE)) != 0
+                if (!supportsVolume) return@mapNotNull null
                 HaEntity(
                     entityId = entityId,
                     name = attrs.optString("friendly_name").ifBlank { entityId },
