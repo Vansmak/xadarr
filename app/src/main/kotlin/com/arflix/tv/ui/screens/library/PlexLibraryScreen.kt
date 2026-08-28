@@ -480,7 +480,12 @@ fun PlexLibraryScreen(
             }
         }
 
-        com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile)
+        // Movies/Shows are always reached via navigateTopLevel (bottom nav / NavRail swap,
+        // never a stack push — every call site is navigateTopLevel(Screen.PlexLibrary...)),
+        // exactly like Home. The "Back" hint doesn't apply to a top-level destination any more
+        // here than it does on Home (which already carves out the same exemption) — it was
+        // just reading as a stray label over empty space.
+        com.arflix.tv.ui.components.MinimalTopChrome(profile = currentProfile, showBackHint = false)
 
         Box(modifier = Modifier.zIndex(10f)) {
             com.arflix.tv.ui.components.NavRail(
