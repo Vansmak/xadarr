@@ -1,6 +1,7 @@
 package com.arflix.tv.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
@@ -33,11 +35,10 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -234,15 +235,12 @@ private fun RemoteModeContent(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Divider(color = TextSecondary.copy(alpha = 0.12f))
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    DpadButton(Icons.Default.VolumeDown, "Volume down") { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } }
-                    Spacer(modifier = Modifier.width(28.dp))
-                    DpadButton(Icons.Default.VolumeUp, "Volume up") { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    RemoteVolumeRocker(
+                        onUp = { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } },
+                        onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
+                    )
                 }
             }
 
@@ -403,27 +401,39 @@ private fun RemoteDeviceRow(name: String, selected: Boolean, icon: ImageVector, 
     }
 }
 
+/**
+ * Single ring rather than four separate button "blobs" — matches the reference remotes Joe
+ * pointed at (Unimote, the Shield's own app, GoogleTV): one continuous circle divided into
+ * directional zones reads as a real D-pad, not a loose cluster of icons.
+ */
 @Composable
 private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        DpadButton(Icons.Default.KeyboardArrowUp, "Up") { onPress(DPadKey.UP) }
-        Row(horizontalArrangement = Arrangement.spacedBy(44.dp), verticalAlignment = Alignment.CenterVertically) {
-            DpadButton(Icons.Default.KeyboardArrowLeft, "Left") { onPress(DPadKey.LEFT) }
+        Box(
+            modifier = Modifier
+                .padding(vertical = 4.dp)
+                .size(216.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.05f))
+                .border(1.dp, Pink.copy(alpha = 0.35f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            DpadRingZone(Icons.Default.KeyboardArrowUp, "Up", Modifier.align(Alignment.TopCenter)) { onPress(DPadKey.UP) }
+            DpadRingZone(Icons.Default.KeyboardArrowDown, "Down", Modifier.align(Alignment.BottomCenter)) { onPress(DPadKey.DOWN) }
+            DpadRingZone(Icons.Default.KeyboardArrowLeft, "Left", Modifier.align(Alignment.CenterStart)) { onPress(DPadKey.LEFT) }
+            DpadRingZone(Icons.Default.KeyboardArrowRight, "Right", Modifier.align(Alignment.CenterEnd)) { onPress(DPadKey.RIGHT) }
             Box(
                 modifier = Modifier
-                    .padding(4.dp)
-                    .size(52.dp)
+                    .size(84.dp)
                     .clip(CircleShape)
                     .background(Pink)
                     .clickable { onPress(DPadKey.CENTER) },
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.tv.material3.Text(text = "OK", fontSize = 13.sp, color = com.arflix.tv.ui.theme.BackgroundDark)
+                androidx.tv.material3.Text(text = "OK", fontSize = 15.sp, color = com.arflix.tv.ui.theme.BackgroundDark)
             }
-            DpadButton(Icons.Default.KeyboardArrowRight, "Right") { onPress(DPadKey.RIGHT) }
         }
-        DpadButton(Icons.Default.KeyboardArrowDown, "Down") { onPress(DPadKey.DOWN) }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
@@ -434,6 +444,60 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
             Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
             Spacer(modifier = Modifier.width(6.dp))
             androidx.tv.material3.Text(text = "Back", fontSize = 13.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun DpadRingZone(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .size(64.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = TextPrimary, modifier = Modifier.size(28.dp))
+    }
+}
+
+/**
+ * Vertical rocker — a taller pill with +/- at the ends — instead of two separate round
+ * buttons, matching the reference remotes' VOL/CH rocker style.
+ */
+@Composable
+private fun RemoteVolumeRocker(onUp: () -> Unit, onDown: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(64.dp)
+            .height(168.dp)
+            .clip(RoundedCornerShape(32.dp))
+            .background(Color.White.copy(alpha = 0.05f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clickable(onClick = onUp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Volume up", tint = TextPrimary, modifier = Modifier.size(22.dp))
+        }
+        androidx.tv.material3.Text(
+            text = "VOL",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            letterSpacing = 1.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp),
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clickable(onClick = onDown),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = "Volume down", tint = TextPrimary, modifier = Modifier.size(22.dp))
         }
     }
 }
