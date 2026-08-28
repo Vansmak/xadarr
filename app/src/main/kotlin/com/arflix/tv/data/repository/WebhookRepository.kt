@@ -40,6 +40,14 @@ val HA_EXPOSED_ENTITIES_KEY = stringPreferencesKey("ha_exposed_entities") // JSO
 // Shield itself cannot control — see HomeAssistantRepository.mediaVolumeUp). Blank/absent for a
 // host means fall back to sending volume keys to the device itself.
 val HA_VOLUME_ENTITY_BY_HOST_KEY = stringPreferencesKey("ha_volume_entity_by_host")
+
+// Supersedes the volume-only key above (migrated on first read). JSON: host -> {volume,power,input}
+// entity ids. Power/volume/input in one room are frequently three different devices — Joe's Family
+// Room needs exactly that (Shield for keys, LG for input, Sonos or LG for volume) — so each
+// capability is routed independently rather than assuming one device owns the room.
+// Deliberately keyed by device host, NOT by HA area: areas drift (renamed entities left in stale
+// areas, duplicate entities per TV) and coupling to them would make routing fragile.
+val HA_DEVICE_PROFILE_BY_HOST_KEY = stringPreferencesKey("ha_device_profile_by_host")
 val DISPATCHARR_BLACKLIST_PATH_KEY = stringPreferencesKey("dispatcharr_blacklist_path")
 val GROUP_BLACKLIST_ENABLED_KEY = booleanPreferencesKey("group_blacklist_enabled")
 val WATCHLIST_PLACEMENT_KEY = stringPreferencesKey("watchlist_placement")

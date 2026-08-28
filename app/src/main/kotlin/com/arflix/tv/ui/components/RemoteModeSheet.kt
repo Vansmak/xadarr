@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Input
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
+import com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter
 import com.arflix.tv.ui.theme.BackgroundElevated
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
@@ -94,8 +97,10 @@ fun RemoteModeSheet(
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    volumeEntityId: String? = null,
-    onSelectVolumeEntity: ((String?) -> Unit)? = null,
+    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
+    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
+    inputs: List<String> = emptyList(),
+    onSelectInput: ((String) -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -103,7 +108,7 @@ fun RemoteModeSheet(
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity)
+        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, profile, onProfileChange, inputs, onSelectInput)
     }
 }
 
@@ -127,8 +132,10 @@ fun RemoteModeTopPanel(
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    volumeEntityId: String? = null,
-    onSelectVolumeEntity: ((String?) -> Unit)? = null,
+    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
+    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
+    inputs: List<String> = emptyList(),
+    onSelectInput: ((String) -> Unit)? = null,
 ) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
@@ -187,7 +194,7 @@ fun RemoteModeTopPanel(
                     )
                 }
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity)
+                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, profile, onProfileChange, inputs, onSelectInput)
                 }
             }
         }
@@ -205,8 +212,10 @@ private fun RemoteModeContent(
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    volumeEntityId: String? = null,
-    onSelectVolumeEntity: ((String?) -> Unit)? = null,
+    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
+    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
+    inputs: List<String> = emptyList(),
+    onSelectInput: ((String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     Column(
@@ -260,14 +269,30 @@ private fun RemoteModeContent(
                     }
                 }
             }
-            // A streaming box often isn't in its own room's audio path (passthrough to a Sonos or
-            // AVR), so volume keys sent to it do nothing audible. Picking the speaker that
-            // actually owns the room sends volume straight there instead.
+            // Power, volume and input in one room are often three different devices — a box that
+            // can't control its own room's audio, a TV that owns the HDMI inputs, a speaker on the
+            // network. Each capability is pointed at whichever device actually handles it.
             if (target != null && speakers.isNotEmpty()) {
-                RemoteSpeakerPicker(
-                    speakers = speakers,
-                    selectedEntityId = volumeEntityId,
-                    onSelect = { onSelectVolumeEntity?.invoke(it) },
+                RemoteCapabilityPicker(
+                    label = "Volume",
+                    icon = Icons.Default.VolumeUp,
+                    devices = speakers,
+                    selectedEntityId = profile.volumeEntity,
+                    onSelect = { onProfileChange?.invoke(profile.copy(volumeEntity = it)) },
+                )
+                RemoteCapabilityPicker(
+                    label = "Power",
+                    icon = Icons.Default.PowerSettingsNew,
+                    devices = speakers,
+                    selectedEntityId = profile.powerEntity,
+                    onSelect = { onProfileChange?.invoke(profile.copy(powerEntity = it)) },
+                )
+                RemoteCapabilityPicker(
+                    label = "Input",
+                    icon = Icons.Default.Input,
+                    devices = speakers,
+                    selectedEntityId = profile.inputEntity,
+                    onSelect = { onProfileChange?.invoke(profile.copy(inputEntity = it)) },
                 )
             }
         }
@@ -305,6 +330,29 @@ private fun RemoteModeContent(
                     DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
                     DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
                     DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
+                }
+            }
+
+            // Only shown once an input device is configured and actually reports a source_list —
+            // plenty of media_players expose no inputs at all.
+            if (inputs.isNotEmpty()) {
+                RemoteSection(title = "INPUT") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        inputs.forEach { source ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.06f))
+                                    .clickable { onSelectInput?.invoke(source) }
+                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                            ) {
+                                androidx.tv.material3.Text(text = source, fontSize = 13.sp, color = TextPrimary)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -383,18 +431,21 @@ private fun RemoteSection(title: String, content: @Composable ColumnScope.() -> 
  * devices a one box select").
  */
 /**
- * Chooses which speaker a volume press drives for the current target. "This device" keeps the
- * old behaviour (inject volume keys on the box itself), which is right when the TV's own speakers
- * are the output; anything else routes volume to that speaker through Home Assistant.
+ * Points one capability (volume, power, input) at whichever device actually handles it for the
+ * current target. "This device" keeps the old behaviour — send it to the box itself — which is
+ * right when the TV's own speakers are the output and it owns its own power; anything else routes
+ * that capability through Home Assistant.
  */
 @Composable
-private fun RemoteSpeakerPicker(
-    speakers: List<HaSpeaker>,
+private fun RemoteCapabilityPicker(
+    label: String,
+    icon: ImageVector,
+    devices: List<HaSpeaker>,
     selectedEntityId: String?,
     onSelect: (String?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val currentName = speakers.firstOrNull { it.entityId == selectedEntityId }?.name
+    val currentName = devices.firstOrNull { it.entityId == selectedEntityId }?.name
         ?: "This device"
     Box {
         Row(
@@ -405,9 +456,9 @@ private fun RemoteSpeakerPicker(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+            Icon(icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(10.dp))
-            androidx.tv.material3.Text(text = "Volume", fontSize = 13.sp, color = TextSecondary)
+            androidx.tv.material3.Text(text = label, fontSize = 13.sp, color = TextSecondary)
             Spacer(modifier = Modifier.weight(1f))
             androidx.tv.material3.Text(text = currentName, fontSize = 13.sp, color = TextPrimary)
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
@@ -423,12 +474,12 @@ private fun RemoteSpeakerPicker(
                 icon = Icons.Default.SettingsRemote,
                 onClick = { onSelect(null); expanded = false },
             )
-            speakers.forEach { speaker ->
+            devices.forEach { device ->
                 RemoteDeviceRow(
-                    name = speaker.name,
-                    selected = selectedEntityId == speaker.entityId,
-                    icon = Icons.Default.VolumeUp,
-                    onClick = { onSelect(speaker.entityId); expanded = false },
+                    name = device.name,
+                    selected = selectedEntityId == device.entityId,
+                    icon = icon,
+                    onClick = { onSelect(device.entityId); expanded = false },
                 )
             }
         }

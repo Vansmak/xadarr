@@ -1376,11 +1376,16 @@ fun LiveTvScreen(
             var showTvRemotePairingDialogFor by remember { mutableStateOf<String?>(null) }
             var tvRemotePaired by remember(remoteTarget?.host) { mutableStateOf(false) }
             var remoteSpeakers by remember { mutableStateOf<List<com.arflix.tv.ui.components.HaSpeaker>>(emptyList()) }
-            var remoteVolumeEntity by remember(remoteTarget?.host) { mutableStateOf<String?>(null) }
+            var remoteProfile by remember(remoteTarget?.host) {
+                mutableStateOf(com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile())
+            }
+            var remoteInputs by remember(remoteTarget?.host) { mutableStateOf<List<String>>(emptyList()) }
             LaunchedEffect(remoteTarget?.host) {
                 val host = remoteTarget?.host
                 tvRemotePaired = host?.let { viewModel.isTvRemotePaired(it) } ?: false
-                remoteVolumeEntity = host?.let { viewModel.remoteVolumeEntityFor(it) }
+                remoteProfile = host?.let { viewModel.remoteProfileFor(it) }
+                    ?: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile()
+                remoteInputs = host?.let { viewModel.remoteInputsFor(it) } ?: emptyList()
                 if (host != null && remoteSpeakers.isEmpty()) remoteSpeakers = viewModel.loadRemoteSpeakers()
             }
             com.arflix.tv.ui.components.RemoteModeSheet(
@@ -1402,12 +1407,19 @@ fun LiveTvScreen(
                 onPairTvRemote = { remoteTarget?.host?.let { showTvRemotePairingDialogFor = it } },
                 onSendPower = { remoteTarget?.host?.let { viewModel.sendRemotePower(it) } ?: false },
                 speakers = remoteSpeakers,
-                volumeEntityId = remoteVolumeEntity,
-                onSelectVolumeEntity = { entityId ->
+                profile = remoteProfile,
+                onProfileChange = { updated ->
                     remoteTarget?.host?.let { host ->
-                        remoteVolumeEntity = entityId
-                        fsScope.launch { viewModel.setRemoteVolumeEntity(host, entityId) }
+                        remoteProfile = updated
+                        fsScope.launch {
+                            viewModel.setRemoteProfile(host, updated)
+                            remoteInputs = viewModel.remoteInputsFor(host)
+                        }
                     }
+                },
+                inputs = remoteInputs,
+                onSelectInput = { source ->
+                    remoteTarget?.host?.let { host -> fsScope.launch { viewModel.selectRemoteInput(host, source) } }
                 },
             )
             showTvRemotePairingDialogFor?.let { pairingHost ->

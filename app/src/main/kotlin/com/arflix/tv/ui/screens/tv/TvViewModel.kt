@@ -112,14 +112,18 @@ class TvViewModel @Inject constructor(
     suspend fun sendRemoteVolumeDown(host: String): Boolean =
         remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
 
-    suspend fun remoteVolumeEntityFor(host: String): String? = remoteVolumeRouter.volumeEntityFor(host)
-    suspend fun setRemoteVolumeEntity(host: String, entityId: String?) = remoteVolumeRouter.setVolumeEntity(host, entityId)
+    suspend fun remoteProfileFor(host: String) = remoteVolumeRouter.profileFor(host)
+    suspend fun setRemoteProfile(host: String, profile: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile) =
+        remoteVolumeRouter.setProfile(host, profile)
+
+    suspend fun remoteInputsFor(host: String): List<String> = remoteVolumeRouter.inputs(host)
+    suspend fun selectRemoteInput(host: String, source: String): Boolean = remoteVolumeRouter.selectInput(host, source)
 
     suspend fun loadRemoteSpeakers(): List<com.arflix.tv.ui.components.HaSpeaker> =
         homeAssistantRepository.getMediaPlayers()
             .map { com.arflix.tv.ui.components.HaSpeaker(it.entityId, it.name) }
 
-    suspend fun sendRemotePower(host: String): Boolean = tvRemoteService.sendPower(host)
+    suspend fun sendRemotePower(host: String): Boolean = remoteVolumeRouter.togglePower(host)
 
     // Receiving side, delivered directly rather than via navigation args: when this device is
     // the Remote Mode target and this screen (Home/the guide) is already composed and already

@@ -1078,11 +1078,15 @@ fun ArflixApp(
                 // Loaded once the panel is opened with a target, so an HA round trip never happens
                 // on app start for a feature most sessions won't touch.
                 var remoteSpeakers by remember { mutableStateOf<List<com.arflix.tv.ui.components.HaSpeaker>>(emptyList()) }
-                var remoteVolumeEntity by remember { mutableStateOf<String?>(null) }
+                var remoteProfile by remember {
+                    mutableStateOf(com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile())
+                }
+                var remoteInputs by remember { mutableStateOf<List<String>>(emptyList()) }
                 LaunchedEffect(showRemoteModeSheet, remoteTarget?.host) {
                     val host = remoteTarget?.host
                     if (showRemoteModeSheet && host != null) {
-                        remoteVolumeEntity = remoteModeViewModel.volumeEntityFor(host)
+                        remoteProfile = remoteModeViewModel.profileFor(host)
+                        remoteInputs = remoteModeViewModel.inputsFor(host)
                         if (remoteSpeakers.isEmpty()) remoteSpeakers = remoteModeViewModel.loadSpeakers()
                     }
                 }
@@ -1158,12 +1162,21 @@ fun ArflixApp(
                         remoteTarget?.host?.let { remoteModeViewModel.sendPower(it) } ?: false
                     },
                     speakers = remoteSpeakers,
-                    volumeEntityId = remoteVolumeEntity,
-                    onSelectVolumeEntity = { entityId ->
+                    profile = remoteProfile,
+                    onProfileChange = { updated ->
                         val host = remoteTarget?.host
                         if (host != null) {
-                            remoteVolumeEntity = entityId
-                            appCoroutineScope.launch { remoteModeViewModel.setVolumeEntity(host, entityId) }
+                            remoteProfile = updated
+                            appCoroutineScope.launch {
+                                remoteModeViewModel.setProfile(host, updated)
+                                remoteInputs = remoteModeViewModel.inputsFor(host)
+                            }
+                        }
+                    },
+                    inputs = remoteInputs,
+                    onSelectInput = { source ->
+                        remoteTarget?.host?.let { host ->
+                            appCoroutineScope.launch { remoteModeViewModel.selectInput(host, source) }
                         }
                     },
                 )

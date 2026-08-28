@@ -265,4 +265,53 @@ class HomeAssistantRepository @Inject constructor(
 
     suspend fun mediaVolumeMute(entityId: String, muted: Boolean): Boolean =
         callService("media_player", "volume_mute", entityId, JSONObject().put("is_volume_muted", muted))
+
+    suspend fun mediaTurnOn(entityId: String): Boolean = callService("media_player", "turn_on", entityId)
+
+    suspend fun mediaTurnOff(entityId: String): Boolean = callService("media_player", "turn_off", entityId)
+
+    /** Current state string for one entity ("on"/"off"/"playing"/"unavailable"/…), or null. */
+    suspend fun entityState(entityId: String): String? = withContext(Dispatchers.IO) {
+        val cfg = config()
+        if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) return@withContext null
+        runCatching {
+            val req = Request.Builder()
+                .url("${cfg.baseUrl}/api/states/$entityId")
+                .header("Authorization", "Bearer ${cfg.token}")
+                .header("Cache-Control", "no-cache")
+                .build()
+            OkHttpProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) null
+                else JSONObject(resp.body?.string().orEmpty()).optString("state").takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
+    /** Power toggle that respects real state rather than guessing — the thing IR remotes never could. */
+    suspend fun mediaTogglePower(entityId: String): Boolean {
+        val on = entityState(entityId)?.let { it != "off" && it != "unavailable" && it != "standby" } ?: false
+        return if (on) mediaTurnOff(entityId) else mediaTurnOn(entityId)
+    }
+
+    /** Selectable inputs for an entity, from its `source_list` attribute; empty if it has none. */
+    suspend fun mediaSourceList(entityId: String): List<String> = withContext(Dispatchers.IO) {
+        val cfg = config()
+        if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) return@withContext emptyList()
+        runCatching {
+            val req = Request.Builder()
+                .url("${cfg.baseUrl}/api/states/$entityId")
+                .header("Authorization", "Bearer ${cfg.token}")
+                .header("Cache-Control", "no-cache")
+                .build()
+            OkHttpProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use emptyList()
+                val attrs = JSONObject(resp.body?.string().orEmpty()).optJSONObject("attributes")
+                val arr = attrs?.optJSONArray("source_list") ?: return@use emptyList<String>()
+                (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    suspend fun mediaSelectSource(entityId: String, source: String): Boolean =
+        callService("media_player", "select_source", entityId, JSONObject().put("source", source))
 }

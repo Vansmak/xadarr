@@ -6,6 +6,7 @@ import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.data.repository.LanSyncService
 import com.arflix.tv.data.repository.RemoteModeRepository
+import com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter
 import com.arflix.tv.data.repository.tvremote.TvRemotePairingClient
 import com.arflix.tv.data.repository.tvremote.TvRemoteService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,7 +30,7 @@ class RemoteModeViewModel @Inject constructor(
     private val remoteModeRepository: RemoteModeRepository,
     private val lanSyncService: LanSyncService,
     private val tvRemoteService: TvRemoteService,
-    private val remoteVolumeRouter: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter,
+    private val remoteVolumeRouter: RemoteVolumeRouter,
     private val homeAssistantRepository: com.arflix.tv.data.repository.HomeAssistantRepository,
 ) : ViewModel() {
     val target: StateFlow<LanPeer?> = remoteModeRepository.target
@@ -66,12 +67,18 @@ class RemoteModeViewModel @Inject constructor(
     suspend fun sendVolumeDown(host: String): Boolean =
         remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN)
 
-    suspend fun volumeEntityFor(host: String): String? = remoteVolumeRouter.volumeEntityFor(host)
-    suspend fun setVolumeEntity(host: String, entityId: String?) = remoteVolumeRouter.setVolumeEntity(host, entityId)
+    suspend fun profileFor(host: String) = remoteVolumeRouter.profileFor(host)
+    suspend fun setProfile(host: String, profile: RemoteVolumeRouter.DeviceProfile) =
+        remoteVolumeRouter.setProfile(host, profile)
 
-    /** Home Assistant media_players offerable as a volume target; empty when HA isn't configured. */
+    suspend fun inputsFor(host: String): List<String> = remoteVolumeRouter.inputs(host)
+    suspend fun selectInput(host: String, source: String): Boolean = remoteVolumeRouter.selectInput(host, source)
+
+    /** Home Assistant media_players offerable as a capability target; empty when HA isn't configured. */
     suspend fun loadSpeakers(): List<HaSpeaker> =
         homeAssistantRepository.getMediaPlayers().map { HaSpeaker(it.entityId, it.name) }
 
-    suspend fun sendPower(host: String): Boolean = tvRemoteService.sendPower(host)
+    // Routed too: when an HA entity owns the room's power we can read real state and send an
+    // explicit turn_on/turn_off instead of a blind toggle.
+    suspend fun sendPower(host: String): Boolean = remoteVolumeRouter.togglePower(host)
 }
