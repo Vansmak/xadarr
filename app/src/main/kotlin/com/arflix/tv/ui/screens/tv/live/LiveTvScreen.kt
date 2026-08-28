@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -451,12 +452,24 @@ fun LiveTvScreen(
     }
 
     val allChannelIds = remember(state.snapshot.channels) { state.snapshot.channels.mapTo(mutableSetOf()) { it.id } }
+    // TEMPORARY diagnostic — Remote Mode channel-tune has failed four fix attempts in a row
+    // on-device despite each looking correct from the code, and Toast never appeared on the TV
+    // at all (Android TV/launcher may be suppressing the system Toast window entirely) — so
+    // this is a plain on-screen Text instead, guaranteed to render since it's just normal
+    // Compose content, not routed through the OS Toast mechanism. Rendered near the bottom of
+    // this composable. Remove this whole block (declaration + render site) once resolved.
+    var debugTuneInfo by remember { mutableStateOf<String?>(null) }
     // Pick the startup channel only after saved IPTV preferences/session have
     // loaded. Favorites win over a stale recent channel, then we fall back to
     // the persisted recent channel, then the first filtered entry.
     LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded) {
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
-        if (playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)) {
+        val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
+        if (initialChannelId != null) {
+            debugTuneInfo = "DEBUG: want=$initialChannelId enters=$entersBlock playingId=$playingChannelId " +
+                "filteredSize=${filteredChannels.size} startupReady=$startupStateReady"
+        }
+        if (entersBlock) {
             val result = chooseStartupChannelId(
                 filteredChannels = filteredChannels,
                 explicitInitialChannelId = initialChannelId,
@@ -466,19 +479,11 @@ fun LiveTvScreen(
                 isFullyEnriched = enrichedState.value.all.size >= state.snapshot.channels.size,
                 allChannelIds = allChannelIds,
             )
-            // TEMPORARY diagnostic — Remote Mode channel-tune has failed four fix attempts in a
-            // row on-device despite each looking correct from the code. Rather than guess a
-            // fifth time, surface the actual values so the next test tells us where it really
-            // breaks instead of us finding out after another round-trip. Remove once resolved.
             if (initialChannelId != null) {
-                Toast.makeText(
-                    context,
-                    "DEBUG tune: want=$initialChannelId inAll=${allChannelIds.contains(initialChannelId)} " +
-                        "inCat($selectedCategoryId)=${filteredChannels.any { it.id == initialChannelId }} " +
-                        "fullyEnriched=${enrichedState.value.all.size >= state.snapshot.channels.size} " +
-                        "(${enrichedState.value.all.size}/${state.snapshot.channels.size}) got=$result",
-                    Toast.LENGTH_LONG,
-                ).show()
+                debugTuneInfo = "DEBUG: want=$initialChannelId inAll=${allChannelIds.contains(initialChannelId)} " +
+                    "inCat($selectedCategoryId)=${filteredChannels.any { it.id == initialChannelId }} " +
+                    "fullyEnriched=${enrichedState.value.all.size >= state.snapshot.channels.size} " +
+                    "(${enrichedState.value.all.size}/${state.snapshot.channels.size}) got=$result"
             }
             playingChannelId = result
             // An explicit request (deep link / Remote Mode tune) just got honored outside
@@ -976,6 +981,20 @@ fun LiveTvScreen(
                 }
             )
     ) {
+        // TEMPORARY diagnostic overlay — see debugTuneInfo's declaration above.
+        debugTuneInfo?.let { info ->
+            androidx.compose.material3.Text(
+                text = info,
+                color = androidx.compose.ui.graphics.Color.Yellow,
+                fontSize = 16.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(999f)
+                    .fillMaxWidth()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f))
+                    .padding(12.dp)
+            )
+        }
         // Content area starts below the translucent top bar so it doesn't get
         // overwritten.
         if (isFullScreen) {
