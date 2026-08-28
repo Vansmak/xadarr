@@ -698,17 +698,29 @@ fun LiveTvScreen(
         focusChannelList(channel.id)
     }
 
-    // Remote Mode, receiving side — TuneChannel is deliberately NOT handled here anymore.
-    // It used to mutate playingChannelId in place, but that left currentStreamUrl resolving
-    // against a category-scoped lookup (see its own comment) and silently not switching
-    // channel while this screen was already showing — confirmed on-device. MainActivity now
-    // forces a fresh screen composition for every remote tune instead (pendingRemoteChannelId),
-    // which is the path already confirmed to work. TypeText doesn't have that problem — it's
-    // plain local UI state, not stream resolution — so it stays handled directly here.
+    // Remote Mode, receiving side. Restored after logcat proved the "force a fresh screen"
+    // theory in MainActivity wrong: debugTuneInfo showed enters=false with playingId already
+    // set to whatever channel was already playing — popUpTo(Screen.Home.route){inclusive=true}
+    // does NOT actually clear this composable's rememberSaveable state the way that fix
+    // assumed, so chooseStartupChannelId's whole block was being skipped every time regardless
+    // of category/enrichment. Back to direct assignment here (mirrors selectChannel's own
+    // body), which doesn't depend on any recomposition happening at all — combined with
+    // currentStreamUrl's raw-snapshot fallback (still in place, fixes the category-scoped
+    // playingChannel lookup) this should cover the case fully now.
     var remoteSearchQuery by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(viewModel) {
         viewModel.incomingRemoteCommands.collect { command ->
             when (command) {
+                is com.arflix.tv.data.repository.RemoteCommand.TuneChannel -> {
+                    val id = command.localChannelId
+                    focusedChannelId = id
+                    rememberedChannelByCategory[selectedCategoryId] = id
+                    if (id != playingChannelId) previousChannelId = playingChannelId
+                    playingChannelId = id
+                    playingCatchupProgram = null
+                    isFullScreen = true
+                    hudPokeSignal++
+                }
                 is com.arflix.tv.data.repository.RemoteCommand.TypeText -> {
                     remoteSearchQuery = command.text
                     searchOpen = true
