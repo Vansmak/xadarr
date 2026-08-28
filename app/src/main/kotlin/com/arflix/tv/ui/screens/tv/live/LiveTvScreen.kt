@@ -750,13 +750,23 @@ fun LiveTvScreen(
     }
 
     // When the selected channel changes, swap media item.
-    val currentStreamUrl = remember(playingChannel, playingCatchupProgram) {
-        val ch = playingChannel ?: return@remember initialStreamUrl
-        val pr = playingCatchupProgram
-        if (pr != null) {
-            viewModel.iptvRepository.getCatchupUrl(ch.source, pr)
+    val currentStreamUrl = remember(playingChannel, playingChannelId, playingCatchupProgram, state.snapshot.channels) {
+        val ch = playingChannel
+        if (ch != null) {
+            val pr = playingCatchupProgram
+            if (pr != null) viewModel.iptvRepository.getCatchupUrl(ch.source, pr) else ch.streamUrl
         } else {
-            ch.streamUrl
+            // playingChannel is scoped to the currently-enriched category batch, so a
+            // Remote Mode tune to a channel outside it resolves to null here even though
+            // playingChannelId is correctly set — confirmed on-device: tuning worked from a
+            // fresh screen (waits for full enrichment) but silently did nothing while already
+            // on the guide (partial/category-scoped enrichment missed the target channel).
+            // state.snapshot.channels is the full unenriched list, never category-scoped, so
+            // it always has a match — falls back to it for the raw stream URL specifically;
+            // display metadata (name/genre/etc.) still comes from playingChannel and just
+            // catches up once enrichment includes this channel.
+            playingChannelId?.let { id -> state.snapshot.channels.firstOrNull { it.id == id }?.streamUrl }
+                ?: initialStreamUrl
         }
     }
     val openFullScreenPlayer = remember(playingChannelId, currentStreamUrl) {
