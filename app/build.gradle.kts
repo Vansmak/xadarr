@@ -122,14 +122,23 @@ android {
             buildConfigField("Boolean", "ENABLE_CRASH_REPORTING", "false")
         }
 
-        // Staging build type: release-grade optimizations but signed with the
-        // debug keystore so the APK installs as an update over an existing
-        // debug build (preserves profile/IPTV/DataStore). NO applicationId
-        // suffix — it MUST resolve to the same package as debug/release.
+        // Staging build type: release-grade optimizations, signed to install as an update
+        // over whatever's currently on-device (preserves profile/IPTV/DataStore). NO
+        // applicationId suffix — it MUST resolve to the same package as debug/release.
+        //
+        // Signing must match debug's own fallback logic exactly, not just always use the
+        // debug keystore: since the "stable APK signing" feature made debug builds use the
+        // release keystore whenever keystore.properties is present, hardcoding staging to
+        // the debug keystore would sign it with a DIFFERENT cert than what's actually
+        // installed (confirmed via keytool: installed debug APK is signed CN=Xadarr/O=Vansmak,
+        // staging was CN=Android Debug) — Android refuses that as an update, forcing an
+        // uninstall and losing local data. Mirrors debug's own signingConfig block below.
         create("staging") {
             initWith(getByName("release"))
             versionNameSuffix = "-rc"
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseSigningConfig = signingConfigs.findByName("release")
+            signingConfig = if (releaseSigningConfig?.storeFile != null) releaseSigningConfig
+                            else signingConfigs.getByName("debug")
             isDebuggable = false
             isJniDebuggable = false
 
