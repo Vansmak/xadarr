@@ -13,6 +13,7 @@ plugins {
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
     id("io.gitlab.arturbosch.detekt")
     kotlin("plugin.serialization")
+    id("com.google.protobuf")
     // Firebase Crashlytics - uncomment after adding google-services.json
     // id("com.google.gms.google-services")
     // id("com.google.firebase.crashlytics")
@@ -341,6 +342,30 @@ dependencies {
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.2.0")
     androidTestImplementation("io.mockk:mockk-android:1.13.8")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+
+    // Android TV Remote Service protocol (real system-level volume/D-pad) — javalite runtime
+    // only, no full protobuf-java (much smaller, sufficient for the generated message classes).
+    implementation("com.google.protobuf:protobuf-javalite:3.25.5")
+}
+
+// Android TV Remote Service protocol .proto sources live in src/main/proto/ — copied verbatim
+// from tronikos/androidtvremote2 (MIT-licensed reference implementation), which itself credits
+// Google's official (but never formally published) protocol. remotemessage.proto is the control
+// channel wire format; polo.proto is the pairing handshake. See the plan file for the full
+// protocol writeup: ~/.claude/plans/xadarr-tv-remote-service-volume.md
+protobuf {
+    protobuf.protoc {
+        artifact = "com.google.protobuf:protoc:3.25.5"
+    }
+    protobuf.generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
 }
 
 secrets {

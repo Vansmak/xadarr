@@ -17,4 +17,7 @@ plugins {
     id("com.google.firebase.crashlytics") version "2.9.9" apply false
     // Static analysis
     id("io.gitlab.arturbosch.detekt") version "1.23.7" apply false
+    // Android TV Remote Service protocol (real system-level volume/D-pad on paired TVs) — see
+    // [[project_remote_mode_2026-08-27]] memory and ~/.claude/plans/xadarr-tv-remote-service-volume.md
+    id("com.google.protobuf") version "0.9.4" apply false
 }
