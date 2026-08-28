@@ -457,7 +457,7 @@ fun LiveTvScreen(
     LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded) {
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         if (playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)) {
-            playingChannelId = chooseStartupChannelId(
+            val result = chooseStartupChannelId(
                 filteredChannels = filteredChannels,
                 explicitInitialChannelId = initialChannelId,
                 sessionLastChannelId = state.tvSession.lastChannelId,
@@ -466,6 +466,21 @@ fun LiveTvScreen(
                 isFullyEnriched = enrichedState.value.all.size >= state.snapshot.channels.size,
                 allChannelIds = allChannelIds,
             )
+            // TEMPORARY diagnostic — Remote Mode channel-tune has failed four fix attempts in a
+            // row on-device despite each looking correct from the code. Rather than guess a
+            // fifth time, surface the actual values so the next test tells us where it really
+            // breaks instead of us finding out after another round-trip. Remove once resolved.
+            if (initialChannelId != null) {
+                Toast.makeText(
+                    context,
+                    "DEBUG tune: want=$initialChannelId inAll=${allChannelIds.contains(initialChannelId)} " +
+                        "inCat($selectedCategoryId)=${filteredChannels.any { it.id == initialChannelId }} " +
+                        "fullyEnriched=${enrichedState.value.all.size >= state.snapshot.channels.size} " +
+                        "(${enrichedState.value.all.size}/${state.snapshot.channels.size}) got=$result",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            playingChannelId = result
             // An explicit request (deep link / Remote Mode tune) just got honored outside
             // whatever category was selected (e.g. this device's default "fav" on first
             // launch) — switch to "all" so the guide actually shows the channel that's now
