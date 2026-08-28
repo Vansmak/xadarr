@@ -506,10 +506,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             remoteCommandBus.incoming.collect { command ->
                 when (command) {
-                    is com.arflix.tv.data.repository.RemoteCommand.TuneChannel -> {
-                        android.util.Log.i("RemoteTuneDebug", "MainActivity collector: TuneChannel(${command.localChannelId})")
+                    is com.arflix.tv.data.repository.RemoteCommand.TuneChannel ->
                         pendingRemoteChannelId = command.localChannelId
-                    }
                     is com.arflix.tv.data.repository.RemoteCommand.PlayTitle ->
                         pendingRemotePlayRequest = command
                     is com.arflix.tv.data.repository.RemoteCommand.TypeText ->
