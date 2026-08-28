@@ -76,6 +76,11 @@ class TvRemoteService @Inject constructor(
         }
     }
 
+    // Toggle, matching a physical remote's power button — there's no HTTP-path equivalent at
+    // all (the old Remote Mode DPadKey enum has no power key), so this only ever works once
+    // paired; the UI gates on isTvRemotePaired rather than silently falling back to a no-op.
+    suspend fun sendPower(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_POWER)
+
     suspend fun sendVolumeUp(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_VOLUME_UP)
     suspend fun sendVolumeDown(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_VOLUME_DOWN)
 }

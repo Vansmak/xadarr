@@ -45,4 +45,6 @@ class RemoteModeViewModel @Inject constructor(
 
     suspend fun sendVolumeDown(host: String): Boolean =
         tvRemoteService.sendVolumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN)
+
+    suspend fun sendPower(host: String): Boolean = tvRemoteService.sendPower(host)
 }

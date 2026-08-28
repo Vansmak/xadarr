@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
@@ -87,6 +88,7 @@ fun RemoteModeSheet(
     sheetState: SheetState = rememberModalBottomSheetState(),
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
+    onSendPower: (suspend () -> Boolean)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -94,7 +96,7 @@ fun RemoteModeSheet(
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote)
+        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower)
     }
 }
 
@@ -116,6 +118,7 @@ fun RemoteModeTopPanel(
     onDismiss: () -> Unit,
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
+    onSendPower: (suspend () -> Boolean)? = null,
 ) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
@@ -174,7 +177,7 @@ fun RemoteModeTopPanel(
                     )
                 }
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote)
+                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower)
                 }
             }
         }
@@ -190,6 +193,7 @@ private fun RemoteModeContent(
     onSendText: suspend (String) -> Boolean,
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
+    onSendPower: (suspend () -> Boolean)? = null,
 ) {
     val scope = rememberCoroutineScope()
     Column(
@@ -260,7 +264,12 @@ private fun RemoteModeContent(
                         onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
                     )
                     Spacer(modifier = Modifier.width(20.dp))
-                    RemoteDpadCross(onPress = { key -> scope.launch { onSendDpad(key) } })
+                    RemoteDpadCross(
+                        onPress = { key -> scope.launch { onSendDpad(key) } },
+                        onPower = if (isTvRemotePaired && onSendPower != null) {
+                            { scope.launch { onSendPower() } }
+                        } else null,
+                    )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Divider(color = TextSecondary.copy(alpha = 0.12f))
@@ -439,7 +448,7 @@ private fun RemoteDeviceRow(name: String, selected: Boolean, icon: ImageVector, 
  * directional zones reads as a real D-pad, not a loose cluster of icons.
  */
 @Composable
-private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
+private fun RemoteDpadCross(onPress: (DPadKey) -> Unit, onPower: (() -> Unit)? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -476,6 +485,20 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
             Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(15.dp))
             Spacer(modifier = Modifier.width(6.dp))
             androidx.tv.material3.Text(text = "Back", fontSize = 13.sp, color = TextSecondary)
+        }
+        if (onPower != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onPower)
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.PowerSettingsNew, contentDescription = null, tint = Pink, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                androidx.tv.material3.Text(text = "Power", fontSize = 13.sp, color = Pink)
+            }
         }
     }
 }

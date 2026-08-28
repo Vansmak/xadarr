@@ -98,6 +98,8 @@ class TvViewModel @Inject constructor(
     suspend fun sendRemoteVolumeDown(host: String): Boolean =
         tvRemoteService.sendVolumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
 
+    suspend fun sendRemotePower(host: String): Boolean = tvRemoteService.sendPower(host)
+
     // Receiving side, delivered directly rather than via navigation args: when this device is
     // the Remote Mode target and this screen (Home/the guide) is already composed and already
     // showing a channel, re-navigating to Home with a new channelId query param is a singleTop

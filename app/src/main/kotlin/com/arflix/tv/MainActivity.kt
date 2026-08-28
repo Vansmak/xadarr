@@ -1143,6 +1143,9 @@ fun ArflixApp(
                         val host = remoteTarget?.host
                         if (host != null) showTvRemotePairingDialogFor = host
                     },
+                    onSendPower = {
+                        remoteTarget?.host?.let { remoteModeViewModel.sendPower(it) } ?: false
+                    },
                 )
                 val pairingHost = showTvRemotePairingDialogFor
                 if (pairingHost != null) {

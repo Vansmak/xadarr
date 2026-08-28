@@ -1395,6 +1395,7 @@ fun LiveTvScreen(
                 onDismiss = { showRemoteModeSheet = false },
                 isTvRemotePaired = tvRemotePaired,
                 onPairTvRemote = { remoteTarget?.host?.let { showTvRemotePairingDialogFor = it } },
+                onSendPower = { remoteTarget?.host?.let { viewModel.sendRemotePower(it) } ?: false },
             )
             showTvRemotePairingDialogFor?.let { pairingHost ->
                 com.arflix.tv.ui.components.TvRemotePairingDialog(
