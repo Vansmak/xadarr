@@ -1074,6 +1074,7 @@ fun ArflixApp(
                 val remoteModeViewModel: com.arflix.tv.ui.components.RemoteModeViewModel = hiltViewModel()
                 val remoteTarget by remoteModeViewModel.target.collectAsState()
                 var showRemoteModeSheet by remember { mutableStateOf(false) }
+                var showTvRemotePairingDialogFor by remember { mutableStateOf<String?>(null) }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -1118,10 +1119,42 @@ fun ArflixApp(
                     peers = remoteLanPeers,
                     target = remoteTarget,
                     onSelectTarget = { remoteModeViewModel.setTarget(it) },
-                    onSendDpad = { key -> remoteModeViewModel.sendDpad(key) },
+                    onSendDpad = { key ->
+                        // Volume specifically tries the Android TV Remote Service path first
+                        // (real system-level volume — reaches CEC-forwarded external audio the
+                        // app-level HTTP path can't) and falls back to it automatically if the
+                        // target isn't paired for that yet. See RemoteModeViewModel.
+                        val host = remoteTarget?.host
+                        when {
+                            host == null -> remoteModeViewModel.sendDpad(key)
+                            key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> remoteModeViewModel.sendVolumeUp(host)
+                            key == com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> remoteModeViewModel.sendVolumeDown(host)
+                            else -> remoteModeViewModel.sendDpad(key)
+                        }
+                    },
                     onSendText = { text -> remoteModeViewModel.sendText(text) },
                     onDismiss = { showRemoteModeSheet = false },
+                    isTvRemotePaired = remoteTarget?.host?.let { host ->
+                        androidx.compose.runtime.produceState(false, host) {
+                            value = remoteModeViewModel.isTvRemotePaired(host)
+                        }.value
+                    } ?: false,
+                    onPairTvRemote = {
+                        val host = remoteTarget?.host
+                        if (host != null) showTvRemotePairingDialogFor = host
+                    },
                 )
+                val pairingHost = showTvRemotePairingDialogFor
+                if (pairingHost != null) {
+                    com.arflix.tv.ui.components.TvRemotePairingDialog(
+                        host = pairingHost,
+                        onStart = { remoteModeViewModel.startTvRemotePairing() },
+                        onFinished = {
+                            appCoroutineScope.launch { remoteModeViewModel.onTvRemotePairingFinished(pairingHost) }
+                        },
+                        onDismiss = { showTvRemotePairingDialogFor = null },
+                    )
+                }
             }
 
             // ── App notification toast ───────────────────────────────────────────

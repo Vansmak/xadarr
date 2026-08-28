@@ -112,6 +112,8 @@ fun RemoteModeTopPanel(
     onSendDpad: suspend (DPadKey) -> Boolean,
     onSendText: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
+    isTvRemotePaired: Boolean = false,
+    onPairTvRemote: (() -> Unit)? = null,
 ) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
@@ -170,7 +172,7 @@ fun RemoteModeTopPanel(
                     )
                 }
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote)
                 }
             }
         }
@@ -184,6 +186,8 @@ private fun RemoteModeContent(
     onSelectTarget: (LanPeer?) -> Unit,
     onSendDpad: suspend (DPadKey) -> Boolean,
     onSendText: suspend (String) -> Boolean,
+    isTvRemotePaired: Boolean = false,
+    onPairTvRemote: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     Column(
@@ -216,6 +220,27 @@ private fun RemoteModeContent(
 
         RemoteSection(title = "DEVICE") {
             RemoteDevicePicker(peers = peers, target = target, onSelectTarget = onSelectTarget)
+            if (target != null && !isTvRemotePaired && onPairTvRemote != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(onClick = onPairTvRemote)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.SettingsRemote, contentDescription = null, tint = Pink, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        androidx.tv.material3.Text(text = "Pair for full remote control", fontSize = 13.sp, color = Pink)
+                        androidx.tv.material3.Text(
+                            text = "One-time — enables real volume control on this TV",
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                        )
+                    }
+                }
+            }
         }
 
         if (target != null) {
