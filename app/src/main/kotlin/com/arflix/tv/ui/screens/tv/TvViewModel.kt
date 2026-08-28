@@ -69,6 +69,7 @@ class TvViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
     private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
+    private val tvRemoteService: com.arflix.tv.data.repository.tvremote.TvRemoteService,
     private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
 ) : ViewModel() {
 
@@ -84,6 +85,18 @@ class TvViewModel @Inject constructor(
     fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
     suspend fun sendRemoteText(text: String): Boolean = remoteModeRepository.sendText(text)
+
+    // Android TV Remote Service — real system-level volume. See RemoteModeViewModel for the
+    // same wiring on the global panel; this is the Guide's own "Remote" pill sheet.
+    suspend fun isTvRemotePaired(host: String): Boolean = tvRemoteService.isPaired(host)
+    fun startTvRemotePairing(): com.arflix.tv.data.repository.tvremote.TvRemotePairingClient = tvRemoteService.startPairing()
+    suspend fun onTvRemotePairingFinished(host: String) = tvRemoteService.onPairingFinished(host)
+
+    suspend fun sendRemoteVolumeUp(host: String): Boolean =
+        tvRemoteService.sendVolumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP)
+
+    suspend fun sendRemoteVolumeDown(host: String): Boolean =
+        tvRemoteService.sendVolumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
 
     // Receiving side, delivered directly rather than via navigation args: when this device is
     // the Remote Mode target and this screen (Home/the guide) is already composed and already

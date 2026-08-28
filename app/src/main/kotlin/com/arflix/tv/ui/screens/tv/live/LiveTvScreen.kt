@@ -1373,14 +1373,42 @@ fun LiveTvScreen(
 
         if (showRemoteModeSheet) {
             val remoteLanPeers by viewModel.remoteLanPeers.collectAsStateWithLifecycle()
+            var showTvRemotePairingDialogFor by remember { mutableStateOf<String?>(null) }
+            var tvRemotePaired by remember(remoteTarget?.host) { mutableStateOf(false) }
+            LaunchedEffect(remoteTarget?.host) {
+                tvRemotePaired = remoteTarget?.host?.let { viewModel.isTvRemotePaired(it) } ?: false
+            }
             com.arflix.tv.ui.components.RemoteModeSheet(
                 peers = remoteLanPeers,
                 target = remoteTarget,
                 onSelectTarget = { viewModel.setRemoteTarget(it) },
-                onSendDpad = { key -> viewModel.sendRemoteDpad(key) },
+                onSendDpad = { key ->
+                    val host = remoteTarget?.host
+                    when {
+                        host == null -> viewModel.sendRemoteDpad(key)
+                        key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> viewModel.sendRemoteVolumeUp(host)
+                        key == com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> viewModel.sendRemoteVolumeDown(host)
+                        else -> viewModel.sendRemoteDpad(key)
+                    }
+                },
                 onSendText = { text -> viewModel.sendRemoteText(text) },
                 onDismiss = { showRemoteModeSheet = false },
+                isTvRemotePaired = tvRemotePaired,
+                onPairTvRemote = { remoteTarget?.host?.let { showTvRemotePairingDialogFor = it } },
             )
+            showTvRemotePairingDialogFor?.let { pairingHost ->
+                com.arflix.tv.ui.components.TvRemotePairingDialog(
+                    host = pairingHost,
+                    onStart = { viewModel.startTvRemotePairing() },
+                    onFinished = {
+                        fsScope.launch {
+                            viewModel.onTvRemotePairingFinished(pairingHost)
+                            tvRemotePaired = true
+                        }
+                    },
+                    onDismiss = { showTvRemotePairingDialogFor = null },
+                )
+            }
         }
 
         if (showTopBar) {

@@ -85,6 +85,8 @@ fun RemoteModeSheet(
     onSendText: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(),
+    isTvRemotePaired: Boolean = false,
+    onPairTvRemote: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -92,7 +94,7 @@ fun RemoteModeSheet(
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText)
+        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote)
     }
 }
 
