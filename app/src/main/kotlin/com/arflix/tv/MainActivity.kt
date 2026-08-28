@@ -604,18 +604,6 @@ class MainActivity : ComponentActivity() {
     // dispatchKeyEvent path a physical remote press takes, so it reaches whatever Compose
     // composable currently has focus regardless of which screen is showing.
     private fun dispatchRemoteDpadKey(key: com.arflix.tv.data.repository.DPadKey) {
-        if (key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP || key == com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            val direction = if (key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP) {
-                android.media.AudioManager.ADJUST_RAISE
-            } else {
-                android.media.AudioManager.ADJUST_LOWER
-            }
-            runCatching {
-                audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, android.media.AudioManager.FLAG_SHOW_UI)
-            }
-            return
-        }
         val keyCode = when (key) {
             com.arflix.tv.data.repository.DPadKey.UP -> android.view.KeyEvent.KEYCODE_DPAD_UP
             com.arflix.tv.data.repository.DPadKey.DOWN -> android.view.KeyEvent.KEYCODE_DPAD_DOWN
@@ -627,8 +615,15 @@ class MainActivity : ComponentActivity() {
             com.arflix.tv.data.repository.DPadKey.STOP -> android.view.KeyEvent.KEYCODE_MEDIA_STOP
             com.arflix.tv.data.repository.DPadKey.REWIND -> android.view.KeyEvent.KEYCODE_MEDIA_REWIND
             com.arflix.tv.data.repository.DPadKey.FAST_FORWARD -> android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
-            com.arflix.tv.data.repository.DPadKey.VOLUME_UP, com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN ->
-                return // handled above
+            // Real system key events, not AudioManager.adjustStreamVolume — that only moves the
+            // Android-side STREAM_MUSIC level, which many TV boxes ignore for HDMI output
+            // entirely (fixed-level passthrough, expecting the downstream TV/soundbar to own
+            // volume via CEC). Confirmed on-device: adjustStreamVolume had no effect when audio
+            // routes out to a Sonos on the TV. A real KEYCODE_VOLUME_UP/DOWN event goes through
+            // the same system key path a physical remote's volume button takes, which is what
+            // actually triggers CEC volume forwarding.
+            com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> android.view.KeyEvent.KEYCODE_VOLUME_UP
+            com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> android.view.KeyEvent.KEYCODE_VOLUME_DOWN
         }
         val now = android.os.SystemClock.uptimeMillis()
         dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, keyCode, 0))
