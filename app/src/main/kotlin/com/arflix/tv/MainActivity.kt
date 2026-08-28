@@ -218,6 +218,14 @@ class MainActivity : ComponentActivity() {
     private var pendingReminderChannelId by mutableStateOf<String?>(null)
     private var pendingWidgetDeepLink by mutableStateOf<com.arflix.tv.widget.WidgetDeepLinkRequest?>(null)
     private var pendingRemotePlayRequest by mutableStateOf<com.arflix.tv.data.repository.RemoteCommand.PlayTitle?>(null)
+    // Deliberately separate from pendingReminderChannelId — that one's popUpTo(ProfileSelection)
+    // is a no-op once already deep in the app (ProfileSelection long since popped), which just
+    // reuses the existing Home entry via launchSingleTop and silently fails to actually switch
+    // channel when the guide is already showing (confirmed on-device: currentStreamUrl derives
+    // from a category-scoped lookup that misses the target — see LiveTvScreen.kt). This one
+    // instead pops the CURRENT Home entry too, forcing a genuinely fresh LiveTvScreen/TvViewModel
+    // every time, matching the cold-start path that's confirmed to always work correctly.
+    private var pendingRemoteChannelId by mutableStateOf<String?>(null)
     private var pendingRemoteSearchQuery by mutableStateOf<String?>(null)
     val navigateHomeSignal = MutableStateFlow(0)
     val navigateSettingsSignal = MutableStateFlow(0)
@@ -456,6 +464,8 @@ class MainActivity : ComponentActivity() {
                         onConsumeRemotePlayRequest = { pendingRemotePlayRequest = null },
                         pendingRemoteSearchQuery = pendingRemoteSearchQuery,
                         onConsumeRemoteSearchQuery = { pendingRemoteSearchQuery = null },
+                        pendingRemoteChannelId = pendingRemoteChannelId,
+                        onConsumeRemoteChannelRequest = { pendingRemoteChannelId = null },
                         preloadedCategories = startupState.categories,
                         preloadedHeroItem = startupState.heroItem,
                         preloadedHeroLogoUrl = startupState.heroLogoUrl,
@@ -497,7 +507,7 @@ class MainActivity : ComponentActivity() {
             remoteCommandBus.incoming.collect { command ->
                 when (command) {
                     is com.arflix.tv.data.repository.RemoteCommand.TuneChannel ->
-                        pendingReminderChannelId = command.localChannelId
+                        pendingRemoteChannelId = command.localChannelId
                     is com.arflix.tv.data.repository.RemoteCommand.PlayTitle ->
                         pendingRemotePlayRequest = command
                     is com.arflix.tv.data.repository.RemoteCommand.TypeText ->
@@ -775,6 +785,8 @@ fun ArflixApp(
     onConsumeRemotePlayRequest: () -> Unit = {},
     pendingRemoteSearchQuery: String? = null,
     onConsumeRemoteSearchQuery: () -> Unit = {},
+    pendingRemoteChannelId: String? = null,
+    onConsumeRemoteChannelRequest: () -> Unit = {},
     preloadedCategories: List<com.arflix.tv.data.model.Category> = emptyList(),
     preloadedHeroItem: com.arflix.tv.data.model.MediaItem? = null,
     preloadedHeroLogoUrl: String? = null,
@@ -1200,6 +1212,22 @@ fun ArflixApp(
             launchSingleTop = true
         }
         onConsumeRemoteSearchQuery()
+    }
+
+    // Remote Mode channel tune — deliberately pops the CURRENT Home entry too (not just
+    // ProfileSelection), forcing a brand-new LiveTvScreen/TvViewModel composition every time
+    // rather than a singleTop reuse. See pendingRemoteChannelId's declaration for why: reusing
+    // the existing guide screen left currentStreamUrl resolving against a category-scoped,
+    // possibly-stale lookup and silently not switching. A fresh composition always waits for
+    // full enrichment before tuning (chooseStartupChannelId's isFullyEnriched gate), which is
+    // the path already confirmed to work correctly on-device.
+    LaunchedEffect(activeProfile?.id, pendingRemoteChannelId) {
+        val channelId = pendingRemoteChannelId ?: return@LaunchedEffect
+        if (activeProfile == null) return@LaunchedEffect
+        navController.navigate(Screen.Home.createRoute(channelId = channelId)) {
+            popUpTo(Screen.Home.route) { inclusive = true }
+        }
+        onConsumeRemoteChannelRequest()
     }
 }
 
