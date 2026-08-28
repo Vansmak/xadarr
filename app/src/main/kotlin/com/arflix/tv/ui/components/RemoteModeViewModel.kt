@@ -6,10 +6,12 @@ import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.data.repository.LanSyncService
 import com.arflix.tv.data.repository.RemoteModeRepository
+import com.arflix.tv.data.repository.tvremote.RemoteDevice
 import com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter
 import com.arflix.tv.data.repository.tvremote.TvRemotePairingClient
 import com.arflix.tv.data.repository.tvremote.TvRemoteService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -58,27 +60,65 @@ class RemoteModeViewModel @Inject constructor(
         tvRemoteService.onPairingFinished(host, deviceName)
     suspend fun forgetTvRemotePairing(host: String) = tvRemoteService.forgetPairing(host)
 
-    // Router picks the room's actual speaker (via Home Assistant) when one is configured for this
-    // host, since a streaming box often can't control its own room's audio at all; otherwise it
-    // injects volume keys on the device. HTTP dpad stays the last resort for unpaired targets.
-    suspend fun sendVolumeUp(host: String): Boolean =
-        remoteVolumeRouter.volumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_UP)
+    // ── Universal remote ────────────────────────────────────────────────────
+    // The device whose buttons we're driving. Deliberately separate from `target` above: `target`
+    // is the Xadarr instance that receives tune/play, and jumping the remote over to the TV to
+    // dismiss a popup must not redirect playback there. Session-local — switching back is manual,
+    // by design.
+    private val _controlDevice = MutableStateFlow<RemoteDevice?>(null)
+    val controlDevice: StateFlow<RemoteDevice?> = _controlDevice
 
-    suspend fun sendVolumeDown(host: String): Boolean =
-        remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN)
+    private val _haDevices = MutableStateFlow<List<RemoteDevice>>(emptyList())
 
-    suspend fun profileFor(host: String) = remoteVolumeRouter.profileFor(host)
-    suspend fun setProfile(host: String, profile: RemoteVolumeRouter.DeviceProfile) =
-        remoteVolumeRouter.setProfile(host, profile)
+    /** Xadarr instances plus everything Home Assistant can control, as one list. */
+    val devices: StateFlow<List<RemoteDevice>> = combine(peers, _haDevices) { xadarr, ha ->
+        xadarr.map { RemoteDevice.fromPeer(it) } + ha
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    suspend fun inputsFor(host: String): List<String> = remoteVolumeRouter.inputs(host)
-    suspend fun selectInput(host: String, source: String): Boolean = remoteVolumeRouter.selectInput(host, source)
+    fun setControlDevice(device: RemoteDevice?) {
+        _controlDevice.value = device
+        // Picking an Xadarr device also makes it the playback target, which is what you want when
+        // switching rooms. Picking a TV or speaker leaves the playback target alone.
+        device?.peer?.let { remoteModeRepository.setTarget(it) }
+    }
 
-    /** Home Assistant media_players offerable as a capability target; empty when HA isn't configured. */
+    /** Refreshes the HA half of the device list; cheap enough to call whenever the panel opens. */
+    suspend fun loadDevices() {
+        _haDevices.value = RemoteDevice.fromHaEntities(homeAssistantRepository.getControlEntities())
+    }
+
+    private fun activeDevice(): RemoteDevice? =
+        _controlDevice.value ?: target.value?.let { RemoteDevice.fromPeer(it) }
+
+    suspend fun sendKey(key: DPadKey): Boolean {
+        val device = activeDevice() ?: return false
+        // An Xadarr device keeps using its own HTTP command path; everything else goes through
+        // whichever HA service that integration wants.
+        return if (device.isXadarr) remoteModeRepository.sendDpad(key) else remoteVolumeRouter.sendKey(device, key)
+    }
+
+    suspend fun sendVolumeUp(): Boolean {
+        val device = activeDevice() ?: return false
+        return remoteVolumeRouter.volumeUp(device).takeIf { it }
+            ?: if (device.isXadarr) remoteModeRepository.sendDpad(DPadKey.VOLUME_UP) else false
+    }
+
+    suspend fun sendVolumeDown(): Boolean {
+        val device = activeDevice() ?: return false
+        return remoteVolumeRouter.volumeDown(device).takeIf { it }
+            ?: if (device.isXadarr) remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN) else false
+    }
+
+    suspend fun sendPower(): Boolean = activeDevice()?.let { remoteVolumeRouter.togglePower(it) } ?: false
+
+    suspend fun selectInput(source: String): Boolean =
+        activeDevice()?.let { remoteVolumeRouter.selectInput(it, source) } ?: false
+
+    suspend fun profileFor(deviceId: String) = remoteVolumeRouter.profileFor(deviceId)
+    suspend fun setProfile(deviceId: String, profile: RemoteVolumeRouter.DeviceProfile) =
+        remoteVolumeRouter.setProfile(deviceId, profile)
+
+    /** Devices that can act as a speaker, for the per-device volume mapping. */
     suspend fun loadSpeakers(): List<HaSpeaker> =
         homeAssistantRepository.getMediaPlayers().map { HaSpeaker(it.entityId, it.name) }
-
-    // Routed too: when an HA entity owns the room's power we can read real state and send an
-    // explicit turn_on/turn_off instead of a blind toggle.
-    suspend fun sendPower(host: String): Boolean = remoteVolumeRouter.togglePower(host)
 }

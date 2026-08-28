@@ -24,6 +24,7 @@ import com.arflix.tv.data.repository.NEOLINK_URL_KEY
 import com.arflix.tv.data.repository.EPISEERR_URL_KEY
 import com.arflix.tv.data.repository.HA_URL_KEY
 import com.arflix.tv.data.repository.HA_TOKEN_KEY
+import com.arflix.tv.data.repository.HA_DEVICE_PROFILE_BY_HOST_KEY
 import com.arflix.tv.data.repository.HA_EXPOSED_ENTITIES_KEY
 import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.CARD_LAYOUT_MODE_LANDSCAPE
@@ -674,6 +675,9 @@ class CloudSyncRepository @Inject constructor(
         prefs[HA_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_url", it) }
         prefs[HA_TOKEN_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_token", it) }
         prefs[HA_EXPOSED_ENTITIES_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_exposed_entities", it) }
+        // Which speaker each device's volume buttons drive. Keyed by device, so it's meaningful on
+        // every surface — same reasoning as the HA URL/token above.
+        prefs[HA_DEVICE_PROFILE_BY_HOST_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_device_profiles", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
         root.put(
@@ -1363,6 +1367,7 @@ class CloudSyncRepository @Inject constructor(
         val haUrl           = root.optString("ha_url", "")
         val haToken         = root.optString("ha_token", "")
         val haExposedIds    = root.optString("ha_exposed_entities", "")
+        val haDeviceProfiles = root.optString("ha_device_profiles", "")
         if (webhookUrl.isNotBlank() || webhookEnabled != null || webhookInterval.isNotBlank() ||
             watchlistEnabled != null || watchlistPort.isNotBlank() || neolinkUrl.isNotBlank() ||
             episeerrUrl.isNotBlank() || haUrl.isNotBlank() || haToken.isNotBlank() || haExposedIds.isNotBlank()) {
@@ -1381,6 +1386,7 @@ class CloudSyncRepository @Inject constructor(
                 if (haUrl.isNotBlank())           prefs[HA_URL_KEY]                = haUrl
                 if (haToken.isNotBlank())         prefs[HA_TOKEN_KEY]              = haToken
                 if (haExposedIds.isNotBlank())    prefs[HA_EXPOSED_ENTITIES_KEY]   = haExposedIds
+                if (haDeviceProfiles.isNotBlank()) prefs[HA_DEVICE_PROFILE_BY_HOST_KEY] = haDeviceProfiles
             }
         }
 

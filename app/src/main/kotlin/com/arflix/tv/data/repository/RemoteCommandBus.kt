@@ -33,6 +33,10 @@ enum class DPadKey {
     // handling. VOLUME_UP/DOWN are the one exception: routed through AudioManager directly
     // instead of a synthetic key event, since that's the reliable way to move device volume.
     PLAY_PAUSE, STOP, REWIND, FAST_FORWARD, VOLUME_UP, VOLUME_DOWN,
+    // Needed to navigate a TV's own settings menus, which is unusable without them. On an Xadarr
+    // target these dispatch as KEYCODE_HOME/KEYCODE_MENU like any other key; on a TV they map to
+    // that integration's own button vocabulary (see RemoteVolumeRouter.sendKey).
+    HOME, MENU, EXIT,
 }
 
 @Singleton

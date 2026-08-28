@@ -1372,55 +1372,53 @@ fun LiveTvScreen(
         }
 
         if (showRemoteModeSheet) {
-            val remoteLanPeers by viewModel.remoteLanPeers.collectAsStateWithLifecycle()
+            val remoteDevices by viewModel.remoteDevices.collectAsStateWithLifecycle()
+            val remoteControlDevice by viewModel.controlDevice.collectAsStateWithLifecycle()
             var showTvRemotePairingDialogFor by remember { mutableStateOf<String?>(null) }
-            var tvRemotePaired by remember(remoteTarget?.host) { mutableStateOf(false) }
             var remoteSpeakers by remember { mutableStateOf<List<com.arflix.tv.ui.components.HaSpeaker>>(emptyList()) }
-            var remoteProfile by remember(remoteTarget?.host) {
-                mutableStateOf(com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile())
-            }
-            var remoteInputs by remember(remoteTarget?.host) { mutableStateOf<List<String>>(emptyList()) }
-            LaunchedEffect(remoteTarget?.host) {
-                val host = remoteTarget?.host
-                tvRemotePaired = host?.let { viewModel.isTvRemotePaired(it) } ?: false
-                remoteProfile = host?.let { viewModel.remoteProfileFor(it) }
-                    ?: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile()
-                remoteInputs = host?.let { viewModel.remoteInputsFor(it) } ?: emptyList()
-                if (host != null && remoteSpeakers.isEmpty()) remoteSpeakers = viewModel.loadRemoteSpeakers()
+            // Explicitly-picked device, else the playback target. Selecting a TV here drives its
+            // buttons without moving where channels actually play.
+            val activeRemoteDevice = remoteControlDevice
+                ?: remoteTarget?.let { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) }
+            var tvRemotePaired by remember(activeRemoteDevice?.id) { mutableStateOf(false) }
+            var remoteVolumeEntity by remember(activeRemoteDevice?.id) { mutableStateOf<String?>(null) }
+            LaunchedEffect(activeRemoteDevice?.id) {
+                val device = activeRemoteDevice
+                tvRemotePaired = device?.peer?.host?.let { viewModel.isTvRemotePaired(it) } ?: false
+                remoteVolumeEntity = device?.id?.let { viewModel.remoteProfileFor(it).volumeEntity }
+                if (device != null && remoteSpeakers.isEmpty()) remoteSpeakers = viewModel.loadRemoteSpeakers()
+                viewModel.loadRemoteDevices()
             }
             com.arflix.tv.ui.components.RemoteModeSheet(
-                peers = remoteLanPeers,
-                target = remoteTarget,
-                onSelectTarget = { viewModel.setRemoteTarget(it) },
+                devices = remoteDevices,
+                device = activeRemoteDevice,
+                onSelectDevice = { viewModel.setControlDevice(it) },
                 onSendDpad = { key ->
-                    val host = remoteTarget?.host
-                    when {
-                        host == null -> viewModel.sendRemoteDpad(key)
-                        key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> viewModel.sendRemoteVolumeUp(host)
-                        key == com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> viewModel.sendRemoteVolumeDown(host)
-                        else -> viewModel.sendRemoteDpad(key)
+                    when (key) {
+                        com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> viewModel.sendRemoteVolumeUp()
+                        com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> viewModel.sendRemoteVolumeDown()
+                        else -> viewModel.sendRemoteKey(key)
                     }
                 },
                 onSendText = { text -> viewModel.sendRemoteText(text) },
                 onDismiss = { showRemoteModeSheet = false },
                 isTvRemotePaired = tvRemotePaired,
-                onPairTvRemote = { remoteTarget?.host?.let { showTvRemotePairingDialogFor = it } },
-                onSendPower = { remoteTarget?.host?.let { viewModel.sendRemotePower(it) } ?: false },
+                onPairTvRemote = { activeRemoteDevice?.peer?.host?.let { showTvRemotePairingDialogFor = it } },
+                onSendPower = { viewModel.sendRemotePower() },
                 speakers = remoteSpeakers,
-                profile = remoteProfile,
-                onProfileChange = { updated ->
-                    remoteTarget?.host?.let { host ->
-                        remoteProfile = updated
+                volumeEntityId = remoteVolumeEntity,
+                onSelectVolumeEntity = { entityId ->
+                    activeRemoteDevice?.id?.let { id ->
+                        remoteVolumeEntity = entityId
                         fsScope.launch {
-                            viewModel.setRemoteProfile(host, updated)
-                            remoteInputs = viewModel.remoteInputsFor(host)
+                            viewModel.setRemoteProfile(
+                                id,
+                                com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile(entityId),
+                            )
                         }
                     }
                 },
-                inputs = remoteInputs,
-                onSelectInput = { source ->
-                    remoteTarget?.host?.let { host -> fsScope.launch { viewModel.selectRemoteInput(host, source) } }
-                },
+                onSelectInput = { source -> fsScope.launch { viewModel.selectRemoteInput(source) } },
             )
             showTvRemotePairingDialogFor?.let { pairingHost ->
                 com.arflix.tv.ui.components.TvRemotePairingDialog(

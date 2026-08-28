@@ -635,6 +635,10 @@ class MainActivity : ComponentActivity() {
             com.arflix.tv.data.repository.DPadKey.STOP -> android.view.KeyEvent.KEYCODE_MEDIA_STOP
             com.arflix.tv.data.repository.DPadKey.REWIND -> android.view.KeyEvent.KEYCODE_MEDIA_REWIND
             com.arflix.tv.data.repository.DPadKey.FAST_FORWARD -> android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+            com.arflix.tv.data.repository.DPadKey.HOME -> android.view.KeyEvent.KEYCODE_HOME
+            com.arflix.tv.data.repository.DPadKey.MENU -> android.view.KeyEvent.KEYCODE_MENU
+            // No distinct Android "exit" key — Back is the closest equivalent on a streaming box.
+            com.arflix.tv.data.repository.DPadKey.EXIT -> android.view.KeyEvent.KEYCODE_BACK
             com.arflix.tv.data.repository.DPadKey.VOLUME_UP, com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN ->
                 return // handled above
         }
@@ -1078,16 +1082,19 @@ fun ArflixApp(
                 // Loaded once the panel is opened with a target, so an HA round trip never happens
                 // on app start for a feature most sessions won't touch.
                 var remoteSpeakers by remember { mutableStateOf<List<com.arflix.tv.ui.components.HaSpeaker>>(emptyList()) }
-                var remoteProfile by remember {
-                    mutableStateOf(com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile())
-                }
-                var remoteInputs by remember { mutableStateOf<List<String>>(emptyList()) }
-                LaunchedEffect(showRemoteModeSheet, remoteTarget?.host) {
-                    val host = remoteTarget?.host
-                    if (showRemoteModeSheet && host != null) {
-                        remoteProfile = remoteModeViewModel.profileFor(host)
-                        remoteInputs = remoteModeViewModel.inputsFor(host)
+                val remoteControlDevice by remoteModeViewModel.controlDevice.collectAsState()
+                // The device actually being driven: an explicit pick, else the current playback
+                // target. Kept distinct from remoteTarget so switching the remote to a TV never
+                // redirects where channels/titles play.
+                val activeRemoteDevice = remoteControlDevice
+                    ?: remoteTarget?.let { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) }
+                var remoteVolumeEntity by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(showRemoteModeSheet, activeRemoteDevice?.id) {
+                    val id = activeRemoteDevice?.id
+                    if (showRemoteModeSheet && id != null) {
+                        remoteVolumeEntity = remoteModeViewModel.profileFor(id).volumeEntity
                         if (remoteSpeakers.isEmpty()) remoteSpeakers = remoteModeViewModel.loadSpeakers()
+                        remoteModeViewModel.loadDevices()
                     }
                 }
                 Box(
@@ -1128,56 +1135,47 @@ fun ArflixApp(
                         )
                     }
                 }
-                val remoteLanPeers by remoteModeViewModel.peers.collectAsState()
+                val remoteDevices by remoteModeViewModel.devices.collectAsState()
                 com.arflix.tv.ui.components.RemoteModeTopPanel(
                     visible = showRemoteModeSheet,
-                    peers = remoteLanPeers,
-                    target = remoteTarget,
-                    onSelectTarget = { remoteModeViewModel.setTarget(it) },
+                    devices = remoteDevices,
+                    device = activeRemoteDevice,
+                    onSelectDevice = { remoteModeViewModel.setControlDevice(it) },
+                    // Every button follows the selected device — the ViewModel picks the right
+                    // transport for it (Xadarr HTTP, webostv.button, or remote.send_command).
                     onSendDpad = { key ->
-                        // Volume specifically tries the Android TV Remote Service path first
-                        // (real system-level volume — reaches CEC-forwarded external audio the
-                        // app-level HTTP path can't) and falls back to it automatically if the
-                        // target isn't paired for that yet. See RemoteModeViewModel.
-                        val host = remoteTarget?.host
-                        when {
-                            host == null -> remoteModeViewModel.sendDpad(key)
-                            key == com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> remoteModeViewModel.sendVolumeUp(host)
-                            key == com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> remoteModeViewModel.sendVolumeDown(host)
-                            else -> remoteModeViewModel.sendDpad(key)
+                        when (key) {
+                            com.arflix.tv.data.repository.DPadKey.VOLUME_UP -> remoteModeViewModel.sendVolumeUp()
+                            com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN -> remoteModeViewModel.sendVolumeDown()
+                            else -> remoteModeViewModel.sendKey(key)
                         }
                     },
                     onSendText = { text -> remoteModeViewModel.sendText(text) },
                     onDismiss = { showRemoteModeSheet = false },
-                    isTvRemotePaired = remoteTarget?.host?.let { host ->
+                    isTvRemotePaired = activeRemoteDevice?.peer?.host?.let { host ->
                         androidx.compose.runtime.produceState(false, host) {
                             value = remoteModeViewModel.isTvRemotePaired(host)
                         }.value
                     } ?: false,
                     onPairTvRemote = {
-                        val host = remoteTarget?.host
-                        if (host != null) showTvRemotePairingDialogFor = host
+                        activeRemoteDevice?.peer?.host?.let { showTvRemotePairingDialogFor = it }
                     },
-                    onSendPower = {
-                        remoteTarget?.host?.let { remoteModeViewModel.sendPower(it) } ?: false
-                    },
+                    onSendPower = { remoteModeViewModel.sendPower() },
                     speakers = remoteSpeakers,
-                    profile = remoteProfile,
-                    onProfileChange = { updated ->
-                        val host = remoteTarget?.host
-                        if (host != null) {
-                            remoteProfile = updated
+                    volumeEntityId = remoteVolumeEntity,
+                    onSelectVolumeEntity = { entityId ->
+                        activeRemoteDevice?.id?.let { id ->
+                            remoteVolumeEntity = entityId
                             appCoroutineScope.launch {
-                                remoteModeViewModel.setProfile(host, updated)
-                                remoteInputs = remoteModeViewModel.inputsFor(host)
+                                remoteModeViewModel.setProfile(
+                                    id,
+                                    com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile(entityId),
+                                )
                             }
                         }
                     },
-                    inputs = remoteInputs,
                     onSelectInput = { source ->
-                        remoteTarget?.host?.let { host ->
-                            appCoroutineScope.launch { remoteModeViewModel.selectInput(host, source) }
-                        }
+                        appCoroutineScope.launch { remoteModeViewModel.selectInput(source) }
                     },
                 )
                 val pairingHost = showTvRemotePairingDialogFor

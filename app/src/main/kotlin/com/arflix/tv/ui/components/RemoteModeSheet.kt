@@ -31,10 +31,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Remove
@@ -63,11 +65,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
-import com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter
+import com.arflix.tv.data.repository.tvremote.RemoteCapability
+import com.arflix.tv.data.repository.tvremote.RemoteDevice
 import com.arflix.tv.ui.theme.BackgroundElevated
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.TextPrimary
@@ -86,9 +90,9 @@ data class HaSpeaker(val entityId: String, val name: String)
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteModeSheet(
-    peers: List<LanPeer>,
-    target: LanPeer?,
-    onSelectTarget: (LanPeer?) -> Unit,
+    devices: List<RemoteDevice>,
+    device: RemoteDevice?,
+    onSelectDevice: (RemoteDevice?) -> Unit,
     onSendDpad: suspend (DPadKey) -> Boolean,
     onSendText: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
@@ -97,9 +101,8 @@ fun RemoteModeSheet(
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
-    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
-    inputs: List<String> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
     onSelectInput: ((String) -> Unit)? = null,
 ) {
     ModalBottomSheet(
@@ -108,7 +111,7 @@ fun RemoteModeSheet(
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, profile, onProfileChange, inputs, onSelectInput)
+        RemoteModeContent(devices, device, onSelectDevice, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity, onSelectInput)
     }
 }
 
@@ -122,9 +125,9 @@ fun RemoteModeSheet(
 @Composable
 fun RemoteModeTopPanel(
     visible: Boolean,
-    peers: List<LanPeer>,
-    target: LanPeer?,
-    onSelectTarget: (LanPeer?) -> Unit,
+    devices: List<RemoteDevice>,
+    device: RemoteDevice?,
+    onSelectDevice: (RemoteDevice?) -> Unit,
     onSendDpad: suspend (DPadKey) -> Boolean,
     onSendText: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
@@ -132,9 +135,8 @@ fun RemoteModeTopPanel(
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
-    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
-    inputs: List<String> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
     onSelectInput: ((String) -> Unit)? = null,
 ) {
     androidx.compose.animation.AnimatedVisibility(
@@ -194,7 +196,7 @@ fun RemoteModeTopPanel(
                     )
                 }
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, profile, onProfileChange, inputs, onSelectInput)
+                    RemoteModeContent(devices, device, onSelectDevice, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity, onSelectInput)
                 }
             }
         }
@@ -203,18 +205,17 @@ fun RemoteModeTopPanel(
 
 @Composable
 private fun RemoteModeContent(
-    peers: List<LanPeer>,
-    target: LanPeer?,
-    onSelectTarget: (LanPeer?) -> Unit,
+    devices: List<RemoteDevice>,
+    device: RemoteDevice?,
+    onSelectDevice: (RemoteDevice?) -> Unit,
     onSendDpad: suspend (DPadKey) -> Boolean,
     onSendText: suspend (String) -> Boolean,
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
     speakers: List<HaSpeaker> = emptyList(),
-    profile: RemoteVolumeRouter.DeviceProfile = RemoteVolumeRouter.DeviceProfile(),
-    onProfileChange: ((RemoteVolumeRouter.DeviceProfile) -> Unit)? = null,
-    inputs: List<String> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
     onSelectInput: ((String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
@@ -239,16 +240,23 @@ private fun RemoteModeContent(
             Column {
                 androidx.tv.material3.Text(text = "Remote Mode", fontSize = 17.sp, color = TextPrimary)
                 androidx.tv.material3.Text(
-                    text = if (target != null) "Controlling ${target.displayName}" else "Browsing plays locally on this device",
+                    text = if (device != null) "Controlling ${device.displayName}" else "Browsing plays locally on this device",
                     fontSize = 12.sp,
                     color = TextSecondary,
                 )
             }
         }
 
+        // What the remote can do is decided entirely by the selected device: an LG TV gets a
+        // D-pad and its inputs, a Sonos gets transport and volume and no D-pad. Volume is the one
+        // control that stays separately mappable, because a streaming box often isn't in its own
+        // room's audio path (see RemoteVolumeRouter).
+        val caps = device?.capabilities.orEmpty()
+        val powerAvailable = if (device?.isXadarr == true) isTvRemotePaired else device?.powerEntity != null
+
         RemoteSection(title = "DEVICE") {
-            RemoteDevicePicker(peers = peers, target = target, onSelectTarget = onSelectTarget)
-            if (target != null && !isTvRemotePaired && onPairTvRemote != null) {
+            RemoteDevicePicker(devices = devices, selected = device, onSelect = onSelectDevice)
+            if (device?.isXadarr == true && !isTvRemotePaired && onPairTvRemote != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -262,86 +270,97 @@ private fun RemoteModeContent(
                     Column {
                         androidx.tv.material3.Text(text = "Pair for full remote control", fontSize = 13.sp, color = Pink)
                         androidx.tv.material3.Text(
-                            text = "One-time — enables real volume control on this TV",
+                            text = "One-time — enables power and real volume on this device",
                             fontSize = 11.sp,
                             color = TextSecondary,
                         )
                     }
                 }
             }
-            // Power, volume and input in one room are often three different devices — a box that
-            // can't control its own room's audio, a TV that owns the HDMI inputs, a speaker on the
-            // network. Each capability is pointed at whichever device actually handles it.
-            if (target != null && speakers.isNotEmpty()) {
+            if (RemoteCapability.VOLUME in caps && speakers.isNotEmpty()) {
                 RemoteCapabilityPicker(
-                    label = "Volume",
+                    label = "Speaker",
                     icon = Icons.Default.VolumeUp,
                     devices = speakers,
-                    selectedEntityId = profile.volumeEntity,
-                    onSelect = { onProfileChange?.invoke(profile.copy(volumeEntity = it)) },
-                )
-                RemoteCapabilityPicker(
-                    label = "Power",
-                    icon = Icons.Default.PowerSettingsNew,
-                    devices = speakers,
-                    selectedEntityId = profile.powerEntity,
-                    onSelect = { onProfileChange?.invoke(profile.copy(powerEntity = it)) },
-                )
-                RemoteCapabilityPicker(
-                    label = "Input",
-                    icon = Icons.Default.Input,
-                    devices = speakers,
-                    selectedEntityId = profile.inputEntity,
-                    onSelect = { onProfileChange?.invoke(profile.copy(inputEntity = it)) },
+                    selectedEntityId = volumeEntityId,
+                    onSelect = { onSelectVolumeEntity?.invoke(it) },
                 )
             }
         }
 
-        if (target != null) {
-            // D-pad and volume share one row (volume rocker beside the ring, like the
-            // reference remotes) instead of two stacked sections — cuts a full section's
-            // worth of height, which was pushing Search off-screen and forcing a scroll.
+        if (device != null) {
             RemoteSection(title = "CONTROL") {
+                // Volume rocker sits beside the ring rather than in its own section — that cost a
+                // full section of height and pushed Search off-screen.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RemoteVolumeRocker(
-                        onUp = { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } },
-                        onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
-                    )
-                    Spacer(modifier = Modifier.width(20.dp))
-                    RemoteDpadCross(
-                        onPress = { key -> scope.launch { onSendDpad(key) } },
-                        onPower = if (isTvRemotePaired && onSendPower != null) {
-                            { scope.launch { onSendPower() } }
-                        } else null,
-                    )
+                    if (RemoteCapability.VOLUME in caps) {
+                        RemoteVolumeRocker(
+                            onUp = { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } },
+                            onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
+                        )
+                        if (RemoteCapability.DPAD in caps) Spacer(modifier = Modifier.width(20.dp))
+                    }
+                    if (RemoteCapability.DPAD in caps) {
+                        RemoteDpadCross(
+                            onPress = { key -> scope.launch { onSendDpad(key) } },
+                            onPower = if (powerAvailable && onSendPower != null) {
+                                { scope.launch { onSendPower() } }
+                            } else null,
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Divider(color = TextSecondary.copy(alpha = 0.12f))
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    DpadButton(Icons.Default.FastRewind, "Rewind") { scope.launch { onSendDpad(DPadKey.REWIND) } }
-                    DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
-                    DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
-                    DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
+
+                // Home/Menu/Exit — a TV's own settings menus can't be navigated without them.
+                if (RemoteCapability.DPAD in caps) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        DpadButton(Icons.Default.Home, "Home") { scope.launch { onSendDpad(DPadKey.HOME) } }
+                        DpadButton(Icons.Default.Menu, "Menu") { scope.launch { onSendDpad(DPadKey.MENU) } }
+                        DpadButton(Icons.Default.Close, "Exit") { scope.launch { onSendDpad(DPadKey.EXIT) } }
+                    }
+                }
+
+                // A device with no D-pad (a speaker) still needs its power button somewhere.
+                if (powerAvailable && onSendPower != null && RemoteCapability.DPAD !in caps) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        DpadButton(Icons.Default.PowerSettingsNew, "Power") { scope.launch { onSendPower() } }
+                    }
+                }
+
+                if (RemoteCapability.TRANSPORT in caps) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Divider(color = TextSecondary.copy(alpha = 0.12f))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        DpadButton(Icons.Default.FastRewind, "Rewind") { scope.launch { onSendDpad(DPadKey.REWIND) } }
+                        DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
+                        DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
+                        DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
+                    }
                 }
             }
 
-            // Only shown once an input device is configured and actually reports a source_list —
-            // plenty of media_players expose no inputs at all.
-            if (inputs.isNotEmpty()) {
+            if (RemoteCapability.INPUT in caps) {
                 RemoteSection(title = "INPUT") {
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        inputs.forEach { source ->
+                        device.sources.forEach { source ->
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
@@ -356,6 +375,7 @@ private fun RemoteModeContent(
                 }
             }
 
+            if (RemoteCapability.TEXT in caps) {
             RemoteSection(title = "TYPE / SEARCH") {
                 var text by remember { mutableStateOf("") }
                 var sending by remember { mutableStateOf(false) }
@@ -366,7 +386,7 @@ private fun RemoteModeContent(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp),
-                        placeholder = { androidx.tv.material3.Text("Search on ${target.displayName}…", fontSize = 14.sp) },
+                        placeholder = { androidx.tv.material3.Text("Search on ${device.displayName}…", fontSize = 14.sp) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
@@ -399,6 +419,7 @@ private fun RemoteModeContent(
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -459,8 +480,18 @@ private fun RemoteCapabilityPicker(
             Icon(icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(10.dp))
             androidx.tv.material3.Text(text = label, fontSize = 13.sp, color = TextSecondary)
-            Spacer(modifier = Modifier.weight(1f))
-            androidx.tv.material3.Text(text = currentName, fontSize = 13.sp, color = TextPrimary)
+            // Fixed gap + a weighted, ellipsised value: without this a long entity name collapsed
+            // the spacer entirely and ran straight into the label ("Input[LG] webOS TV ...").
+            Spacer(modifier = Modifier.width(12.dp))
+            androidx.tv.material3.Text(
+                text = currentName,
+                fontSize = 13.sp,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
             Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
         androidx.compose.material3.DropdownMenu(
@@ -487,10 +518,14 @@ private fun RemoteCapabilityPicker(
 }
 
 @Composable
-private fun RemoteDevicePicker(peers: List<LanPeer>, target: LanPeer?, onSelectTarget: (LanPeer?) -> Unit) {
+private fun RemoteDevicePicker(
+    devices: List<RemoteDevice>,
+    selected: RemoteDevice?,
+    onSelect: (RemoteDevice?) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
-    val currentName = target?.displayName ?: "This device (Local)"
-    val currentIcon = if (target == null) Icons.Default.Smartphone else Icons.Default.SettingsRemote
+    val currentName = selected?.displayName ?: "This device (Local)"
+    val currentIcon = if (selected == null) Icons.Default.Smartphone else Icons.Default.SettingsRemote
     Box {
         Row(
             modifier = Modifier
@@ -503,7 +538,14 @@ private fun RemoteDevicePicker(peers: List<LanPeer>, target: LanPeer?, onSelectT
         ) {
             Icon(currentIcon, contentDescription = null, tint = Pink, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(12.dp))
-            androidx.tv.material3.Text(text = currentName, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+            androidx.tv.material3.Text(
+                text = currentName,
+                fontSize = 15.sp,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = null,
@@ -520,24 +562,18 @@ private fun RemoteDevicePicker(peers: List<LanPeer>, target: LanPeer?, onSelectT
         ) {
             RemoteDeviceRow(
                 name = "This device (Local)",
-                selected = target == null,
+                selected = selected == null,
                 icon = Icons.Default.Smartphone,
-                onClick = { onSelectTarget(null); expanded = false },
+                onClick = { onSelect(null); expanded = false },
             )
-            peers.forEach { peer ->
+            // Xadarr instances first — they're the ones you drive most of the time; TVs and
+            // speakers are the occasional detour.
+            devices.sortedBy { !it.isXadarr }.forEach { candidate ->
                 RemoteDeviceRow(
-                    name = peer.displayName,
-                    selected = target?.host == peer.host,
-                    icon = Icons.Default.SettingsRemote,
-                    onClick = { onSelectTarget(peer); expanded = false },
-                )
-            }
-            if (peers.isEmpty()) {
-                androidx.tv.material3.Text(
-                    text = "No other Xadarr devices found — enable LAN Sync on the target device too.",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    name = candidate.displayName,
+                    selected = selected?.id == candidate.id,
+                    icon = if (candidate.isXadarr) Icons.Default.SettingsRemote else Icons.Default.VolumeUp,
+                    onClick = { onSelect(candidate); expanded = false },
                 )
             }
         }

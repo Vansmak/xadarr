@@ -104,26 +104,64 @@ class TvViewModel @Inject constructor(
     suspend fun onTvRemotePairingFinished(host: String, deviceName: String) =
         tvRemoteService.onPairingFinished(host, deviceName)
 
-    // See RemoteModeViewModel for why volume goes through the router rather than straight to the
-    // device: a box feeding an external speaker often can't control that speaker at all.
-    suspend fun sendRemoteVolumeUp(host: String): Boolean =
-        remoteVolumeRouter.volumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP)
+    // ── Universal remote (Guide's own "Remote" pill) ────────────────────────
+    // Mirrors RemoteModeViewModel: the control device decides what the buttons drive, and is kept
+    // separate from remoteTarget so hopping over to the TV never redirects tune/play.
+    private val _controlDevice = MutableStateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?>(null)
+    val controlDevice: StateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?> = _controlDevice
 
-    suspend fun sendRemoteVolumeDown(host: String): Boolean =
-        remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
+    private val _haDevices = MutableStateFlow<List<com.arflix.tv.data.repository.tvremote.RemoteDevice>>(emptyList())
 
-    suspend fun remoteProfileFor(host: String) = remoteVolumeRouter.profileFor(host)
-    suspend fun setRemoteProfile(host: String, profile: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile) =
-        remoteVolumeRouter.setProfile(host, profile)
+    val remoteDevices: StateFlow<List<com.arflix.tv.data.repository.tvremote.RemoteDevice>> =
+        combine(remoteLanPeers, _haDevices) { xadarr, ha ->
+            xadarr.map { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) } + ha
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
-    suspend fun remoteInputsFor(host: String): List<String> = remoteVolumeRouter.inputs(host)
-    suspend fun selectRemoteInput(host: String, source: String): Boolean = remoteVolumeRouter.selectInput(host, source)
+    fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) {
+        _controlDevice.value = device
+        device?.peer?.let { remoteModeRepository.setTarget(it) }
+    }
+
+    suspend fun loadRemoteDevices() {
+        _haDevices.value = com.arflix.tv.data.repository.tvremote.RemoteDevice
+            .fromHaEntities(homeAssistantRepository.getControlEntities())
+    }
+
+    private fun activeRemoteDevice(): com.arflix.tv.data.repository.tvremote.RemoteDevice? =
+        _controlDevice.value ?: remoteTarget.value?.let {
+            com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it)
+        }
+
+    suspend fun sendRemoteKey(key: com.arflix.tv.data.repository.DPadKey): Boolean {
+        val device = activeRemoteDevice() ?: return false
+        return if (device.isXadarr) remoteModeRepository.sendDpad(key) else remoteVolumeRouter.sendKey(device, key)
+    }
+
+    suspend fun sendRemoteVolumeUp(): Boolean {
+        val device = activeRemoteDevice() ?: return false
+        return remoteVolumeRouter.volumeUp(device).takeIf { it }
+            ?: if (device.isXadarr) remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP) else false
+    }
+
+    suspend fun sendRemoteVolumeDown(): Boolean {
+        val device = activeRemoteDevice() ?: return false
+        return remoteVolumeRouter.volumeDown(device).takeIf { it }
+            ?: if (device.isXadarr) remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN) else false
+    }
+
+    suspend fun sendRemotePower(): Boolean =
+        activeRemoteDevice()?.let { remoteVolumeRouter.togglePower(it) } ?: false
+
+    suspend fun selectRemoteInput(source: String): Boolean =
+        activeRemoteDevice()?.let { remoteVolumeRouter.selectInput(it, source) } ?: false
+
+    suspend fun remoteProfileFor(deviceId: String) = remoteVolumeRouter.profileFor(deviceId)
+    suspend fun setRemoteProfile(deviceId: String, profile: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile) =
+        remoteVolumeRouter.setProfile(deviceId, profile)
 
     suspend fun loadRemoteSpeakers(): List<com.arflix.tv.ui.components.HaSpeaker> =
         homeAssistantRepository.getMediaPlayers()
             .map { com.arflix.tv.ui.components.HaSpeaker(it.entityId, it.name) }
-
-    suspend fun sendRemotePower(host: String): Boolean = remoteVolumeRouter.togglePower(host)
 
     // Receiving side, delivered directly rather than via navigation args: when this device is
     // the Remote Mode target and this screen (Home/the guide) is already composed and already
