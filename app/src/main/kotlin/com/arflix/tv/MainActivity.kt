@@ -1216,17 +1216,23 @@ fun ArflixApp(
         onConsumeRemoteSearchQuery()
     }
 
-    // Remote Mode channel tune — deliberately pops the CURRENT Home entry too (not just
-    // ProfileSelection), forcing a brand-new LiveTvScreen/TvViewModel composition every time
-    // rather than a singleTop reuse. See pendingRemoteChannelId's declaration for why: reusing
-    // the existing guide screen left currentStreamUrl resolving against a category-scoped,
-    // possibly-stale lookup and silently not switching. A fresh composition always waits for
-    // full enrichment before tuning (chooseStartupChannelId's isFullyEnriched gate), which is
-    // the path already confirmed to work correctly on-device.
+    // Remote Mode channel tune — only navigates when NOT already on Home/the guide. When
+    // already there, TvViewModel's own direct RemoteCommandBus collection in LiveTvScreen
+    // handles it in place (confirmed working on-device); navigating on top of that turned out
+    // to be actively harmful, not just redundant — popUpTo(Screen.Home.route){inclusive=true}
+    // does NOT clear rememberSaveable state the way it looks like it should (proved via the
+    // on-screen debug overlay), so it was just an extra recomposition racing the direct
+    // assignment, which is the likely cause of "channel changed but stayed in the guide
+    // overlay instead of going fullscreen" — this still matters for the case where the app is
+    // on some other screen entirely and LiveTvScreen isn't composed to receive the command
+    // directly at all.
     LaunchedEffect(activeProfile?.id, pendingRemoteChannelId) {
         val channelId = pendingRemoteChannelId ?: return@LaunchedEffect
-        android.util.Log.i("RemoteTuneDebug", "MainActivity nav effect: channelId=$channelId activeProfile=${activeProfile?.id}")
         if (activeProfile == null) return@LaunchedEffect
+        if (currentRoute == Screen.Home.route) {
+            onConsumeRemoteChannelRequest()
+            return@LaunchedEffect
+        }
         navController.navigate(Screen.Home.createRoute(channelId = channelId)) {
             popUpTo(Screen.Home.route) { inclusive = true }
         }
