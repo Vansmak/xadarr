@@ -191,7 +191,7 @@ private fun RemoteModeContent(
             .fillMaxWidth()
             .padding(horizontal = 18.dp)
             .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -219,11 +219,25 @@ private fun RemoteModeContent(
         }
 
         if (target != null) {
-            RemoteSection(title = "D-PAD") {
-                RemoteDpadCross(onPress = { key -> scope.launch { onSendDpad(key) } })
-            }
-
-            RemoteSection(title = "PLAYBACK & VOLUME") {
+            // D-pad and volume share one row (volume rocker beside the ring, like the
+            // reference remotes) instead of two stacked sections — cuts a full section's
+            // worth of height, which was pushing Search off-screen and forcing a scroll.
+            RemoteSection(title = "CONTROL") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RemoteVolumeRocker(
+                        onUp = { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } },
+                        onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
+                    )
+                    Spacer(modifier = Modifier.width(20.dp))
+                    RemoteDpadCross(onPress = { key -> scope.launch { onSendDpad(key) } })
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Divider(color = TextSecondary.copy(alpha = 0.12f))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -232,15 +246,6 @@ private fun RemoteModeContent(
                     DpadButton(Icons.Default.PlayArrow, "Play/Pause", filled = true) { scope.launch { onSendDpad(DPadKey.PLAY_PAUSE) } }
                     DpadButton(Icons.Default.Stop, "Stop") { scope.launch { onSendDpad(DPadKey.STOP) } }
                     DpadButton(Icons.Default.FastForward, "Fast forward") { scope.launch { onSendDpad(DPadKey.FAST_FORWARD) } }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Divider(color = TextSecondary.copy(alpha = 0.12f))
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    RemoteVolumeRocker(
-                        onUp = { scope.launch { onSendDpad(DPadKey.VOLUME_UP) } },
-                        onDown = { scope.launch { onSendDpad(DPadKey.VOLUME_DOWN) } },
-                    )
                 }
             }
 
@@ -412,7 +417,7 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
         Box(
             modifier = Modifier
                 .padding(vertical = 4.dp)
-                .size(216.dp)
+                .size(172.dp)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.05f))
                 .border(1.dp, Pink.copy(alpha = 0.35f), CircleShape),
@@ -424,16 +429,16 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
             DpadRingZone(Icons.Default.KeyboardArrowRight, "Right", Modifier.align(Alignment.CenterEnd)) { onPress(DPadKey.RIGHT) }
             Box(
                 modifier = Modifier
-                    .size(84.dp)
+                    .size(64.dp)
                     .clip(CircleShape)
                     .background(Pink)
                     .clickable { onPress(DPadKey.CENTER) },
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.tv.material3.Text(text = "OK", fontSize = 15.sp, color = com.arflix.tv.ui.theme.BackgroundDark)
+                androidx.tv.material3.Text(text = "OK", fontSize = 14.sp, color = com.arflix.tv.ui.theme.BackgroundDark)
             }
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
@@ -452,12 +457,12 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit) {
 private fun DpadRingZone(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
-            .size(64.dp)
+            .size(52.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = TextPrimary, modifier = Modifier.size(28.dp))
+        Icon(icon, contentDescription = label, tint = TextPrimary, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -469,8 +474,8 @@ private fun DpadRingZone(icon: ImageVector, label: String, modifier: Modifier, o
 private fun RemoteVolumeRocker(onUp: () -> Unit, onDown: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(64.dp)
-            .height(168.dp)
+            .width(56.dp)
+            .height(172.dp)
             .clip(RoundedCornerShape(32.dp))
             .background(Color.White.copy(alpha = 0.05f)),
     ) {
