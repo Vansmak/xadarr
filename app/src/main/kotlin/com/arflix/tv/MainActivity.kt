@@ -1075,6 +1075,17 @@ fun ArflixApp(
                 val remoteTarget by remoteModeViewModel.target.collectAsState()
                 var showRemoteModeSheet by remember { mutableStateOf(false) }
                 var showTvRemotePairingDialogFor by remember { mutableStateOf<String?>(null) }
+                // Loaded once the panel is opened with a target, so an HA round trip never happens
+                // on app start for a feature most sessions won't touch.
+                var remoteSpeakers by remember { mutableStateOf<List<com.arflix.tv.ui.components.HaSpeaker>>(emptyList()) }
+                var remoteVolumeEntity by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(showRemoteModeSheet, remoteTarget?.host) {
+                    val host = remoteTarget?.host
+                    if (showRemoteModeSheet && host != null) {
+                        remoteVolumeEntity = remoteModeViewModel.volumeEntityFor(host)
+                        if (remoteSpeakers.isEmpty()) remoteSpeakers = remoteModeViewModel.loadSpeakers()
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -1145,6 +1156,15 @@ fun ArflixApp(
                     },
                     onSendPower = {
                         remoteTarget?.host?.let { remoteModeViewModel.sendPower(it) } ?: false
+                    },
+                    speakers = remoteSpeakers,
+                    volumeEntityId = remoteVolumeEntity,
+                    onSelectVolumeEntity = { entityId ->
+                        val host = remoteTarget?.host
+                        if (host != null) {
+                            remoteVolumeEntity = entityId
+                            appCoroutineScope.launch { remoteModeViewModel.setVolumeEntity(host, entityId) }
+                        }
                     },
                 )
                 val pairingHost = showTvRemotePairingDialogFor

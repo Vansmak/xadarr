@@ -171,6 +171,10 @@ class TvRemoteService @Inject constructor(
     // paired; the UI gates on isTvRemotePaired rather than silently falling back to a no-op.
     suspend fun sendPower(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_POWER)
 
+    // Note: on a box whose audio is passed through to a separate speaker (e.g. a Shield feeding a
+    // Sonos), these move an internal volume that isn't in the audible path — see RemoteVolumeRouter,
+    // which prefers the room's actual speaker when one is configured.
     suspend fun sendVolumeUp(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_VOLUME_UP)
     suspend fun sendVolumeDown(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_VOLUME_DOWN)
+    suspend fun sendMute(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_VOLUME_MUTE)
 }

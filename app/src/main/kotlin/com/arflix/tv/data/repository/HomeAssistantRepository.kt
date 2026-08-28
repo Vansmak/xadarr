@@ -190,4 +190,67 @@ class HomeAssistantRepository @Inject constructor(
 
     suspend fun setClimateMode(entityId: String, hvacMode: String): Boolean =
         callService("climate", "set_hvac_mode", entityId, JSONObject().put("hvac_mode", hvacMode))
+
+    /**
+     * Volume for a media_player entity — the only path that actually reaches a soundbar/speaker
+     * fed by the TV rather than by the streaming box.
+     *
+     * Confirmed on real hardware that a Shield cannot control its own room's Sonos: its volume
+     * keys move an internal stream that's inert under bitstream passthrough (OSD moves, nothing
+     * audible), and enabling `hdmi_control_volume_control_enabled` to forward them over CEC made
+     * volume stop working entirely for every app, because nothing downstream picks the CEC
+     * command up. The physical remote only works because it fires IR straight at the TV. So for
+     * rooms where the speaker is on the network, driving it through Home Assistant is the fix,
+     * not a workaround — see [TvRemoteService] for the key-injection path this supersedes.
+     */
+    /**
+     * Speakers/receivers that can act as a room's volume target. Deliberately a separate fetch
+     * from [getAllEntities] rather than widening its `relevantDomains`: that set scopes the Smart
+     * Home screen to lights/fans/AC/windows, and adding media_player there would dump every TV
+     * and speaker into it.
+     */
+    suspend fun getMediaPlayers(): List<HaEntity> = withContext(Dispatchers.IO) {
+        val cfg = config()
+        if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) return@withContext emptyList()
+        runCatching {
+            val req = Request.Builder()
+                .url("${cfg.baseUrl}/api/states")
+                .header("Authorization", "Bearer ${cfg.token}")
+                .header("Cache-Control", "no-cache")
+                .build()
+            val body = OkHttpProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext emptyList() else resp.body?.string()
+            } ?: return@withContext emptyList()
+
+            val arr = JSONArray(body)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val entityId = obj.optString("entity_id")
+                if (entityId.substringBefore(".", "") != "media_player") return@mapNotNull null
+                val attrs = obj.optJSONObject("attributes") ?: JSONObject()
+                // Only entities actually reporting a volume level can serve as a volume target;
+                // a TV that's off/unavailable exposes none and would just be a dead choice.
+                if (!attrs.has("volume_level")) return@mapNotNull null
+                HaEntity(
+                    entityId = entityId,
+                    name = attrs.optString("friendly_name").ifBlank { entityId },
+                    domain = "media_player",
+                    state = obj.optString("state"),
+                    deviceClass = attrs.optString("device_class").takeIf { it.isNotBlank() },
+                )
+            }.sortedBy { it.name }
+        }.getOrElse {
+            Log.e("HomeAssistant", "getMediaPlayers failed: ${it.message}", it)
+            emptyList()
+        }
+    }
+
+    suspend fun mediaVolumeUp(entityId: String): Boolean =
+        callService("media_player", "volume_up", entityId)
+
+    suspend fun mediaVolumeDown(entityId: String): Boolean =
+        callService("media_player", "volume_down", entityId)
+
+    suspend fun mediaVolumeMute(entityId: String, muted: Boolean): Boolean =
+        callService("media_player", "volume_mute", entityId, JSONObject().put("is_volume_muted", muted))
 }

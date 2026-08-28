@@ -70,6 +70,8 @@ class TvViewModel @Inject constructor(
     private val remoteModeRepository: com.arflix.tv.data.repository.RemoteModeRepository,
     private val lanSyncService: com.arflix.tv.data.repository.LanSyncService,
     private val tvRemoteService: com.arflix.tv.data.repository.tvremote.TvRemoteService,
+    private val remoteVolumeRouter: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter,
+    private val homeAssistantRepository: com.arflix.tv.data.repository.HomeAssistantRepository,
     private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
 ) : ViewModel() {
 
@@ -102,11 +104,20 @@ class TvViewModel @Inject constructor(
     suspend fun onTvRemotePairingFinished(host: String, deviceName: String) =
         tvRemoteService.onPairingFinished(host, deviceName)
 
+    // See RemoteModeViewModel for why volume goes through the router rather than straight to the
+    // device: a box feeding an external speaker often can't control that speaker at all.
     suspend fun sendRemoteVolumeUp(host: String): Boolean =
-        tvRemoteService.sendVolumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP)
+        remoteVolumeRouter.volumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_UP)
 
     suspend fun sendRemoteVolumeDown(host: String): Boolean =
-        tvRemoteService.sendVolumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
+        remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(com.arflix.tv.data.repository.DPadKey.VOLUME_DOWN)
+
+    suspend fun remoteVolumeEntityFor(host: String): String? = remoteVolumeRouter.volumeEntityFor(host)
+    suspend fun setRemoteVolumeEntity(host: String, entityId: String?) = remoteVolumeRouter.setVolumeEntity(host, entityId)
+
+    suspend fun loadRemoteSpeakers(): List<com.arflix.tv.ui.components.HaSpeaker> =
+        homeAssistantRepository.getMediaPlayers()
+            .map { com.arflix.tv.ui.components.HaSpeaker(it.entityId, it.name) }
 
     suspend fun sendRemotePower(host: String): Boolean = tvRemoteService.sendPower(host)
 

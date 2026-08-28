@@ -29,6 +29,8 @@ class RemoteModeViewModel @Inject constructor(
     private val remoteModeRepository: RemoteModeRepository,
     private val lanSyncService: LanSyncService,
     private val tvRemoteService: TvRemoteService,
+    private val remoteVolumeRouter: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter,
+    private val homeAssistantRepository: com.arflix.tv.data.repository.HomeAssistantRepository,
 ) : ViewModel() {
     val target: StateFlow<LanPeer?> = remoteModeRepository.target
 
@@ -55,11 +57,21 @@ class RemoteModeViewModel @Inject constructor(
         tvRemoteService.onPairingFinished(host, deviceName)
     suspend fun forgetTvRemotePairing(host: String) = tvRemoteService.forgetPairing(host)
 
+    // Router picks the room's actual speaker (via Home Assistant) when one is configured for this
+    // host, since a streaming box often can't control its own room's audio at all; otherwise it
+    // injects volume keys on the device. HTTP dpad stays the last resort for unpaired targets.
     suspend fun sendVolumeUp(host: String): Boolean =
-        tvRemoteService.sendVolumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_UP)
+        remoteVolumeRouter.volumeUp(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_UP)
 
     suspend fun sendVolumeDown(host: String): Boolean =
-        tvRemoteService.sendVolumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN)
+        remoteVolumeRouter.volumeDown(host).takeIf { it } ?: remoteModeRepository.sendDpad(DPadKey.VOLUME_DOWN)
+
+    suspend fun volumeEntityFor(host: String): String? = remoteVolumeRouter.volumeEntityFor(host)
+    suspend fun setVolumeEntity(host: String, entityId: String?) = remoteVolumeRouter.setVolumeEntity(host, entityId)
+
+    /** Home Assistant media_players offerable as a volume target; empty when HA isn't configured. */
+    suspend fun loadSpeakers(): List<HaSpeaker> =
+        homeAssistantRepository.getMediaPlayers().map { HaSpeaker(it.entityId, it.name) }
 
     suspend fun sendPower(host: String): Boolean = tvRemoteService.sendPower(host)
 }

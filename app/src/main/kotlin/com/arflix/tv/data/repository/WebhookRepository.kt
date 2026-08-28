@@ -34,6 +34,12 @@ val NEOLINK_URL_KEY = stringPreferencesKey("neolink_url")
 val HA_URL_KEY = stringPreferencesKey("ha_url")
 val HA_TOKEN_KEY = stringPreferencesKey("ha_token")
 val HA_EXPOSED_ENTITIES_KEY = stringPreferencesKey("ha_exposed_entities") // JSON array of entity_ids; empty = show all
+
+// JSON object mapping a Remote Mode target host -> the HA media_player entity that actually owns
+// that room's volume (e.g. the Shield's room is really driven by a Sonos on the network, which the
+// Shield itself cannot control — see HomeAssistantRepository.mediaVolumeUp). Blank/absent for a
+// host means fall back to sending volume keys to the device itself.
+val HA_VOLUME_ENTITY_BY_HOST_KEY = stringPreferencesKey("ha_volume_entity_by_host")
 val DISPATCHARR_BLACKLIST_PATH_KEY = stringPreferencesKey("dispatcharr_blacklist_path")
 val GROUP_BLACKLIST_ENABLED_KEY = booleanPreferencesKey("group_blacklist_enabled")
 val WATCHLIST_PLACEMENT_KEY = stringPreferencesKey("watchlist_placement")

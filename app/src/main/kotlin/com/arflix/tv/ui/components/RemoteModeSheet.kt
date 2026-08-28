@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -70,6 +71,9 @@ import com.arflix.tv.ui.theme.TextPrimary
 import com.arflix.tv.ui.theme.TextSecondary
 import kotlinx.coroutines.launch
 
+/** A Home Assistant media_player that can serve as a room's volume target. */
+data class HaSpeaker(val entityId: String, val name: String)
+
 /**
  * Remote Mode control sheet — pick a target Xadarr device on the LAN, or use its D-pad/text
  * popup once a target is active. Sending a channel tune or a play-title command happens at the
@@ -89,6 +93,9 @@ fun RemoteModeSheet(
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
+    speakers: List<HaSpeaker> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -96,7 +103,7 @@ fun RemoteModeSheet(
         containerColor = com.arflix.tv.ui.theme.BackgroundDark,
         contentColor = TextPrimary,
     ) {
-        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower)
+        RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity)
     }
 }
 
@@ -119,6 +126,9 @@ fun RemoteModeTopPanel(
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
+    speakers: List<HaSpeaker> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
 ) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
@@ -177,7 +187,7 @@ fun RemoteModeTopPanel(
                     )
                 }
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower)
+                    RemoteModeContent(peers, target, onSelectTarget, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity)
                 }
             }
         }
@@ -194,6 +204,9 @@ private fun RemoteModeContent(
     isTvRemotePaired: Boolean = false,
     onPairTvRemote: (() -> Unit)? = null,
     onSendPower: (suspend () -> Boolean)? = null,
+    speakers: List<HaSpeaker> = emptyList(),
+    volumeEntityId: String? = null,
+    onSelectVolumeEntity: ((String?) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     Column(
@@ -246,6 +259,16 @@ private fun RemoteModeContent(
                         )
                     }
                 }
+            }
+            // A streaming box often isn't in its own room's audio path (passthrough to a Sonos or
+            // AVR), so volume keys sent to it do nothing audible. Picking the speaker that
+            // actually owns the room sends volume straight there instead.
+            if (target != null && speakers.isNotEmpty()) {
+                RemoteSpeakerPicker(
+                    speakers = speakers,
+                    selectedEntityId = volumeEntityId,
+                    onSelect = { onSelectVolumeEntity?.invoke(it) },
+                )
             }
         }
 
@@ -359,6 +382,59 @@ private fun RemoteSection(title: String, content: @Composable ColumnScope.() -> 
  * quarter of the panel's height (Joe: "can[']t remote all fit without scrolling? make the
  * devices a one box select").
  */
+/**
+ * Chooses which speaker a volume press drives for the current target. "This device" keeps the
+ * old behaviour (inject volume keys on the box itself), which is right when the TV's own speakers
+ * are the output; anything else routes volume to that speaker through Home Assistant.
+ */
+@Composable
+private fun RemoteSpeakerPicker(
+    speakers: List<HaSpeaker>,
+    selectedEntityId: String?,
+    onSelect: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentName = speakers.firstOrNull { it.entityId == selectedEntityId }?.name
+        ?: "This device"
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            androidx.tv.material3.Text(text = "Volume", fontSize = 13.sp, color = TextSecondary)
+            Spacer(modifier = Modifier.weight(1f))
+            androidx.tv.material3.Text(text = currentName, fontSize = 13.sp, color = TextPrimary)
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.86f).background(BackgroundElevated),
+        ) {
+            RemoteDeviceRow(
+                name = "This device",
+                selected = selectedEntityId == null,
+                icon = Icons.Default.SettingsRemote,
+                onClick = { onSelect(null); expanded = false },
+            )
+            speakers.forEach { speaker ->
+                RemoteDeviceRow(
+                    name = speaker.name,
+                    selected = selectedEntityId == speaker.entityId,
+                    icon = Icons.Default.VolumeUp,
+                    onClick = { onSelect(speaker.entityId); expanded = false },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun RemoteDevicePicker(peers: List<LanPeer>, target: LanPeer?, onSelectTarget: (LanPeer?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
