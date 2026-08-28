@@ -33,7 +33,20 @@ class TvRemotePairingClient(
             certManager.ensureKeyPair(clientName)
             val sslContext = certManager.buildSslContext()
             val s = sslContext.socketFactory.createSocket(host, port) as SSLSocket
-            s.startHandshake()
+            // Prefer TLS 1.2 — the reference implementation's Python client (and by extension
+            // the Android TV Remote Service it talks to) was verified against 1.2, and 1.3's
+            // mandatory RSA-PSS CertificateVerify step is exactly what tripped up the first
+            // attempt here (see TvRemoteCertManager's ALIAS comment). Falls back gracefully if
+            // the device doesn't offer 1.2 for some reason.
+            runCatching {
+                s.enabledProtocols = s.supportedProtocols.filter { it == "TLSv1.2" }.toTypedArray()
+                    .ifEmpty { s.enabledProtocols }
+            }
+            try {
+                s.startHandshake()
+            } catch (e: Exception) {
+                throw TvRemotePairingException("TLS handshake failed: ${e.message}")
+            }
             socket = s
 
             send(

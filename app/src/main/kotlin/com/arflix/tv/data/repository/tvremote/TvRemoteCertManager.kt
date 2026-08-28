@@ -27,7 +27,13 @@ import javax.security.auth.x500.X500Principal
 @Singleton
 class TvRemoteCertManager @Inject constructor() {
     companion object {
-        private const val ALIAS = "xadarr_tv_remote_client"
+        // v2: bumped after the first attempt failed TLS handshake with an OpenSSL/Conscrypt RSA
+        // internal error — root cause was the v1 key only authorizing PKCS1 padding, but TLS 1.3's
+        // CertificateVerify step (the client cert's signature during handshake) requires RSA-PSS.
+        // AndroidKeyStore enforces declared purposes/paddings/digests at the crypto layer, so a key
+        // that never had PSS authorized can't perform it — that's the internal error, not a bad key.
+        // New alias forces a fresh key rather than trying to widen an already-generated one.
+        private const val ALIAS = "xadarr_tv_remote_client_v2"
         private const val PROVIDER = "AndroidKeyStore"
     }
 
@@ -40,8 +46,15 @@ class TvRemoteCertManager @Inject constructor() {
         val notAfter = Date(now.time + TimeUnit.DAYS.toMillis(10 * 365))
         val spec = KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
             .setKeySize(2048)
-            .setDigests(KeyProperties.DIGEST_SHA256)
-            .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+            .setDigests(
+                KeyProperties.DIGEST_SHA256,
+                KeyProperties.DIGEST_SHA384,
+                KeyProperties.DIGEST_SHA512,
+            )
+            .setSignaturePaddings(
+                KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
+                KeyProperties.SIGNATURE_PADDING_RSA_PSS,
+            )
             .setCertificateSubject(X500Principal("CN=$clientName"))
             .setCertificateSerialNumber(BigInteger.valueOf(1000))
             .setCertificateNotBefore(now)
