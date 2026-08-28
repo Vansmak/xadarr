@@ -33,18 +33,24 @@ class TvRemotePairingClient(
             certManager.ensureKeyPair(clientName)
             val sslContext = certManager.buildSslContext()
             val s = sslContext.socketFactory.createSocket(host, port) as SSLSocket
-            // Do NOT force TLS 1.2 here — tried that as a "defense in depth" alongside the
-            // RSA-PSS key-authorization fix (see TvRemoteCertManager's ALIAS comment for that
-            // one, which is the actual fix and stays). Confirmed on a real Shield that forcing
-            // 1.2 backfires: its own AtvRemote.TcpPairingServer logs "No local certificate for
-            // TLSv1.2 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" — the server-side pairing service
-            // doesn't have a cert usable for a TLS-1.2-forced RSA cipher suite. Left unset, the
-            // client negotiates whatever the server actually supports (TLS 1.3 in practice), and
-            // the PSS key fix already covers 1.3's CertificateVerify requirement.
+            // Do NOT force a specific TLS version here. Forcing 1.2 was tried as defense in depth
+            // alongside the RSA-PSS key fix (see TvRemoteCertManager's ALIAS comment) and made
+            // things worse — let it negotiate whatever the server wants (TLS 1.3 in practice).
             try {
                 s.startHandshake()
             } catch (e: Exception) {
                 throw TvRemotePairingException("TLS handshake failed: ${e.message}")
+            }
+            // The TV's pairing service needs BOTH certs to compute the pairing hash and reports
+            // `bnv: No local certificate for <protocol> <cipher>` (then drops us) if the client
+            // completed the handshake without presenting one — which is exactly what the default
+            // KeyManagerFactory did with our AndroidKeyStore key. Fail loudly and specifically
+            // here rather than letting it surface as an opaque read timeout further down.
+            if (s.session.localCertificates.isNullOrEmpty()) {
+                throw TvRemotePairingException(
+                    "Client certificate was not presented during the TLS handshake " +
+                        "(${s.session.protocol} ${s.session.cipherSuite}) — the TV will reject this."
+                )
             }
             socket = s
 
