@@ -32,6 +32,35 @@ class RemoteModeRepository @Inject constructor(
         _target.value = peer
     }
 
+    // ── Control device ──────────────────────────────────────────────────────
+    // Which device the remote's buttons drive. Lives here, next to the playback target, because
+    // there are two surfaces onto the same remote — the guide's pill/sheet and the swipe-down
+    // panel — and they must agree. Held per-ViewModel previously, so selecting a TV in one left
+    // the other still showing the old device.
+    //
+    // Distinct from `target`: that's the Xadarr instance receiving tune/play, and pointing the
+    // buttons at a TV must not move where a channel plays.
+    private val _controlDevice = MutableStateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?>(null)
+    val controlDevice: StateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?> = _controlDevice
+
+    /** The last non-local device, so the pill's one-tap toggle can flip back to it. */
+    var lastControlDevice: com.arflix.tv.data.repository.tvremote.RemoteDevice? = null
+        private set
+
+    fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) {
+        if (device != null) lastControlDevice = device
+        _controlDevice.value = device
+        when {
+            // "This device (Local)" has to mean everything happens here — otherwise the guide keeps
+            // sending channels to the last target while the panel claims you're back on local.
+            device == null -> setTarget(null)
+            // Picking an Xadarr device also makes it the playback target: that's a room change.
+            device.peer != null -> setTarget(device.peer)
+            // A TV or speaker only takes over the buttons; playback stays wherever it was.
+            else -> Unit
+        }
+    }
+
     suspend fun sendTuneChannel(epgId: String): Boolean = post("/api/remote/tune-channel", JSONObject().put("epgId", epgId))
 
     suspend fun sendPlayTitle(mediaType: MediaType, tmdbId: Int, season: Int?, episode: Int?): Boolean =

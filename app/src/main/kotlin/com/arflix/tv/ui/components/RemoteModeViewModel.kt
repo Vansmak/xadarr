@@ -65,8 +65,8 @@ class RemoteModeViewModel @Inject constructor(
     // is the Xadarr instance that receives tune/play, and jumping the remote over to the TV to
     // dismiss a popup must not redirect playback there. Session-local — switching back is manual,
     // by design.
-    private val _controlDevice = MutableStateFlow<RemoteDevice?>(null)
-    val controlDevice: StateFlow<RemoteDevice?> = _controlDevice
+    // Shared via the repository so the guide's sheet and the swipe-down panel never disagree.
+    val controlDevice: StateFlow<RemoteDevice?> = remoteModeRepository.controlDevice
 
     private val _haDevices = MutableStateFlow<List<RemoteDevice>>(emptyList())
 
@@ -79,18 +79,7 @@ class RemoteModeViewModel @Inject constructor(
         RemoteDevice.merge(xadarr.map { RemoteDevice.fromPeer(it) }, ha)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun setControlDevice(device: RemoteDevice?) {
-        _controlDevice.value = device
-        when {
-            // "This device (Local)" has to mean everything happens here — otherwise the guide keeps
-            // sending channels to the last target while the panel claims you're back on local.
-            device == null -> remoteModeRepository.setTarget(null)
-            // Picking an Xadarr device also makes it the playback target: that's a room change.
-            device.peer != null -> remoteModeRepository.setTarget(device.peer)
-            // A TV or speaker only takes over the buttons; playback stays wherever it was.
-            else -> Unit
-        }
-    }
+    fun setControlDevice(device: RemoteDevice?) = remoteModeRepository.setControlDevice(device)
 
     /** Refreshes the HA half of the device list; cheap enough to call whenever the panel opens. */
     suspend fun loadDevices() {
@@ -98,7 +87,7 @@ class RemoteModeViewModel @Inject constructor(
     }
 
     private fun activeDevice(): RemoteDevice? =
-        _controlDevice.value ?: target.value?.let { RemoteDevice.fromPeer(it) }
+        controlDevice.value ?: target.value?.let { RemoteDevice.fromPeer(it) }
 
     suspend fun sendKey(key: DPadKey): Boolean {
         val device = activeDevice() ?: return false

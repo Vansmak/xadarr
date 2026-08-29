@@ -107,8 +107,9 @@ class TvViewModel @Inject constructor(
     // ── Universal remote (Guide's own "Remote" pill) ────────────────────────
     // Mirrors RemoteModeViewModel: the control device decides what the buttons drive, and is kept
     // separate from remoteTarget so hopping over to the TV never redirects tune/play.
-    private val _controlDevice = MutableStateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?>(null)
-    val controlDevice: StateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?> = _controlDevice
+    // Shared via the repository — the swipe-down panel is the same remote, and must agree.
+    val controlDevice: StateFlow<com.arflix.tv.data.repository.tvremote.RemoteDevice?> =
+        remoteModeRepository.controlDevice
 
     private val _haDevices = MutableStateFlow<List<com.arflix.tv.data.repository.tvremote.RemoteDevice>>(emptyList())
 
@@ -121,29 +122,21 @@ class TvViewModel @Inject constructor(
             )
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) {
-        _controlDevice.value = device
-        // See RemoteModeViewModel.setControlDevice — Local clears the playback target so channels
-        // play here again; an Xadarr device becomes the target; a TV/speaker leaves it alone.
-        when {
-            device == null -> remoteModeRepository.setTarget(null)
-            device.peer != null -> remoteModeRepository.setTarget(device.peer)
-            else -> Unit
-        }
-    }
+    fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) =
+        remoteModeRepository.setControlDevice(device)
 
-    /** One-tap flip between local playback and the last device used, for the guide's Remote pill. */
+    /** One-tap flip between watching here and driving the last device — the guide's Remote pill. */
     fun toggleRemoteLocal() {
-        if (remoteTarget.value != null || _controlDevice.value != null) {
-            lastRemoteDevice = _controlDevice.value
-                ?: remoteTarget.value?.let { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) }
+        val active = controlDevice.value != null || remoteTarget.value != null
+        if (active) {
             setControlDevice(null)
         } else {
-            setControlDevice(lastRemoteDevice ?: remoteDevices.value.firstOrNull { it.isXadarr })
+            setControlDevice(
+                remoteModeRepository.lastControlDevice
+                    ?: remoteDevices.value.firstOrNull { it.isXadarr }
+            )
         }
     }
-
-    private var lastRemoteDevice: com.arflix.tv.data.repository.tvremote.RemoteDevice? = null
 
     suspend fun loadRemoteDevices() {
         _haDevices.value = com.arflix.tv.data.repository.tvremote.RemoteDevice
@@ -151,7 +144,7 @@ class TvViewModel @Inject constructor(
     }
 
     private fun activeRemoteDevice(): com.arflix.tv.data.repository.tvremote.RemoteDevice? =
-        _controlDevice.value ?: remoteTarget.value?.let {
+        controlDevice.value ?: remoteTarget.value?.let {
             com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it)
         }
 
