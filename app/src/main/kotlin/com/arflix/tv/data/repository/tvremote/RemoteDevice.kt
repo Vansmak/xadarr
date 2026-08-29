@@ -80,12 +80,16 @@ data class RemoteDevice(
      */
     fun mergedWith(ha: RemoteDevice): RemoteDevice = copy(
         area = area ?: ha.area,
-        volumeEntity = volumeEntity ?: ha.volumeEntity,
-        inputEntity = ha.inputEntity,
+        // A streaming box deliberately does NOT inherit an HA volume entity. Whatever HA reports
+        // for a Shield is the same internal volume that bitstream passthrough makes inert, so
+        // adopting it would leave the Speaker row saying "This device" while silently routing to
+        // something that changes nothing. Better to leave it unset and let the mapping decide.
+        volumeEntity = if (peer != null) volumeEntity else volumeEntity ?: ha.volumeEntity,
+        inputEntity = inputEntity ?: ha.inputEntity,
         powerEntity = powerEntity ?: ha.powerEntity,
         transportEntity = transportEntity ?: ha.transportEntity,
-        sources = ha.sources,
-        mergedHaId = ha.id,
+        sources = sources.ifEmpty { ha.sources },
+        mergedHaId = mergedHaId ?: ha.id,
     )
 
     companion object {
@@ -107,13 +111,19 @@ data class RemoteDevice(
             return a.contains(b) || b.contains(a)
         }
 
-        /** One entry per physical device: Xadarr peers absorb their HA twin. */
+        /**
+         * One entry per physical device: an Xadarr peer absorbs *every* HA device that is the same
+         * box. There are usually several — the `cast` and `androidtv_remote` integrations each
+         * register their own device for one Shield — so folding only the first left the other
+         * still listed separately, which is exactly the duplicate this is meant to remove.
+         */
         fun merge(xadarrDevices: List<RemoteDevice>, haDevices: List<RemoteDevice>): List<RemoteDevice> {
+            val absorbed = mutableSetOf<String>()
             val merged = xadarrDevices.map { xadarr ->
-                haDevices.firstOrNull { sameDevice(xadarr.name, it.name) }
-                    ?.let { xadarr.mergedWith(it) } ?: xadarr
+                val twins = haDevices.filter { sameDevice(xadarr.name, it.name) }
+                absorbed += twins.map { it.id }
+                twins.fold(xadarr) { acc, twin -> acc.mergedWith(twin) }
             }
-            val absorbed = merged.mapNotNull { it.mergedHaId }.toSet()
             return merged + haDevices.filterNot { it.id in absorbed }
         }
 
