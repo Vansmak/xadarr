@@ -236,6 +236,8 @@ class HomeAssistantRepository @Inject constructor(
         val supportedFeatures: Int,
         val hasVolumeLevel: Boolean,
         val sourceList: List<String>,
+        /** "tv", "speaker", "receiver" … — decides whether transport controls make sense. */
+        val deviceClass: String?,
     ) {
         val domain: String get() = entityId.substringBefore(".", "")
     }
@@ -281,6 +283,7 @@ class HomeAssistantRepository @Inject constructor(
                     sourceList = attrs.optJSONArray("source_list")?.let { list ->
                         (0 until list.length()).map { list.optString(it) }.filter { it.isNotBlank() }
                     } ?: emptyList(),
+                    deviceClass = attrs.optString("device_class").takeIf { it.isNotBlank() },
                 )
             }
         }.getOrElse {

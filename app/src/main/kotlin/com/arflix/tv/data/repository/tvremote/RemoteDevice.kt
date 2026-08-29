@@ -116,7 +116,13 @@ data class RemoteDevice(
                 it.sourceList.isNotEmpty() && (it.supportedFeatures and SELECT_SOURCE) != 0
             }
             val power = group.firstOrNull { (it.supportedFeatures and (TURN_ON or TURN_OFF)) != 0 }
-            val transportEntity = players.firstOrNull { (it.supportedFeatures and (PLAY or PAUSE)) != 0 }
+            // No transport row on a TV. You navigate a TV — D-pad, inputs, power — you don't
+            // scrub it, so play/pause/rewind are dead weight there. Speakers and streaming boxes
+            // are the things whose playback you actually drive.
+            val isTv = group.any { it.deviceClass == "tv" }
+            val transportEntity = if (isTv) null else {
+                players.firstOrNull { (it.supportedFeatures and (PLAY or PAUSE)) != 0 }
+            }
 
             // Prefer the name of whichever entity the user is most likely to recognise, and never
             // the bare entity_id if a friendly name exists anywhere in the group.
