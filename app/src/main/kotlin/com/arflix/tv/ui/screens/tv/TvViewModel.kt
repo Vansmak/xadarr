@@ -114,7 +114,11 @@ class TvViewModel @Inject constructor(
 
     val remoteDevices: StateFlow<List<com.arflix.tv.data.repository.tvremote.RemoteDevice>> =
         combine(remoteLanPeers, _haDevices) { xadarr, ha ->
-            xadarr.map { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) } + ha
+            // Merged so one physical device is one entry — see RemoteModeViewModel.devices.
+            com.arflix.tv.data.repository.tvremote.RemoteDevice.merge(
+                xadarr.map { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) },
+                ha,
+            )
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) {

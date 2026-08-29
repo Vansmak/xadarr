@@ -43,6 +43,8 @@ data class RemoteDevice(
     val transportEntity: String? = null,
     /** Cached so the INPUT chips don't need a second round trip. */
     val sources: List<String> = emptyList(),
+    /** Set when an HA device was folded into this one, so it isn't also listed separately. */
+    val mergedHaId: String? = null,
 ) {
     val isXadarr: Boolean get() = peer != null
 
@@ -70,7 +72,51 @@ data class RemoteDevice(
 
     fun supports(capability: RemoteCapability): Boolean = capability in capabilities
 
+    /**
+     * Folds a Home Assistant device into this Xadarr one — same physical box, two discovery
+     * mechanisms. Keys keep using the Xadarr peer, which we pair with by IP over the Android TV
+     * Remote Service (exact, and already system-level); HA contributes the things it alone knows
+     * about, like the room's inputs and a power entity.
+     */
+    fun mergedWith(ha: RemoteDevice): RemoteDevice = copy(
+        area = area ?: ha.area,
+        volumeEntity = volumeEntity ?: ha.volumeEntity,
+        inputEntity = ha.inputEntity,
+        powerEntity = powerEntity ?: ha.powerEntity,
+        transportEntity = transportEntity ?: ha.transportEntity,
+        sources = ha.sources,
+        mergedHaId = ha.id,
+    )
+
     companion object {
+        /**
+         * Whether an Xadarr peer and an HA device are the same physical thing.
+         *
+         * Matched on normalised names because there's no shared identifier: Xadarr discovers peers
+         * by IP, while HA doesn't expose the androidtv_remote host through /api/states. So
+         * "SHIELD Android TV" and "SHIELD" collapse to one entry. Deliberately containment rather
+         * than equality, since the two sources name the same box at different lengths.
+         */
+        fun sameDevice(xadarrName: String, haName: String): Boolean {
+            fun norm(v: String) = v.lowercase().filter { it.isLetterOrDigit() }
+            val a = norm(xadarrName)
+            val b = norm(haName)
+            if (a.isBlank() || b.isBlank()) return false
+            // Guard against a short name matching everything ("tv" inside "officetv").
+            if (minOf(a.length, b.length) < 4) return a == b
+            return a.contains(b) || b.contains(a)
+        }
+
+        /** One entry per physical device: Xadarr peers absorb their HA twin. */
+        fun merge(xadarrDevices: List<RemoteDevice>, haDevices: List<RemoteDevice>): List<RemoteDevice> {
+            val merged = xadarrDevices.map { xadarr ->
+                haDevices.firstOrNull { sameDevice(xadarr.name, it.name) }
+                    ?.let { xadarr.mergedWith(it) } ?: xadarr
+            }
+            val absorbed = merged.mapNotNull { it.mergedHaId }.toSet()
+            return merged + haDevices.filterNot { it.id in absorbed }
+        }
+
         fun fromPeer(peer: LanPeer): RemoteDevice = RemoteDevice(
             id = "xadarr:${peer.host}",
             name = peer.displayName,
@@ -112,14 +158,17 @@ data class RemoteDevice(
                 it.hasVolumeLevel ||
                     (it.supportedFeatures and (VOLUME_SET or VOLUME_STEP or VOLUME_MUTE)) != 0
             }
-            val input = players.firstOrNull {
+            val isTv = group.any { it.deviceClass == "tv" }
+            // Only TVs get an input picker. An Android box's source_list is its installed app
+            // packages (com.xadarr.tv and 30 friends), and a Sonos's is favourites/stations —
+            // neither is an "input", and both would just be noise in that row.
+            val input = if (!isTv) null else players.firstOrNull {
                 it.sourceList.isNotEmpty() && (it.supportedFeatures and SELECT_SOURCE) != 0
             }
             val power = group.firstOrNull { (it.supportedFeatures and (TURN_ON or TURN_OFF)) != 0 }
             // No transport row on a TV. You navigate a TV — D-pad, inputs, power — you don't
             // scrub it, so play/pause/rewind are dead weight there. Speakers and streaming boxes
             // are the things whose playback you actually drive.
-            val isTv = group.any { it.deviceClass == "tv" }
             val transportEntity = if (isTv) null else {
                 players.firstOrNull { (it.supportedFeatures and (PLAY or PAUSE)) != 0 }
             }

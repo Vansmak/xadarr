@@ -70,9 +70,13 @@ class RemoteModeViewModel @Inject constructor(
 
     private val _haDevices = MutableStateFlow<List<RemoteDevice>>(emptyList())
 
-    /** Xadarr instances plus everything Home Assistant can control, as one list. */
+    /**
+     * One entry per physical device. An Xadarr instance and its Home Assistant twin (the Shield is
+     * both a LAN peer and an `androidtv_remote` device) are the same box discovered two ways, so
+     * they're merged rather than listed twice.
+     */
     val devices: StateFlow<List<RemoteDevice>> = combine(peers, _haDevices) { xadarr, ha ->
-        xadarr.map { RemoteDevice.fromPeer(it) } + ha
+        RemoteDevice.merge(xadarr.map { RemoteDevice.fromPeer(it) }, ha)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setControlDevice(device: RemoteDevice?) {
