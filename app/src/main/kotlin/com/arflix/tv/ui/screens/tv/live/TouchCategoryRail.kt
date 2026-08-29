@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.tv.live
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,7 +33,7 @@ private data class TouchCategoryRailItem(
     val count: Int,
 )
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TouchCategoryRail(
     tree: LiveCategoryTree,
@@ -42,6 +43,7 @@ fun TouchCategoryRail(
     modifier: Modifier = Modifier,
     // Remote Mode entry point — null hides the chip (no LAN Sync configured, e.g.).
     remoteModeActive: Boolean = false,
+    onToggleRemoteMode: (() -> Unit)? = null,
     onOpenRemoteMode: (() -> Unit)? = null,
 ) {
     val items = rememberTouchRailItems(tree, selectedId)
@@ -81,7 +83,14 @@ fun TouchCategoryRail(
                         .height(38.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (remoteModeActive) LiveColors.Accent else LiveColors.PanelRaised)
-                        .clickable(onClick = onOpenRemoteMode)
+                        // Tap flips between watching here and controlling the other device —
+                        // channel surfing on the phone while the Shield plays something else is a
+                        // constant back-and-forth, and reopening the panel each time to change it
+                        // was the friction. Long-press still opens the full panel.
+                        .combinedClickable(
+                            onClick = { onToggleRemoteMode?.invoke() ?: onOpenRemoteMode() },
+                            onLongClick = onOpenRemoteMode,
+                        )
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

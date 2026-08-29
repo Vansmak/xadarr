@@ -1027,6 +1027,7 @@ fun LiveTvScreen(
                         onOpenSearch = { searchOpen = true },
                         remoteModeActive = remoteTarget != null,
                         onOpenRemoteMode = { showRemoteModeSheet = true },
+                        onToggleRemoteMode = { viewModel.toggleRemoteLocal() },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     EpgGrid(

@@ -123,8 +123,27 @@ class TvViewModel @Inject constructor(
 
     fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) {
         _controlDevice.value = device
-        device?.peer?.let { remoteModeRepository.setTarget(it) }
+        // See RemoteModeViewModel.setControlDevice — Local clears the playback target so channels
+        // play here again; an Xadarr device becomes the target; a TV/speaker leaves it alone.
+        when {
+            device == null -> remoteModeRepository.setTarget(null)
+            device.peer != null -> remoteModeRepository.setTarget(device.peer)
+            else -> Unit
+        }
     }
+
+    /** One-tap flip between local playback and the last device used, for the guide's Remote pill. */
+    fun toggleRemoteLocal() {
+        if (remoteTarget.value != null || _controlDevice.value != null) {
+            lastRemoteDevice = _controlDevice.value
+                ?: remoteTarget.value?.let { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) }
+            setControlDevice(null)
+        } else {
+            setControlDevice(lastRemoteDevice ?: remoteDevices.value.firstOrNull { it.isXadarr })
+        }
+    }
+
+    private var lastRemoteDevice: com.arflix.tv.data.repository.tvremote.RemoteDevice? = null
 
     suspend fun loadRemoteDevices() {
         _haDevices.value = com.arflix.tv.data.repository.tvremote.RemoteDevice
