@@ -203,3 +203,10 @@
 -keep class com.arflix.tv.util.Result$* { *; }
 -keep class com.arflix.tv.util.UiState { *; }
 -keep class com.arflix.tv.util.UiState$* { *; }
+
+# Android TV Remote Service protocol (protobuf-javalite). The generated message classes live under
+# com.arflix.tv.remoteservice.proto and are already covered by the blanket app keep above, but the
+# javalite runtime reaches them reflectively, so keep it intact too. Cheap insurance against a
+# minified build failing to parse the pairing/control handshake at runtime.
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
