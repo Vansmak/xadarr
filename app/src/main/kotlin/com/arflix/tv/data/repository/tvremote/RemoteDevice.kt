@@ -80,6 +80,8 @@ data class RemoteDevice(
      */
     fun mergedWith(ha: RemoteDevice): RemoteDevice = copy(
         area = area ?: ha.area,
+        dpadEntity = dpadEntity ?: ha.dpadEntity,
+        keyTransport = keyTransport ?: ha.keyTransport,
         // A streaming box deliberately does NOT inherit an HA volume entity. Whatever HA reports
         // for a Shield is the same internal volume that bitstream passthrough makes inert, so
         // adopting it would leave the Speaker row saying "This device" while silently routing to
@@ -144,6 +146,28 @@ data class RemoteDevice(
             entities.groupBy { it.deviceId ?: it.entityId }
                 .map { (groupKey, group) -> buildDevice(groupKey, group) }
                 .filter { it.capabilities.isNotEmpty() }
+                .let { dedupe(it) }
+
+        /**
+         * Folds HA devices that are the same physical thing.
+         *
+         * Grouping by `device_id` isn't enough: the `cast` and `androidtv_remote` integrations
+         * register *separate devices* for one TV, not merely separate entities, so every TV would
+         * otherwise appear twice. Matched on name within the same area, and the fold unions their
+         * capabilities — typically the cast half brings volume and the androidtv_remote half
+         * brings the D-pad.
+         */
+        private fun dedupe(devices: List<RemoteDevice>): List<RemoteDevice> {
+            val out = mutableListOf<RemoteDevice>()
+            devices.forEach { candidate ->
+                val existing = out.indexOfFirst {
+                    sameDevice(it.name, candidate.name) &&
+                        (it.area == null || candidate.area == null || it.area == candidate.area)
+                }
+                if (existing >= 0) out[existing] = out[existing].mergedWith(candidate) else out.add(candidate)
+            }
+            return out
+        }
 
         private fun buildDevice(
             groupKey: String,

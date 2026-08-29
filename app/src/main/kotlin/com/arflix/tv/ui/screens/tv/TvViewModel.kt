@@ -169,9 +169,14 @@ class TvViewModel @Inject constructor(
     suspend fun setRemoteProfile(deviceId: String, profile: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter.DeviceProfile) =
         remoteVolumeRouter.setProfile(deviceId, profile)
 
-    suspend fun loadRemoteSpeakers(): List<com.arflix.tv.ui.components.HaSpeaker> =
-        homeAssistantRepository.getMediaPlayers()
-            .map { com.arflix.tv.ui.components.HaSpeaker(it.entityId, it.name) }
+    // Derived from the merged device list so each physical device appears once — see
+    // RemoteModeViewModel.loadSpeakers.
+    suspend fun loadRemoteSpeakers(): List<com.arflix.tv.ui.components.HaSpeaker> {
+        if (_haDevices.value.isEmpty()) loadRemoteDevices()
+        return _haDevices.value.mapNotNull { device ->
+            device.volumeEntity?.let { com.arflix.tv.ui.components.HaSpeaker(it, device.displayName) }
+        }
+    }
 
     // Receiving side, delivered directly rather than via navigation args: when this device is
     // the Remote Mode target and this screen (Home/the guide) is already composed and already

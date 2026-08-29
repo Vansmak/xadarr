@@ -129,7 +129,14 @@ class RemoteModeViewModel @Inject constructor(
     suspend fun setProfile(deviceId: String, profile: RemoteVolumeRouter.DeviceProfile) =
         remoteVolumeRouter.setProfile(deviceId, profile)
 
-    /** Devices that can act as a speaker, for the per-device volume mapping. */
-    suspend fun loadSpeakers(): List<HaSpeaker> =
-        homeAssistantRepository.getMediaPlayers().map { HaSpeaker(it.entityId, it.name) }
+    /**
+     * Speaker choices for the volume mapping — derived from the same merged device list, so a TV
+     * that HA registers twice (cast + androidtv_remote) appears once here as well.
+     */
+    suspend fun loadSpeakers(): List<HaSpeaker> {
+        if (_haDevices.value.isEmpty()) loadDevices()
+        return _haDevices.value.mapNotNull { device ->
+            device.volumeEntity?.let { HaSpeaker(it, device.displayName) }
+        }
+    }
 }
