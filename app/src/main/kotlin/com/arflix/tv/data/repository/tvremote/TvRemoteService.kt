@@ -3,6 +3,7 @@ package com.arflix.tv.data.repository.tvremote
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.remoteservice.proto.RemoteDirection
 import com.arflix.tv.remoteservice.proto.RemoteKeyCode
@@ -170,6 +171,40 @@ class TvRemoteService @Inject constructor(
     // all (the old Remote Mode DPadKey enum has no power key), so this only ever works once
     // paired; the UI gates on isTvRemotePaired rather than silently falling back to a no-op.
     suspend fun sendPower(host: String): Boolean = sendKeyCode(host, RemoteKeyCode.KEYCODE_POWER)
+
+    /**
+     * Sends a remote key to a paired device at the system level.
+     *
+     * This is what makes "control the Shield" mean the whole box rather than just Xadarr: the
+     * app's own HTTP command path dispatches into Xadarr's activity, so it does nothing on the
+     * launcher, in another app, or in system settings. These keys go through the TV's own remote
+     * service, so they land wherever focus actually is — a superset, and the reason it's preferred
+     * whenever the device is paired.
+     *
+     * Returns false if unpaired or unreachable, so the caller can fall back to the HTTP path.
+     */
+    suspend fun sendDpadKey(host: String, key: DPadKey): Boolean {
+        val code = when (key) {
+            DPadKey.UP -> RemoteKeyCode.KEYCODE_DPAD_UP
+            DPadKey.DOWN -> RemoteKeyCode.KEYCODE_DPAD_DOWN
+            DPadKey.LEFT -> RemoteKeyCode.KEYCODE_DPAD_LEFT
+            DPadKey.RIGHT -> RemoteKeyCode.KEYCODE_DPAD_RIGHT
+            DPadKey.CENTER -> RemoteKeyCode.KEYCODE_DPAD_CENTER
+            DPadKey.BACK -> RemoteKeyCode.KEYCODE_BACK
+            DPadKey.HOME -> RemoteKeyCode.KEYCODE_HOME
+            DPadKey.MENU -> RemoteKeyCode.KEYCODE_MENU
+            // Android has no distinct "exit" key; Back is the closest equivalent on a streaming box.
+            DPadKey.EXIT -> RemoteKeyCode.KEYCODE_BACK
+            DPadKey.PLAY_PAUSE -> RemoteKeyCode.KEYCODE_MEDIA_PLAY_PAUSE
+            DPadKey.STOP -> RemoteKeyCode.KEYCODE_MEDIA_STOP
+            DPadKey.REWIND -> RemoteKeyCode.KEYCODE_MEDIA_REWIND
+            DPadKey.FAST_FORWARD -> RemoteKeyCode.KEYCODE_MEDIA_FAST_FORWARD
+            // Volume deliberately excluded — it goes to the room's mapped speaker instead, since a
+            // streaming box often isn't in its own audio path at all (see RemoteVolumeRouter).
+            DPadKey.VOLUME_UP, DPadKey.VOLUME_DOWN -> return false
+        }
+        return sendKeyCode(host, code)
+    }
 
     // Note: on a box whose audio is passed through to a separate speaker (e.g. a Shield feeding a
     // Sonos), these move an internal volume that isn't in the audible path — see RemoteVolumeRouter,

@@ -92,9 +92,16 @@ class RemoteModeViewModel @Inject constructor(
 
     suspend fun sendKey(key: DPadKey): Boolean {
         val device = activeDevice() ?: return false
-        // An Xadarr device keeps using its own HTTP command path; everything else goes through
-        // whichever HA service that integration wants.
-        return if (device.isXadarr) remoteModeRepository.sendDpad(key) else remoteVolumeRouter.sendKey(device, key)
+        val host = device.peer?.host
+        if (host != null) {
+            // Selecting a device should make the buttons drive that *device*, not just Xadarr's
+            // own UI. System-level keys do that — they work on the launcher, in other apps and in
+            // system settings — so try them first and keep the HTTP path as the fallback for
+            // devices that aren't paired yet.
+            if (tvRemoteService.sendDpadKey(host, key)) return true
+            return remoteModeRepository.sendDpad(key)
+        }
+        return remoteVolumeRouter.sendKey(device, key)
     }
 
     suspend fun sendVolumeUp(): Boolean {

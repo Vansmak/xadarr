@@ -134,7 +134,13 @@ class TvViewModel @Inject constructor(
 
     suspend fun sendRemoteKey(key: com.arflix.tv.data.repository.DPadKey): Boolean {
         val device = activeRemoteDevice() ?: return false
-        return if (device.isXadarr) remoteModeRepository.sendDpad(key) else remoteVolumeRouter.sendKey(device, key)
+        val host = device.peer?.host
+        if (host != null) {
+            // System-level first — see RemoteModeViewModel.sendKey for why.
+            if (tvRemoteService.sendDpadKey(host, key)) return true
+            return remoteModeRepository.sendDpad(key)
+        }
+        return remoteVolumeRouter.sendKey(device, key)
     }
 
     suspend fun sendRemoteVolumeUp(): Boolean {
