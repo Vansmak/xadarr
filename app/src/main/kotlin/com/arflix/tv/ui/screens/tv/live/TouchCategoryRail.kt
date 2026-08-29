@@ -83,13 +83,13 @@ fun TouchCategoryRail(
                         .height(38.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (remoteModeActive) LiveColors.Accent else LiveColors.PanelRaised)
-                        // Tap flips between watching here and controlling the other device —
-                        // channel surfing on the phone while the Shield plays something else is a
-                        // constant back-and-forth, and reopening the panel each time to change it
-                        // was the friction. Long-press still opens the full panel.
+                        // Tap opens the panel, as it always has. Long-press flips between
+                        // watching here and driving the other device — the pill highlights to show
+                        // which, so surfing on the phone while the Shield plays something else
+                        // doesn't mean a trip through the panel each time.
                         .combinedClickable(
-                            onClick = { onToggleRemoteMode?.invoke() ?: onOpenRemoteMode() },
-                            onLongClick = onOpenRemoteMode,
+                            onClick = onOpenRemoteMode,
+                            onLongClick = { onToggleRemoteMode?.invoke() },
                         )
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
