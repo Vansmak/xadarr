@@ -215,6 +215,11 @@ fun LiveTvScreen(
     val pinnedProviderChannels by viewModel.pinnedProviderChannels.collectAsStateWithLifecycle()
     val dispatcharrCatalogAvailable by viewModel.dispatcharrCatalogAvailable.collectAsStateWithLifecycle()
     val remoteTarget by viewModel.remoteTarget.collectAsStateWithLifecycle()
+    // Collected at screen level, not just inside the panel: the Remote pill's highlight depends on
+    // it, and a control device that isn't an Xadarr instance (a TV, a speaker) never sets
+    // remoteTarget — so binding the highlight to the target alone left the pill dark after a
+    // successful switch, which is indistinguishable from the toggle not working.
+    val remoteControl by viewModel.controlDevice.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshDispatcharrCatalogAvailability() }
     // A "watch now" (not pinned) full-provider search pick — same reason pinned channels are
     // merged below: playback is derived from enrichedState.index.byId, so anything not merged
@@ -1025,7 +1030,7 @@ fun LiveTvScreen(
                         selectedId = selectedCategoryId,
                         onSelect = { id -> selectedCategoryId = id },
                         onOpenSearch = { searchOpen = true },
-                        remoteModeActive = remoteTarget != null,
+                        remoteModeActive = remoteControl != null || remoteTarget != null,
                         onOpenRemoteMode = { showRemoteModeSheet = true },
                         onToggleRemoteMode = { viewModel.toggleRemoteLocal() },
                         modifier = Modifier.fillMaxWidth(),

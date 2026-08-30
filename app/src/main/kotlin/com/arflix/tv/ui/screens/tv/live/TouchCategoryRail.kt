@@ -3,6 +3,7 @@ package com.arflix.tv.ui.screens.tv.live
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -78,6 +79,7 @@ fun TouchCategoryRail(
 
         if (onOpenRemoteMode != null) {
             item(key = "remote_mode") {
+                val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
                 Row(
                     modifier = Modifier
                         .height(38.dp)
@@ -89,7 +91,12 @@ fun TouchCategoryRail(
                         // doesn't mean a trip through the panel each time.
                         .combinedClickable(
                             onClick = onOpenRemoteMode,
-                            onLongClick = { onToggleRemoteMode?.invoke() },
+                            onLongClick = {
+                                // Haptic on the press itself, so the gesture is felt to register
+                                // even when the resulting state change isn't visible.
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onToggleRemoteMode?.invoke()
+                            },
                         )
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
