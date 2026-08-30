@@ -91,7 +91,7 @@ class TvViewModel @Inject constructor(
         combine(lanSyncService.peers, tvRemoteService.pairedPeers) { live, paired ->
             val liveHosts = live.map { it.host }.toSet()
             live + paired.filterNot { it.host in liveHosts }
-        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
 
     fun setRemoteTarget(peer: com.arflix.tv.data.repository.LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendRemoteDpad(key: com.arflix.tv.data.repository.DPadKey): Boolean = remoteModeRepository.sendDpad(key)
@@ -120,22 +120,29 @@ class TvViewModel @Inject constructor(
                 xadarr.map { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) },
                 ha,
             )
-        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
 
     fun setControlDevice(device: com.arflix.tv.data.repository.tvremote.RemoteDevice?) =
         remoteModeRepository.setControlDevice(device)
 
-    /** One-tap flip between watching here and driving the last device — the guide's Remote pill. */
+    /**
+     * Flip between watching here and driving the last device — the guide's Remote pill long-press.
+     *
+     * Falls back through the live peer list rather than only the merged device flow: the merged
+     * flow can legitimately be empty when nothing is observing it, and a toggle that silently does
+     * nothing reads as a broken button.
+     */
     fun toggleRemoteLocal() {
         val active = controlDevice.value != null || remoteTarget.value != null
         if (active) {
             setControlDevice(null)
-        } else {
-            setControlDevice(
-                remoteModeRepository.lastControlDevice
-                    ?: remoteDevices.value.firstOrNull { it.isXadarr }
-            )
+            return
         }
+        val next = remoteModeRepository.lastControlDevice
+            ?: remoteDevices.value.firstOrNull { it.isXadarr }
+            ?: lanSyncService.peers.value.firstOrNull()
+                ?.let { com.arflix.tv.data.repository.tvremote.RemoteDevice.fromPeer(it) }
+        if (next != null) setControlDevice(next)
     }
 
     suspend fun loadRemoteDevices() {

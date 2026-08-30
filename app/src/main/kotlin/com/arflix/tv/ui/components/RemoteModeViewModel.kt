@@ -45,7 +45,7 @@ class RemoteModeViewModel @Inject constructor(
     val peers: StateFlow<List<LanPeer>> = combine(lanSyncService.peers, tvRemoteService.pairedPeers) { live, paired ->
         val liveHosts = live.map { it.host }.toSet()
         live + paired.filterNot { it.host in liveHosts }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun setTarget(peer: LanPeer?) = remoteModeRepository.setTarget(peer)
     suspend fun sendDpad(key: DPadKey): Boolean = remoteModeRepository.sendDpad(key)
@@ -77,7 +77,7 @@ class RemoteModeViewModel @Inject constructor(
      */
     val devices: StateFlow<List<RemoteDevice>> = combine(peers, _haDevices) { xadarr, ha ->
         RemoteDevice.merge(xadarr.map { RemoteDevice.fromPeer(it) }, ha)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun setControlDevice(device: RemoteDevice?) = remoteModeRepository.setControlDevice(device)
 
