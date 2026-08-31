@@ -243,7 +243,7 @@ val borderColor by animateColorAsState(
 
 ## Dispatcharr IPTV Pipeline
 
-Xadarr can point at any IPTV M3U URL directly. Joe's setup adds Dispatcharr as a managed IPTV middleware: two XC providers (Titan at `pxlsystems.cx` and Direct) plus an HDHR tuner for OTA. Dispatcharr syncs providers, Xadarr reads the output M3U. A maintenance SQL script runs after every sync to enforce the channel list.
+Xadarr can point at any IPTV M3U URL directly. Joe's setup adds Dispatcharr as a managed IPTV middleware: two XC providers (Spice at `021.galaxypulse.link` and Sanctum at `u.veiltheworld.com` — the same upstream, stacked for failover) plus an HDHR tuner for OTA. Dispatcharr syncs providers, Xadarr reads the output M3U. A maintenance SQL script runs after every sync to enforce the channel list.
 
 ### Two-tier channel architecture
 
@@ -251,9 +251,9 @@ Xadarr can point at any IPTV M3U URL directly. Joe's setup adds Dispatcharr as a
 
 Curated, numbered channel list enforced by the maintenance script on every sync.
 
-- **Locals** — LA broadcast on standard numbers (2/4/5/7/9/11) with OTA as primary stream, Titan + Direct stacked as failover. Timezone alternates for Denver (.1), Chicago (.2), New York (.3), Miami (.4).
+- **Locals** — LA broadcast on standard numbers (2/4/5/7/9/11) with OTA as primary stream, the XC providers stacked as failover. Timezone alternates for Denver (.1), Chicago (.2), New York (.3), Miami (.4).
 - **News** (101+), **Sports** (201+), **Documentary** (301+), **Entertainment** (401+), **Movies** (501+), **4K** (601+), **PPV** (901+)
-- Both providers are merged into single channel entries with streams stacked for silent failover. Titan source groups (`USA |` prefix) and Direct source groups (`US:` prefix) are remapped to clean target group names during merge.
+- Both providers are merged into single channel entries with streams stacked for silent failover. Both use a `US |` source prefix, remapped to clean target group names during merge. `US | Low BW` is deliberately left unmapped — 117 of its tvg_ids duplicate the real groups, so mapping it would stack low-bandwidth copies into good channels. (Retired 2026-08-31: Titan `USA |`, Direct `US:` — rules kept for rollback.)
 
 **Tier 2 — Live events (hidden by default)**
 
@@ -278,7 +278,7 @@ docker exec -i dispatcharr psql -U postgres -d dispatcharr \
 - **Part 4** — Xadarr blacklist enforcement: reads `/data/dispatcharr_blacklist.txt` (written by Xadarr when user marks a group Remove), purges those `auto_created` channels
 - **Part 6** — Whitelist enforcement: deletes `auto_created` Tier 1 channels whose tvg_id isn't in the approved list
 - **Part 7** — Name-pattern cleanup: removes foreign-language prefixes, junk entries, and 24/7 loop channels from Tier 1
-- **Part 9 Step A** — Consolidate Titan + Direct into single channels per tvg_id across Tier 1 groups
+- **Part 9 Step A** — Consolidate both XC providers into single channels per tvg_id across Tier 1 groups
 - **Part 9 Steps B/C/D** — LA locals merging, timezone locals dedup, OTA stream stacking (HDHR stream IDs hardcoded)
 - **Part 9 Step E** — Consolidate Tier 2 channels with matching tvg_ids across groups (same failover logic, no group remapping)
 - **Part 6B** — Locals-specific whitelist cleanup (runs after merge to catch sync races)
