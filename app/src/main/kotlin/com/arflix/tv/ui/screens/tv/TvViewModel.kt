@@ -212,11 +212,14 @@ class TvViewModel @Inject constructor(
         pinnedProviderChannelsRepository.observePinned()
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
 
-    private val _dispatcharrCatalogAvailable = MutableStateFlow(false)
-    val dispatcharrCatalogAvailable: StateFlow<Boolean> = _dispatcharrCatalogAvailable.asStateFlow()
+    // Observed rather than sampled once at construction: the flag is written while the Settings
+    // screen loads addons, so a one-shot read meant installing the Dispatcharr bridge had no
+    // effect on the guide until the app was restarted.
+    val dispatcharrCatalogAvailable: StateFlow<Boolean> =
+        dispatcharrCatalogRepository.isAvailableFlow()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
 
     fun refreshDispatcharrCatalogAvailability() {
-        viewModelScope.launch { _dispatcharrCatalogAvailable.value = dispatcharrCatalogRepository.isAvailable() }
     }
 
     val programReminders: StateFlow<List<ProgramReminder>> =

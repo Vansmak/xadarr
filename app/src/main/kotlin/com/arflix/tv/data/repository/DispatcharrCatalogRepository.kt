@@ -7,6 +7,8 @@ import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -41,6 +43,21 @@ class DispatcharrCatalogRepository @Inject constructor(
 
     suspend fun isAvailable(): Boolean {
         val prefs = context.settingsDataStore.data.first()
+        return availableFrom(prefs)
+    }
+
+    /**
+     * Reactive form, so the guide picks the bridge up as soon as it's installed.
+     *
+     * The one-shot [isAvailable] is read once when TvViewModel is constructed, while the flag it
+     * depends on is only written while the Settings screen is loading addons. Install the addon
+     * and the guide keeps its cached `false` until the app is restarted — the provider section
+     * just silently never appears, which reads as the search being broken.
+     */
+    fun isAvailableFlow(): kotlinx.coroutines.flow.Flow<Boolean> =
+        context.settingsDataStore.data.map { availableFrom(it) }.distinctUntilChanged()
+
+    private fun availableFrom(prefs: androidx.datastore.preferences.core.Preferences): Boolean {
         val episeerrUrl = prefs[EPISEERR_URL_KEY]?.trim().orEmpty()
         val bridgeInstalled = prefs[GROUP_BLACKLIST_ENABLED_KEY] ?: false
         return episeerrUrl.isNotBlank() && bridgeInstalled
