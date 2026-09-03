@@ -138,6 +138,12 @@ data class IptvCloudProfileState(
     val epgUrl: String = "",
     val favoriteGroups: List<String> = emptyList(),
     val favoriteChannels: List<String> = emptyList(),
+    /**
+     * Channel id -> the channel's name at the time it was favourited, so a favourite can be
+     * re-anchored if its id stops resolving. Additive: builds that predate this field ignore
+     * it and keep working off [favoriteChannels] alone.
+     */
+    val favoriteChannelNames: Map<String, String> = emptyMap(),
     val hiddenGroups: List<String> = emptyList(),
     val groupOrder: List<String> = emptyList(),
     val playlists: List<IptvPlaylistEntry> = emptyList(),
@@ -961,18 +967,91 @@ class IptvRepository @Inject constructor(
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "move group down")
     }
 
-    suspend fun toggleFavoriteChannel(channelId: String) {
+    /**
+     * Re-anchors favourites whose id no longer resolves, and drops the ones that can't be saved.
+     *
+     * A channel id is only as stable as whatever the playlist keys it on. Dispatcharr's M3U
+     * publishes the *channel number* as the tvg-id by default, so ids look like `epg:209` and a
+     * renumbering silently repoints every favourite at whichever channel inherited that number —
+     * favouriting SportsNet LA and later finding BTN Overflow in the row, having touched nothing.
+     * Numbers move whenever the lineup is reorganised, so this is not a rare event.
+     *
+     * The remembered name is the anchor that survives it: a favourite that no longer resolves is
+     * matched back to the live channel of the same name and rewritten to its current id. Only when
+     * the name matches nothing either is the favourite genuinely gone and dropped.
+     *
+     * Marks the profile dirty only when something actually changed, so this never spams the sync
+     * layer on every playlist load.
+     */
+    private suspend fun pruneStaleFavoriteChannels(liveChannels: List<IptvChannel>) {
+        val liveIds = liveChannels.asSequence().map { it.id }.toSet()
+        // First name wins, so a favourite re-anchors to the primary entry rather than a duplicate.
+        val liveByName = HashMap<String, String>(liveChannels.size)
+        liveChannels.forEach { channel ->
+            val key = favoriteNameKey(channel.name)
+            if (key.isNotEmpty()) liveByName.putIfAbsent(key, channel.id)
+        }
+
+        var reanchored = 0
+        var removed = 0
+        context.settingsDataStore.edit { prefs ->
+            val existing = decodeFavoriteChannels(prefs)
+            if (existing.isEmpty()) return@edit
+            val names = decodeFavoriteChannelNames(prefs).toMutableMap()
+
+            val kept = mutableListOf<String>()
+            existing.forEach { id ->
+                when {
+                    id in liveIds -> kept.add(id)
+                    else -> {
+                        val rememberedName = names[id]
+                        val recoveredId = rememberedName
+                            ?.let { liveByName[favoriteNameKey(it)] }
+                            ?.takeIf { it !in kept }
+                        if (recoveredId != null) {
+                            kept.add(recoveredId)
+                            names.remove(id)
+                            names[recoveredId] = rememberedName
+                            reanchored++
+                        } else {
+                            names.remove(id)
+                            removed++
+                        }
+                    }
+                }
+            }
+            if (reanchored > 0 || removed > 0) {
+                prefs[favoriteChannelsKey()] = gson.toJson(kept.distinct())
+                prefs[favoriteChannelNamesKey()] = gson.toJson(names.filterKeys { it in kept })
+            }
+        }
+        if (reanchored > 0 || removed > 0) {
+            invalidationBus.markDirty(
+                CloudSyncScope.IPTV,
+                profileManager.getProfileIdSync(),
+                "favourites: re-anchored $reanchored, dropped $removed",
+            )
+        }
+    }
+
+    suspend fun toggleFavoriteChannel(channelId: String, channelName: String = "") {
         val trimmed = channelId.trim()
         if (trimmed.isEmpty()) return
         context.settingsDataStore.edit { prefs ->
             val existing = decodeFavoriteChannels(prefs).toMutableList()
+            val names = decodeFavoriteChannelNames(prefs).toMutableMap()
             if (existing.contains(trimmed)) {
                 existing.remove(trimmed)
+                names.remove(trimmed)
             } else {
                 existing.remove(trimmed)
                 existing.add(0, trimmed)
+                // The name is what lets this favourite be recovered after a renumbering; without
+                // it the entry can only ever be pruned.
+                channelName.trim().takeIf { it.isNotEmpty() }?.let { names[trimmed] = it }
             }
             prefs[favoriteChannelsKey()] = gson.toJson(existing)
+            prefs[favoriteChannelNamesKey()] = gson.toJson(names)
         }
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle favorite channel")
     }
@@ -1085,6 +1164,21 @@ class IptvRepository @Inject constructor(
                     cachedGroupedChannels = buildGroupedChannels(it)
                     cachedPlaylistAt = System.currentTimeMillis()
                 }
+            }
+
+            // Drop favourites whose channel no longer exists.
+            //
+            // A favourite is stored as a channel id, and ids are derived from the M3U's tvg-id —
+            // which Dispatcharr fills with the channel *number* by default. Renumber a channel and
+            // its favourite becomes an orphan: it still lists in the Favourites row, but toggling
+            // the real channel writes a different id, so the UI can never remove it. Nine such
+            // entries survived force-stops, a cache clear, an app-data wipe and a reinstall,
+            // because they were healthy-looking data that simply pointed nowhere.
+            //
+            // Only prunes when a non-empty channel set actually loaded, so a failed or partial
+            // playlist fetch can't wipe the list.
+            if (channels.isNotEmpty()) {
+                runCatching { pruneStaleFavoriteChannels(channels) }
             }
 
             // Publish channels immediately so the UI can show them while EPG loads.
@@ -1814,6 +1908,10 @@ class IptvRepository @Inject constructor(
     private fun favoriteChannelsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_favorite_channels")
     private fun favoriteChannelsKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_favorite_channels")
+    private fun favoriteChannelNamesKey(): Preferences.Key<String> =
+        profileManager.profileStringKey("iptv_favorite_channel_names")
+    private fun favoriteChannelNamesKeyFor(profileId: String): Preferences.Key<String> =
+        profileManager.profileStringKeyFor(profileId, "iptv_favorite_channel_names")
     private val favoriteSortModeKey = stringPreferencesKey("iptv_favorite_sort_mode")
 
     private fun decodeFavoriteGroups(prefs: Preferences): List<String> {
@@ -1939,6 +2037,30 @@ class IptvRepository @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    private fun decodeFavoriteChannelNames(raw: String): Map<String, String> {
+        if (raw.isBlank()) return emptyMap()
+        return runCatching {
+            val type = TypeToken.getParameterized(
+                Map::class.java, String::class.java, String::class.java,
+            ).type
+            gson.fromJson<Map<String, String>>(raw, type)
+                ?.filterKeys { it.isNotBlank() }
+                ?.filterValues { it.isNotBlank() }
+                ?: emptyMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun decodeFavoriteChannelNames(prefs: Preferences): Map<String, String> =
+        decodeFavoriteChannelNames(prefs[favoriteChannelNamesKey()].orEmpty())
+
+    /** Names differ across providers only in decoration ("Fox News HD", "US: Fox News"). */
+    private fun favoriteNameKey(name: String): String =
+        name.lowercase()
+            .replace(Regex("^(us[:|]|usa\\s*\\||uk[:|])\\s*"), "")
+            .replace(Regex("\\b(fhd|uhd|hd|sd|4k|raw|h265|hevc)\\b"), "")
+            .replace(Regex("[^a-z0-9]+"), "")
+            .trim()
+
     private fun decodeTvSessionState(prefs: Preferences): IptvTvSessionState =
         decodeTvSessionState(prefs[tvSessionKey()].orEmpty())
 
@@ -1993,6 +2115,9 @@ class IptvRepository @Inject constructor(
             epgUrl = decryptConfigValue(prefs[epgUrlKeyFor(safeProfileId)].orEmpty()),
             favoriteGroups = decodeFavoriteGroups(prefs[favoriteGroupsKeyFor(safeProfileId)].orEmpty()),
             favoriteChannels = decodeFavoriteChannels(prefs[favoriteChannelsKeyFor(safeProfileId)].orEmpty()),
+            favoriteChannelNames = decodeFavoriteChannelNames(
+                prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
+            ),
             hiddenGroups = if (hiddenRaw.isNotBlank()) {
                 runCatching {
                     val type = TypeToken.getParameterized(List::class.java, String::class.java).type
@@ -2035,6 +2160,15 @@ class IptvRepository @Inject constructor(
             if (normalizedEpg.isNotBlank()) prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
             prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
+            // Merge rather than replace: a device on an older build syncs favourites with no names
+            // attached, and dropping the names we already hold would strand exactly the favourites
+            // this is meant to rescue.
+            if (state.favoriteChannelNames.isNotEmpty()) {
+                val merged = decodeFavoriteChannelNames(
+                    prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
+                ) + state.favoriteChannelNames
+                prefs[favoriteChannelNamesKeyFor(safeProfileId)] = gson.toJson(merged)
+            }
             if (state.hiddenGroups.isNotEmpty()) {
                 prefs[hiddenGroupsKeyFor(safeProfileId)] = gson.toJson(state.hiddenGroups.distinct())
             }
@@ -4949,10 +5083,10 @@ class IptvRepository @Inject constructor(
                 pendingMetadata = null
 
                 val epgId = extractAttr(metadata, "tvg-id")
-                val id = buildChannelId(line, epgId)
+                val channelName = extractChannelName(metadata)
+                val id = buildChannelId(line, epgId, channelName)
                 if (!seenChannelIds.add(id)) continue
 
-                val channelName = extractChannelName(metadata)
                 val groupTitle = extractAttr(metadata, "group-title")?.takeIf { it.isNotBlank() } ?: "Uncategorized"
                 val logo = extractAttr(metadata, "tvg-logo")
                 val catchupType = extractAttr(metadata, "catchup")
@@ -5401,16 +5535,17 @@ class IptvRepository @Inject constructor(
     // id, so every maintenance run silently orphaned favorites/last-played-channel/etc for
     // any channel whose upstream URL got re-issued — see migrateLegacyChannelId() below for
     // the one-time recovery path for ids already stored under the old scheme.
-    private fun buildChannelId(streamUrl: String, epgId: String?): String {
+    private fun buildChannelId(streamUrl: String, epgId: String?, channelName: String = ""): String {
         val normalizedEpg = normalizeChannelKey(epgId ?: "")
-        return if (normalizedEpg.isNotBlank()) {
-            "epg:$normalizedEpg"
-        } else {
-            // No tvg-id to key on — fall back to the old, stream-URL-hash-based scheme.
-            // Not stable across Dispatcharr URL regeneration, but there's nothing else
-            // to anchor to for these entries.
-            "m3u:${stableStreamKey(streamUrl)}"
-        }
+        if (normalizedEpg.isNotBlank()) return "epg:$normalizedEpg"
+
+        // No tvg-id to key on. Roughly a fifth of Joe's lineup is in this position — the 4K and
+        // live-event groups mostly carry no tvg-id at all. The stream URL is the worst possible
+        // anchor for them because Dispatcharr reissues proxy stream UUIDs on every maintenance
+        // run, so a URL-keyed id changes without the channel changing. The name is imperfect but
+        // it is at least a property of the channel rather than of its current plumbing.
+        val nameKey = normalizeChannelKey(channelName)
+        return if (nameKey.isNotBlank()) "name:$nameKey" else "m3u:${stableStreamKey(streamUrl)}"
     }
 
     private val legacyChannelIdRegex = Regex("^(.+):m3u:(.+):\\d+-[0-9a-f]{16}$")

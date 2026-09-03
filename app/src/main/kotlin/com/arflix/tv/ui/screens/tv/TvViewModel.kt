@@ -889,7 +889,11 @@ class TvViewModel @Inject constructor(
 
     fun toggleFavoriteChannel(channelId: String) {
         viewModelScope.launch {
-            iptvRepository.toggleFavoriteChannel(channelId)
+            // Resolved here rather than passed in, so every favourite button in the app records
+            // the name without each one having to thread it through. The name is what lets the
+            // favourite survive a channel renumbering — see pruneStaleFavoriteChannels.
+            val channelName = _uiState.value.channelLookup[channelId]?.name.orEmpty()
+            iptvRepository.toggleFavoriteChannel(channelId, channelName)
             scheduleIptvCloudSync()
         }
     }
