@@ -999,8 +999,11 @@ class CloudSyncRepository @Inject constructor(
                     message = "push_skipped_server_newer server=$serverUpdatedAt local=$localUpdatedAt",
                     severity = "info",
                 )
-                // Take the server's newer state instead of trampling it.
-                repositoryScope.launch { runCatching { pullFromCloud() } }
+                // Deliberately no pull kicked off here: this runs inside cloudSyncMutex, which
+                // pullFromCloud() also takes, so launching one would queue behind this call and
+                // then re-enter the same push/skip path — a self-feeding loop. The caller that
+                // matters (pullFromCloud) already continues into the restore right after this
+                // returns, so the newer server state gets applied on its own.
                 return Result.success(Unit)
             }
         }
