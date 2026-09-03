@@ -952,6 +952,40 @@ class CloudSyncRepository @Inject constructor(
             return Result.failure(it)
         }
 
+        // Conflict check, applied before ANY backend receives this payload.
+        //
+        // It used to sit just above the server save, which left the LAN push — fired a few lines
+        // earlier — completely unguarded. Two devices then handed stale state back and forth
+        // directly, peer to peer, and whichever was dirty pushed it on to the server. Clearing the
+        // server looked like it worked and was undone seconds later by a peer that had never been
+        // cleared, which is exactly how nine dead favourites survived app-data wipes and
+        // reinstalls. Guarding one backend is not guarding sync.
+        //
+        // Compared even when this device has local changes: `isPushDirty` says we have something
+        // pending, not that it is newer. Master still always wins.
+        val isSyncMaster = context.settingsDataStore.data.first()[LAN_SYNC_MASTER_KEY] == true
+        if (!isSyncMaster && hasServer) {
+            val serverUpdatedAt = runCatching {
+                syncServerLoadPayload().getOrNull()
+                    ?.let { JSONObject(it).optLong("updatedAt", 0L) }
+            }.getOrNull() ?: 0L
+            val localUpdatedAt = max(
+                latestLocalDirtyAt,
+                context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
+            )
+            if (serverUpdatedAt > localUpdatedAt) {
+                AppLogger.breadcrumb(
+                    tag = "CloudSync",
+                    message = "push_skipped_server_newer server=$serverUpdatedAt local=$localUpdatedAt",
+                    severity = "info",
+                )
+                // No pull kicked off here: this runs inside cloudSyncMutex, which pullFromCloud()
+                // also takes. pullFromCloud() calls this push first and then continues into the
+                // restore, so the newer state lands on its own.
+                return Result.success(Unit)
+            }
+        }
+
         // Push to Drive and LAN peers fire-and-forget — failures don't block server push
         if (driveConnected) {
             val drivePayload = sanitizeForDriveBackup(payload)
@@ -983,39 +1017,6 @@ class CloudSyncRepository @Inject constructor(
         //
         // A device with genuine local changes still wins, because its dirty timestamp is newer.
         // This only blocks the case where it has nothing newer to offer.
-        // Compared even when this device has local changes. Gating on `!isPushDirty` was not
-        // last-change-wins: a device holding *older* edits still overwrote newer server state
-        // just by being dirty. That is exactly how nine stale favourites kept coming back —
-        // one device re-pushed them after every launch, re-poisoning the server, so clearing
-        // them anywhere else (or even reinstalling clean) only ever won until that device woke.
-        // What matters is whose change is newer, not whether we happen to have one pending.
-        val isSyncMaster = context.settingsDataStore.data.first()[LAN_SYNC_MASTER_KEY] == true
-        if (!isSyncMaster) {
-            val serverUpdatedAt = runCatching {
-                syncServerLoadPayload().getOrNull()
-                    ?.let { JSONObject(it).optLong("updatedAt", 0L) }
-            }.getOrNull() ?: 0L
-            // Our newest local edit, or the last server state we accepted if we've changed
-            // nothing since — whichever is later is what we're offering.
-            val localUpdatedAt = max(
-                latestLocalDirtyAt,
-                context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
-            )
-            if (serverUpdatedAt > localUpdatedAt) {
-                AppLogger.breadcrumb(
-                    tag = "CloudSync",
-                    message = "push_skipped_server_newer server=$serverUpdatedAt local=$localUpdatedAt",
-                    severity = "info",
-                )
-                // Deliberately no pull kicked off here: this runs inside cloudSyncMutex, which
-                // pullFromCloud() also takes, so launching one would queue behind this call and
-                // then re-enter the same push/skip path — a self-feeding loop. The caller that
-                // matters (pullFromCloud) already continues into the restore right after this
-                // returns, so the newer server state gets applied on its own.
-                return Result.success(Unit)
-            }
-        }
-
         val result = syncServerSavePayload(sanitizeForServerSync(payload))
         if (result.isSuccess) {
             clearLocalDirtyAfterSuccessfulPush()
