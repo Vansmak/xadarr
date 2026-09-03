@@ -115,6 +115,9 @@ class CloudSyncRepository @Inject constructor(
     private val cloudSyncLocalDirtyAtKey = longPreferencesKey("cloud_sync_local_dirty_at")
     private val cloudSyncLastPushAtKey = longPreferencesKey("cloud_sync_last_push_at")
     private val cloudSyncLastAppliedAtKey = longPreferencesKey("cloud_sync_last_applied_at")
+    // Content fingerprint of the last payload we pushed, and the timestamp it was first seen with.
+    private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash")
+    private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp")
     private val globalDnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
     @Volatile
@@ -614,7 +617,25 @@ class CloudSyncRepository @Inject constructor(
         }
 
         root.put("version", 1)
-        root.put("updatedAt", System.currentTimeMillis())
+        // `updatedAt` must mean "when this content last changed", not "when this payload was
+        // built". Stamping it with now() on every push made every payload look like the newest
+        // change, so last-write-wins could never work: a device sitting untouched for hours would
+        // still beat edits made minutes ago elsewhere simply by pushing later. That is how one TV
+        // kept restoring its own stale favourites over another's.
+        //
+        // Hash the content with the timestamp excluded; if it matches what we last pushed, reuse
+        // that timestamp so an unchanged device cannot win an arbitration it has no claim to.
+        val contentHash = root.toString().hashCode().toString()
+        val prevHash = context.settingsDataStore.data.first()[cloudSyncContentHashKey]
+        val prevStamp = context.settingsDataStore.data.first()[cloudSyncContentStampKey] ?: 0L
+        val stamp = if (contentHash == prevHash && prevStamp > 0L) prevStamp else System.currentTimeMillis()
+        if (contentHash != prevHash || prevStamp <= 0L) {
+            context.settingsDataStore.edit {
+                it[cloudSyncContentHashKey] = contentHash
+                it[cloudSyncContentStampKey] = stamp
+            }
+        }
+        root.put("updatedAt", stamp)
         // Legacy flat fields (for backward compat with older clients)
         root.put("defaultSubtitle", prefs[defaultSubtitleKey()] ?: "Off")
         root.put("defaultAudioLanguage", prefs[defaultAudioLanguageKey()] ?: "Auto (Original)")
@@ -973,6 +994,9 @@ class CloudSyncRepository @Inject constructor(
                 latestLocalDirtyAt,
                 context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
             )
+            android.util.Log.i("XadarrSync",
+                "push decision: serverUpdatedAt=$serverUpdatedAt localUpdatedAt=$localUpdatedAt " +
+                    "dirty=$isPushDirty master=$isSyncMaster -> ${if (serverUpdatedAt > localUpdatedAt) "SKIP (pull instead)" else "PUSH"}")
             if (serverUpdatedAt > localUpdatedAt) {
                 AppLogger.breadcrumb(
                     tag = "CloudSync",
@@ -1118,7 +1142,20 @@ class CloudSyncRepository @Inject constructor(
 
     private suspend fun applyPayloadLocked(payload: String): RestoreResult =
         runCatching {
+            runCatching {
+                val r = JSONObject(payload)
+                val flat = r.optJSONArray("iptvFavoriteChannels")?.length() ?: -1
+                val prof = r.optJSONObject("iptvByProfile")?.optJSONObject("default")
+                    ?.optJSONArray("favoriteChannels")?.length() ?: -1
+                android.util.Log.i("XadarrSync",
+                    "restore: applying payload updatedAt=${r.optLong("updatedAt", 0L)} " +
+                        "favourites(flat=$flat, profile.default=$prof)")
+            }
             invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
+            runCatching {
+                android.util.Log.i("XadarrSync",
+                    "restore: done — local favourites now ${iptvRepository.observeFavoriteChannels().first().size}")
+            }
             markCloudPayloadApplied(payload)
             AppLogger.breadcrumb(
                 tag = "CloudSync",

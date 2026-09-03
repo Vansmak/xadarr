@@ -145,6 +145,21 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // Wire realtime push notification
         cloudSyncRepository.onPushCompleted = { realtimeSyncManager.markPush() }
 
+        // Sync gets its own coroutine, started before anything that can block.
+        //
+        // It used to run after profile init and a watchlist preload in the same coroutine, so any
+        // one of those hanging stopped it ever running — runCatching catches exceptions, not a
+        // call that simply never returns. The symptom was a device that silently never pulled:
+        // changes made elsewhere never arrived, favourites drifted apart between devices, and
+        // nothing appeared in the logs because the sync code was never reached.
+        appScope.launch {
+            delay(2_500L)
+            cloudSyncCoordinator.start()
+            // Let first render/navigation settle before sync competes with image decode
+            delay(20_000L)
+            runCatching { cloudSyncRepository.pullFromCloud() }
+        }
+
         appScope.launch {
             // Migrate legacy webhook URLs — one-time, silent
             runCatching {
@@ -168,13 +183,9 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
                 }
             }
             runCatching { profileManager.initialize() }
+
             // Preload watchlist cache in background for instant display
             runCatching { watchlistRepository.getWatchlistItems() }
-            delay(2_500L)
-            cloudSyncCoordinator.start()
-            // Let first render/navigation settle before sync competes with image decode
-            delay(20_000L)
-            runCatching { cloudSyncRepository.pullFromCloud() }
             // Only start Supabase realtime WebSocket if signed into Supabase
             if (!authRepository.getCurrentUserId().isNullOrBlank()) {
                 realtimeSyncManager.start()
