@@ -626,9 +626,25 @@ class CloudSyncRepository @Inject constructor(
         // Hash the content with the timestamp excluded; if it matches what we last pushed, reuse
         // that timestamp so an unchanged device cannot win an arbitration it has no claim to.
         val contentHash = root.toString().hashCode().toString()
-        val prevHash = context.settingsDataStore.data.first()[cloudSyncContentHashKey]
-        val prevStamp = context.settingsDataStore.data.first()[cloudSyncContentStampKey] ?: 0L
-        val stamp = if (contentHash == prevHash && prevStamp > 0L) prevStamp else System.currentTimeMillis()
+        val storedPrefs = context.settingsDataStore.data.first()
+        val prevHash = storedPrefs[cloudSyncContentHashKey]
+        val prevStamp = storedPrefs[cloudSyncContentStampKey] ?: 0L
+        val stamp = when {
+            contentHash == prevHash && prevStamp > 0L -> prevStamp
+            // First push after an install or an upgrade: there is no record of when this content
+            // was last changed, and now() is the one answer that is certainly wrong. It hands
+            // months-old settings a brand-new timestamp and lets an untouched device beat a real
+            // edit made elsewhere seconds earlier — a Shield did exactly this, restoring eleven
+            // stale favourites over a fix that was thirty seconds old.
+            //
+            // Date the content to the last state we synced instead. An unedited device then has
+            // no claim on the arbitration, and the first genuine edit changes the hash and stamps
+            // it properly.
+            prevStamp <= 0L ->
+                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
+                    ?: System.currentTimeMillis()
+            else -> System.currentTimeMillis()
+        }
         if (contentHash != prevHash || prevStamp <= 0L) {
             context.settingsDataStore.edit {
                 it[cloudSyncContentHashKey] = contentHash
@@ -990,13 +1006,15 @@ class CloudSyncRepository @Inject constructor(
                 syncServerLoadPayload().getOrNull()
                     ?.let { JSONObject(it).optLong("updatedAt", 0L) }
             }.getOrNull() ?: 0L
-            val localUpdatedAt = max(
-                latestLocalDirtyAt,
-                context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
-            )
-            android.util.Log.i("XadarrSync",
-                "push decision: serverUpdatedAt=$serverUpdatedAt localUpdatedAt=$localUpdatedAt " +
-                    "dirty=$isPushDirty master=$isSyncMaster -> ${if (serverUpdatedAt > localUpdatedAt) "SKIP (pull instead)" else "PUSH"}")
+            // The payload's own `updatedAt` — when this content last actually changed — is the
+            // only honest claim this device can make. The previous pair of inputs both overstated
+            // it: `cloudSyncLastAppliedAtKey` records when we last *pulled*, so a device that had
+            // merely received an update counted as current and pushed its own copy straight back
+            // over a newer one; and `latestLocalDirtyAt` is set by housekeeping too — migrations,
+            // favourite pruning, playlist reloads — so a device could arrive "newer" than the
+            // server without the user having changed a thing.
+            val localUpdatedAt = runCatching { JSONObject(payload).optLong("updatedAt", 0L) }
+                .getOrDefault(0L)
             if (serverUpdatedAt > localUpdatedAt) {
                 AppLogger.breadcrumb(
                     tag = "CloudSync",
