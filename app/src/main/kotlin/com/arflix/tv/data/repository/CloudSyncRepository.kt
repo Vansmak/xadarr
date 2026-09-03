@@ -116,8 +116,14 @@ class CloudSyncRepository @Inject constructor(
     private val cloudSyncLastPushAtKey = longPreferencesKey("cloud_sync_last_push_at")
     private val cloudSyncLastAppliedAtKey = longPreferencesKey("cloud_sync_last_applied_at")
     // Content fingerprint of the last payload we pushed, and the timestamp it was first seen with.
-    private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash")
-    private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp")
+    // Suffixed with the hashing scheme's version. A hash written by a different scheme is not
+    // comparable with one written by this one, and treating a mismatch as a local edit is exactly
+    // the failure this guard exists to prevent — devices upgrading from the half-payload hash
+    // pushed their stale state once, each overwriting the last. Bump the suffix whenever what
+    // goes into the hash changes; the old value is then ignored and the device correctly reports
+    // having no baseline instead of a bogus one.
+    private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash_v4")
+    private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp_v4")
     private val globalDnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
     @Volatile
@@ -269,6 +275,13 @@ class CloudSyncRepository @Inject constructor(
         runCatching {
             invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
             markCloudPayloadApplied(payload)
+            // The state we just adopted is now this device's baseline, dated to the payload that
+            // carried it. Anything that differs from here really is a local edit.
+            runCatching {
+                recordSyncBaseline(
+                    JSONObject(payload).optLong("updatedAt", 0L),
+                )
+            }
             updateLanSyncTimestamp(payload)
             true
         }.getOrDefault(false)
@@ -517,6 +530,86 @@ class CloudSyncRepository @Inject constructor(
      * This replaces the SettingsViewModel version and does NOT reference any UI state.
      */
     suspend fun buildCloudSnapshotJson(): String {
+        val root = buildSnapshotRoot()
+
+        // `updatedAt` must mean "when this content last changed", not "when this payload was
+        // built". Stamping it with now() on every push made every payload look like the newest
+        // change, so last-write-wins could never work: a device sitting untouched for hours would
+        // still beat edits made minutes ago elsewhere simply by pushing later. That is how one TV
+        // kept restoring its own stale favourites over another's.
+        val contentHash = contentHashOf(root)
+        val storedPrefs = context.settingsDataStore.data.first()
+        val prevHash = storedPrefs[cloudSyncContentHashKey]
+        val prevStamp = storedPrefs[cloudSyncContentStampKey] ?: 0L
+        val stamp = when {
+            contentHash == prevHash && prevStamp > 0L -> prevStamp
+            // No baseline: a fresh install, or an upgrade that invalidated the old hash. now() is
+            // the one answer that is certainly wrong — it hands months-old settings a brand-new
+            // timestamp and lets an untouched device beat a real edit made elsewhere seconds
+            // earlier. Date the content to the last state we synced instead, so an unedited device
+            // has no claim and the first genuine edit stamps it properly.
+            prevStamp <= 0L ->
+                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
+                    ?: System.currentTimeMillis()
+            else -> System.currentTimeMillis()
+        }
+        if (contentHash != prevHash || prevStamp <= 0L) {
+            context.settingsDataStore.edit {
+                it[cloudSyncContentHashKey] = contentHash
+                it[cloudSyncContentStampKey] = stamp
+            }
+        }
+        root.put("updatedAt", stamp)
+        return root.toString()
+    }
+
+    /**
+     * Records the current local state as the sync baseline, dated [syncedUpdatedAt].
+     *
+     * Called after applying a pulled payload. Without this the baseline was only ever written by a
+     * push, so a device that had *pulled* had nothing to compare against: the next push saw a hash
+     * it didn't recognise, read it as a local edit, stamped it now() and won an arbitration it had
+     * no claim to. That is how a box restored from the server still overwrote it moments later.
+     */
+    /**
+     * Timestamps that record *activity* rather than settings, at any depth in the payload.
+     *
+     * These move on their own — `lan_sync_last_modified` falls back to now() when unset, and
+     * `lastOpenedAt` is rewritten every time the TV guide opens, which on a box whose home screen
+     * IS the guide means every single launch. Fingerprinting them made merely starting the app
+     * indistinguishable from the user changing a setting: the device stamped itself now() and won
+     * the arbitration, which is exactly the "an untouched device always wins" behaviour the stamp
+     * exists to prevent. One box pushed on every launch while another sat silent, purely because
+     * of which screen it opened on.
+     */
+    private val volatileHashKeys = setOf("updatedAt", "lan_sync_last_modified", "lastOpenedAt")
+
+    /**
+     * Fingerprints the settings themselves. Keys are sorted at every level so the result depends
+     * on content rather than on the order the payload happened to be assembled in.
+     */
+    private fun contentHashOf(root: JSONObject): String = canonicalize(root).hashCode().toString()
+
+    private fun canonicalize(value: Any?): String = when (value) {
+        is JSONObject -> value.keys().asSequence()
+            .filterNot { it in volatileHashKeys }
+            .sorted()
+            .joinToString(",", "{", "}") { "$it=${canonicalize(value.opt(it))}" }
+        is JSONArray -> (0 until value.length())
+            .joinToString(",", "[", "]") { canonicalize(value.opt(it)) }
+        else -> value.toString()
+    }
+
+    private suspend fun recordSyncBaseline(syncedUpdatedAt: Long) {
+        val hash = runCatching { contentHashOf(buildSnapshotRoot()) }.getOrNull() ?: return
+        val stamp = syncedUpdatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+        context.settingsDataStore.edit {
+            it[cloudSyncContentHashKey] = hash
+            it[cloudSyncContentStampKey] = stamp
+        }
+    }
+
+    private suspend fun buildSnapshotRoot(): JSONObject {
         val prefs = context.settingsDataStore.data.first()
         val root = JSONObject()
         val profiles = profileRepository.getProfiles()
@@ -860,48 +953,10 @@ class CloudSyncRepository @Inject constructor(
         root.put("traktLinked", isTraktLinked)
         root.put("traktExpiration", JSONObject.NULL)
 
-        // Stamped last, once the payload is complete.
-        //
-        // `updatedAt` must mean "when this content last changed", not "when this payload was
-        // built". Stamping it with now() on every push made every payload look like the newest
-        // change, so last-write-wins could never work: a device sitting untouched for hours would
-        // still beat edits made minutes ago elsewhere simply by pushing later. That is how one TV
-        // kept restoring its own stale favourites over another's.
-        //
-        // The hash must cover the *whole* payload. Computed earlier in this function it covered
-        // only the fields assembled up to that point — everything per-profile, IPTV favourites
-        // included, is added further down — so changing a favourite left the hash identical, the
-        // stamp never advanced, and the conflict guard skipped the push every time. Favourites
-        // added on one device then never left it at all.
-        val contentHash = root.toString().hashCode().toString()
-        val storedPrefs = context.settingsDataStore.data.first()
-        val prevHash = storedPrefs[cloudSyncContentHashKey]
-        val prevStamp = storedPrefs[cloudSyncContentStampKey] ?: 0L
-        val stamp = when {
-            contentHash == prevHash && prevStamp > 0L -> prevStamp
-            // First push after an install or an upgrade: there is no record of when this content
-            // was last changed, and now() is the one answer that is certainly wrong. It hands
-            // months-old settings a brand-new timestamp and lets an untouched device beat a real
-            // edit made elsewhere seconds earlier — a Shield did exactly this, restoring eleven
-            // stale favourites over a fix that was thirty seconds old.
-            //
-            // Date the content to the last state we synced instead. An unedited device then has
-            // no claim on the arbitration, and the first genuine edit changes the hash and stamps
-            // it properly.
-            prevStamp <= 0L ->
-                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
-            else -> System.currentTimeMillis()
-        }
-        if (contentHash != prevHash || prevStamp <= 0L) {
-            context.settingsDataStore.edit {
-                it[cloudSyncContentHashKey] = contentHash
-                it[cloudSyncContentStampKey] = stamp
-            }
-        }
-        root.put("updatedAt", stamp)
-
-        return root.toString()
+        // Deliberately carries no `updatedAt`: this is the content, and the content is what gets
+        // hashed. Both callers must hash exactly the same bytes, so the stamp is applied by
+        // buildCloudSnapshotJson() afterwards rather than here.
+        return root
     }
 
     // ══════════════════════════════════════════════════════════
@@ -1181,6 +1236,13 @@ class CloudSyncRepository @Inject constructor(
                     "restore: done — local favourites now ${iptvRepository.observeFavoriteChannels().first().size}")
             }
             markCloudPayloadApplied(payload)
+            // The state we just adopted is now this device's baseline, dated to the payload that
+            // carried it. Anything that differs from here really is a local edit.
+            runCatching {
+                recordSyncBaseline(
+                    JSONObject(payload).optLong("updatedAt", 0L),
+                )
+            }
             AppLogger.breadcrumb(
                 tag = "CloudSync",
                 message = "pull_restored size=${payloadSizeBucket(payload)}",
