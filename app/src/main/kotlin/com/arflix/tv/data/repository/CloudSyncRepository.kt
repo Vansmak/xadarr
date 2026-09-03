@@ -983,12 +983,20 @@ class CloudSyncRepository @Inject constructor(
         //
         // A device with genuine local changes still wins, because its dirty timestamp is newer.
         // This only blocks the case where it has nothing newer to offer.
+        // Compared even when this device has local changes. Gating on `!isPushDirty` was not
+        // last-change-wins: a device holding *older* edits still overwrote newer server state
+        // just by being dirty. That is exactly how nine stale favourites kept coming back —
+        // one device re-pushed them after every launch, re-poisoning the server, so clearing
+        // them anywhere else (or even reinstalling clean) only ever won until that device woke.
+        // What matters is whose change is newer, not whether we happen to have one pending.
         val isSyncMaster = context.settingsDataStore.data.first()[LAN_SYNC_MASTER_KEY] == true
-        if (!isPushDirty && !isSyncMaster) {
+        if (!isSyncMaster) {
             val serverUpdatedAt = runCatching {
                 syncServerLoadPayload().getOrNull()
                     ?.let { JSONObject(it).optLong("updatedAt", 0L) }
             }.getOrNull() ?: 0L
+            // Our newest local edit, or the last server state we accepted if we've changed
+            // nothing since — whichever is later is what we're offering.
             val localUpdatedAt = max(
                 latestLocalDirtyAt,
                 context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
