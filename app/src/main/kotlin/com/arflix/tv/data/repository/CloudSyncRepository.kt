@@ -617,41 +617,6 @@ class CloudSyncRepository @Inject constructor(
         }
 
         root.put("version", 1)
-        // `updatedAt` must mean "when this content last changed", not "when this payload was
-        // built". Stamping it with now() on every push made every payload look like the newest
-        // change, so last-write-wins could never work: a device sitting untouched for hours would
-        // still beat edits made minutes ago elsewhere simply by pushing later. That is how one TV
-        // kept restoring its own stale favourites over another's.
-        //
-        // Hash the content with the timestamp excluded; if it matches what we last pushed, reuse
-        // that timestamp so an unchanged device cannot win an arbitration it has no claim to.
-        val contentHash = root.toString().hashCode().toString()
-        val storedPrefs = context.settingsDataStore.data.first()
-        val prevHash = storedPrefs[cloudSyncContentHashKey]
-        val prevStamp = storedPrefs[cloudSyncContentStampKey] ?: 0L
-        val stamp = when {
-            contentHash == prevHash && prevStamp > 0L -> prevStamp
-            // First push after an install or an upgrade: there is no record of when this content
-            // was last changed, and now() is the one answer that is certainly wrong. It hands
-            // months-old settings a brand-new timestamp and lets an untouched device beat a real
-            // edit made elsewhere seconds earlier — a Shield did exactly this, restoring eleven
-            // stale favourites over a fix that was thirty seconds old.
-            //
-            // Date the content to the last state we synced instead. An unedited device then has
-            // no claim on the arbitration, and the first genuine edit changes the hash and stamps
-            // it properly.
-            prevStamp <= 0L ->
-                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
-            else -> System.currentTimeMillis()
-        }
-        if (contentHash != prevHash || prevStamp <= 0L) {
-            context.settingsDataStore.edit {
-                it[cloudSyncContentHashKey] = contentHash
-                it[cloudSyncContentStampKey] = stamp
-            }
-        }
-        root.put("updatedAt", stamp)
         // Legacy flat fields (for backward compat with older clients)
         root.put("defaultSubtitle", prefs[defaultSubtitleKey()] ?: "Off")
         root.put("defaultAudioLanguage", prefs[defaultAudioLanguageKey()] ?: "Auto (Original)")
@@ -894,6 +859,47 @@ class CloudSyncRepository @Inject constructor(
         val isTraktLinked = traktRepository.hasTrakt()
         root.put("traktLinked", isTraktLinked)
         root.put("traktExpiration", JSONObject.NULL)
+
+        // Stamped last, once the payload is complete.
+        //
+        // `updatedAt` must mean "when this content last changed", not "when this payload was
+        // built". Stamping it with now() on every push made every payload look like the newest
+        // change, so last-write-wins could never work: a device sitting untouched for hours would
+        // still beat edits made minutes ago elsewhere simply by pushing later. That is how one TV
+        // kept restoring its own stale favourites over another's.
+        //
+        // The hash must cover the *whole* payload. Computed earlier in this function it covered
+        // only the fields assembled up to that point — everything per-profile, IPTV favourites
+        // included, is added further down — so changing a favourite left the hash identical, the
+        // stamp never advanced, and the conflict guard skipped the push every time. Favourites
+        // added on one device then never left it at all.
+        val contentHash = root.toString().hashCode().toString()
+        val storedPrefs = context.settingsDataStore.data.first()
+        val prevHash = storedPrefs[cloudSyncContentHashKey]
+        val prevStamp = storedPrefs[cloudSyncContentStampKey] ?: 0L
+        val stamp = when {
+            contentHash == prevHash && prevStamp > 0L -> prevStamp
+            // First push after an install or an upgrade: there is no record of when this content
+            // was last changed, and now() is the one answer that is certainly wrong. It hands
+            // months-old settings a brand-new timestamp and lets an untouched device beat a real
+            // edit made elsewhere seconds earlier — a Shield did exactly this, restoring eleven
+            // stale favourites over a fix that was thirty seconds old.
+            //
+            // Date the content to the last state we synced instead. An unedited device then has
+            // no claim on the arbitration, and the first genuine edit changes the hash and stamps
+            // it properly.
+            prevStamp <= 0L ->
+                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
+                    ?: System.currentTimeMillis()
+            else -> System.currentTimeMillis()
+        }
+        if (contentHash != prevHash || prevStamp <= 0L) {
+            context.settingsDataStore.edit {
+                it[cloudSyncContentHashKey] = contentHash
+                it[cloudSyncContentStampKey] = stamp
+            }
+        }
+        root.put("updatedAt", stamp)
 
         return root.toString()
     }
