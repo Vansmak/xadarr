@@ -974,6 +974,35 @@ class CloudSyncRepository @Inject constructor(
             return Result.success(Unit)
         }
 
+        // Last change wins, the same rule the LAN path already applies. Without this a device
+        // simply overwrites the server on every push, so a change made anywhere else — another
+        // device, or the sync server itself — is silently lost the moment this one launches.
+        // That is not a theoretical race: settings edited server-side were clobbered twice within
+        // minutes by a phone starting up with older state.
+        //
+        // A device that has genuinely changed something locally still wins, because its dirty
+        // timestamp is newer. This only blocks the case where we have nothing newer to offer.
+        if (!isPushDirty) {
+            val serverUpdatedAt = runCatching {
+                syncServerLoadPayload().getOrNull()
+                    ?.let { JSONObject(it).optLong("updatedAt", 0L) }
+            }.getOrNull() ?: 0L
+            val localUpdatedAt = max(
+                latestLocalDirtyAt,
+                context.settingsDataStore.data.first()[cloudSyncLastAppliedAtKey] ?: 0L,
+            )
+            if (serverUpdatedAt > localUpdatedAt) {
+                AppLogger.breadcrumb(
+                    tag = "CloudSync",
+                    message = "push_skipped_server_newer server=$serverUpdatedAt local=$localUpdatedAt",
+                    severity = "info",
+                )
+                // Take the server's newer state instead of trampling it.
+                repositoryScope.launch { runCatching { pullFromCloud() } }
+                return Result.success(Unit)
+            }
+        }
+
         val result = syncServerSavePayload(sanitizeForServerSync(payload))
         if (result.isSuccess) {
             clearLocalDirtyAfterSuccessfulPush()
