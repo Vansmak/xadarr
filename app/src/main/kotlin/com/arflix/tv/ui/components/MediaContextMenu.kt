@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -343,6 +344,7 @@ private fun ContextMenuItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
             .background(
                 if (isFocused) Pink else Color.Transparent,
                 RoundedCornerShape(8.dp)
@@ -352,6 +354,10 @@ private fun ContextMenuItem(
                 color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(8.dp)
             )
+            // The row took an onClick and never attached it. On TV that went unnoticed because the
+            // parent handles D-pad Enter itself, but on a phone a tap had nothing to land on, so
+            // "Remove from Favorites" did nothing at all — every time, on every channel.
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
