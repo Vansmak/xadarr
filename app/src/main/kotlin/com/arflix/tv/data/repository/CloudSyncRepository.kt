@@ -974,15 +974,17 @@ class CloudSyncRepository @Inject constructor(
             return Result.success(Unit)
         }
 
-        // Last change wins, the same rule the LAN path already applies. Without this a device
-        // simply overwrites the server on every push, so a change made anywhere else — another
-        // device, or the sync server itself — is silently lost the moment this one launches.
-        // That is not a theoretical race: settings edited server-side were clobbered twice within
+        // Same conflict rule the LAN path already applies, and the same one the LAN Sync Master
+        // setting promises: a master device always wins; without a master, last change wins.
+        // The server push previously honoured neither and simply overwrote, so a change made
+        // anywhere else — another device, or the sync server itself — was silently lost the
+        // moment this one launched. Settings edited server-side were clobbered twice within
         // minutes by a phone starting up with older state.
         //
-        // A device that has genuinely changed something locally still wins, because its dirty
-        // timestamp is newer. This only blocks the case where we have nothing newer to offer.
-        if (!isPushDirty) {
+        // A device with genuine local changes still wins, because its dirty timestamp is newer.
+        // This only blocks the case where it has nothing newer to offer.
+        val isSyncMaster = context.settingsDataStore.data.first()[LAN_SYNC_MASTER_KEY] == true
+        if (!isPushDirty && !isSyncMaster) {
             val serverUpdatedAt = runCatching {
                 syncServerLoadPayload().getOrNull()
                     ?.let { JSONObject(it).optLong("updatedAt", 0L) }
