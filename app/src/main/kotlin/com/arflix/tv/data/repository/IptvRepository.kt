@@ -1128,7 +1128,8 @@ class IptvRepository @Inject constructor(
                 reDeriveCachedNowNext(cachedFromDisk.channels.asSequence().map { it.id }.toSet())
             }
 
-            val channels = if (!forcePlaylistReload && cachedChannels.isNotEmpty()) {
+            val usedCachedPlaylist = !forcePlaylistReload && cachedChannels.isNotEmpty()
+            val channels = if (usedCachedPlaylist) {
                 val isFresh = now - cachedPlaylistAt < playlistCacheMs
                 onProgress(
                     IptvLoadProgress(
@@ -1176,8 +1177,15 @@ class IptvRepository @Inject constructor(
             // because they were healthy-looking data that simply pointed nowhere.
             //
             // Only prunes when a non-empty channel set actually loaded, so a failed or partial
-            // playlist fetch can't wipe the list.
-            if (channels.isNotEmpty()) {
+            // playlist fetch can't wipe the list — and only against a playlist fetched from the
+            // network, never a cached one. A cached list can be up to a day old and describe a
+            // lineup that no longer exists; measured against it, favourites for channels that are
+            // perfectly alive upstream look dead. A box running on a pre-renumbering cache did
+            // exactly that: it re-anchored what it could to the old numbers and deleted the rest,
+            // then synced that loss out to every other device. Deleting real favourites on the
+            // word of stale data is not a trade worth making, and waiting for the next real fetch
+            // costs nothing.
+            if (channels.isNotEmpty() && !usedCachedPlaylist) {
                 runCatching { pruneStaleFavoriteChannels(channels) }
             }
 
