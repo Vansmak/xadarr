@@ -37,6 +37,7 @@ import androidx.datastore.preferences.core.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.IOException
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
@@ -493,7 +494,13 @@ class WebAppServer @Inject constructor(
     private suspend fun handlePutSnapshot(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
         val bodyMap = HashMap<String, String>()
         session.parseBody(bodyMap)
+        // NanoHTTPD only fills "postData" for POST. For PUT it spools the body to a temp file and
+        // leaves the *path* under "content" — so reading postData alone found nothing, and every
+        // peer push was discarded. It still answered 200, and LanSyncService only checks the
+        // status code, so device-to-device sync reported success while applying nothing at all.
         val payload = bodyMap["postData"]?.takeIf { it.isNotBlank() }
+            ?: bodyMap["content"]?.let { path -> runCatching { File(path).readText() }.getOrNull() }
+                ?.takeIf { it.isNotBlank() }
             ?: return json(JSONObject().put("error", "empty body"))
         val ok = cloudSyncRepository.applyIncomingSnapshot(payload)
         return json(JSONObject().put("status", if (ok) "applied" else "failed"))
