@@ -122,8 +122,8 @@ class CloudSyncRepository @Inject constructor(
     // pushed their stale state once, each overwriting the last. Bump the suffix whenever what
     // goes into the hash changes; the old value is then ignored and the device correctly reports
     // having no baseline instead of a bogus one.
-    private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash_v4")
-    private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp_v4")
+    private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash_v5")
+    private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp_v5")
     private val globalDnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
     @Volatile
@@ -582,7 +582,9 @@ class CloudSyncRepository @Inject constructor(
      * exists to prevent. One box pushed on every launch while another sat silent, purely because
      * of which screen it opened on.
      */
-    private val volatileHashKeys = setOf("updatedAt", "lan_sync_last_modified", "lastOpenedAt")
+    private val volatileHashKeys = setOf(
+        "updatedAt", "lan_sync_last_modified", "lastOpenedAt", "lastConnectedAt",
+    )
 
     /**
      * Fingerprints the settings themselves. Keys are sorted at every level so the result depends
@@ -597,6 +599,20 @@ class CloudSyncRepository @Inject constructor(
             .joinToString(",", "{", "}") { "$it=${canonicalize(value.opt(it))}" }
         is JSONArray -> (0 until value.length())
             .joinToString(",", "[", "]") { canonicalize(value.opt(it)) }
+        // Several fields carry JSON inside a string — homeServerConnectionJson most importantly.
+        // Treated as one opaque value, every byte inside counted, so refreshing a server
+        // connection rewrote its lastConnectedAt and changed the fingerprint even though no
+        // setting had changed. The device then stamped itself now() and won every arbitration:
+        // this is why a change made on the sync server was overwritten seconds later by whichever
+        // device happened to be open, for favourites and for the Plex connection alike. Parsing
+        // them means the volatile keys inside are excluded like any others.
+        is String -> value.trim().let { s ->
+            when {
+                s.startsWith("{") -> runCatching { canonicalize(JSONObject(s)) }.getOrDefault(value)
+                s.startsWith("[") -> runCatching { canonicalize(JSONArray(s)) }.getOrDefault(value)
+                else -> value
+            }
+        }
         else -> value.toString()
     }
 
