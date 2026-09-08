@@ -197,10 +197,6 @@ fun AppNavigation(
     // indirection made Back from the live guide's windowed-grid state look like it froze: the
     // first press silently stopped playback (isActive was true, so it hit the dismiss branch and
     // never navigated), and only a second press actually went back.
-    val goBack: () -> Unit = {
-        navController.popBackStack()
-    }
-
     val navigateHome: () -> Unit = {
         // Navigate to Home clearing the entire back stack above it.
         // Uses navigate() instead of popBackStack() because popBackStack can
@@ -214,6 +210,18 @@ fun AppNavigation(
             launchSingleTop = true
             restoreState = false
         }
+    }
+
+    // popBackStack() returns false and does nothing when there is nothing beneath the current
+    // screen — which is the normal situation for the player when playback was started somewhere
+    // that left it at the bottom of the stack. Back then appears completely dead: the video keeps
+    // playing, there is no way out, and the only escape is Home followed by relaunching the app.
+    // Worse, the player is never torn down, so ExoPlayer holds its wake lock and the device will
+    // not sleep afterwards — a Shield sat awake for an hour that way.
+    //
+    // Falling back to Home means Back always leads somewhere.
+    val goBack: () -> Unit = {
+        if (!navController.popBackStack()) navigateHome()
     }
 
     NavHost(
