@@ -55,6 +55,27 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
+ * How many rows one direction-key event should move, given how long the key has been held.
+ *
+ * Android delivers a held direction key as repeated KeyDown events, and each single-row move
+ * costs a coroutine, a scroll and up to four focus retries (see keepChannelFocus). Repeating
+ * that unchanged just queues expensive work against itself, which is why holding Down crawled
+ * rather than flew. Widening the stride as the hold continues covers ground without making
+ * each event any dearer — hold longer, move faster, the way Kodi does.
+ *
+ * Deliberately reads repeatCount only for direction keys. The select key must not use it: a
+ * native repeat arrives 50-100ms into a hold, which is far too eager to mean "long press" and
+ * previously caused accidental favourite changes (see the note on the long-press timer below).
+ */
+private fun heldStep(ev: androidx.compose.ui.input.key.KeyEvent): Int =
+    when (val repeats = ev.nativeKeyEvent.repeatCount) {
+        in 0..5 -> 1
+        in 6..13 -> 2
+        in 14..23 -> 3
+        else -> (repeats / 6).coerceAtMost(8)
+    }
+
+/**
  * Channel column row — spec §3.4, mockup layout:
  *
  *   ┌─ [number mono] ─ [logo 44] ─ [name / program / progress / time] ─ [HD/HI] ─┐
@@ -75,8 +96,8 @@ fun ChannelRow(
     onLongPress: () -> Unit,
     onMoveLeft: () -> Unit = {},
     onMoveRight: () -> Boolean = { false },
-    onMoveUp: () -> Boolean = { false },
-    onMoveDown: () -> Boolean = { false },
+    onMoveUp: (Int) -> Boolean = { false },
+    onMoveDown: (Int) -> Boolean = { false },
     onPageUp: () -> Boolean = { false },
     onPageDown: () -> Boolean = { false },
     onFocused: () -> Unit = {},
@@ -130,8 +151,8 @@ fun ChannelRow(
                     when (ev.key) {
                         Key.DirectionLeft -> { onMoveLeft(); return@onPreviewKeyEvent true }
                         Key.DirectionRight -> if (onMoveRight()) return@onPreviewKeyEvent true
-                        Key.DirectionUp -> if (onMoveUp()) return@onPreviewKeyEvent true
-                        Key.DirectionDown -> if (onMoveDown()) return@onPreviewKeyEvent true
+                        Key.DirectionUp -> if (onMoveUp(heldStep(ev))) return@onPreviewKeyEvent true
+                        Key.DirectionDown -> if (onMoveDown(heldStep(ev))) return@onPreviewKeyEvent true
                         Key.ChannelUp -> if (onPageUp()) return@onPreviewKeyEvent true
                         Key.ChannelDown -> if (onPageDown()) return@onPreviewKeyEvent true
                     }

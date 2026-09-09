@@ -504,8 +504,8 @@ fun EpgGrid(
                                     }
                                     true
                                 },
-                                onMoveUp = { moveChannelFocus(-1) },
-                                onMoveDown = { moveChannelFocus(+1) },
+                                onMoveUp = { step -> moveChannelFocus(-step) },
+                                onMoveDown = { step -> moveChannelFocus(+step) },
                                 onPageUp = { moveChannelFocus(-5) },
                                 onPageDown = { moveChannelFocus(+5) },
                                 onLongPress = { onChannelLongPress(ch) },
