@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -313,16 +314,20 @@ fun NavRail(
                             .background(Color.White.copy(alpha = 0.10f))
                     )
                 } else {
+                    // A rule between groups rather than a caption over them. The captions read
+                    // badly on a short, personal rail: "LIBRARIES" appeared twice — once over
+                    // Movies/Shows and again over Apps — because Cameras and Settings sit
+                    // between them and restart the run, and the words earned less than the
+                    // vertical space they cost. A separator conveys the same grouping.
                     val label = sectionLabelFor(entry)
                     val prevLabel = entries.getOrNull(index - 1)?.let { if (it.kind == NavSectionKind.SETTINGS) null else sectionLabelFor(it) }
-                    if (label != null && label != prevLabel) {
-                        Text(
-                            text = label,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.8.sp,
-                            color = Color.White.copy(alpha = 0.38f),
-                            modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 2.dp),
+                    if (index > 0 && label != prevLabel) {
+                        Spacer(
+                            modifier = Modifier
+                                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Color.White.copy(alpha = 0.10f))
                         )
                     }
                 }
