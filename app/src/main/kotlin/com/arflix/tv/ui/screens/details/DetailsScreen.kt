@@ -744,6 +744,21 @@ fun DetailsScreen(
                             }
                             when (focusedSection) {
                                 FocusSection.BUTTONS -> {
+                                    // Checked before the when, not inside it. addButtonIndex can
+                                    // legitimately equal 5 — a movie with no collection and no
+                                    // Plex match — and `5 -> View Collection` is a hardcoded
+                                    // branch, so pressing Add ran the collection case instead and
+                                    // appeared to do nothing at all.
+                                    if (canDirectAdd(uiState) && buttonIndex == addButtonIndex(uiState)) {
+                                        if (uiState.item?.mediaType == MediaType.TV &&
+                                            uiState.availableRules.isNotEmpty()
+                                        ) {
+                                            showAddRulePicker = true
+                                        } else {
+                                            viewModel.directAdd()
+                                        }
+                                        return@onPreviewKeyEvent true
+                                    }
                                     when (buttonIndex) {
                                         0 -> playNow() // Auto-play highest quality source
                                         1 -> { // Sources - Show StreamSelector for manual selection
@@ -763,21 +778,9 @@ fun DetailsScreen(
                                             focusedSection = FocusSection.COLLECTION
                                             collectionIndex = 0
                                         }
-                                        else -> when {
-                                            canDirectAdd(uiState) && buttonIndex == addButtonIndex(uiState) -> {
-                                                // A series needs a rule chosen first; a movie has
-                                                // nothing to decide, so it goes straight in.
-                                                if (uiState.item?.mediaType == MediaType.TV &&
-                                                    uiState.availableRules.isNotEmpty()
-                                                ) {
-                                                    showAddRulePicker = true
-                                                } else {
-                                                    viewModel.directAdd()
-                                                }
-                                            }
-                                            uiState.plexHandoffStream != null &&
-                                                buttonIndex == plexButtonIndex(uiState) -> launchPlexApp()
-                                        }
+                                        else -> if (uiState.plexHandoffStream != null &&
+                                            buttonIndex == plexButtonIndex(uiState)
+                                        ) launchPlexApp()
                                     }
                                 }
                                 FocusSection.SEASONS -> {
@@ -917,6 +920,19 @@ fun DetailsScreen(
                     onSonarrSearch = { epNum -> viewModel.triggerSonarrSearch(epNum) },
                     onBack = onBack,
                     onButtonClick = { idx ->
+                        // Same reason as the D-pad path: addButtonIndex can equal 5, which is
+                        // already spoken for by View Collection, so Add has to be resolved before
+                        // the numeric dispatch rather than in its else branch.
+                        if (canDirectAdd(uiState) && idx == addButtonIndex(uiState)) {
+                            if (uiState.item?.mediaType == MediaType.TV &&
+                                uiState.availableRules.isNotEmpty()
+                            ) {
+                                showAddRulePicker = true
+                            } else {
+                                viewModel.directAdd()
+                            }
+                            return@DetailsContent
+                        }
                         when (idx) {
                             0 -> playNow() // Play
                             1 -> { // Sources
