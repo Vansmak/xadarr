@@ -70,6 +70,29 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * "20:35", "Thu 20:35", or "Now" — enough to tell tonight from next week at a glance.
+ *
+ * Deliberately shows the weekday rather than a date: the EPG only reaches a few days out, so
+ * "Thu" is unambiguous and reads faster than "10 Sep" on a row that is already tight.
+ */
+private fun formatWhen(startUtcMillis: Long): String {
+    val now = System.currentTimeMillis()
+    if (startUtcMillis <= now) return "Now"
+    val start = java.util.Calendar.getInstance().apply { timeInMillis = startUtcMillis }
+    val today = java.util.Calendar.getInstance().apply { timeInMillis = now }
+    val clock = "%02d:%02d".format(
+        start.get(java.util.Calendar.HOUR_OF_DAY),
+        start.get(java.util.Calendar.MINUTE),
+    )
+    val sameDay = start.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR) &&
+        start.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR)
+    if (sameDay) return clock
+    val day = java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault())
+        .format(java.util.Date(startUtcMillis))
+    return "$day $clock"
+}
+
 /** A search hit — a channel, optionally with the specific program that matched the query. */
 private data class SearchHit(
     val channel: EnrichedChannel,
@@ -249,6 +272,14 @@ fun SearchOverlay(
                         .map { prog -> SearchHit(ch, prog, ch.source.group in offLineupGroups) }
                 }
                 .sortedBy { hit -> hit.matchedProgram?.startUtcMillis ?: Long.MAX_VALUE }
+                // One row per fixture. The same game is carried by several channels — and by
+                // the same channel's regional variants — so without this a single match filled
+                // the whole list and buried everything else. Sorted by start time first, so the
+                // survivor is the earliest, and the channel shown is a real place to watch it.
+                .distinctBy { hit ->
+                    (hit.matchedProgram?.title?.lowercase()?.trim() ?: hit.channel.id) to
+                        (hit.matchedProgram?.startUtcMillis ?: 0L)
+                }
                 .take(80)
                 .toList()
         }
@@ -624,8 +655,11 @@ private fun SearchResultRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (hit.matchedProgram != null) {
+                // Searching a team is asking when and where. The channel name above answers
+                // "where"; without this the row never answered "when" at all, so a fixture
+                // tonight and one next Tuesday looked identical.
                 Text(
-                    text = hit.matchedProgram.title,
+                    text = "${formatWhen(hit.matchedProgram.startUtcMillis)}  ·  ${hit.matchedProgram.title}",
                     style = LiveType.SectionTag.copy(color = LiveColors.Accent),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
