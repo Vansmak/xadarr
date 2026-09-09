@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -101,6 +102,40 @@ class EpiseerrRepository @Inject constructor(
         } catch (e: Exception) {
             Log.d(tag, "getRules failed: ${e.message}")
             emptyList()
+        }
+    }
+
+    /**
+     * Which of the titles matching [query] are already in Sonarr/Radarr, keyed by TMDB id.
+     *
+     * Episeerr cross-references TMDB against both *arr instances itself, so this is one call
+     * rather than the app holding Sonarr/Radarr credentials of its own (which it deliberately
+     * does not — see the library browser's notes). Returns an empty map when Episeerr is not
+     * configured, so callers can treat "unknown" and "not in library" the same way and simply
+     * offer to add.
+     */
+    suspend fun libraryStatusFor(query: String): Map<Int, Int?> = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext emptyMap() }
+        if (query.isBlank()) return@withContext emptyMap()
+        try {
+            val url = "$base/api/discover/search".toHttpUrl().newBuilder()
+                .addQueryParameter("q", query)
+                .build()
+            val req = Request.Builder().url(url).get().build()
+            val respBody = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            val arr = JSONObject(respBody).optJSONArray("results") ?: return@withContext emptyMap()
+            buildMap {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val tmdb = o.optInt("tmdb_id", -1).takeIf { it > 0 } ?: continue
+                    if (o.optBoolean("in_library", false)) {
+                        put(tmdb, o.optInt("library_id", -1).takeIf { it > 0 })
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "libraryStatusFor failed: ${e.message}")
+            emptyMap()
         }
     }
 

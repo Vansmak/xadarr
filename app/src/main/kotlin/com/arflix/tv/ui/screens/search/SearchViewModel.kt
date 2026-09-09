@@ -91,6 +91,9 @@ data class SearchUiState(
     val tvResults: List<MediaItem> = EMPTY_MEDIA_ITEMS,
     val personResults: List<Category> = EMPTY_CATEGORIES,
     val cardLogoUrls: Map<String, String> = EMPTY_LOGO_URLS,
+    // TMDB ids already in Sonarr/Radarr, per Episeerr. Lets a result say "play this" rather
+    // than "add this" — the whole point of Find being separate from the guide's search.
+    val inLibraryTmdbIds: Set<Int> = emptySet(),
     val error: String? = null,
     // Browse rows: SEARCH-placed collection tiles + CW/watchlist if placed here
     val browseCategories: List<Category> = EMPTY_CATEGORIES,
@@ -113,6 +116,7 @@ class SearchViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val catalogRepository: CatalogRepository,
     private val watchlistRepository: WatchlistRepository,
+    private val episeerrRepository: com.arflix.tv.data.repository.EpiseerrRepository,
     private val cwHolder: ContinueWatchingHolder,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -434,6 +438,17 @@ class SearchViewModel @Inject constructor(
                 val top = (personItems.take(24) + movies.take(16) + tv.take(16)).distinctBy { "${it.mediaType}_${it.id}" }
                 val logos = withContext(Dispatchers.IO) { top.map { item -> async { val k = "${item.mediaType}_${item.id}"; val l = runCatching { mediaRepository.getLogoUrl(item.mediaType, item.id) }.getOrNull(); if (l.isNullOrBlank()) null else k to l } }.awaitAll().filterNotNull().toMap() }
                 _uiState.value = _uiState.value.copy(isLoading = false, results = sorted, movieResults = movies, tvResults = tv, personResults = peopleRows, cardLogoUrls = logos)
+                // Asked for after the results are already on screen, not before: Episeerr is a
+                // second round trip and the titles are useful without it. When it answers, the
+                // matching cards gain their badge; if it never answers, they simply read as
+                // "not in the library", which is the safe assumption for offering to add.
+                launch {
+                    val inLibrary = runCatching { episeerrRepository.libraryStatusFor(query) }
+                        .getOrDefault(emptyMap())
+                    if (inLibrary.isNotEmpty() && _uiState.value.query.trim() == query) {
+                        _uiState.value = _uiState.value.copy(inLibraryTmdbIds = inLibrary.keys)
+                    }
+                }
             } catch (e: Exception) { _uiState.value = _uiState.value.copy(isLoading = false, error = e.message) }
         }
     }

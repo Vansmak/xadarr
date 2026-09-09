@@ -628,7 +628,7 @@ fun SearchScreen(
                         Icon(Icons.Default.AutoAwesome, null, tint = AccentGreen, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
                         Text(uiState.aiInterpretation ?: "", style = ArflixTypography.body.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium), color = Color.White.copy(alpha = 0.85f))
                     }
-                    ContentGrid(items = uiState.aiResults, usePosterCards = aiUsePosterCards, isLoading = false, isTouchDevice = isTouchDevice, onItemClick = { onNavigateToDetails(it.mediaType, it.id) }, onLoadMore = {})
+                    ContentGrid(items = uiState.aiResults, usePosterCards = aiUsePosterCards, isLoading = false, isTouchDevice = isTouchDevice, onItemClick = { onNavigateToDetails(it.mediaType, it.id) }, onLoadMore = {}, inLibraryTmdbIds = uiState.inLibraryTmdbIds)
                 }
 
                 uiState.query.isNotEmpty() && !uiState.isAiSearch && !hasSearchResults -> {
@@ -648,6 +648,7 @@ fun SearchScreen(
                         fastScrollThresholdMs = fastScrollThresholdMs,
                         isFocused = focusZone == FocusZone.RESULTS,
                         isTouchDevice = isTouchDevice,
+                        inLibraryTmdbIds = uiState.inLibraryTmdbIds,
                         onItemClick = { item ->
                             val collectionId = item.status?.takeIf { it.startsWith("collection:") }
                                 ?.removePrefix("collection:")
@@ -919,7 +920,8 @@ private fun RowsLayer(
     fastScrollThresholdMs: Long,
     isFocused: Boolean,
     isTouchDevice: Boolean,
-    onItemClick: (MediaItem) -> Unit
+    onItemClick: (MediaItem) -> Unit,
+    inLibraryTmdbIds: Set<Int> = emptySet()
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -1065,7 +1067,7 @@ private fun RowsLayer(
                                 MediaCard(
                                     item = item.copy(
                                         title = buildCardTitle(item),
-                                        subtitle = buildCardSubtitle(item),
+                                        subtitle = buildCardSubtitle(item, item.id in inLibraryTmdbIds),
                                         releaseDate = null,
                                         year = ""
                                     ),
@@ -1094,7 +1096,7 @@ private fun RowsLayer(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoading: Boolean, isTouchDevice: Boolean, onItemClick: (MediaItem) -> Unit, onLoadMore: () -> Unit) {
+private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoading: Boolean, isTouchDevice: Boolean, onItemClick: (MediaItem) -> Unit, onLoadMore: () -> Unit, inLibraryTmdbIds: Set<Int> = emptySet()) {
     val screenHeight = LocalConfiguration.current.screenHeightDp
     val itemWidth = if (usePosterCards) 134.dp else 260.dp
     val gridState = rememberLazyGridState()
@@ -1107,7 +1109,7 @@ private fun ContentGrid(items: List<MediaItem>, usePosterCards: Boolean, isLoadi
             val item = items[idx]
             MediaCard(item = item.copy(
                 title = buildCardTitle(item),
-                subtitle = buildCardSubtitle(item),
+                subtitle = buildCardSubtitle(item, item.id in inLibraryTmdbIds),
                 releaseDate = null,
                 year = ""
             ),
@@ -1125,13 +1127,17 @@ private fun buildCardTitle(item: MediaItem): String {
 }
 
 @Composable
-private fun buildCardSubtitle(item: MediaItem): String {
+private fun buildCardSubtitle(item: MediaItem, inLibrary: Boolean = false): String {
     val mediaLabel = when (item.mediaType) {
         MediaType.TV -> stringResource(R.string.series)
         MediaType.MOVIE -> stringResource(R.string.movie)
     }
     val year = item.year.takeIf { it.isNotBlank() }
-    return if (year != null) "$mediaLabel · $year" else mediaLabel
+    val base = if (year != null) "$mediaLabel · $year" else mediaLabel
+    // Says which of the two things this result is: something already in the library that can be
+    // played, or something to add. Carried in the subtitle rather than as a badge overlay,
+    // because MediaCard is shared by every screen and this distinction only applies here.
+    return if (inLibrary) "$base · In Library" else base
 }
 
 private fun interleaveSearchResults(movies: List<MediaItem>, shows: List<MediaItem>): List<MediaItem> {
