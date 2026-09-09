@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -282,28 +284,15 @@ fun NavRail(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(top = 64.dp, start = 16.dp, end = 16.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(top = 40.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            if (currentProfile != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 2.dp, bottom = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    ProfileAvatarVisual(
-                        profile = currentProfile,
-                        modifier = Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape),
-                        letterFontSize = 14.sp,
-                    )
-                    Text(
-                        text = currentProfile.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White.copy(alpha = 0.92f),
-                    )
-                }
-            }
+            // The avatar+name row that used to sit here is gone. It was not focusable, the
+            // same avatar is already in the top-right chrome of every screen, and between it and
+            // the 64dp top inset it cost enough height to push Settings off the bottom of the
+            // rail entirely once Find was added. The list scrolls now as well, so a long rail
+            // can no longer silently lose its last entry.
             entries.forEachIndexed { index, entry ->
                 if (entry.kind == NavSectionKind.SETTINGS) {
                     Box(
