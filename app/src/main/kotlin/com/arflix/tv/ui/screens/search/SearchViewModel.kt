@@ -273,9 +273,11 @@ class SearchViewModel @Inject constructor(
                         val row3 = async { buildRow("Top Rated", type, genre, "vote_average.desc", 1000, lang, isAnime, 1, releaseDateLte = today) }
                         // Row 4: New Releases - last 90 days ONLY, must be actually released (date <= today)
                         val row4 = async { buildRow("New Releases", type, genre, "popularity.desc", 10, lang, isAnime, 1, releaseDateGte = threeMonthsAgo, releaseDateLte = today) }
-                        // Row 5: Hidden Gems - good ratings but less mainstream
-                        val row5 = async { buildRow("Hidden Gems", type, genre, "vote_average.desc", 200, lang, isAnime, 2, releaseDateLte = today) }
-                        listOfNotNull(row1.await(), row2.await(), row3.await(), row4.await(), row5.await())
+                        // Row 5 was "Hidden Gems" — well-rated but obscure, page 2 of a
+                        // vote-sorted query. Dropped: it filled a screen with titles Joe had no
+                        // interest in and made Find longer to scroll past on the way to what he
+                        // came for.
+                        listOfNotNull(row1.await(), row2.await(), row3.await(), row4.await())
                     }
                 }
                 _uiState.value = _uiState.value.copy(discoverCategories = categories, isDiscoverLoading = false)

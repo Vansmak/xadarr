@@ -209,38 +209,11 @@ fun SearchScreen(
             isSelected = uiState.selectedType == DiscoverType.ANIME && uiState.selectedGenre == null && uiState.selectedCountry == null,
             onSelect = { viewModel.setDiscoverFilters(DiscoverType.ANIME, null, null) }
         ),
-        actionGenre?.let { genre ->
-            DiscoverQuickFilter(
-                key = "genre_${genre.id}",
-                label = genre.name,
-                isSelected = uiState.selectedGenre?.id == genre.id,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, genre, uiState.selectedCountry) }
-            )
-        },
-        comedyGenre?.let { genre ->
-            DiscoverQuickFilter(
-                key = "genre_${genre.id}",
-                label = genre.name,
-                isSelected = uiState.selectedGenre?.id == genre.id,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, genre, uiState.selectedCountry) }
-            )
-        },
-        horrorGenre?.let { genre ->
-            DiscoverQuickFilter(
-                key = "genre_${genre.id}",
-                label = genre.name,
-                isSelected = uiState.selectedGenre?.id == genre.id,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, genre, uiState.selectedCountry) }
-            )
-        },
-        sciFiGenre?.let { genre ->
-            DiscoverQuickFilter(
-                key = "genre_${genre.id}",
-                label = genre.name,
-                isSelected = uiState.selectedGenre?.id == genre.id,
-                onSelect = { viewModel.setDiscoverFilters(uiState.selectedType, genre, uiState.selectedCountry) }
-            )
-        },
+        // The four genre chips (Action/Comedy/Horror/Sci-Fi) were here. Removed: an arbitrary
+        // four of nineteen genres, narrowing the Discover rows rather than the search itself,
+        // and noise on a screen whose job is "find this thing". The type chips above stay, and
+        // the natural-language search still understands genres ("best sci-fi movies") for when
+        // that is genuinely what is wanted.
     )
     LaunchedEffect(quickFilters.size) {
         focusedFilterIndex = focusedFilterIndex.coerceIn(0, (quickFilters.size - 1).coerceAtLeast(0))
