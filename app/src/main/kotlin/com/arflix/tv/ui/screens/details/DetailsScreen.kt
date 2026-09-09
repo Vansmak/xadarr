@@ -2377,6 +2377,21 @@ private fun DetailsContent(
                         )
                     }
                 }
+
+                // Direct Add — last, after Plex. This row and the mobile one are separate
+                // renderings of the same indices: adding the button to only one of them while
+                // widening the index range for both left a focusable slot here with nothing in
+                // it, which swallowed focus and made Up appear to stop working.
+                if (canDirectAddUi) {
+                    Box(modifier = Modifier.clickable { onButtonClick(addButtonIdx) }) {
+                        PremiumActionButton(
+                            icon = Icons.Default.Add,
+                            text = "Add",
+                            isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == addButtonIdx,
+                            isIconOnly = true
+                        )
+                    }
+                }
             }
         }
 
