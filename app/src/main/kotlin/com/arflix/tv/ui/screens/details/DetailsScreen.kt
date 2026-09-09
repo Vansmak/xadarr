@@ -54,6 +54,7 @@ import com.arflix.tv.util.settingsDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -218,6 +219,15 @@ fun DetailsScreen(
     // Start on buttons for both TV and movies (buttons are now shown for both)
     var focusedSection by remember { mutableStateOf(FocusSection.BUTTONS) }
     var buttonIndex by remember { mutableIntStateOf(0) }
+    var showAddRulePicker by remember { mutableStateOf(false) }
+
+    // Ask Episeerr whether this is already in the library, once the item itself has loaded.
+    // Keyed on the id so navigating between titles re-checks rather than carrying the last
+    // answer over — showing "Add" on something you already own would be worse than not showing
+    // it at all.
+    LaunchedEffect(uiState.item?.id) {
+        if (uiState.item != null) viewModel.checkLibraryStatus()
+    }
     var episodeIndex by rememberSaveable { mutableIntStateOf(0) }
     var seasonIndex by rememberSaveable { mutableIntStateOf(0) }
     var castIndex by remember { mutableIntStateOf(0) }
@@ -753,7 +763,21 @@ fun DetailsScreen(
                                             focusedSection = FocusSection.COLLECTION
                                             collectionIndex = 0
                                         }
-                                        else -> if (uiState.plexHandoffStream != null && buttonIndex == plexButtonIndex(uiState)) launchPlexApp()
+                                        else -> when {
+                                            canDirectAdd(uiState) && buttonIndex == addButtonIndex(uiState) -> {
+                                                // A series needs a rule chosen first; a movie has
+                                                // nothing to decide, so it goes straight in.
+                                                if (uiState.item?.mediaType == MediaType.TV &&
+                                                    uiState.availableRules.isNotEmpty()
+                                                ) {
+                                                    showAddRulePicker = true
+                                                } else {
+                                                    viewModel.directAdd()
+                                                }
+                                            }
+                                            uiState.plexHandoffStream != null &&
+                                                buttonIndex == plexButtonIndex(uiState) -> launchPlexApp()
+                                        }
                                     }
                                 }
                                 FocusSection.SEASONS -> {
@@ -880,6 +904,8 @@ fun DetailsScreen(
                     playLabel = uiState.playLabel,
                     upcomingEpisodeLabel = uiState.upcomingEpisodeLabel,
                     hasPlexOption = uiState.plexHandoffStream != null,
+                    canDirectAddUi = canDirectAdd(uiState),
+                    addButtonIdx = addButtonIndex(uiState),
                     isPlexHandoffMode = isPlexHandoffMode,
                     realTotalSeasons = uiState.totalSeasons,
                     hasTrailer = uiState.trailerKey != null,
@@ -995,6 +1021,36 @@ fun DetailsScreen(
             }
         )
         
+        // Direct Add for a series — pick the rule up front so it arrives tagged and monitored
+        // rather than parking in Episeerr's pending queue. Reuses the same picker the pending
+        // flow and the library browser use; onAssignRule swaps the assignment for an add, since
+        // the series does not exist in Sonarr yet and so has nothing to assign against.
+        if (showAddRulePicker && uiState.item != null) {
+            val addItem = uiState.item!!
+            // Same wiring the watchlist and discover screens use — the picker gets its repository
+            // and sync-server URL from RulePickerViewModel rather than from Details' own state.
+            val addRuleVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel = hiltViewModel()
+            val addSyncUrl by addRuleVm.syncServerUrl.collectAsState()
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                    id = addItem.id.toString(),
+                    seriesId = null,
+                    title = addItem.title,
+                    tmdbId = addItem.id.toString(),
+                    tvdbId = uiState.tvdbId?.toString(),
+                    poster = addItem.image,
+                ),
+                episeerrRepository = addRuleVm.episeerrRepository,
+                syncServerUrl = addSyncUrl,
+                onAssignRule = { ruleName ->
+                    viewModel.directAdd(ruleName)
+                    true
+                },
+                onDismiss = { showAddRulePicker = false },
+                onRuleAssigned = { showAddRulePicker = false },
+            )
+        }
+
         // In-app Trailer Player (fullscreen overlay)
         if (showTrailerPlayer && uiState.trailerKey != null) {
             BackHandler { showTrailerPlayer = false }
@@ -1221,6 +1277,16 @@ private fun isPendingDebridStream(stream: com.arflix.tv.data.model.StreamSource)
 // adjacent to Play, so nothing else in this file's many index-based switches needs renumbering.
 private fun plexButtonIndex(uiState: DetailsUiState): Int = if (uiState.collectionId != null) 6 else 5
 
+// Direct Add sits last, after Plex if that is showing. Same conditional-trailing-index shape
+// plexButtonIndex already uses, so nothing before it shifts and the existing indices stay put.
+private fun canDirectAdd(uiState: DetailsUiState): Boolean = uiState.isInLibrary == false
+
+private fun addButtonIndex(uiState: DetailsUiState): Int = when {
+    uiState.plexHandoffStream != null -> plexButtonIndex(uiState) + 1
+    uiState.collectionId != null -> 6
+    else -> 5
+}
+
 private fun handleLeft(
     section: FocusSection,
     buttonIdx: Int, episodeIdx: Int, seasonIdx: Int, castIdx: Int, reviewIdx: Int, similarIdx: Int,
@@ -1254,6 +1320,7 @@ private fun handleRight(
         FocusSection.BUTTONS -> {
             val hasCollection = uiState.collectionId != null
             val maxButton = when {
+                canDirectAdd(uiState) -> addButtonIndex(uiState)
                 uiState.plexHandoffStream != null -> plexButtonIndex(uiState)
                 hasCollection -> 5
                 else -> 4
@@ -1316,6 +1383,8 @@ private fun DetailsContent(
     seasonProgress: Map<Int, Pair<Int, Int>> = emptyMap(),
     playLabel: String? = null,
     hasPlexOption: Boolean = false,
+    canDirectAddUi: Boolean = false,
+    addButtonIdx: Int = -1,
     upcomingEpisodeLabel: String? = null,
     isPlexHandoffMode: Boolean = false,
     realTotalSeasons: Int = 0,
@@ -1653,6 +1722,17 @@ private fun DetailsContent(
                                     .weight(1f)
                                     .height(54.dp),
                                 onClick = { onButtonClick(if (hasCollectionAction) 6 else 5) }
+                            )
+                        }
+                        if (canDirectAddUi) {
+                            MobileIconActionButton(
+                                icon = Icons.Default.Add,
+                                contentDescription = "Add to library",
+                                isActive = false,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(54.dp),
+                                onClick = { onButtonClick(addButtonIdx) }
                             )
                         }
                     }

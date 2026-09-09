@@ -106,6 +106,12 @@ data class DetailsUiState(
     // resolution matches it to the Plex library, so DetailsScreen can hand off to the native
     // Plex app immediately when the toggle is on, without waiting for Play to be pressed.
     val plexHandoffStream: StreamSource? = null,
+    // null = not looked up yet. Drives the Direct Add action: shown only for something Sonarr
+    // or Radarr does not already have, since adding a title you own is meaningless and adding
+    // it twice is worse.
+    val isInLibrary: Boolean? = null,
+    val availableRules: List<com.arflix.tv.data.repository.EpiseerrRule> = emptyList(),
+    val isAdding: Boolean = false,
     // Next not-yet-available episode from Sonarr's calendar (e.g. "S3E2 · Aug 15") — shown
     // alongside the Play button so "what's next" doesn't depend on guessing watch progress.
     val upcomingEpisodeLabel: String? = null,
@@ -1155,6 +1161,57 @@ class DetailsViewModel @Inject constructor(
                     toastType = ToastType.ERROR
                 )
             }
+        }
+    }
+
+    /**
+     * Whether Sonarr/Radarr already has this title, and which rules exist for the picker.
+     *
+     * Asked after the page is already drawn — it is a round trip to Episeerr and the details are
+     * useful without it. If Episeerr never answers, isInLibrary stays null and the Add action
+     * simply does not appear, which is the safe way to be wrong.
+     */
+    fun checkLibraryStatus() {
+        val item = _uiState.value.item ?: return
+        viewModelScope.launch {
+            val owned = runCatching { episeerrRepository.libraryStatusFor(item.title) }
+                .getOrDefault(emptyMap())
+                .containsKey(item.id)
+            val rules = if (item.mediaType == MediaType.TV && !owned) {
+                runCatching { episeerrRepository.getRules() }.getOrDefault(emptyList())
+            } else emptyList()
+            _uiState.value = _uiState.value.copy(isInLibrary = owned, availableRules = rules)
+        }
+    }
+
+    /**
+     * Add this title for real — Radarr for a movie, Sonarr for a series with [ruleName] already
+     * chosen so it arrives tagged and monitored rather than parking in the pending queue. Any
+     * pending entry left from watchlisting it earlier is cleared by Episeerr as part of the add.
+     */
+    fun directAdd(ruleName: String? = null) {
+        val item = _uiState.value.item ?: return
+        if (_uiState.value.isAdding) return
+        _uiState.value = _uiState.value.copy(isAdding = true)
+        viewModelScope.launch {
+            val ok = runCatching {
+                if (item.mediaType == MediaType.MOVIE) {
+                    episeerrRepository.addMovie(item.id.toString())
+                } else {
+                    episeerrRepository.addSeries(item.id.toString(), ruleName)
+                }
+            }.getOrDefault(false)
+            _uiState.value = _uiState.value.copy(
+                isAdding = false,
+                isInLibrary = if (ok) true else _uiState.value.isInLibrary,
+                toastMessage = when {
+                    !ok -> "Couldn't add — Episeerr didn't accept it"
+                    item.mediaType == MediaType.MOVIE -> "Added to Radarr — searching now"
+                    ruleName != null -> "Added to Sonarr with rule \"$ruleName\""
+                    else -> "Added to Sonarr — pick a rule to start downloading"
+                },
+                toastType = if (ok) ToastType.SUCCESS else ToastType.ERROR,
+            )
         }
     }
 
