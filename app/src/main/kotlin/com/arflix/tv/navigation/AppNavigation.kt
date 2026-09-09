@@ -39,6 +39,7 @@ import com.arflix.tv.ui.screens.settings.SettingsScreen
 import com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel
 import com.arflix.tv.ui.screens.tv.live.LiveTvScreen
 import com.arflix.tv.ui.screens.profile.ProfileSelectionScreen
+import com.arflix.tv.ui.screens.search.SearchScreen
 import com.arflix.tv.util.LocalDeviceType
 
 /**
@@ -317,8 +318,28 @@ fun AppNavigation(
 
         // Search/Watchlist/Discover — retired, kept as harmless redirect-to-Home stubs
         // (Movies/Shows browse a live Plex poster grid in-app now — see PlexLibrary below).
+        // Was a stub that bounced straight to navigateHome(). Since the TiviMate redesign
+        // "home" IS the guide, so selecting Find navigated to Search, was redirected back to
+        // the guide, and the guide reloaded its channels — which looked exactly like Find
+        // being broken. SearchScreen itself was never removed, only unreachable.
         composable(Screen.Search.route) {
-            LaunchedEffect(Unit) { navigateHome() }
+            SearchScreen(
+                currentProfile = currentProfile,
+                onNavigateToDetails = { type, id ->
+                    navController.navigate(Screen.Details.createRoute(type, id))
+                },
+                onNavigateToCollection = { catalogId ->
+                    navController.navigate(Screen.CollectionDetails.createRoute(catalogId))
+                },
+                onNavigateToHome = { navigateHome() },
+                onNavigateToWatchlist = { navigateTopLevel(Screen.Watchlist.route) },
+                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                // Screen.Tv was folded into Home in the TiviMate redesign — the guide IS home.
+                onNavigateToTv = { navigateHome() },
+                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
+                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onBack = goBack,
+            )
         }
         composable(Screen.Watchlist.route) {
             LaunchedEffect(Unit) { navigateHome() }

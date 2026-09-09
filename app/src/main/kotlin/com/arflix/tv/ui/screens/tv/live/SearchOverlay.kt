@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.screens.tv.live
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -118,6 +119,7 @@ fun SearchOverlay(
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
     val overlayScope = rememberCoroutineScope()
+    var resultsFocused by remember { mutableStateOf(false) }
     // Retry, because a single attempt loses the race. This runs as soon as the overlay enters
     // composition, which can be before the FocusRequester's modifier has been attached — the
     // request then throws, runCatching swallows it, and focus silently stays on the guide
@@ -127,6 +129,25 @@ fun SearchOverlay(
         repeat(6) { attempt ->
             if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(if (attempt < 2) 16L else 48L)
+        }
+    }
+
+    // Back belongs to the overlay while it is open. Without this, a Back press with focus on a
+    // result row escaped to the guide's own handlers: the guide took focus back while the search
+    // panel stayed on screen, leaving a visible search box that no longer responded to anything.
+    // Two steps, matching how every other panel here behaves — out of the results first, then out
+    // of the overlay.
+    BackHandler(enabled = true) {
+        if (resultsFocused) {
+            resultsFocused = false
+            overlayScope.launch {
+                repeat(4) {
+                    if (runCatching { focusRequester.requestFocus() }.isSuccess) return@launch
+                    delay(24L)
+                }
+            }
+        } else {
+            onDismiss()
         }
     }
 
@@ -269,6 +290,7 @@ fun SearchOverlay(
                         .pointerInput(results, programResults) {
                             detectTapGestures(onTap = {
                                 if (results.isNotEmpty() || programResults.isNotEmpty()) {
+                                    resultsFocused = true
                                     runCatching { firstResultFocus.requestFocus() }
                                 }
                             })
@@ -300,6 +322,7 @@ fun SearchOverlay(
                                 ev.key == Key.DirectionDown &&
                                 (results.isNotEmpty() || programResults.isNotEmpty())
                             ) {
+                                resultsFocused = true
                                 overlayScope.launch {
                                     repeat(4) {
                                         if (runCatching { firstResultFocus.requestFocus() }.isSuccess) {
@@ -352,7 +375,7 @@ fun SearchOverlay(
                         onPick = onPick,
                         onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
                         onMoveUp = if (results.isNotEmpty() && hit.channel.id == results.first().channel.id) {
-                            { runCatching { focusRequester.requestFocus() } }
+                            { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
                         } else {
                             null
                         },
@@ -383,7 +406,7 @@ fun SearchOverlay(
                             onPick = onPick,
                             onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
                             onMoveUp = if (isFirstFocusable) {
-                                { runCatching { focusRequester.requestFocus() } }
+                                { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
                             } else {
                                 null
                             },
@@ -623,12 +646,13 @@ private fun SearchResultRow(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        // These are in the M3U already — they sit in a group that is hidden or
-                        // still marked NEW. They tune and play like any other channel. The
-                        // provider-catalogue rows below carry their own "not in your lineup"
-                        // heading and behave quite differently (ephemeral unless pinned), so
-                        // giving both the same words made two unrelated things look identical.
-                        "HIDDEN GROUP",
+                        // Names the group, because "HIDDEN GROUP" tells you a channel is out of
+                        // the lineup without telling you where to go to unhide it — and with
+                        // Tier 2 event groups that is the only thing you actually need to know.
+                        // The provider-catalogue rows below carry their own "not in your lineup"
+                        // heading and behave differently (ephemeral unless pinned), so the two
+                        // must not read the same.
+                        hit.channel.source.group.uppercase().take(22),
                         style = LiveType.Badge.copy(color = LiveColors.Accent, fontSize = 10.sp),
                         maxLines = 1,
                     )
