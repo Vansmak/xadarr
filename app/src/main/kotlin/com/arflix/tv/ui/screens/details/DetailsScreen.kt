@@ -556,7 +556,11 @@ fun DetailsScreen(
                 }
                 if (event.type == KeyEventType.KeyDown) {
                     // Check if any modal is showing
-                    if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu || uiState.showPersonModal) {
+                    // showAddRulePicker belongs here too. Without it this handler kept
+                    // consuming every D-pad press while the rule picker was open, so the picker
+                    // rendered but could not be navigated or dismissed — it looked frozen.
+                    if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu ||
+                        uiState.showPersonModal || showAddRulePicker) {
                         return@onPreviewKeyEvent false // Let the modal handle it
                     }
                     
