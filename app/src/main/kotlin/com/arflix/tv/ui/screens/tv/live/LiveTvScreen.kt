@@ -1522,7 +1522,13 @@ fun LiveTvScreen(
                         viewModel.pinProviderStream(stream)
                     }
                 },
-                onMediaSearch = { q -> viewModel.searchMedia(q) },
+                // Deliberately not wired: the guide's search is for live TV only — the channels
+                // already in the lineup, what is on them, and anything in the providers' full
+                // catalogue that can be added to it. Movies and shows belong to the Search entry
+                // in the nav rail, which searches TMDB and clicks through to Details where the
+                // watchlist and Episeerr rule paths live. Having both here duplicated that screen
+                // and pushed programme results further down a list they were already losing.
+                // (SearchOverlay's onMediaSearch defaults to empty, so the section stays hidden.)
                 onPickMedia = { media ->
                     searchOpen = false
                     onNavigateToDetails(media.mediaType, media.id)
