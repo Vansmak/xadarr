@@ -5399,7 +5399,14 @@ class HomeViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     toastMessage = when {
                         isInWatchlist -> "Removed from watchlist"
-                        plexPushOk -> "Added to watchlist — grabbing automatically"
+                        // Movies really are grabbed on the spot (Radarr add + search). TV shows
+                        // are not: Episeerr adds them to Sonarr tagged episeerr_select, which its
+                        // webhook turns into a pending selection request — nothing downloads until
+                        // a rule is chosen. Saying "grabbing automatically" for both meant a show
+                        // could sit untouched for days while the toast had promised otherwise.
+                        plexPushOk && item.mediaType == MediaType.MOVIE ->
+                            "Added to watchlist — grabbing automatically"
+                        plexPushOk -> "Added — pick a rule in Episeerr to start downloading"
                         else -> "Added to watchlist, but couldn't reach Episeerr to auto-grab it"
                     },
                     toastType = if (!isInWatchlist && !plexPushOk) ToastType.INFO else ToastType.SUCCESS
