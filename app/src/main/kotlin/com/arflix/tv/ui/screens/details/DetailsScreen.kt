@@ -722,6 +722,16 @@ fun DetailsScreen(
                                 // to whatever card is behind it.
                                 return@onPreviewKeyEvent true
                             }
+                            // Android sends a held key as repeated KeyDown events, and this
+                            // handler acts on every one of them. On the action row that meant a
+                            // press held a fraction too long fired twice — watchlisting a title
+                            // and then immediately un-watchlisting it, which reads as "Added…"
+                            // followed by "Removed" and leaves nothing behind. Only the first
+                            // event of a press counts here; the seasons long-press above still
+                            // needs repeats, so it is deliberately handled before this point.
+                            if (event.nativeKeyEvent.repeatCount > 0) {
+                                return@onPreviewKeyEvent true
+                            }
                             when (focusedSection) {
                                 FocusSection.BUTTONS -> {
                                     when (buttonIndex) {
