@@ -116,7 +116,17 @@ fun SearchOverlay(
     var mediaLoading by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    // Retry, because a single attempt loses the race. This runs as soon as the overlay enters
+    // composition, which can be before the FocusRequester's modifier has been attached — the
+    // request then throws, runCatching swallows it, and focus silently stays on the guide
+    // underneath. That is the "search opens but the D-pad is still driving the grid behind it"
+    // bug. Same pattern keepChannelFocus and openSidebar already use for the same reason.
+    LaunchedEffect(Unit) {
+        repeat(6) { attempt ->
+            if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(if (attempt < 2) 16L else 48L)
+        }
+    }
 
     // Debounce input for 150ms per spec §7.
     LaunchedEffect(query) {
