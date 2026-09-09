@@ -323,8 +323,12 @@ class MainActivity : ComponentActivity() {
             DeviceType.PHONE -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
         }
 
-        // Keep screen on during playback
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // FLAG_KEEP_SCREEN_ON is NOT set here. It used to be, unconditionally, with a comment
+        // claiming it was "during playback" — it was not scoped to playback at all and was never
+        // cleared anywhere, so the TV could not sleep for as long as Xadarr was open. Leaving the
+        // guide up meant a set that stayed on all day, which is exactly what it did.
+        //
+        // The flag is now added and removed around actual playback; see keepScreenOnWhilePlaying().
 
         // All devices use edge-to-edge (setDecorFitsSystemWindows=false).
         // TV hides the bars; mobile keeps them visible and Compose handles
@@ -839,6 +843,40 @@ fun ArflixApp(
     // Activity-scoped — survives all navigation changes. Created here (above NavHost)
     // so hiltViewModel() uses the Activity's ViewModelStoreOwner.
     val liveTvPlayerViewModel: LiveTvPlayerViewModel = hiltViewModel()
+
+    // Hold the screen awake only while something is genuinely playing — live TV via the
+    // activity-scoped player, or a VOD stream via PlayerStateHolder. Anything else (browsing the
+    // guide, a dead stream that has given up retrying, the app simply left open) lets the TV's
+    // own timeout do its job.
+    // VOD is handled by PlayerScreen itself, which holds the flag for as long as it is composed.
+    val liveIsActive by liveTvPlayerViewModel.state.collectAsState()
+    // Gated on the activity actually being resumed as well. Pressing power asks the display to
+    // sleep; a window still asserting FLAG_KEEP_SCREEN_ON fights that and the set comes straight
+    // back on. Dropping the flag the moment we stop being resumed means "off" means off, even
+    // mid-stream — and the live player is paused on the same signal just below.
+    val keepAwakeLifecycle = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+    DisposableEffect(keepAwakeLifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> isResumed = true
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> isResumed = false
+                else -> Unit
+            }
+        }
+        keepAwakeLifecycle.lifecycle.addObserver(obs)
+        onDispose { keepAwakeLifecycle.lifecycle.removeObserver(obs) }
+    }
+    val shouldKeepAwake = liveIsActive.isActive && isResumed
+    val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
+    DisposableEffect(shouldKeepAwake, keepAwakeWindow) {
+        if (shouldKeepAwake) {
+            keepAwakeWindow?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            keepAwakeWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { keepAwakeWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
 
     // Belt-and-suspenders alongside LiveTvPlayerViewModel's own ProcessLifecycleOwner observer
     // (which should already pause on backgrounding, but evidently didn't reliably in practice —

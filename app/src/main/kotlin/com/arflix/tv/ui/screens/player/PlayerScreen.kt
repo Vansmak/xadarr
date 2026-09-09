@@ -1684,6 +1684,17 @@ fun PlayerScreen(
         }
     }
 
+    // The window-level FLAG_KEEP_SCREEN_ON used to be set once in MainActivity.onCreate and never
+    // cleared, so the TV could not sleep whenever Xadarr was open. It is scoped to real playback
+    // now: this screen holds it while it is composed, and drops it on the way out.
+    val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
+    DisposableEffect(keepAwakeWindow) {
+        keepAwakeWindow?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            keepAwakeWindow?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     BackHandler(
         enabled = !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
     ) {
