@@ -117,6 +117,7 @@ fun SearchOverlay(
     var mediaLoading by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
+    val overlayScope = rememberCoroutineScope()
     // Retry, because a single attempt loses the race. This runs as soon as the overlay enters
     // composition, which can be before the FocusRequester's modifier has been attached — the
     // request then throws, runCatching swallows it, and focus silently stays on the guide
@@ -251,9 +252,19 @@ fun SearchOverlay(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
-                    contentDescription = null,
+                    contentDescription = "Go to results",
                     tint = LiveColors.FgDim,
-                    modifier = Modifier.size(20.dp),
+                    // Was decorative, which is fine until someone taps it and nothing happens.
+                    // It now does what Down does: jump from typing into the results.
+                    modifier = Modifier
+                        .size(20.dp)
+                        .pointerInput(results, programResults) {
+                            detectTapGestures(onTap = {
+                                if (results.isNotEmpty() || programResults.isNotEmpty()) {
+                                    runCatching { firstResultFocus.requestFocus() }
+                                }
+                            })
+                        },
                 )
                 BasicTextField(
                     value = query,
@@ -272,11 +283,23 @@ fun SearchOverlay(
                         .weight(1f)
                         .focusRequester(focusRequester)
                         .onPreviewKeyEvent { ev ->
+                            // Programme hits count as results too. This used to test `results`
+                            // alone — the channel list — so a query that matched only programmes
+                            // ("rams" matches NFL fixtures but no channel called Rams) left Down
+                            // doing nothing at all, trapping focus in the text field with the
+                            // matches sitting unreachable below it.
                             if (ev.type == KeyEventType.KeyDown &&
                                 ev.key == Key.DirectionDown &&
-                                results.isNotEmpty()
+                                (results.isNotEmpty() || programResults.isNotEmpty())
                             ) {
-                                runCatching { firstResultFocus.requestFocus() }
+                                overlayScope.launch {
+                                    repeat(4) {
+                                        if (runCatching { firstResultFocus.requestFocus() }.isSuccess) {
+                                            return@launch
+                                        }
+                                        delay(24L)
+                                    }
+                                }
                                 true
                             } else {
                                 false
@@ -342,11 +365,25 @@ fun SearchOverlay(
                         // appear several times here when it is showing more than one match.
                         key = { hit -> "prog:${hit.channel.id}:${hit.matchedProgram?.startUtcMillis ?: 0L}" },
                     ) { hit ->
+                        // When nothing matched on channel name, the programmes are the whole
+                        // result set, so the first of them has to be what Down from the text
+                        // field lands on. Without this the focus requester was attached to a row
+                        // that did not exist and the request silently failed.
+                        val isFirstFocusable = results.isEmpty() && hit == programResults.first()
                         SearchResultRow(
                             hit = hit,
                             onPick = onPick,
                             onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
-                            onMoveUp = null,
+                            onMoveUp = if (isFirstFocusable) {
+                                { runCatching { focusRequester.requestFocus() } }
+                            } else {
+                                null
+                            },
+                            modifier = if (isFirstFocusable) {
+                                Modifier.focusRequester(firstResultFocus)
+                            } else {
+                                Modifier
+                            },
                         )
                     }
                 }
