@@ -113,6 +113,7 @@ fun SearchOverlay(
     var remoteResults by remember { mutableStateOf<List<RawProviderStream>>(emptyList()) }
     var remoteLoading by remember { mutableStateOf(false) }
     var mediaResults by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var programResults by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var mediaLoading by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
@@ -167,6 +168,7 @@ fun SearchOverlay(
         if (q.isEmpty()) {
             // Show the first 60 by default — gives a preview list users can scroll.
             results = channels.take(60).map { SearchHit(it, isOffLineup = it.source.group in offLineupGroups) }
+            programResults = emptyList()
             return@LaunchedEffect
         }
         results = withContext(Dispatchers.Default) {
@@ -197,6 +199,27 @@ fun SearchOverlay(
                     SearchHit(ch, program, ch.source.group in offLineupGroups)
                 }
                 .take(200)
+                .toList()
+        }
+        // Programmes get their own list rather than competing for the single slot each channel
+        // was allowed. Before this, a channel could only ever contribute one result, and a name
+        // match always outscored a programme match (500 vs 380) — so searching a sport or a show
+        // filled the list with channels whose *names* matched and buried what was actually on.
+        // A channel can now surface several programmes, and they are ordered by start time,
+        // because "what is on soonest" is the useful ordering for a guide.
+        programResults = withContext(Dispatchers.Default) {
+            channels.asSequence()
+                .flatMap { ch ->
+                    val nn = nowNext[ch.id]
+                    sequenceOf(nn?.now, nn?.next, nn?.later)
+                        .plus(nn?.upcoming.orEmpty())
+                        .filterNotNull()
+                        .filter { it.title.lowercase().contains(q) }
+                        .distinctBy { p -> p.title to p.startUtcMillis }
+                        .map { prog -> SearchHit(ch, prog, ch.source.group in offLineupGroups) }
+                }
+                .sortedBy { hit -> hit.matchedProgram?.startUtcMillis ?: Long.MAX_VALUE }
+                .take(80)
                 .toList()
         }
     }
@@ -304,6 +327,28 @@ fun SearchOverlay(
                         },
                         modifier = focusMod,
                     )
+                }
+                if (programResults.isNotEmpty()) {
+                    item(key = "program-header") {
+                        Text(
+                            text = "ON NOW & COMING UP",
+                            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                            modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(
+                        programResults,
+                        // Keyed on the programme, not the channel: one channel can legitimately
+                        // appear several times here when it is showing more than one match.
+                        key = { hit -> "prog:${hit.channel.id}:${hit.matchedProgram?.startUtcMillis ?: 0L}" },
+                    ) { hit ->
+                        SearchResultRow(
+                            hit = hit,
+                            onPick = onPick,
+                            onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
+                            onMoveUp = null,
+                        )
+                    }
                 }
                 if (remoteSearchAvailable && debounced.length >= 2) {
                     item(key = "remote-header") {

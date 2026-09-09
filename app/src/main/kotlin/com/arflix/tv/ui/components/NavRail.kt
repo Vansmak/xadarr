@@ -92,7 +92,10 @@ private fun sectionLabelFor(entry: NavSectionConfig): String? = when {
 }
 
 private fun NavSectionKind.toRailLabel(): String = when (this) {
-    NavSectionKind.SEARCH -> "Search"
+    // "Find", not "Search", to distinguish it from the search inside the Live TV guide. That one
+    // is EPG: channels and what is on them. This one is for movies and shows — whether or not
+    // they are in the library yet — and leads to adding them.
+    NavSectionKind.SEARCH -> "Find"
     NavSectionKind.HOME -> "Home"
     NavSectionKind.DISCOVER -> "Discover"
     NavSectionKind.TV -> "Guide"
