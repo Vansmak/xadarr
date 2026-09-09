@@ -214,9 +214,25 @@ fun EpgGrid(
         } else anchorIdx
         if (safeIdx < 0) return true
         val nextIdx = safeIdx + delta
-        if (nextIdx < 0 && delta < 0) {
-            if (delta < -1) return keepChannelFocus(0) // page scroll near top — clamp, don't exit
+        val lastIdx = channels.lastIndex
+
+        // Single steps wrap around the ends. Both edges used to be dead stops — Up on the first
+        // channel called onMoveUpFromTopOfChannels(), which LiveTvScreen passes as {}, and Down
+        // past the last row fell through to getOrNull() and silently did nothing. Surfing a
+        // category therefore hit an invisible wall at each end, and getting from the top back to
+        // the bottom meant holding Down through every channel in between.
+        //
+        // Page jumps still clamp: overshooting by five and landing at the far end of the list is
+        // disorienting in a way that stepping by one is not.
+        if (nextIdx < 0) {
+            if (delta < -1) return keepChannelFocus(0)
+            if (lastIdx >= 0) return keepChannelFocus(lastIdx)
             onMoveUpFromTopOfChannels()
+            return true
+        }
+        if (nextIdx > lastIdx) {
+            if (delta > 1) return keepChannelFocus(lastIdx)
+            if (lastIdx >= 0) return keepChannelFocus(0)
             return true
         }
         return keepChannelFocus(nextIdx)
