@@ -92,6 +92,36 @@ class LiveTvPlayerViewModel @Inject constructor(
 
     private var errorRetryJob: Job? = null
     private var errorRetryCount = 0
+    private var stallJob: Job? = null
+
+    /**
+     * Give up on a stream that buffers forever, and let the device sleep.
+     *
+     * A dead IPTV stream does not always raise a PlaybackException — often it simply sits in
+     * STATE_BUFFERING indefinitely. That state is neither idle nor playing: ExoPlayer keeps its
+     * wake lock, the mini-player still reports isActive, and the error-retry path never fires
+     * because no error ever arrives. Nothing releases anything.
+     *
+     * It shows up after the Shield is cast to. Casting backgrounds Xadarr and pauses the live
+     * player; when the cast ends and Xadarr returns, resumeIfActive() plays a stream that may be
+     * many minutes stale, which buffers rather than fails. A Shield was found holding the wake
+     * lock for over two hours this way with nothing on screen, and the TV could not be turned off.
+     *
+     * Ninety seconds is far longer than any real rebuffer on this setup and short enough that a
+     * set left in that state does not stay awake all night.
+     */
+    private fun watchStall(playbackState: Int) {
+        stallJob?.cancel()
+        if (playbackState != Player.STATE_BUFFERING || !_state.value.isActive) return
+        stallJob = viewModelScope.launch {
+            delay(90_000L)
+            if (player.playbackState == Player.STATE_BUFFERING && _state.value.isActive) {
+                player.stop()
+                player.clearMediaItems()
+                _state.value = MiniPlayerState(isActive = false)
+            }
+        }
+    }
 
     // Dispatcharr-proxied streams occasionally hiccup mid-stream (provider failover,
     // brief connection reset on the restream). Without this, ExoPlayer surfaces a
@@ -101,6 +131,7 @@ class LiveTvPlayerViewModel @Inject constructor(
     private val errorRecoveryListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) errorRetryCount = 0
+            watchStall(playbackState)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -221,6 +252,7 @@ class LiveTvPlayerViewModel @Inject constructor(
     /** Stop playback and clear state (e.g. before a VOD or camera player opens). */
     fun dismiss() {
         errorRetryJob?.cancel()
+        stallJob?.cancel()
         player.stop()
         player.clearMediaItems()
         _state.value = MiniPlayerState(isActive = false)
@@ -228,6 +260,7 @@ class LiveTvPlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         errorRetryJob?.cancel()
+        stallJob?.cancel()
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         player.release()
         super.onCleared()
