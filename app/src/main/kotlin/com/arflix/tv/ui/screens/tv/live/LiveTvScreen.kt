@@ -1036,6 +1036,7 @@ fun LiveTvScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     EpgGrid(
+                        focusSuspended = searchOpen,
                         channels = filteredChannels,
                         clockTickMillis = guideClockMillis,
                         nowNext = state.snapshot.nowNext,
@@ -1103,6 +1104,7 @@ fun LiveTvScreen(
                         },
                     )
                     EpgGrid(
+                        focusSuspended = searchOpen,
                             channels = filteredChannels,
                             clockTickMillis = guideClockMillis,
                             nowNext = state.snapshot.nowNext,

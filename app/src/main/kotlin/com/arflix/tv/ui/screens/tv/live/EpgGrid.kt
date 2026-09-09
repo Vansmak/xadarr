@@ -91,6 +91,12 @@ fun EpgGrid(
     favorites: Set<String>,
     compact: Boolean = false,
     gridFocused: Boolean = false,
+    // True while something is layered over the guide (the search overlay). The focus-restoring
+    // effects below re-assert repeatedly by design, to outlast the sidebar's exit animation —
+    // which means that when an EPG merge hands them a new `channels` reference while an overlay
+    // is open, they drag focus back out of it. Suspending them is the only way an overlay can
+    // reliably hold focus, short of unmounting the grid.
+    focusSuspended: Boolean = false,
     onMoveLeftFromChannels: () -> Unit = {},
     onMoveUpFromTopOfChannels: () -> Unit = {},
     onEnterEpg: (EnrichedChannel) -> Unit = {},
@@ -252,6 +258,7 @@ fun EpgGrid(
     }
 
     LaunchedEffect(focusSelectedChannelSignal, selectedChannelId, channels) {
+        if (focusSuspended) return@LaunchedEffect
         if (focusSelectedChannelSignal == 0) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect
         val idx = channels.indexOfFirst { it.id == id }
@@ -288,6 +295,7 @@ fun EpgGrid(
     }
 
     LaunchedEffect(focusEpgSignal, selectedChannelId, channels, windowStartMillis) {
+        if (focusSuspended) return@LaunchedEffect
         if (focusEpgSignal == 0) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect
         val idx = channels.indexOfFirst { it.id == id }
