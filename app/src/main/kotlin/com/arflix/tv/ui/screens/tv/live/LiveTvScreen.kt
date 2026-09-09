@@ -259,7 +259,7 @@ fun LiveTvScreen(
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
         val snapshot = state.snapshot.channels +
-            pinnedProviderChannels.map { it.toIptvChannel() } +
+            pinnedProviderChannels.map { it.toIptvChannel(PinnedChannelsGroup) } +
             listOfNotNull(ephemeralSearchPick)
         if (snapshot.isEmpty()) {
             enrichedState.value = EnrichedChannels.Empty
@@ -1605,11 +1605,23 @@ fun LiveTvScreen(
 
 /** State bundle of the enriched channel list + category tree. */
 /** A pinned full-provider search result, as an ordinary playable channel in the guide. */
-fun RawProviderStream.toIptvChannel(): IptvChannel = IptvChannel(
+const val PinnedChannelsGroup = "Pinned"
+
+/**
+ * [groupOverride] exists for pinned channels. A raw provider stream carries the group it has in
+ * the provider's catalogue, which is almost always one that is hidden here — that is *why* the
+ * channel was not in the lineup. Pinning it while keeping that group therefore filed it straight
+ * back into a hidden group, where it could not be found again, which rather defeats pinning.
+ *
+ * Pinned channels go to their own group instead. It never appears in the M3U, so the auto-hide
+ * that catches genuinely new provider groups leaves it alone, and it stays visible until the
+ * channel is unpinned.
+ */
+fun RawProviderStream.toIptvChannel(groupOverride: String? = null): IptvChannel = IptvChannel(
     id = id,
     name = name,
     streamUrl = streamUrl,
-    group = group,
+    group = groupOverride ?: group,
     logo = logo,
     epgId = tvgId,
 )

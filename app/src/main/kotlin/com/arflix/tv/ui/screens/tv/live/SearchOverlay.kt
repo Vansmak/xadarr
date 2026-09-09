@@ -623,7 +623,12 @@ private fun SearchResultRow(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        "NOT IN LINEUP",
+                        // These are in the M3U already — they sit in a group that is hidden or
+                        // still marked NEW. They tune and play like any other channel. The
+                        // provider-catalogue rows below carry their own "not in your lineup"
+                        // heading and behave quite differently (ephemeral unless pinned), so
+                        // giving both the same words made two unrelated things look identical.
+                        "HIDDEN GROUP",
                         style = LiveType.Badge.copy(color = LiveColors.Accent, fontSize = 10.sp),
                         maxLines = 1,
                     )
