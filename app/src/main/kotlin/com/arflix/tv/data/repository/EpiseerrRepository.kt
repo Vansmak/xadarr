@@ -139,6 +139,52 @@ class EpiseerrRepository @Inject constructor(
         }
     }
 
+    /**
+     * Add a series to Sonarr, optionally with the rule already chosen.
+     *
+     * With [ruleName] the series arrives tagged, monitored and searched per that rule, and any
+     * pending-selection entry left over from watchlisting it earlier is cleared server-side.
+     * Without one, Episeerr falls back to its own flow and parks it as a pending request.
+     */
+    suspend fun addSeries(tmdbId: String, ruleName: String? = null): Boolean = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext false }
+        try {
+            val payload = JSONObject().apply {
+                put("tmdb_id", tmdbId)
+                ruleName?.takeIf { it.isNotBlank() }?.let { put("rule_name", it) }
+            }.toString()
+            val req = Request.Builder()
+                .url("$base/api/sonarr/add-series")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            JSONObject(body).optBoolean("success", false)
+        } catch (e: Exception) {
+            Log.d(tag, "addSeries failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Add a movie to Radarr. Quality profile and root folder are resolved by Episeerr — it picks
+     * Joe's everyday profile by name, so nothing here has to know Radarr's ids or guess at them.
+     */
+    suspend fun addMovie(tmdbId: String): Boolean = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext false }
+        try {
+            val payload = JSONObject().put("tmdb_id", tmdbId).toString()
+            val req = Request.Builder()
+                .url("$base/api/radarr/add-movie")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            JSONObject(body).optBoolean("success", false)
+        } catch (e: Exception) {
+            Log.d(tag, "addMovie failed: ${e.message}")
+            false
+        }
+    }
+
     suspend fun assignRule(tmdbId: String, ruleName: String): Boolean = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext false }
         try {
