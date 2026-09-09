@@ -215,7 +215,15 @@ fun SearchOverlay(
                     sequenceOf(nn?.now, nn?.next, nn?.later)
                         .plus(nn?.upcoming.orEmpty())
                         .filterNotNull()
-                        .filter { it.title.lowercase().contains(q) }
+                        // Description as well as title. Sports channels in this lineup title
+                        // their entries generically — "Game Today", "No Game Today" — and put
+                        // the fixture in the description ("San Francisco 49ers @ Los Angeles
+                        // Rams on 2026-09-10..."). Matching titles alone meant searching a team
+                        // found the odd channel named after it and missed every actual game.
+                        .filter { prog ->
+                            prog.title.lowercase().contains(q) ||
+                                prog.description?.lowercase()?.contains(q) == true
+                        }
                         .distinctBy { p -> p.title to p.startUtcMillis }
                         .map { prog -> SearchHit(ch, prog, ch.source.group in offLineupGroups) }
                 }

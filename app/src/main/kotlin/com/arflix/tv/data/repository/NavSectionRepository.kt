@@ -35,7 +35,13 @@ class NavSectionRepository @Inject constructor(
     // redesign (Home IS the guide now; Movies/Shows launch Plex directly, no
     // in-app TMDB browsing/search) — excluding them here stops the upgrade-merge
     // path below from ever re-adding them to a profile that doesn't have them.
-    private val retiredKinds = setOf(NavSectionKind.HOME, NavSectionKind.SEARCH, NavSectionKind.DISCOVER)
+    // SEARCH is back, as "Find". The TiviMate redesign retired it along with HOME and DISCOVER,
+    // and because the retirement is enforced on *read* — not merely omitted from the defaults —
+    // any SEARCH entry was stripped out of a profile's stored sections every time they were
+    // loaded. Adding one to the settings blob therefore looked like it worked and then quietly
+    // disappeared: the app deleted it on read and pushed the filtered list back to the server.
+    // Its screen was never removed, only unreachable.
+    private val retiredKinds = setOf(NavSectionKind.HOME, NavSectionKind.DISCOVER)
     private val fixedKinds = NavSectionKind.entries.filter { it != NavSectionKind.CUSTOM && it !in retiredKinds }
 
     // Kept for backward-compat parsing of pre-redesign persisted profiles; no
