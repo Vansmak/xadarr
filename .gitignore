@@ -12,3 +12,6 @@ __pycache__/
 *.pyc
 xadarr-server/data/
 xadarr-server/__pycache__/
+
+# session scratch / probe output
+deeplink_results.json

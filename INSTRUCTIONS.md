@@ -1,5 +1,10 @@
 # Xadarr — Setup Guide
 
+> **My own setup notes.** Xadarr is a personal build that depends on my infrastructure —
+> Episeerr, Dispatcharr, Frigate, Home Assistant, an HDHomeRun. This guide is how *I* bring a
+> new device up, not a supported installation path for anyone else. See the notice at the top
+> of [README.md](README.md).
+
 ## Install APK
 
 1. Enable **Install from unknown sources** in your device settings.

@@ -1,9 +1,20 @@
 # Xadarr
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
-
-[![GitHub Stars](https://img.shields.io/github/stars/vansmak/xadarr)](https://github.com/Vansmak/xadarr/stargazers)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-orange)](https://buymeacoffee.com/vansmak)
+> **This is a personal build, not a product. It is not meant for anyone else to install.**
+>
+> Xadarr is wired directly into my own infrastructure: **Episeerr** for rules, pending
+> selections and watch tracking, **Dispatcharr** for IPTV, **Frigate** for cameras, **Home
+> Assistant** for the smart-home and remote screens, and an **HDHomeRun** for OTA locals.
+> Entire features assume those services exist, at my addresses, with my channel numbering, my
+> lineup, and my hardcoded stream IDs. Nothing here is designed to degrade gracefully without
+> them — several screens simply return errors.
+>
+> There are no supported releases, no install support, and no issue tracker I'm watching. I'm
+> not taking bug reports or feature requests.
+>
+> The repo is public because the code is Apache 2.0 and forked from Arvio — not because it's
+> something to adopt. Read it, copy from it, fork it, but expect to rewrite the integration
+> layer for your own setup. **Everything below is documentation written for me.**
 
 ---
 
@@ -27,25 +38,11 @@ It is not Sonarr or Radarr. It does not download, manage, or automate anything. 
 
 ---
 
-## How it is different
+## Sync model
 
-Most Android TV media apps are single-device. You configure IPTV on one TV, set up your server on another, and nothing talks to anything else. Xadarr treats every device as equal: your watchlist, your IPTV favorites, your server connections, your catalogue layout, your settings — all of it follows you.
-
-| | Xadarr | Typical media app |
-|---|---|---|
-| Sync across devices | Yes, automatic | No |
-| Self-hosted sync server | Optional (not required) | N/A |
-| LAN peer-to-peer sync | Yes | No |
-| Cloud account required | No | Often yes |
-| Multiple source types | Jellyfin, Emby, Plex, IPTV, add-ons | Usually one |
-| Browser web UI | Yes (same layout as TV app) | Rarely |
-| Launcher capable | Yes | No |
-
-Xadarr does not compete with Sonarr, Radarr, or Jellyfin. It sits in front of them — the screen you actually use.
-
----
-
-## Quick start
+Every surface is equal: TV APK, mobile APK, xadarr-server web UI, and the Episeerr-embedded
+web UI all share one settings blob. Watchlist, IPTV favourites, server connections, catalogue
+layout — a change on any one shows up on the others.
 
 ### No server, same network
 
@@ -55,9 +52,11 @@ Install the APK on two devices. Enable **LAN Sync** in Settings → Network on e
 
 In Settings → Accounts → Google Drive Sync, connect a Google account. Settings back up to your Drive app folder (private, not shared). Restore on a new device by connecting the same account.
 
-### Self-hosted (recommended for power users)
+### Self-hosted
 
-Run the sync server. It stores your full settings and serves a browser UI.
+My own setup uses **Episeerr** as the sync server, not xadarr-server — same routes under
+`/api/integration/xadarr/`. xadarr-server is the standalone alternative and is what this
+compose block runs.
 
 ```yaml
 services:
@@ -79,14 +78,16 @@ Web UI at `http://your-server:7979` — same Home, Discover, Cameras, and Settin
 
 ## Install
 
-Download the latest APK from [Releases](https://github.com/Vansmak/xadarr/releases) and sideload to your Android\Google TV device. Fire TV device not tested.
+My own path — build, then copy to the share the TV boxes read from:
 
-**Downloader app URL:**
-```
-https://github.com/Vansmak/xadarr/releases/latest/download/xadarr-latest.apk
+```bash
+./gradlew :app:installSideloadDebug
+cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk /mnt/usbshare/xadarr-latest.apk
 ```
 
-The app checks for updates itself. Settings → Accounts → App Update.
+The app has a self-update check at Settings → Accounts → App Update, pointed at this repo's
+releases. Releases are for my own devices; they assume Episeerr, Dispatcharr and the rest are
+reachable, and are not built or tested for anyone else's setup.
 
 ---
 
@@ -268,11 +269,12 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 
 ## Support
 
-This project was built with significant AI assistance. I designed the architecture and features; AI helped write the code. Use it or don't — no argument here.
+There isn't any. This is a personal build for my own house, and I'm not maintaining it as a
+project for other people — no install help, no bug reports, no feature requests, no promises
+that any commit leaves it in a working state.
 
-If it saves you time and you want to see it maintained:
-
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
+Built with significant AI assistance: I designed the architecture and features, AI wrote much
+of the code.
 
 ---
 

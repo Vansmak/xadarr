@@ -82,6 +82,12 @@
 -keepattributes *Annotation*
 -keep class com.google.gson.** { *; }
 -keep class com.arflix.tv.data.model.** { *; }
+# Gson-serialised classes also live outside data.model — HomeServerConnection and
+# HomeServerProfileConfig (HomeServerRepository), IptvCloudProfileState and IptvPlaylistEntry
+# (IptvRepository), EpiseerrPendingItem/EpiseerrRule, RawProviderStream. R8 renames their fields,
+# so gson.fromJson quietly produces objects with every field null/0 rather than failing loudly,
+# and the first minified build could not restore settings from the sync server at all.
+-keep class com.arflix.tv.data.repository.** { *; }
 -keep class com.arflix.tv.data.api.** { *; }
 
 # Keep generic type information for Gson
