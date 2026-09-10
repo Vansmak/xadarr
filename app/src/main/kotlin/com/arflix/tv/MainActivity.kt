@@ -880,6 +880,14 @@ fun ArflixApp(
         KeepAwake.request(keepAwakeWindow, KeepAwake.TAG_LIVE_TV, shouldKeepAwake)
         onDispose { KeepAwake.release(keepAwakeWindow, KeepAwake.TAG_LIVE_TV) }
     }
+    // Independent of playback: the screen must not sleep or daydream just because you're sitting
+    // on the guide or a menu with nothing playing, the way it never did before playback-scoping
+    // existed. Tracks isResumed rather than shouldKeepAwake so it still releases the moment the
+    // app is actually left (Home, another app) — not the original bug, which never released.
+    DisposableEffect(isResumed, keepAwakeWindow) {
+        KeepAwake.setForeground(keepAwakeWindow, isResumed)
+        onDispose { KeepAwake.setForeground(keepAwakeWindow, false) }
+    }
 
     // Belt-and-suspenders alongside LiveTvPlayerViewModel's own ProcessLifecycleOwner observer
     // (which should already pause on backgrounding, but evidently didn't reliably in practice —
