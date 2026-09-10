@@ -849,7 +849,10 @@ fun ArflixApp(
     // guide, a dead stream that has given up retrying, the app simply left open) lets the TV's
     // own timeout do its job.
     // VOD is handled by PlayerScreen itself, which holds the flag for as long as it is composed.
-    val liveIsActive by liveTvPlayerViewModel.state.collectAsState()
+    // This tracks whether the live player is actually rendering — not MiniPlayerState.isActive,
+    // which describes the mini-player tile and is not set during full-screen viewing in the
+    // guide. Keying off isActive let the screensaver appear mid-programme.
+    val liveIsPlaying by liveTvPlayerViewModel.isPlaying.collectAsState()
     // Gated on the activity actually being resumed as well. Pressing power asks the display to
     // sleep; a window still asserting FLAG_KEEP_SCREEN_ON fights that and the set comes straight
     // back on. Dropping the flag the moment we stop being resumed means "off" means off, even
@@ -867,7 +870,7 @@ fun ArflixApp(
         keepAwakeLifecycle.lifecycle.addObserver(obs)
         onDispose { keepAwakeLifecycle.lifecycle.removeObserver(obs) }
     }
-    val shouldKeepAwake = liveIsActive.isActive && isResumed
+    val shouldKeepAwake = liveIsPlaying && isResumed
     val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
     DisposableEffect(shouldKeepAwake, keepAwakeWindow) {
         if (shouldKeepAwake) {

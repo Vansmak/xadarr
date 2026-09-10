@@ -53,6 +53,17 @@ class LiveTvPlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(MiniPlayerState())
     val state: StateFlow<MiniPlayerState> = _state.asStateFlow()
 
+    /**
+     * Whether the live player is genuinely rendering, straight from ExoPlayer.
+     *
+     * MainActivity keeps the screen awake off this rather than off MiniPlayerState.isActive.
+     * `isActive` describes the mini-player tile, and full-screen viewing in the guide drives the
+     * same player without necessarily setting it — so keying the screen-on flag to it let the
+     * screensaver come up while a channel was playing.
+     */
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
     private val iptvHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
         .followRedirects(true)
@@ -132,6 +143,10 @@ class LiveTvPlayerViewModel @Inject constructor(
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) errorRetryCount = 0
             watchStall(playbackState)
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _isPlaying.value = isPlaying
         }
 
         override fun onPlayerError(error: PlaybackException) {
