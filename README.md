@@ -20,21 +20,45 @@
 
 XADAR stands for X-Ray Detection and Ranging — a real detection technology in the same family as radar (radio), sonar (sound), and lidar (light). The *arr ecosystem has always played on that naming lineage. Where those tools locate things in the physical world, Xadarr locates your media: finding it across every source you own, surfacing it on any screen, and keeping everything in sync across every device you pick up.
 
-It is not Sonarr or Radarr. It does not download, manage, or automate anything. It is a media hub — a single place to browse and play from Jellyfin, Emby, Plex, IPTV playlists, and streaming add-ons, with everything staying in sync.
+In practice it is **a TiviMate-style live TV experience with my own Plex libraries built in
+where the add-on VOD used to be, plus a find-and-add tool on the front.** Live TV is not a
+section of the app — it *is* the app's home screen. Films and shows come from my own server
+rather than scraped streaming catalogues. And anything I can't already watch, I can search for
+and add from the couch: to the channel lineup, or to the library.
+
+It is not Sonarr or Radarr — it doesn't download or manage anything itself. It's the screen in
+front of them.
 
 ---
 
 ## What it does
 
-- Browse and stream from **Jellyfin, Emby, Plex**, and IPTV (M3U, Xtream, Stalker)
-- **Watchlist, continue watching, and settings sync** across all your devices — automatically, over your local network or via Google Drive
-- **No cloud account required for sync.** LAN peer-to-peer and xadarr-server work with no account at all. Google Drive sync optionally uses a Google account already on the device.
-- **Live TV** with a fullscreen EPG overlay guide, a slide-in category sidebar (D-pad Left to open, D-pad Right to dismiss), channel favourites with sort options, last-channel return (D-pad Right while watching), and a picture-in-picture mini-player that keeps your stream alive when you navigate away from the guide
-- **Trakt integration** — watchlist and continue-watching per profile
-- **In-app notifications** — toast alerts from Sonarr, Radarr, Jellyfin, or any service that supports webhooks; shows on screen wherever you are in the app
-- **Frigate camera grid** — snapshot thumbnails and live HLS streams from your Frigate instance
-- **Webhook system** — POST playback and watchlist events to any HTTP endpoint (Episeerr, Home Assistant, n8n, anything)
-- **Launcher mode** — with a launcher app such as Projectivity, Xadarr can replace your Android TV home screen entirely
+**Live TV first.** The home screen is the guide, the way TiviMate does it: video fullscreen
+underneath, EPG sliding up over it, category sidebar on a D-pad Left. Favourites, last-channel
+return, hold-to-scroll through long channel lists, wrap-around at the ends, and a
+picture-in-picture tile that keeps the stream alive when you walk off to another screen.
+Channel favourites are anchored to names rather than numbers, so a lineup renumber can't
+repoint them at something else.
+
+**Plex is the VOD layer.** Instead of add-on catalogues, the Movies and Shows rows are my own
+Plex libraries — poster grids, Continue Watching, New Episodes, Premiering, and Upcoming rows
+built from what Episeerr and Sonarr actually know about my library, not from a public trending
+feed. Watchlist reads the real Plex watchlist. Jellyfin and Emby still work as sources; Plex is
+just what I point it at.
+
+**Find — search and add.** One search across TMDB and my own library: play it if I have it,
+add it if I don't. Movies go straight to Radarr on my 4K profile; shows go through an Episeerr
+rule picker so I choose what gets grabbed. Adding never happens silently — watchlisting queues
+a pending selection instead, so I stay in control of what lands on disk. The guide has its own
+separate search for EPG and channels, including programmes that aren't in the lineup yet.
+
+**Everything else it grew into:** Frigate camera grid with live HLS, a Home Assistant smart-home
+screen, a universal remote that can drive another Xadarr device or a TV over HA, Episeerr toasts
+(episode grabbed, ready, rule triggered, stream failover) anywhere in the app, a home-screen
+activity widget, and launcher mode so it can replace the Android TV home screen outright.
+
+**Sync across every surface** — TV, mobile, and web all share one settings blob, over the LAN
+or through the sync server. No cloud account involved.
 
 ---
 
@@ -105,7 +129,8 @@ Add an M3U playlist URL or Xtream credentials. Up to three playlists. EPG is loa
 Stremio-compatible add-on URLs. Add as many as you need.
 
 **Trakt** (Settings → Accounts)
-Device-code auth. Once connected, watchlist and continue watching sync through Trakt per profile.
+Device-code auth, still present, but **not what I use** — my watchlist comes from Plex via
+Episeerr, and the Trakt reconcile path only runs when Plex isn't configured.
 
 ---
 
@@ -156,7 +181,10 @@ Configure in Settings → Plugins & Extensions. Multiple URLs, each with indepen
 | Home Assistant | `http://homeassistant.local:8123/api/webhook/your-id` |
 | n8n | `http://your-n8n:5678/webhook/your-path` |
 
-**Automatic downloads via Trakt:** Connect Trakt in Settings → Accounts. Radarr and Sonarr can monitor your Trakt watchlist natively — anything you add in Xadarr flows through to your download stack automatically, no extra configuration needed.
+**Adding to the library:** in my setup this goes through Episeerr, not Trakt — Find's `+` calls
+Radarr directly for films and hands shows to an Episeerr rule, and watchlisting queues a pending
+selection rather than grabbing anything. Trakt-watchlist monitoring in Radarr/Sonarr is the
+alternative if you have no Episeerr.
 
 `progress` fires at a configurable interval (default 30 s). No retry on failure.
 
