@@ -72,6 +72,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.content.pm.ActivityInfo
 import com.arflix.tv.util.DeviceType
+import com.arflix.tv.util.KeepAwake
 import com.arflix.tv.util.DEVICE_MODE_OVERRIDE_KEY
 import com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY
 import com.arflix.tv.util.OLED_BLACK_BACKGROUND_KEY
@@ -872,13 +873,12 @@ fun ArflixApp(
     }
     val shouldKeepAwake = liveIsPlaying && isResumed
     val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
+    // Goes through KeepAwake rather than touching the window directly: PlayerScreen holds the
+    // same flag for VOD, and clearing it here on liveIsPlaying=false used to kill the screen-on
+    // guarantee for a film that had just started (opening the player dismisses the live player).
     DisposableEffect(shouldKeepAwake, keepAwakeWindow) {
-        if (shouldKeepAwake) {
-            keepAwakeWindow?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            keepAwakeWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        onDispose { keepAwakeWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        KeepAwake.request(keepAwakeWindow, KeepAwake.TAG_LIVE_TV, shouldKeepAwake)
+        onDispose { KeepAwake.release(keepAwakeWindow, KeepAwake.TAG_LIVE_TV) }
     }
 
     // Belt-and-suspenders alongside LiveTvPlayerViewModel's own ProcessLifecycleOwner observer

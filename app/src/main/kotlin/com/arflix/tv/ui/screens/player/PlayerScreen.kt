@@ -1689,9 +1689,13 @@ fun PlayerScreen(
     // now: this screen holds it while it is composed, and drops it on the way out.
     val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
     DisposableEffect(keepAwakeWindow) {
-        keepAwakeWindow?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        com.arflix.tv.util.KeepAwake.request(
+            keepAwakeWindow, com.arflix.tv.util.KeepAwake.TAG_PLAYER, true
+        )
         onDispose {
-            keepAwakeWindow?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            com.arflix.tv.util.KeepAwake.release(
+                keepAwakeWindow, com.arflix.tv.util.KeepAwake.TAG_PLAYER
+            )
         }
     }
 
