@@ -542,6 +542,21 @@ class MainActivity : ComponentActivity() {
             wasInBackground = false
             navigateHomeSignal.value++
         }
+        // Direct Activity lifecycle, not a Compose DisposableEffect: the effect-based version
+        // (KeepAwake.setForeground, keyed on a Compose isResumed flag) still let the screen sleep
+        // and the daydream launch mid-movie on 2026-09-10 — a real device, ExoPlayer actively
+        // playing, zero MediaSession registered, then a genuine "Going to sleep due to timeout"
+        // a few minutes later. Whatever the exact recomposition/ordering gap was, it's not worth
+        // re-diagnosing under a Compose effect when the platform gives a plain, unraceable
+        // onResume/onPause pair that can't be skipped by a stale key or a lost recomposition.
+        // This is deliberately the same behavior as before screen-on was ever scoped to
+        // playback: held for as long as Xadarr is open, released the moment it isn't.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onStop() {
@@ -873,20 +888,13 @@ fun ArflixApp(
     }
     val shouldKeepAwake = liveIsPlaying && isResumed
     val keepAwakeWindow = (LocalContext.current as? android.app.Activity)?.window
-    // Goes through KeepAwake rather than touching the window directly: PlayerScreen holds the
-    // same flag for VOD, and clearing it here on liveIsPlaying=false used to kill the screen-on
-    // guarantee for a film that had just started (opening the player dismisses the live player).
+    // Only feeds KeepAwake's MediaSession now (the STATE_PLAYING signal that keeps Android TV's
+    // own daydream suppressed) — the window flag itself is owned unconditionally by onResume/
+    // onPause above, not by this effect, after the Compose-effect version of "hold while open"
+    // failed live during real playback on 2026-09-10.
     DisposableEffect(shouldKeepAwake, keepAwakeWindow) {
         KeepAwake.request(keepAwakeWindow, KeepAwake.TAG_LIVE_TV, shouldKeepAwake)
         onDispose { KeepAwake.release(keepAwakeWindow, KeepAwake.TAG_LIVE_TV) }
-    }
-    // Independent of playback: the screen must not sleep or daydream just because you're sitting
-    // on the guide or a menu with nothing playing, the way it never did before playback-scoping
-    // existed. Tracks isResumed rather than shouldKeepAwake so it still releases the moment the
-    // app is actually left (Home, another app) — not the original bug, which never released.
-    DisposableEffect(isResumed, keepAwakeWindow) {
-        KeepAwake.setForeground(keepAwakeWindow, isResumed)
-        onDispose { KeepAwake.setForeground(keepAwakeWindow, false) }
     }
 
     // Belt-and-suspenders alongside LiveTvPlayerViewModel's own ProcessLifecycleOwner observer
