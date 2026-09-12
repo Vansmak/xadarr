@@ -64,6 +64,14 @@ fun EpiseerrWebviewScreen(
                         )
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        // Some sites (Discord's own web app is the one that surfaced this) detect
+                        // a mobile user agent and serve a "download our app" marketing page
+                        // instead of the real site, regardless of whether the app-escape trick
+                        // above even fires. Presenting as a desktop browser is the standard way
+                        // around that — this in-app browser is precisely the case where the real
+                        // desktop-style site is what's wanted, not a mobile-optimized one.
+                        settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                         // A plain WebViewClient has no shouldOverrideUrlLoading override, so a
                         // page that navigates to a non-http(s) URI (an intent:// redirect, or a
                         // custom app scheme like discord://) falls through to the system's own
