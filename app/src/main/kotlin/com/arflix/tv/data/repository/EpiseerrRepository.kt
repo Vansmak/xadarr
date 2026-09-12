@@ -87,7 +87,10 @@ class EpiseerrRepository @Inject constructor(
     suspend fun getRules(): List<EpiseerrRule> = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext emptyList() }
         try {
-            val req = Request.Builder().url("$base/api/episeerr/rules").get().build()
+            // Was /api/episeerr/rules — that prefix doesn't exist server-side at all; this and
+            // every other /api/episeerr/* call in this file predates a route-naming refactor and
+            // was never updated. Confirmed dead by grepping episeerr_custom directly, 2026-09-11.
+            val req = Request.Builder().url("$base/api/rules-list").get().build()
             val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
             val obj = JSONObject(body)
             val arr = obj.optJSONArray("rules") ?: return@withContext emptyList()
@@ -193,8 +196,9 @@ class EpiseerrRepository @Inject constructor(
                 put("rule_name", ruleName)
             }.toString()
             val body = payload.toRequestBody("application/json".toMediaType())
+            // Was /api/episeerr/assign — dead, same as getRules() above.
             val req = Request.Builder()
-                .url("$base/api/episeerr/assign")
+                .url("$base/api/assign-pending-rule")
                 .post(body)
                 .build()
             val resp = http.newCall(req).execute()
@@ -208,7 +212,10 @@ class EpiseerrRepository @Inject constructor(
 
     // Direct assign for an already-tracked series (library browser) — unlike
     // assignRule(), this does not require the series to be in the Episeerr
-    // pending-request queue.
+    // pending-request queue, and (fixed server-side 2026-09-11) is config-only:
+    // it only affects always_have/pilot settings and never triggers an active
+    // episode grab, unlike assignRule()/addSeries(), which are for a genuinely
+    // new addition. Don't reuse this for that case or vice versa.
     suspend fun assignRuleToSeries(seriesId: Int, ruleName: String): Boolean = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext false }
         try {
@@ -217,8 +224,9 @@ class EpiseerrRepository @Inject constructor(
                 put("rule_name", ruleName)
             }.toString()
             val body = payload.toRequestBody("application/json".toMediaType())
+            // Was /api/episeerr/assign-series — dead, same as getRules() above.
             val req = Request.Builder()
-                .url("$base/api/episeerr/assign-series")
+                .url("$base/api/assign-series-rule")
                 .post(body)
                 .build()
             val resp = http.newCall(req).execute()
@@ -227,6 +235,24 @@ class EpiseerrRepository @Inject constructor(
         } catch (e: Exception) {
             Log.d(tag, "assignRuleToSeries failed: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * Lightweight {series_id: rule_name} map for every Sonarr series, "None" when unassigned —
+     * used to show a series' current rule in the library browser without needing
+     * /api/series-with-status's full payload.
+     */
+    suspend fun getCurrentAssignments(): Map<String, String> = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext emptyMap() }
+        try {
+            val req = Request.Builder().url("$base/api/current-assignments").get().build()
+            val body = http.newCall(req).execute().use { it.body?.string() ?: "{}" }
+            val obj = JSONObject(body)
+            obj.keys().asSequence().associateWith { obj.optString(it, "None") }
+        } catch (e: Exception) {
+            Log.d(tag, "getCurrentAssignments failed: ${e.message}")
+            emptyMap()
         }
     }
 
