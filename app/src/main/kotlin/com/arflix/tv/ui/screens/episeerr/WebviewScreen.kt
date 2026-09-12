@@ -2,6 +2,7 @@ package com.arflix.tv.ui.screens.episeerr
 
 import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -63,7 +64,25 @@ fun EpiseerrWebviewScreen(
                         )
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
-                        webViewClient = WebViewClient()
+                        // A plain WebViewClient has no shouldOverrideUrlLoading override, so a
+                        // page that navigates to a non-http(s) URI (an intent:// redirect, or a
+                        // custom app scheme like discord://) falls through to the system's own
+                        // Intent resolution — which is the entire purpose of intent://, invented
+                        // specifically so a mobile web page can escape any WebView into its native
+                        // app. Discord's own web app does exactly this, and there was nothing here
+                        // to stop it: tapping a Discord bookmark left this in-app browser
+                        // immediately for the real Discord app instead of showing the page.
+                        // Only allow the WebView to keep navigating for schemes it can actually
+                        // render itself; swallow everything else so the page just stays put.
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest,
+                            ): Boolean {
+                                val scheme = request.url.scheme?.lowercase()
+                                return scheme != "http" && scheme != "https"
+                            }
+                        }
                         loadUrl(url)
                     }
                 }
