@@ -538,10 +538,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (wasInBackground) {
+        // TV-only: resuming from background should always land back on Live TV (Home), matching
+        // the TiviMate-style "always resume live" behavior the guide is built around. On mobile
+        // this fired unconditionally too, so backgrounding the app from Settings, a bookmark
+        // creation dialog, or a bookmarked webview and returning silently threw away wherever you
+        // were and jumped to Live TV instead — jarring on a phone, where the normal Android
+        // expectation is that the app resumes exactly where it was left.
+        if (wasInBackground && detectDeviceType(this) == DeviceType.TV) {
             wasInBackground = false
             navigateHomeSignal.value++
         }
+        wasInBackground = false
         // Direct Activity lifecycle, not a Compose DisposableEffect: the effect-based version
         // (KeepAwake.setForeground, keyed on a Compose isResumed flag) still let the screen sleep
         // and the daydream launch mid-movie on 2026-09-10 — a real device, ExoPlayer actively

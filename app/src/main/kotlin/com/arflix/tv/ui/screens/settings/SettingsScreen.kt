@@ -4227,14 +4227,13 @@ private fun MobileSettingsSubPage(
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
                     )
                     uiState.bookmarks.forEachIndexed { index, bookmark ->
-                        MobileSettingsRow(
-                            icon = Icons.Default.Language,
-                            title = bookmark.name,
-                            subtitle = bookmark.url,
-                            value = "",
-                            isFocused = false,
-                            showDivider = true,
-                            onClick = { onShowBookmarkDialog(index) }
+                        MobileBookmarkRow(
+                            bookmark = bookmark,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < uiState.bookmarks.lastIndex,
+                            onClick = { onShowBookmarkDialog(index) },
+                            onMoveUp = { viewModel.moveBookmark(index, -1) },
+                            onMoveDown = { viewModel.moveBookmark(index, 1) },
                         )
                     }
                     MobileSettingsRow(
@@ -4528,6 +4527,74 @@ private fun MobileSettingsRow(
         if (showDivider) {
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
         }
+    }
+}
+
+// Same layout as MobileSettingsRow plus a pair of up/down reorder buttons — not folded into
+// that shared component since every other caller has no need for per-row reordering.
+@Composable
+private fun MobileBookmarkRow(
+    bookmark: com.arflix.tv.data.repository.Bookmark,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onClick: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = Icons.Default.Language,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = bookmark.name,
+                        style = ArflixTypography.body,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = bookmark.url,
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Move up",
+                        tint = if (canMoveUp) TextSecondary else TextSecondary.copy(alpha = 0.25f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                androidx.compose.material3.IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDownward,
+                        contentDescription = "Move down",
+                        tint = if (canMoveDown) TextSecondary else TextSecondary.copy(alpha = 0.25f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
     }
 }
 

@@ -1404,6 +1404,17 @@ class SettingsViewModel @Inject constructor(
         saveBookmarks(updated)
     }
 
+    /** Swap [index] with [index] + [delta] (typically ±1, from an up/down reorder control). */
+    fun moveBookmark(index: Int, delta: Int) {
+        val current = _uiState.value.bookmarks
+        val target = index + delta
+        if (index !in current.indices || target !in current.indices) return
+        val updated = current.toMutableList()
+        val moved = updated.removeAt(index)
+        updated.add(target, moved)
+        saveBookmarks(updated)
+    }
+
     fun updateBookmark(index: Int, name: String, url: String, icon: String? = null) {
         val updated = _uiState.value.bookmarks.toMutableList()
             .also { it[index] = com.arflix.tv.data.repository.Bookmark(name.trim(), url.trim(), icon?.trim()?.ifBlank { null }) }
