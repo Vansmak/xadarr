@@ -164,7 +164,12 @@ class HomeDashboardViewModel @Inject constructor(
         val episeerrLinks = runCatching { episeerrRepository.getQuickLinks() }.getOrDefault(emptyList())
         val manualNames = manual.mapTo(mutableSetOf()) { it.name.lowercase() }
         val visible = episeerrLinks.filterNot { it.name.lowercase() in manualNames || it.name.trim().lowercase() in hidden }
-        return manual + visible
+        // manual is already deduped by parseBookmarks, but episeerrLinks isn't checked against
+        // itself here — only against manual/hidden — so a real Episeerr duplicate (e.g. two quick
+        // links both effectively "Spotify Shuffle", one with a trailing space) reached the
+        // LazyColumn's "bm:${name}" key twice and crashed Compose outright. Dedupe the combined,
+        // trimmed-name-collapsed list right before it's the thing actually rendered.
+        return (manual + visible).distinctBy { it.name.trim() }
     }
 
     private suspend fun loadUpcoming(): List<UpcomingReleaseItem> {

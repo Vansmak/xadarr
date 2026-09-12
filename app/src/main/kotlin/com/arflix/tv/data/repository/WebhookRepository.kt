@@ -142,6 +142,13 @@ fun parseBookmarks(jsonString: String): List<Bookmark> {
             val icon = el.optString("icon", "").trim().ifBlank { null }
             if (name.isBlank() || url.isBlank()) null else Bookmark(name, url, icon)
         }
+            // HomeDashboardScreen and AllAppsScreen both key their LazyColumn/Row on "bm:${name}"
+            // with no fallback for a collision. A duplicate name here (e.g. from an old sync
+            // merge that appended rather than replaced) crashed mobile's whole Home dashboard on
+            // launch with an IllegalArgumentException from Compose — first occurrence wins here so
+            // it can't happen regardless of how the duplicate got in, and the next settings save
+            // writes the deduped list back out via serializeBookmarks.
+            .distinctBy { it.name }
     }.getOrDefault(emptyList())
 }
 

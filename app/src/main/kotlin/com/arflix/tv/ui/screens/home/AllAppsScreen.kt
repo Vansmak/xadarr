@@ -215,7 +215,11 @@ fun AllAppsScreen(onBack: () -> Unit = {}, viewModel: AllAppsViewModel = hiltVie
         val visibleEpiseerrLinks = episeerrLinks.filterNot {
             it.name.lowercase() in manualNames || it.name.trim().lowercase() in hiddenQuickLinkNames
         }
-        bookmarks + visibleEpiseerrLinks
+        // episeerrLinks is only checked against manual/hidden here, not against itself — a real
+        // Episeerr duplicate (two quick links both effectively "Spotify Shuffle") reached this
+        // screen's "bm:${name}" key twice and crashed Compose. Same fix as HomeDashboardScreen's
+        // loadBookmarks().
+        (bookmarks + visibleEpiseerrLinks).distinctBy { it.name.trim() }
     }
 
     val displayedApps = remember(allInstalledApps, isTouchDevice, appsAllowlist) {
