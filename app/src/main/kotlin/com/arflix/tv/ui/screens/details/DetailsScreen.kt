@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -220,6 +221,7 @@ fun DetailsScreen(
     var focusedSection by remember { mutableStateOf(FocusSection.BUTTONS) }
     var buttonIndex by remember { mutableIntStateOf(0) }
     var showAddRulePicker by remember { mutableStateOf(false) }
+    var showChangeRulePicker by remember { mutableStateOf(false) }
 
     // Ask Episeerr whether this is already in the library, once the item itself has loaded.
     // Keyed on the id so navigating between titles re-checks rather than carrying the last
@@ -560,7 +562,7 @@ fun DetailsScreen(
                     // consuming every D-pad press while the rule picker was open, so the picker
                     // rendered but could not be navigated or dismissed — it looked frozen.
                     if (showStreamSelector || showEpisodeContextMenu || showSeasonContextMenu ||
-                        uiState.showPersonModal || showAddRulePicker) {
+                        uiState.showPersonModal || showAddRulePicker || showChangeRulePicker) {
                         return@onPreviewKeyEvent false // Let the modal handle it
                     }
                     
@@ -763,6 +765,10 @@ fun DetailsScreen(
                                         }
                                         return@onPreviewKeyEvent true
                                     }
+                                    if (canAssignRule(uiState) && buttonIndex == addButtonIndex(uiState)) {
+                                        showChangeRulePicker = true
+                                        return@onPreviewKeyEvent true
+                                    }
                                     when (buttonIndex) {
                                         0 -> playNow() // Auto-play highest quality source
                                         1 -> { // Sources - Show StreamSelector for manual selection
@@ -912,6 +918,7 @@ fun DetailsScreen(
                     upcomingEpisodeLabel = uiState.upcomingEpisodeLabel,
                     hasPlexOption = uiState.plexHandoffStream != null,
                     canDirectAddUi = canDirectAdd(uiState),
+                    canAssignRuleUi = canAssignRule(uiState),
                     addButtonIdx = addButtonIndex(uiState),
                     isPlexHandoffMode = isPlexHandoffMode,
                     realTotalSeasons = uiState.totalSeasons,
@@ -935,6 +942,10 @@ fun DetailsScreen(
                             } else {
                                 viewModel.directAdd()
                             }
+                            return@DetailsContent
+                        }
+                        if (canAssignRule(uiState) && idx == addButtonIndex(uiState)) {
+                            showChangeRulePicker = true
                             return@DetailsContent
                         }
                         when (idx) {
@@ -1068,6 +1079,33 @@ fun DetailsScreen(
                 },
                 onDismiss = { showAddRulePicker = false },
                 onRuleAssigned = { showAddRulePicker = false },
+            )
+        }
+
+        // Change Rule — an already-tracked series, config-only (no episode grab), separate from
+        // the Add flow above. Uses the library-browser's assign-series endpoint via the
+        // ViewModel rather than the pending-request one Direct Add's picker uses.
+        if (showChangeRulePicker && uiState.item != null && uiState.librarySeriesId != null) {
+            val ruleItem = uiState.item!!
+            val changeRuleVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel = hiltViewModel()
+            val changeSyncUrl by changeRuleVm.syncServerUrl.collectAsState()
+            val changeEpiseerrUrl by changeRuleVm.episeerrUrl.collectAsState()
+            com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                    id = ruleItem.id.toString(),
+                    seriesId = uiState.librarySeriesId,
+                    title = ruleItem.title,
+                    tmdbId = ruleItem.id.toString(),
+                    tvdbId = uiState.tvdbId?.toString(),
+                    poster = ruleItem.image,
+                ),
+                episeerrRepository = changeRuleVm.episeerrRepository,
+                syncServerUrl = changeSyncUrl,
+                episeerrUrl = changeEpiseerrUrl,
+                currentRuleName = uiState.currentAssignedRule,
+                onAssignRule = { ruleName -> viewModel.assignRuleToLibrarySeries(ruleName) },
+                onDismiss = { showChangeRulePicker = false },
+                onRuleAssigned = { showChangeRulePicker = false },
             )
         }
 
@@ -1301,6 +1339,12 @@ private fun plexButtonIndex(uiState: DetailsUiState): Int = if (uiState.collecti
 // plexButtonIndex already uses, so nothing before it shifts and the existing indices stay put.
 private fun canDirectAdd(uiState: DetailsUiState): Boolean = uiState.isInLibrary == false
 
+// Mutually exclusive with canDirectAdd (isInLibrary can't be both true and false), so this
+// shares addButtonIndex's slot rather than needing its own — an already-owned TV series gets
+// "Change Rule" in the exact spot a not-yet-owned one would have gotten "Add".
+private fun canAssignRule(uiState: DetailsUiState): Boolean =
+    uiState.isInLibrary == true && uiState.item?.mediaType == MediaType.TV
+
 private fun addButtonIndex(uiState: DetailsUiState): Int = when {
     uiState.plexHandoffStream != null -> plexButtonIndex(uiState) + 1
     uiState.collectionId != null -> 6
@@ -1340,7 +1384,7 @@ private fun handleRight(
         FocusSection.BUTTONS -> {
             val hasCollection = uiState.collectionId != null
             val maxButton = when {
-                canDirectAdd(uiState) -> addButtonIndex(uiState)
+                canDirectAdd(uiState) || canAssignRule(uiState) -> addButtonIndex(uiState)
                 uiState.plexHandoffStream != null -> plexButtonIndex(uiState)
                 hasCollection -> 5
                 else -> 4
@@ -1404,6 +1448,7 @@ private fun DetailsContent(
     playLabel: String? = null,
     hasPlexOption: Boolean = false,
     canDirectAddUi: Boolean = false,
+    canAssignRuleUi: Boolean = false,
     addButtonIdx: Int = -1,
     upcomingEpisodeLabel: String? = null,
     isPlexHandoffMode: Boolean = false,
@@ -1748,6 +1793,17 @@ private fun DetailsContent(
                             MobileIconActionButton(
                                 icon = Icons.Default.Add,
                                 contentDescription = "Add to library",
+                                isActive = false,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(54.dp),
+                                onClick = { onButtonClick(addButtonIdx) }
+                            )
+                        }
+                        if (canAssignRuleUi) {
+                            MobileIconActionButton(
+                                icon = Icons.Default.Settings,
+                                contentDescription = "Change rule",
                                 isActive = false,
                                 modifier = Modifier
                                     .weight(1f)
@@ -2407,6 +2463,19 @@ private fun DetailsContent(
                         PremiumActionButton(
                             icon = Icons.Default.Add,
                             text = "Add",
+                            isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == addButtonIdx,
+                            isIconOnly = true
+                        )
+                    }
+                }
+
+                // Change Rule — an already-tracked series, same trailing slot Direct Add would
+                // use for a not-yet-owned one; the two never show together.
+                if (canAssignRuleUi) {
+                    Box(modifier = Modifier.clickable { onButtonClick(addButtonIdx) }) {
+                        PremiumActionButton(
+                            icon = Icons.Default.Settings,
+                            text = "Rule",
                             isFocused = focusSectionForUi == FocusSection.BUTTONS && buttonIndex == addButtonIdx,
                             isIconOnly = true
                         )

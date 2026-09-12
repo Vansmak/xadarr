@@ -112,6 +112,11 @@ data class DetailsUiState(
     val isInLibrary: Boolean? = null,
     val availableRules: List<com.arflix.tv.data.repository.EpiseerrRule> = emptyList(),
     val isAdding: Boolean = false,
+    // Sonarr series id, only resolved when isInLibrary is true — required to call
+    // assignRuleToSeries(), which takes an id rather than a tmdbId.
+    val librarySeriesId: Int? = null,
+    // Current Episeerr rule on an already-tracked series, "None"/null if unassigned.
+    val currentAssignedRule: String? = null,
     // Next not-yet-available episode from Sonarr's calendar (e.g. "S3E2 · Aug 15") — shown
     // alongside the Play button so "what's next" doesn't depend on guessing watch progress.
     val upcomingEpisodeLabel: String? = null,
@@ -1174,14 +1179,34 @@ class DetailsViewModel @Inject constructor(
     fun checkLibraryStatus() {
         val item = _uiState.value.item ?: return
         viewModelScope.launch {
-            val owned = runCatching { episeerrRepository.libraryStatusFor(item.title) }
+            val statusMap = runCatching { episeerrRepository.libraryStatusFor(item.title) }
                 .getOrDefault(emptyMap())
-                .containsKey(item.id)
-            val rules = if (item.mediaType == MediaType.TV && !owned) {
+            val owned = statusMap.containsKey(item.id)
+            val libId = statusMap[item.id]
+            // Needed for both Direct Add's rule picker (not owned) and the library-browser-style
+            // Assign/Change Rule action on an already-owned series — fetch for either case now.
+            val rules = if (item.mediaType == MediaType.TV) {
                 runCatching { episeerrRepository.getRules() }.getOrDefault(emptyList())
             } else emptyList()
-            _uiState.value = _uiState.value.copy(isInLibrary = owned, availableRules = rules)
+            val currentRule = if (owned && item.mediaType == MediaType.TV && libId != null) {
+                runCatching { episeerrRepository.getCurrentAssignments() }.getOrDefault(emptyMap())[libId.toString()]
+                    ?.takeIf { it.isNotBlank() && it != "None" }
+            } else null
+            _uiState.value = _uiState.value.copy(
+                isInLibrary = owned,
+                availableRules = rules,
+                librarySeriesId = libId,
+                currentAssignedRule = currentRule,
+            )
         }
+    }
+
+    /** Assign/change the Episeerr rule on this already-tracked series — config-only, no grab. */
+    suspend fun assignRuleToLibrarySeries(ruleName: String): Boolean {
+        val seriesId = _uiState.value.librarySeriesId ?: return false
+        val ok = episeerrRepository.assignRuleToSeries(seriesId, ruleName)
+        if (ok) _uiState.value = _uiState.value.copy(currentAssignedRule = ruleName)
+        return ok
     }
 
     /**
