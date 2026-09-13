@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -94,6 +95,29 @@ class DispatcharrCatalogRepository @Inject constructor(
         } catch (e: Exception) {
             Log.d(tag, "search failed: ${e.message}")
             emptyList()
+        }
+    }
+
+    /**
+     * Manual "my guide looks stale" refresh from the guide's category sidebar — fires the same
+     * M3U + EPG Celery tasks the scheduled provider syncs use, via Episeerr
+     * (`/api/integration/dispatcharr/refresh`), since Xadarr never talks to Dispatcharr directly.
+     * The M3U refresh already triggers maintenance.sql itself via the existing m3u_refreshed
+     * webhook, so there's nothing else to kick off here. Returns false on any failure so the
+     * caller can decide what, if anything, to tell the user.
+     */
+    suspend fun refresh(): Boolean = withContext(Dispatchers.IO) {
+        val prefs = context.settingsDataStore.data.first()
+        val base = prefs[EPISEERR_URL_KEY]?.trimEnd('/').orEmpty().ifBlank { return@withContext false }
+        try {
+            val req = Request.Builder()
+                .url("$base/api/integration/dispatcharr/refresh")
+                .post(ByteArray(0).toRequestBody(null))
+                .build()
+            http.newCall(req).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.d(tag, "refresh failed: ${e.message}")
+            false
         }
     }
 }

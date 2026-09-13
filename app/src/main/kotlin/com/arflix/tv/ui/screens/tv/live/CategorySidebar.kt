@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.FiberNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,6 +107,8 @@ fun CategorySidebar(
     onMoveCategoryUp: (String) -> Unit = {},
     onMoveCategoryToTop: (String) -> Unit = {},
     onMoveCategoryDown: (String) -> Unit = {},
+    onRefreshPlaylist: () -> Unit = {},
+    isRefreshingPlaylist: Boolean = false,
     onFocusEnter: () -> Unit = {},
     onMoveRight: () -> Unit = {},
     onMoveUpFromSearch: () -> Unit = {},
@@ -336,6 +339,21 @@ fun CategorySidebar(
                         expanded = expanded,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { groupEditMode = !groupEditMode },
+                        labelSize = 12.sp,
+                    )
+                }
+                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
+                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
+                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
+                item {
+                    SidebarRow(
+                        label = if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
+                        count = 0,
+                        icon = Icons.Filled.Refresh,
+                        active = false,
+                        expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
                         labelSize = 12.sp,
                     )
                 }

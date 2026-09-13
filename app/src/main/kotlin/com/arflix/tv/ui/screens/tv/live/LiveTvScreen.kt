@@ -1192,6 +1192,8 @@ fun LiveTvScreen(
                         onMoveCategoryDown = { groupName ->
                             viewModel.moveGroupDown(groupName)
                         },
+                        onRefreshPlaylist = { viewModel.refreshPlaylistAndEpg() },
+                        isRefreshingPlaylist = state.isRefreshingPlaylist,
                         onFocusEnter = { focusZone = LiveTvFocusZone.CATEGORY_LIST },
                         onMoveRight = {
                             val remembered = rememberedChannelByCategory[selectedCategoryId]

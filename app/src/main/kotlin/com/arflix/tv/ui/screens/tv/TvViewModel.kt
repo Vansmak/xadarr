@@ -51,7 +51,8 @@ data class TvUiState(
     val tvSessionLoaded: Boolean = false,
     val favoritesOnly: Boolean = false,
     val query: String = "",
-    val groupBlacklistEnabled: Boolean = false
+    val groupBlacklistEnabled: Boolean = false,
+    val isRefreshingPlaylist: Boolean = false,
 ) {
     val isConfigured: Boolean get() =
         config.m3uUrl.isNotBlank() ||
@@ -904,6 +905,22 @@ class TvViewModel @Inject constructor(
 
     fun setGroupState(groupName: String, state: GroupState) {
         viewModelScope.launch { iptvRepository.setGroupState(groupName, state); scheduleIptvCloudSync() }
+    }
+
+    /**
+     * Manual "my guide looks stale" refresh, reachable from the category sidebar. Only guards
+     * against double-firing while already in flight — the row label itself ("Refreshing…") is
+     * the user feedback, no separate toast. The refresh runs entirely server-side (Dispatcharr's
+     * own M3U/EPG tasks, then maintenance.sql via the existing webhook); Xadarr's own snapshot
+     * picks up the result the next time it reloads the playlist, same as after a scheduled sync.
+     */
+    fun refreshPlaylistAndEpg() {
+        if (_uiState.value.isRefreshingPlaylist) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshingPlaylist = true)
+            runCatching { dispatcharrCatalogRepository.refresh() }
+            _uiState.value = _uiState.value.copy(isRefreshingPlaylist = false)
+        }
     }
 
     fun prefetchVisibleCategoryEpg(
