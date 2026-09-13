@@ -984,10 +984,16 @@ class IptvRepository @Inject constructor(
      * layer on every playlist load.
      */
     private suspend fun pruneStaleFavoriteChannels(liveChannels: List<IptvChannel>) {
-        val liveIds = liveChannels.asSequence().map { it.id }.toSet()
+        // Name of whichever live channel currently holds each id — not just whether the id
+        // exists. A renumbering doesn't just retire old ids, it *reassigns* them: id "epg:270"
+        // used to be Red Zone and now belongs to Pac-12 Insider, so "id in liveIds" is true for
+        // the wrong channel and this favourite would never even reach the name check below.
+        // Only an id whose live channel's name still matches what was remembered is trustworthy.
+        val liveNameById = HashMap<String, String>(liveChannels.size)
         // First name wins, so a favourite re-anchors to the primary entry rather than a duplicate.
         val liveByName = HashMap<String, String>(liveChannels.size)
         liveChannels.forEach { channel ->
+            liveNameById.putIfAbsent(channel.id, channel.name)
             val key = favoriteNameKey(channel.name)
             if (key.isNotEmpty()) liveByName.putIfAbsent(key, channel.id)
         }
@@ -1001,10 +1007,13 @@ class IptvRepository @Inject constructor(
 
             val kept = mutableListOf<String>()
             existing.forEach { id ->
+                val rememberedName = names[id]
+                val liveName = liveNameById[id]
+                val idStillTrustworthy = liveName != null &&
+                    (rememberedName == null || favoriteNameKey(liveName) == favoriteNameKey(rememberedName))
                 when {
-                    id in liveIds -> kept.add(id)
+                    idStillTrustworthy -> kept.add(id)
                     else -> {
-                        val rememberedName = names[id]
                         val recoveredId = rememberedName
                             ?.let { liveByName[favoriteNameKey(it)] }
                             ?.takeIf { it !in kept }
@@ -1014,6 +1023,10 @@ class IptvRepository @Inject constructor(
                             names[recoveredId] = rememberedName
                             reanchored++
                         } else {
+                            // Either the id is dead, or it's alive but now belongs to a different
+                            // channel and nothing else on the lineup matches the remembered name —
+                            // the favourited channel is genuinely gone either way. Keeping the id
+                            // would just silently show whatever now occupies that number.
                             names.remove(id)
                             removed++
                         }
