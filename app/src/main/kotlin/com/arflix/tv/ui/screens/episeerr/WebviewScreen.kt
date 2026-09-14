@@ -1,6 +1,9 @@
 package com.arflix.tv.ui.screens.episeerr
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -17,11 +20,16 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -34,6 +42,27 @@ fun EpiseerrWebviewScreen(
     // Xadarr's own bottom nav is one tap away, so the on-screen header bar is just wasted
     // vertical space there — kept only for TV, which has no swipe-back gesture.
     val isTouchDevice = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
+
+    // Full-screen on mobile — a bookmark like Home Assistant or Discord wants every pixel it can
+    // get, same reasoning that already hides Xadarr's own bottom bar for these (Joe: "some sites
+    // I'd rather let use all the real estate"). Same pattern PlayerScreen.kt already uses for
+    // mobile video playback; restored on exit. TV is already fullscreen, so no-op there.
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    DisposableEffect(Unit) {
+        val window = activity?.window
+        if (window != null && isTouchDevice) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (window != null && isTouchDevice) {
+                WindowInsetsControllerCompat(window, window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -96,5 +125,13 @@ fun EpiseerrWebviewScreen(
                 }
             )
         }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }
