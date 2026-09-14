@@ -46,6 +46,22 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: cp secrets.defaults.properties secrets.properties
 
+      # Without this, Gradle falls back to the plain Android debug keystore (its own
+      # build.gradle.kts fallback for a missing keystore.properties) and every release built
+      # here is signed with a different key than Joe's own local sideload builds — Android then
+      # refuses to install it as an update ("signature conflict", confirmed live 2026-09-14 on
+      # the office device). Files only exist in this ephemeral runner workspace, never committed.
+      - name: Setup signing
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+          cat > keystore.properties <<EOF
+          storeFile=release.keystore
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
       - name: Build APK
         if: steps.check.outputs.skip == 'false'
         run: ./gradlew :app:assembleSideloadDebug --no-daemon
