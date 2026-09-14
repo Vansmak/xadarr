@@ -116,6 +116,18 @@ fun EpgGrid(
     val programFocusRequesters = remember { mutableStateMapOf<String, List<FocusRequester>>() }
     val programFocusTargets = remember { mutableStateMapOf<String, List<ProgramFocusTarget>>() }
 
+    // Stable identity for `channels` — an EPG/nowNext merge hands this composable a fresh list
+    // reference every time it ticks, even when the channel set and order haven't changed at all
+    // (same underlying churn as TvViewModel's channelsIdentitySignature fix). Keying focus/scroll
+    // state on the raw list reference instead of this meant a routine EPG tick — which happens
+    // continuously while the guide is open — reset in-progress channel navigation back to the
+    // selected channel mid-scroll, and could also drag focus away from wherever the user had
+    // just moved it. Cheap by design (size + endpoints, not a full pass) since it's recomputed
+    // on every `channels` reference change.
+    val channelsIdentity = remember(channels) {
+        Triple(channels.size, channels.firstOrNull()?.id, channels.lastOrNull()?.id)
+    }
+
     val maxCatchupDays = remember(channels) {
         channels.maxOfOrNull { ch -> effectiveCatchupDays(ch) } ?: 0
     }
@@ -152,9 +164,9 @@ fun EpgGrid(
     }
     // A single LazyListState handles vertical scrolling for both channels and EPG.
     val channelListState = rememberLazyListState()
-    var didPositionInitialSelection by remember(channels) { mutableStateOf(false) }
-    var activeChannelFocusId by remember(channels) { mutableStateOf(selectedChannelId) }
-    var pendingChannelFocusId by remember(channels) { mutableStateOf<String?>(null) }
+    var didPositionInitialSelection by remember(channelsIdentity) { mutableStateOf(false) }
+    var activeChannelFocusId by remember(channelsIdentity) { mutableStateOf(selectedChannelId) }
+    var pendingChannelFocusId by remember(channelsIdentity) { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     fun requestProgramFocus(rowIdx: Int, targetIdx: Int): Boolean {
@@ -248,7 +260,7 @@ fun EpgGrid(
     // from outside (e.g. search result picked). Uses a keyed LaunchedEffect
     // on both selection and channel list identity so a late-arriving list
     // still lands on the right row.
-    LaunchedEffect(selectedChannelId, channels) {
+    LaunchedEffect(selectedChannelId, channelsIdentity) {
         if (didPositionInitialSelection) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect
         val idx = channels.indexOfFirst { it.id == id }
@@ -257,7 +269,7 @@ fun EpgGrid(
         didPositionInitialSelection = true
     }
 
-    LaunchedEffect(focusSelectedChannelSignal, selectedChannelId, channels) {
+    LaunchedEffect(focusSelectedChannelSignal, selectedChannelId, channelsIdentity) {
         if (focusSuspended) return@LaunchedEffect
         if (focusSelectedChannelSignal == 0) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect
@@ -294,7 +306,7 @@ fun EpgGrid(
         if (pendingChannelFocusId == id) pendingChannelFocusId = null
     }
 
-    LaunchedEffect(focusEpgSignal, selectedChannelId, channels, windowStartMillis) {
+    LaunchedEffect(focusEpgSignal, selectedChannelId, channelsIdentity, windowStartMillis) {
         if (focusSuspended) return@LaunchedEffect
         if (focusEpgSignal == 0) return@LaunchedEffect
         val id = selectedChannelId ?: return@LaunchedEffect

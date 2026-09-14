@@ -53,6 +53,7 @@ data class TvUiState(
     val query: String = "",
     val groupBlacklistEnabled: Boolean = false,
     val isRefreshingPlaylist: Boolean = false,
+    val playlistRefreshResult: String? = null,
 ) {
     val isConfigured: Boolean get() =
         config.m3uUrl.isNotBlank() ||
@@ -908,18 +909,37 @@ class TvViewModel @Inject constructor(
     }
 
     /**
-     * Manual "my guide looks stale" refresh, reachable from the category sidebar. Only guards
-     * against double-firing while already in flight — the row label itself ("Refreshing…") is
-     * the user feedback, no separate toast. The refresh runs entirely server-side (Dispatcharr's
-     * own M3U/EPG tasks, then maintenance.sql via the existing webhook); Xadarr's own snapshot
-     * picks up the result the next time it reloads the playlist, same as after a scheduled sync.
+     * Manual "my guide looks stale" refresh, reachable from the category sidebar. The refresh
+     * runs entirely server-side (Dispatcharr's own M3U/EPG tasks, then maintenance.sql via the
+     * existing webhook); Xadarr's own snapshot picks up the result the next time it reloads the
+     * playlist, same as after a scheduled sync.
+     *
+     * The row label is still the only feedback (no separate toast — same reasoning as before:
+     * Android's native Toast doesn't reliably render over this app's TV window), but two things
+     * were wrong with relying on it. First, the network call just enqueues Dispatcharr's task and
+     * returns near-instantly on a LAN, so "Refreshing…" could flip back to the idle label within
+     * a fraction of a second — easy to never actually see. Second, there was no indication of the
+     * outcome at all. A minimum visible duration plus a lingering result label ("Refresh sent" /
+     * "Refresh failed") fixes both without introducing a whole toast plumbing path for one row.
      */
     fun refreshPlaylistAndEpg() {
         if (_uiState.value.isRefreshingPlaylist) return
+        val MIN_REFRESH_VISIBLE_MS = 1_200L
+        val REFRESH_RESULT_VISIBLE_MS = 2_500L
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isRefreshingPlaylist = true)
-            runCatching { dispatcharrCatalogRepository.refresh() }
-            _uiState.value = _uiState.value.copy(isRefreshingPlaylist = false)
+            _uiState.value = _uiState.value.copy(isRefreshingPlaylist = true, playlistRefreshResult = null)
+            val startedAt = System.currentTimeMillis()
+            val ok = runCatching { dispatcharrCatalogRepository.refresh() }.getOrDefault(false)
+            val elapsed = System.currentTimeMillis() - startedAt
+            if (elapsed < MIN_REFRESH_VISIBLE_MS) delay(MIN_REFRESH_VISIBLE_MS - elapsed)
+            _uiState.value = _uiState.value.copy(
+                isRefreshingPlaylist = false,
+                playlistRefreshResult = if (ok) "Refresh sent" else "Refresh failed",
+            )
+            delay(REFRESH_RESULT_VISIBLE_MS)
+            if (_uiState.value.playlistRefreshResult != null) {
+                _uiState.value = _uiState.value.copy(playlistRefreshResult = null)
+            }
         }
     }
 

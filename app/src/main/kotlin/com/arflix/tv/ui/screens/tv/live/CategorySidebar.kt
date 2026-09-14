@@ -109,6 +109,7 @@ fun CategorySidebar(
     onMoveCategoryDown: (String) -> Unit = {},
     onRefreshPlaylist: () -> Unit = {},
     isRefreshingPlaylist: Boolean = false,
+    playlistRefreshResult: String? = null,
     onFocusEnter: () -> Unit = {},
     onMoveRight: () -> Unit = {},
     onMoveUpFromSearch: () -> Unit = {},
@@ -347,7 +348,8 @@ fun CategorySidebar(
                 // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
                 item {
                     SidebarRow(
-                        label = if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
+                        label = playlistRefreshResult
+                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
                         count = 0,
                         icon = Icons.Filled.Refresh,
                         active = false,
