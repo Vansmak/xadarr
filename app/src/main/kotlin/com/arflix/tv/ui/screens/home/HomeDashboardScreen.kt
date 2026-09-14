@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -216,6 +217,7 @@ private fun formatAirDate(iso: String): String = runCatching {
 fun HomeDashboardScreen(
     viewModel: HomeDashboardViewModel = hiltViewModel(),
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
+    onBookmarkWebviewOpenChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -223,6 +225,14 @@ fun HomeDashboardScreen(
     var webviewUrl by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { viewModel.load() }
+    // A bookmark like Discord or Home Assistant wants the phone's full screen, not Xadarr's own
+    // chrome fighting it for space — hide the persistent bottom bar while one is open (Joe: "some
+    // sites I'd rather let use all the real estate"). Back still returns here, same as any other
+    // full-screen overlay in this app.
+    DisposableEffect(webviewUrl) {
+        onBookmarkWebviewOpenChanged(webviewUrl != null)
+        onDispose { onBookmarkWebviewOpenChanged(false) }
+    }
 
     if (webviewUrl != null) {
         EpiseerrWebviewScreen(url = webviewUrl!!, onBack = { webviewUrl = null })

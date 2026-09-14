@@ -37,6 +37,7 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -137,7 +138,11 @@ class AllAppsViewModel @Inject constructor(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun AllAppsScreen(onBack: () -> Unit = {}, viewModel: AllAppsViewModel = hiltViewModel()) {
+fun AllAppsScreen(
+    onBack: () -> Unit = {},
+    viewModel: AllAppsViewModel = hiltViewModel(),
+    onBookmarkWebviewOpenChanged: (Boolean) -> Unit = {},
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val isTouchDevice = LocalDeviceType.current.isTouchDevice()
@@ -241,6 +246,15 @@ fun AllAppsScreen(onBack: () -> Unit = {}, viewModel: AllAppsViewModel = hiltVie
     val gridFocus = remember { FocusRequester() }
     LaunchedEffect(loading) {
         if (!loading) runCatching { gridFocus.requestFocus() }
+    }
+
+    // A bookmark like Discord or Home Assistant wants the phone's full screen, not Xadarr's own
+    // chrome fighting it for space — hide the persistent bottom bar while one is open (Joe: "some
+    // sites I'd rather let use all the real estate"). Back still returns here, same as any other
+    // full-screen overlay in this app.
+    DisposableEffect(webviewUrl) {
+        onBookmarkWebviewOpenChanged(webviewUrl != null)
+        onDispose { onBookmarkWebviewOpenChanged(false) }
     }
 
     if (webviewUrl != null) {

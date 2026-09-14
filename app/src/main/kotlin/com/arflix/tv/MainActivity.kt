@@ -1041,6 +1041,7 @@ fun ArflixApp(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     var iptvFullscreen by remember { mutableStateOf(false) }
+    var bookmarkWebviewOpen by remember { mutableStateOf(false) }
     LaunchedEffect(currentRoute) {
         if (currentRoute?.startsWith("home") != true) {
             iptvFullscreen = false
@@ -1052,6 +1053,7 @@ fun ArflixApp(
     val showBottomBar = isMobile && activeProfile != null &&
         currentRoute != null &&
         !iptvFullscreen &&
+        !bookmarkWebviewOpen &&
         !currentRoute.contains("player") &&
         !currentRoute.contains("profile") &&
         !currentRoute.contains("login")
@@ -1116,6 +1118,9 @@ fun ArflixApp(
                 },
                 onTvFullscreenChanged = { fullscreen ->
                     iptvFullscreen = fullscreen
+                },
+                onBookmarkWebviewOpenChanged = { open ->
+                    bookmarkWebviewOpen = open
                 },
                 onExitApp = onExitApp
             )

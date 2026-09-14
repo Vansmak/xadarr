@@ -155,6 +155,7 @@ fun AppNavigation(
     liveTvPlayerViewModel: LiveTvPlayerViewModel,
     onSwitchProfile: () -> Unit = {},
     onTvFullscreenChanged: (Boolean) -> Unit = {},
+    onBookmarkWebviewOpenChanged: (Boolean) -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
     // Mobile lands on the Episeerr dashboard after logging in / picking a profile instead of
@@ -658,7 +659,7 @@ fun AppNavigation(
             popEnterTransition = { fadeIn(tween(0)) },
             popExitTransition = { fadeOut(tween(150)) },
         ) {
-            AllAppsScreen(onBack = goBack)
+            AllAppsScreen(onBack = goBack, onBookmarkWebviewOpenChanged = onBookmarkWebviewOpenChanged)
         }
 
         // Mobile-only landing tab — Ready to Watch / Bookmarks / Upcoming Releases.
@@ -672,6 +673,7 @@ fun AppNavigation(
         ) {
             com.arflix.tv.ui.screens.home.HomeDashboardScreen(
                 onNavigateToDetails = { type, id -> navController.navigate(Screen.Details.createRoute(type, id)) },
+                onBookmarkWebviewOpenChanged = onBookmarkWebviewOpenChanged,
             )
         }
 
