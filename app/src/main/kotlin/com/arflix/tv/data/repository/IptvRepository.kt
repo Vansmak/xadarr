@@ -990,10 +990,22 @@ class IptvRepository @Inject constructor(
         // the wrong channel and this favourite would never even reach the name check below.
         // Only an id whose live channel's name still matches what was remembered is trustworthy.
         val liveNameById = HashMap<String, String>(liveChannels.size)
+        // Two tiers, exact checked before loose. favoriteNameKey() strips quality suffixes
+        // (HD/UHD/4K/...) so a favourite reanchors across a genuine quality upgrade (e.g. "NFL
+        // Network SD" -> "NFL Network FHD" after a stream change) — but that same stripping
+        // collapses "ESPN HD" and "ESPN 4K UHD" to the identical key "espn", even though both
+        // are distinct channels that exist simultaneously right now. Loose-only matching picked
+        // whichever of the two happened to come first in the fetched list, silently reanchoring
+        // ESPN HD onto ESPN 4K UHD's id (confirmed live 2026-09-13). An exact (unstripped) name
+        // match is unambiguous and always preferred; loose is only the fallback for when no
+        // live channel has the exact remembered name.
+        val liveByExactName = HashMap<String, String>(liveChannels.size)
         // First name wins, so a favourite re-anchors to the primary entry rather than a duplicate.
         val liveByName = HashMap<String, String>(liveChannels.size)
         liveChannels.forEach { channel ->
             liveNameById.putIfAbsent(channel.id, channel.name)
+            val exactKey = channel.name.trim().lowercase()
+            if (exactKey.isNotEmpty()) liveByExactName.putIfAbsent(exactKey, channel.id)
             val key = favoriteNameKey(channel.name)
             if (key.isNotEmpty()) liveByName.putIfAbsent(key, channel.id)
         }
@@ -1009,13 +1021,19 @@ class IptvRepository @Inject constructor(
             existing.forEach { id ->
                 val rememberedName = names[id]
                 val liveName = liveNameById[id]
+                // Exact, not loose: favoriteNameKey() strips quality suffixes so a genuine label
+                // bump (SD -> FHD on the same id) doesn't need a full reanchor, but that same
+                // stripping would also call "ESPN HD" and "ESPN 4K UHD" a match, incorrectly
+                // trusting an id that got reassigned to a different live channel. A benign label
+                // change just falls through to the reanchor branch below instead, which finds it
+                // fine via the loose fallback there.
                 val idStillTrustworthy = liveName != null &&
-                    (rememberedName == null || favoriteNameKey(liveName) == favoriteNameKey(rememberedName))
+                    (rememberedName == null || liveName.trim().lowercase() == rememberedName.trim().lowercase())
                 when {
                     idStillTrustworthy -> kept.add(id)
                     else -> {
                         val recoveredId = rememberedName
-                            ?.let { liveByName[favoriteNameKey(it)] }
+                            ?.let { name -> liveByExactName[name.trim().lowercase()] ?: liveByName[favoriteNameKey(name)] }
                             ?.takeIf { it !in kept }
                         if (recoveredId != null) {
                             kept.add(recoveredId)
@@ -2181,13 +2199,23 @@ class IptvRepository @Inject constructor(
             if (normalizedEpg.isNotBlank()) prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
             prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
-            // Merge rather than replace: a device on an older build syncs favourites with no names
-            // attached, and dropping the names we already hold would strand exactly the favourites
-            // this is meant to rescue.
+            // Merge rather than outright replace: a device on an older build syncs favourites with
+            // no names attached, and dropping the names we already hold would strand exactly the
+            // favourites this is meant to rescue. But the merged result must still be pruned to only
+            // the ids in *this* incoming favourite list — otherwise an id->name entry can survive
+            // indefinitely across every sync even after the favourite it belonged to is gone or has
+            // been reanchored elsewhere. Confirmed live 2026-09-13 during a string of same-day
+            // renumbering events: the Red Zone favourite was reanchored onto an id that actually
+            // belonged to an unrelated channel (BET FHD), i.e. pruneStaleFavoriteChannels's name-based
+            // recovery matched against a stale/incorrect remembered name for some id — this merge
+            // never garbage-collecting old entries is the mechanism that lets a wrong id->name pair
+            // sit around indefinitely to be read back later, whatever exactly produced it in this
+            // instance.
             if (state.favoriteChannelNames.isNotEmpty()) {
-                val merged = decodeFavoriteChannelNames(
+                val merged = (decodeFavoriteChannelNames(
                     prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
-                ) + state.favoriteChannelNames
+                ) + state.favoriteChannelNames)
+                    .filterKeys { it in state.favoriteChannels }
                 prefs[favoriteChannelNamesKeyFor(safeProfileId)] = gson.toJson(merged)
             }
             if (state.hiddenGroups.isNotEmpty()) {
