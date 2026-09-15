@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
+import com.arflix.tv.ui.skin.LocalExplicitFocusBorderColorOverride
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.ProvideXadarrSkin
 import com.arflix.tv.ui.skin.focusBorderColorFromName
@@ -190,7 +191,10 @@ fun XadarrTvTheme(
     content: @Composable () -> Unit
 ) {
     val palette = paletteForTheme(themeName, oledBlackBackground)
-    val focusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) } ?: palette.accent
+    // Genuinely nullable — null exactly when the setting is "Auto", vs. focusBorderColor below
+    // which always resolves to something for consumers that don't care about the distinction.
+    val explicitFocusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) }
+    val focusBorderColor = explicitFocusBorderColor ?: palette.accent
     val colorScheme = darkColorScheme(
         primary = palette.accent,
         onPrimary = palette.background,
@@ -220,7 +224,8 @@ fun XadarrTvTheme(
     CompositionLocalProvider(
         LocalXadarrColors provides xadarrColors,
         LocalOledBlackBackground provides oledBlackBackground,
-        LocalFocusBorderColorOverride provides focusBorderColor
+        LocalFocusBorderColorOverride provides focusBorderColor,
+        LocalExplicitFocusBorderColorOverride provides explicitFocusBorderColor
     ) {
         ProvideXadarrSkin {
             MaterialTheme(
