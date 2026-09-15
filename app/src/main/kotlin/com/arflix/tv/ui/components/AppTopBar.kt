@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.Profile
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.ui.theme.AnimationConstants
 import com.arflix.tv.ui.theme.ArflixTypography
@@ -494,7 +495,7 @@ private fun TopBarNavChip(
         label = "topbar_scale"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        targetValue = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent,
         animationSpec = tween(AnimationConstants.DURATION_FAST),
         label = "topbar_chip_border"
     )
@@ -562,7 +563,7 @@ private fun TopBarCustomNavChip(
         label = "topbar_custom_scale"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        targetValue = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent,
         animationSpec = tween(AnimationConstants.DURATION_FAST),
         label = "topbar_custom_chip_border"
     )
@@ -623,7 +624,7 @@ private fun TopBarSettingsGear(
         label = "topbar_settings_scale"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        targetValue = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent,
         animationSpec = tween(AnimationConstants.DURATION_FAST),
         label = "topbar_settings_border"
     )
@@ -682,7 +683,7 @@ internal fun TopBarProfileAvatar(
         label = "topbar_profile_scale"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isFocused) LiveColors.Accent else Color.Transparent,
+        targetValue = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent,
         animationSpec = tween(AnimationConstants.DURATION_FAST),
         label = "topbar_profile_border"
     )
