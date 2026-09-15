@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -496,6 +499,13 @@ fun CamerasScreen(
                         rowCount = rowCount,
                         focusZone = focusZone,
                         focusedIndex = focusedCameraIndex,
+                        isTouchDevice = isTouchDevice,
+                        onCameraTap = { idx ->
+                            focusedCameraIndex = idx
+                            val cam = cameras[idx]
+                            playerUrl = cam.streamUrl
+                            playerDisplayName = cam.displayName
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
                 }
@@ -565,12 +575,49 @@ private fun CameraGrid(
     rowCount: Int,
     focusZone: FocusZone,
     focusedIndex: Int,
+    isTouchDevice: Boolean = false,
+    onCameraTap: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val hPad = 48.dp
     val vPad = 12.dp
     val hGap = 14.dp
     val vGap = 12.dp
+
+    // Mobile: a real scrolling grid with landscape-shaped tiles (camera footage, not poster
+    // art). The TV branch below deliberately divides whatever space is available evenly by
+    // rowCount/colCount — correct for a fixed-size TV screen that never scrolls, but on a narrow
+    // portrait phone that same math produces tall, narrow cells (Joe, 2026-09-14: "except the
+    // camera layout" — screenshot showed feeds squeezed into poster-shaped tiles).
+    if (isTouchDevice) {
+        Column(
+            modifier = modifier
+                .padding(horizontal = hPad, vertical = vPad)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(vGap),
+        ) {
+            for (row in 0 until rowCount) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(hGap),
+                ) {
+                    for (col in 0 until colCount) {
+                        val idx = row * colCount + col
+                        if (idx < cameras.size) {
+                            CameraGridCard(
+                                camera = cameras[idx],
+                                isFocused = focusZone == FocusZone.GRID && focusedIndex == idx,
+                                modifier = Modifier.weight(1f).aspectRatio(16f / 9f).clickable { onCameraTap(idx) },
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
 
     BoxWithConstraints(modifier = modifier.padding(horizontal = hPad, vertical = vPad)) {
         val cardWidth: Dp = if (colCount > 0) (maxWidth - hGap * (colCount - 1)) / colCount else maxWidth
