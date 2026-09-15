@@ -493,24 +493,48 @@ fun CamerasScreen(
                     }
                 }
                 else -> {
-                    CameraGrid(
-                        cameras = cameras,
-                        colCount = colCount,
-                        rowCount = rowCount,
-                        focusZone = focusZone,
-                        focusedIndex = focusedCameraIndex,
-                        isTouchDevice = isTouchDevice,
-                        onCameraTap = { idx ->
-                            focusedCameraIndex = idx
-                            val cam = cameras[idx]
-                            playerUrl = cam.streamUrl
-                            playerDisplayName = cam.displayName
-                        },
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    )
+                    val onTap: (Int) -> Unit = { idx ->
+                        focusedCameraIndex = idx
+                        val cam = cameras[idx]
+                        playerUrl = cam.streamUrl
+                        playerDisplayName = cam.displayName
+                    }
+                    if (isTouchDevice) {
+                        // Grid + per-camera event rows share one scroll region sized to content,
+                        // so there's no leftover empty gap between them when the landscape-tile
+                        // grid (shorter than the old poster-shaped one) doesn't fill the screen.
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                        ) {
+                            CameraGrid(
+                                cameras = cameras,
+                                colCount = colCount,
+                                rowCount = rowCount,
+                                focusZone = focusZone,
+                                focusedIndex = focusedCameraIndex,
+                                isTouchDevice = true,
+                                onCameraTap = onTap,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (events.isNotEmpty()) {
+                                CameraEventsByCamera(events = events, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    } else {
+                        CameraGrid(
+                            cameras = cameras,
+                            colCount = colCount,
+                            rowCount = rowCount,
+                            focusZone = focusZone,
+                            focusedIndex = focusedCameraIndex,
+                            isTouchDevice = false,
+                            onCameraTap = onTap,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
                 }
             }
-            if (events.isNotEmpty()) {
+            if (!isTouchDevice && events.isNotEmpty()) {
                 CameraEventsRow(
                     events = events,
                     focusedIndex = if (focusZone == FocusZone.EVENTS) focusedEventIndex else -1,
@@ -584,16 +608,14 @@ private fun CameraGrid(
     val hGap = 14.dp
     val vGap = 12.dp
 
-    // Mobile: a real scrolling grid with landscape-shaped tiles (camera footage, not poster
-    // art). The TV branch below deliberately divides whatever space is available evenly by
-    // rowCount/colCount — correct for a fixed-size TV screen that never scrolls, but on a narrow
-    // portrait phone that same math produces tall, narrow cells (Joe, 2026-09-14: "except the
-    // camera layout" — screenshot showed feeds squeezed into poster-shaped tiles).
+    // Mobile: landscape-shaped tiles sized to content (camera footage, not poster art), not the
+    // TV branch's evenly-divided-by-available-space math (correct for a fixed TV screen, but on
+    // a narrow portrait phone that same math produces tall, narrow cells — Joe, 2026-09-14:
+    // "except the camera layout"). The caller owns scrolling so this sits flush against the
+    // per-camera event rows below it instead of reserving empty space of its own.
     if (isTouchDevice) {
         Column(
-            modifier = modifier
-                .padding(horizontal = hPad, vertical = vPad)
-                .verticalScroll(rememberScrollState()),
+            modifier = modifier.padding(horizontal = hPad, vertical = vPad),
             verticalArrangement = Arrangement.spacedBy(vGap),
         ) {
             for (row in 0 until rowCount) {
@@ -828,6 +850,7 @@ private fun CameraEventsRow(
     events: List<NeolinkRepository.NeolinkEvent>,
     focusedIndex: Int,
     modifier: Modifier = Modifier,
+    title: String = "Recent Events",
 ) {
     val nowMs = remember { System.currentTimeMillis() }
     Column(
@@ -842,7 +865,7 @@ private fun CameraEventsRow(
         ) {
             Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Accent.copy(0.7f), modifier = Modifier.size(13.dp))
             Text(
-                text = "Recent Events",
+                text = title,
                 color = LiveColors.Fg,
                 style = LiveType.SectionTag,
             )
@@ -874,6 +897,33 @@ private fun CameraEventsRow(
                     isFocused = index == focusedIndex,
                 )
             }
+        }
+    }
+}
+
+// Mobile: one "Recent Events" row per camera instead of a single combined row — Joe,
+// 2026-09-14: "I do like the recent events though maybe just those but a row like that for each
+// camerA". Cameras with more recent activity sort first.
+@Composable
+private fun CameraEventsByCamera(
+    events: List<NeolinkRepository.NeolinkEvent>,
+    modifier: Modifier = Modifier,
+) {
+    val grouped = remember(events) {
+        events.groupBy { it.camera }
+            .toList()
+            .sortedByDescending { (_, camEvents) -> camEvents.maxOf { it.startTimeMs } }
+    }
+    Column(modifier = modifier) {
+        for ((camera, camEvents) in grouped) {
+            val camName = camera.replace('_', ' ')
+                .split(' ').joinToString(" ") { it.replaceFirstChar { c -> c.uppercaseChar() } }
+            CameraEventsRow(
+                events = camEvents,
+                focusedIndex = -1,
+                title = camName,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
