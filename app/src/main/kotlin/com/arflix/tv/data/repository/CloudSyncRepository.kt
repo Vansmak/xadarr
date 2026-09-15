@@ -738,7 +738,11 @@ class CloudSyncRepository @Inject constructor(
         root.put("dnsProvider", globalDnsProvider)
         root.put("customUserAgent", prefs[customUserAgentKey] ?: "")
         root.put("oledBlackBackground", prefs[OLED_BLACK_BACKGROUND_KEY] ?: false)
-        root.put("focusBorderColor", prefs[FOCUS_BORDER_COLOR_KEY] ?: "White")
+        // "Auto" (not a real color name — Theme.kt reads it as "unset, use the theme's own
+        // accent") round-trips through sync as the literal string "Auto" rather than coercing to
+        // a real color name, so picking Auto on one device doesn't silently revert to a fixed
+        // color the next time this device pulls (2026-09-14 fix for the Auto option itself).
+        root.put("focusBorderColor", prefs[FOCUS_BORDER_COLOR_KEY] ?: "Auto")
         root.put("subtitleUsageJson", prefs[subtitleUsageKey()] ?: "")
         root.put("subtitleSettingsUpdatedAt", prefs[subtitleSettingsUpdatedAtKey()]?.toLongOrNull() ?: 0L)
         root.put("skipProfileSelection", prefs[SKIP_PROFILE_SELECTION_KEY] ?: false)
@@ -1507,7 +1511,14 @@ class CloudSyncRepository @Inject constructor(
                     prefs[OLED_BLACK_BACKGROUND_KEY] = root.optBoolean("oledBlackBackground", false)
                 }
                 if (root.has("focusBorderColor")) {
-                    prefs[FOCUS_BORDER_COLOR_KEY] = root.optString("focusBorderColor", "White").ifBlank { "White" }
+                    val incoming = root.optString("focusBorderColor", "Auto").ifBlank { "Auto" }
+                    // "Auto" means unset locally too — Theme.kt only falls back to the theme's
+                    // own accent color when this key is genuinely absent, not present-and-"Auto".
+                    if (incoming == "Auto") {
+                        prefs.remove(FOCUS_BORDER_COLOR_KEY)
+                    } else {
+                        prefs[FOCUS_BORDER_COLOR_KEY] = incoming
+                    }
                 }
             }
             restoredDnsProvider?.let { OkHttpProvider.setDnsProvider(OkHttpProvider.parseDnsProvider(it)) }

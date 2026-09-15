@@ -159,6 +159,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.widget.doAfterTextChanged
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.CatalogConfig
 import com.arflix.tv.data.model.CatalogDiscoveryResult
@@ -3836,7 +3837,7 @@ private fun MobileSettingsMainPage(
                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(imageVector = icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(24.dp))
+                            Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(text = name, style = ArflixTypography.body, color = TextPrimary, modifier = Modifier.weight(1f))
                             Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
@@ -4490,7 +4491,11 @@ private fun MobileSettingsRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = TextSecondary,
+                    // Dimmed theme accent instead of plain gray — Joe, 2026-09-14: "the themes
+                    // [should] actually change the look" beyond just the focus border. tertiary
+                    // is already palette.accent at 70% alpha (see Theme.kt), so this stays subtle
+                    // rather than as loud as an actively-focused element.
+                    tint = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
@@ -5234,7 +5239,7 @@ private fun TvGeneralSettingsRows(
     onHomeRowSelectionClick: () -> Unit = {},
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
-    focusBorderColor: String = "White",
+    focusBorderColor: String = "Auto",
     selectedTheme: String = "Midnight",
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
@@ -5468,7 +5473,7 @@ private fun GeneralSettings(
     clockFormat: String = "24h",
     showBudget: Boolean = true,
     spoilerBlurEnabled: Boolean = false,
-    focusBorderColor: String = "White",
+    focusBorderColor: String = "Auto",
     volumeBoostDb: Int = 0,
     focusedIndex: Int,
     onSubtitleClick: () -> Unit,

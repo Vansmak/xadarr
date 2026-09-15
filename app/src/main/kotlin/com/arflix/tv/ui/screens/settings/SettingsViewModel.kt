@@ -185,7 +185,7 @@ data class SettingsUiState(
     // Spoiler blur — blur unwatched episode card images and hide synopsis
     val spoilerBlurEnabled: Boolean = false,
     // Focus border color — user-selectable theme colour for the D-pad focus ring
-    val focusBorderColor: String = "White",
+    val focusBorderColor: String = "Auto",
     // Color theme — full palette preset
     val selectedTheme: String = "Midnight",
     val qualityFilterPresetLabel: String = "OFF",
@@ -464,7 +464,7 @@ class SettingsViewModel @Inject constructor(
             val showBudget = prefs[showBudgetKey()] ?: true
             val clockFormat = prefs[clockFormatKey()] ?: "24h"
             val homeRowSelection = prefs[homeRowSelectionKey()] ?: "continue_watching"
-            val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "White"
+            val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "Auto"
             val selectedTheme = prefs[com.arflix.tv.util.THEME_KEY] ?: "Midnight"
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
@@ -1263,16 +1263,28 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Cycle the focus border color through the rainbow palette.
-     * Order: White → Red → Orange → Yellow → Green → Blue → Indigo → Violet → White
+     * Cycle the focus border color through "Auto" (matches whichever Theme is selected — Theme.kt
+     * falls back to the theme's own palette.accent whenever this preference is unset) plus a fixed
+     * rainbow palette for anyone who wants a color independent of their theme.
+     * Order: Auto → White → Red → Orange → Yellow → Green → Blue → Indigo → Violet → Auto
+     *
+     * Joe, 2026-09-14: the two systems never coincided — Theme has its own accent per palette
+     * (e.g. Black & Gold's is a real gold, D4AF37), but this picker only ever cycled 8 generic
+     * named colors with no way to just inherit the theme's own accent instead.
      */
     fun cycleFocusBorderColor() {
-        val colors = listOf("White", "Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet")
+        val colors = listOf("Auto", "White", "Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet")
         val current = _uiState.value.focusBorderColor
         val nextIndex = (colors.indexOf(current) + 1) % colors.size
         val next = colors[nextIndex]
         viewModelScope.launch {
-            context.settingsDataStore.edit { it[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] = next }
+            context.settingsDataStore.edit { prefs ->
+                if (next == "Auto") {
+                    prefs.remove(com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY)
+                } else {
+                    prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] = next
+                }
+            }
             _uiState.value = _uiState.value.copy(focusBorderColor = next)
             syncLocalStateToCloud(silent = true)
         }
