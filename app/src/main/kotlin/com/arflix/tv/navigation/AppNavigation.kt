@@ -112,7 +112,7 @@ sealed class Screen(val route: String) {
         }
     }
     
-    object Player : Screen("player/{mediaType}/{mediaId}?seasonNumber={seasonNumber}&episodeNumber={episodeNumber}&imdbId={imdbId}&streamUrl={streamUrl}&preferredAddonId={preferredAddonId}&preferredSourceName={preferredSourceName}&preferredBingeGroup={preferredBingeGroup}&startPositionMs={startPositionMs}") {
+    object Player : Screen("player/{mediaType}/{mediaId}?seasonNumber={seasonNumber}&episodeNumber={episodeNumber}&imdbId={imdbId}&streamUrl={streamUrl}&preferredAddonId={preferredAddonId}&preferredSourceName={preferredSourceName}&preferredBingeGroup={preferredBingeGroup}&startPositionMs={startPositionMs}&isDeliberateSourcePick={isDeliberateSourcePick}") {
         fun createRoute(
             mediaType: MediaType,
             mediaId: Int,
@@ -123,7 +123,8 @@ sealed class Screen(val route: String) {
             preferredAddonId: String? = null,
             preferredSourceName: String? = null,
             preferredBingeGroup: String? = null,
-            startPositionMs: Long? = null
+            startPositionMs: Long? = null,
+            isDeliberateSourcePick: Boolean = false
         ): String {
             val base = "player/${mediaType.name.lowercase()}/$mediaId"
             val params = mutableListOf<String>()
@@ -135,6 +136,7 @@ sealed class Screen(val route: String) {
             preferredSourceName?.let { params.add("preferredSourceName=${java.net.URLEncoder.encode(it, "UTF-8")}") }
             preferredBingeGroup?.let { params.add("preferredBingeGroup=${java.net.URLEncoder.encode(it, "UTF-8")}") }
             startPositionMs?.let { params.add("startPositionMs=$it") }
+            if (isDeliberateSourcePick) params.add("isDeliberateSourcePick=true")
             return if (params.isNotEmpty()) "$base?${params.joinToString("&")}" else base
         }
     }
@@ -490,7 +492,7 @@ fun AppNavigation(
                 autoPlay = autoPlay,
                 currentProfile = currentProfile,
                 liveTvPlayerViewModel = liveTvPlayerViewModel,
-                onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs ->
+                onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs, isDeliberateSourcePick ->
                     navController.navigate(
                         Screen.Player.createRoute(
                             mediaType = type,
@@ -501,7 +503,8 @@ fun AppNavigation(
                             streamUrl = url,
                             preferredAddonId = preferredAddonId,
                             preferredSourceName = preferredSourceName,
-                            startPositionMs = startPositionMs
+                            startPositionMs = startPositionMs,
+                            isDeliberateSourcePick = isDeliberateSourcePick
                         )
                     )
                 },
@@ -576,6 +579,10 @@ fun AppNavigation(
                 navArgument("startPositionMs") {
                     type = NavType.LongType
                     defaultValue = -1L
+                },
+                navArgument("isDeliberateSourcePick") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
@@ -589,6 +596,7 @@ fun AppNavigation(
             val preferredSourceName = backStackEntry.arguments?.getString("preferredSourceName")?.takeIf { it.isNotBlank() }
             val preferredBingeGroup = backStackEntry.arguments?.getString("preferredBingeGroup")?.takeIf { it.isNotBlank() }
             val startPositionMs = backStackEntry.arguments?.getLong("startPositionMs")?.takeIf { it >= 0L }
+            val isDeliberateSourcePick = backStackEntry.arguments?.getBoolean("isDeliberateSourcePick") ?: false
             val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
             
             PlayerScreen(
@@ -602,6 +610,7 @@ fun AppNavigation(
                 preferredSourceName = preferredSourceName,
                 preferredBingeGroup = preferredBingeGroup,
                 startPositionMs = startPositionMs,
+                isDeliberateSourcePick = isDeliberateSourcePick,
                 onBack = goBack,
                 onPlayNext = { nextSeason, nextEpisode, nextPreferredAddonId, nextPreferredSourceName, nextPreferredBingeGroup ->
                     // Navigate to next episode

@@ -195,6 +195,7 @@ fun PlayerScreen(
     preferredSourceName: String? = null,
     preferredBingeGroup: String? = null,
     startPositionMs: Long? = null,
+    isDeliberateSourcePick: Boolean = false,
     viewModel: PlayerViewModel = hiltViewModel(),
     onBack: () -> Unit = {},
     onPlayNext: (Int, Int, String?, String?, String?) -> Unit = { _, _, _, _, _ -> }
@@ -211,8 +212,14 @@ fun PlayerScreen(
     val playViaPlexToggle by context.settingsDataStore.data
         .map { it[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false }
         .collectAsStateWithLifecycle(initialValue = false)
+    // isDeliberateSourcePick, not "streamUrl != null" — a non-null streamUrl no longer implies a
+    // manual Sources pick. The "only one source exists, skip asking" auto-play convenience path
+    // also passes a resolved streamUrl (needed for playback), and until this was split out that
+    // alone silently forced Plex handoff regardless of the toggle below — confirmed live
+    // 2026-09-14, it got far more common once a second source (Jellyfin) was removed and single-
+    // source auto-play started firing on most titles instead of a rare few.
     val pendingPlexHandoff = uiState.selectedStream?.let { selected ->
-        selected.isPlexSource && (streamUrl != null || playViaPlexToggle)
+        selected.isPlexSource && (isDeliberateSourcePick || playViaPlexToggle)
     } ?: false
     val latestUiState by rememberUpdatedState(uiState)
     val clockFormat = rememberPlayerClockFormat()

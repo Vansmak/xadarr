@@ -198,7 +198,14 @@ fun DetailsScreen(
     viewModel: DetailsViewModel = hiltViewModel(),
     liveTvPlayerViewModel: com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel? = null,
     currentProfile: com.arflix.tv.data.model.Profile? = null,
-    onNavigateToPlayer: (MediaType, Int, Int?, Int?, String?, String?, String?, String?, Long?) -> Unit,
+    // Last Boolean: true only when the user deliberately picked this exact stream from the
+    // Sources/StreamSelector list — PlayerScreen trusts that as explicit consent to hand off to
+    // Plex for a Plex source regardless of the global "Play via Plex" toggle. Every other caller
+    // (default Play, auto-play-the-only-source, episode context menu) passes false even when it
+    // also happens to pass a resolved streamUrl for playback purposes — that URL being non-null
+    // used to be (mis)used as this same signal, which silently handed off to Plex on any title
+    // with just one available source, regardless of the toggle (confirmed live 2026-09-14).
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, String?, String?, String?, String?, Long?, Boolean) -> Unit,
     onNavigateToDetails: (MediaType, Int) -> Unit,
     onNavigateToCollection: (String) -> Unit = {},
     onNavigateToHome: () -> Unit = {},
@@ -430,7 +437,8 @@ fun DetailsScreen(
                 null,
                 null,
                 null,
-                startPositionMs
+                startPositionMs,
+                false
             )
         }
     }
@@ -470,7 +478,10 @@ fun DetailsScreen(
                     singleStream.url?.takeIf { it.isNotBlank() },
                     singleStream.addonId.takeIf { it.isNotBlank() },
                     singleStream.source.takeIf { it.isNotBlank() },
-                    request.startPositionMs
+                    request.startPositionMs,
+                    // Not a deliberate Sources pick — this is the "only one source exists, skip
+                    // asking" convenience path. The URL above is passed for playback only.
+                    false
                 )
             }
             validStreams.size > 1 || uiState.streams.isNotEmpty() -> {
@@ -858,7 +869,7 @@ fun DetailsScreen(
                             } else {
                                 onNavigateToPlayer(
                                     mediaType, mediaId,
-                                    ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null
+                                    ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null, false
                                 )
                             }
                         }
@@ -986,7 +997,7 @@ fun DetailsScreen(
                             } else {
                                 onNavigateToPlayer(
                                     mediaType, mediaId,
-                                    ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null
+                                    ep.seasonNumber, ep.episodeNumber, uiState.imdbId, null, null, null, null, false
                                 )
                             }
                         }
@@ -1173,7 +1184,10 @@ fun DetailsScreen(
                     stream.url?.takeIf { it.isNotBlank() },
                     stream.addonId.takeIf { it.isNotBlank() },
                     stream.source.takeIf { it.isNotBlank() },
-                    null
+                    null,
+                    // A real, deliberate pick from the Sources list — trust it for Plex handoff
+                    // regardless of the global toggle.
+                    true
                 )
             },
             onClose = { showStreamSelector = false }
@@ -1198,7 +1212,7 @@ fun DetailsScreen(
                     showEpisodeContextMenu = false
                     onNavigateToPlayer(
                         mediaType, mediaId,
-                        episode.seasonNumber, episode.episodeNumber, uiState.imdbId, null, null, null, null
+                        episode.seasonNumber, episode.episodeNumber, uiState.imdbId, null, null, null, null, false
                     )
                 },
                 onSelectSource = {
