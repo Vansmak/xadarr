@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 private const val EpgWindowMinutes = 10 * 60
 
@@ -380,11 +381,11 @@ fun EpgGrid(
                         style = LiveType.NumberMono.copy(color = LiveColors.FgDim))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("CH", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+                    Text("CH", style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)))
                     val currentNumber = channels.firstOrNull { it.id == selectedChannelId }?.number
                     Text(
                         currentNumber?.toString() ?: "—",
-                        style = LiveType.NumberMono.copy(color = LiveColors.Accent),
+                        style = LiveType.NumberMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                     )
                 }
             }
@@ -425,7 +426,7 @@ fun EpgGrid(
                         modifier = Modifier
                             .offset(x = nowOffset - 46.dp, y = 6.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(LiveColors.Accent)
+                            .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
@@ -621,7 +622,7 @@ fun EpgGrid(
                                 .offset(x = xDp)
                                 .fillMaxHeight()
                                 .width(2.dp)
-                                .background(LiveColors.Accent),
+                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                         )
                         // Glow behind the 2dp line
                         Box(
@@ -629,7 +630,7 @@ fun EpgGrid(
                                 .offset(x = xDp - 3.dp)
                                 .fillMaxHeight()
                                 .width(8.dp)
-                                .background(LiveColors.Accent.copy(alpha = 0.22f)),
+                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f)),
                         )
                     }
                 }
@@ -772,7 +773,7 @@ private fun NowLine(
             .offset(x = xDp)
             .fillMaxHeight()
             .width(2.dp)
-            .background(LiveColors.Accent),
+            .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
     )
     // Glow behind the 2dp line
     Box(
@@ -780,7 +781,7 @@ private fun NowLine(
             .offset(x = xDp - 3.dp)
             .fillMaxHeight()
             .width(8.dp)
-            .background(LiveColors.Accent.copy(alpha = 0.22f)),
+            .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f)),
     )
 }
 

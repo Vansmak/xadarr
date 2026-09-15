@@ -208,7 +208,7 @@ fun MediaCard(
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
             shape = shape,
             backgroundColor = XadarrSkin.colors.surface,
-            outlineColor = com.arflix.tv.ui.skin.LocalExplicitFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline,
+            outlineColor = com.arflix.tv.ui.skin.LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline,
             outlineWidth = jumpBorderWidth,
             focusedScale = focusedScale,
             pressedScale = 0.97f,
@@ -695,12 +695,10 @@ fun PosterCard(
     val visualFocused = isFocusedOverride || isFocused
 
     val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
+    // Auto means "theme accent, everywhere" with no special-casing for posters (Joe, 2026-09-14:
+    // "auto should be theme based" — no separate safe-white behavior wanted).
     val outlineColor = if (useWhiteBorder) {
-        // An explicit user pick (not "Auto") applies here too — this setting was originally
-        // about catalogue/poster focus specifically (Joe, 2026-09-14). Auto stays plain white
-        // rather than inheriting the theme's accent, since arbitrary poster art was never
-        // designed with any particular theme color in mind.
-        com.arflix.tv.ui.skin.LocalExplicitFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline
+        com.arflix.tv.ui.skin.LocalFocusBorderColorOverride.current ?: XadarrSkin.colors.focusOutline
     } else {
         XadarrSkin.colors.accent
     }

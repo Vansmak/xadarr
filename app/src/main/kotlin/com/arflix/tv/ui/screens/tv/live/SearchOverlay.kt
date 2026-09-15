@@ -69,6 +69,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * "20:35", "Thu 20:35", or "Now" — enough to tell tonight from next week at a glance.
@@ -335,7 +336,7 @@ fun SearchOverlay(
                     keyboardActions = KeyboardActions(
                         onSearch = { runCatching { firstResultFocus.requestFocus() } },
                     ),
-                    cursorBrush = SolidColor(LiveColors.Accent),
+                    cursorBrush = SolidColor((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                     textStyle = TextStyle(
                         color = LiveColors.Fg,
                         fontSize = 18.sp,
@@ -507,7 +508,7 @@ private fun MediaSearchResultRow(
             .background(if (focused) LiveColors.Panel else Color.Transparent)
             .border(
                 width = if (focused) 3.dp else 0.dp,
-                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
             .onFocusChanged { focused = it.hasFocus }
@@ -582,7 +583,7 @@ private fun SearchResultRow(
             .background(if (focused) LiveColors.Panel else Color.Transparent)
             .border(
                 width = if (focused) 3.dp else 0.dp,
-                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
             .onFocusChanged { focused = it.hasFocus }
@@ -660,7 +661,7 @@ private fun SearchResultRow(
                 // tonight and one next Tuesday looked identical.
                 Text(
                     text = "${formatWhen(hit.matchedProgram.startUtcMillis)}  ·  ${hit.matchedProgram.title}",
-                    style = LiveType.SectionTag.copy(color = LiveColors.Accent),
+                    style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -676,7 +677,7 @@ private fun SearchResultRow(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(LiveColors.Accent.copy(alpha = 0.22f))
+                        .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(
@@ -687,7 +688,7 @@ private fun SearchResultRow(
                         // heading and behave differently (ephemeral unless pinned), so the two
                         // must not read the same.
                         hit.channel.source.group.uppercase().take(22),
-                        style = LiveType.Badge.copy(color = LiveColors.Accent, fontSize = 10.sp),
+                        style = LiveType.Badge.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent), fontSize = 10.sp),
                         maxLines = 1,
                     )
                 }
@@ -742,7 +743,7 @@ private fun RemoteStreamRow(
             .background(if (focused) LiveColors.Panel else Color.Transparent)
             .border(
                 width = if (focused) 3.dp else 0.dp,
-                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
             .onFocusChanged { focused = it.hasFocus }
@@ -811,7 +812,7 @@ private fun RemoteStreamRow(
         Icon(
             imageVector = if (isPinned) Icons.Filled.Star else Icons.Filled.StarBorder,
             contentDescription = if (isPinned) "Pinned to guide — hold to unpin" else "Hold to pin to guide",
-            tint = if (isPinned) LiveColors.Accent else LiveColors.FgMute,
+            tint = if (isPinned) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FgMute,
             modifier = Modifier.size(20.dp),
         )
     }

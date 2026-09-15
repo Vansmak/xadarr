@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.CircularProgressIndicator
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -622,7 +623,7 @@ private fun CameraGridCard(
         animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse-alpha",
     )
-    val borderColor = if (isFocused) LiveColors.FocusRing.copy(alpha = pulseAlpha) else LiveColors.Divider
+    val borderColor = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing).copy(alpha = pulseAlpha) else LiveColors.Divider
 
     // snapshotUrl is a static string, so Coil's in-memory cache would otherwise
     // keep showing whatever bitmap it first decoded for that exact URL for as
@@ -844,7 +845,7 @@ private fun CameraEventCard(
         animationSpec = tween(150, easing = FastOutSlowInEasing),
         label = "event_scale",
     )
-    val borderColor = if (isFocused) LiveColors.FocusRing else LiveColors.Divider
+    val borderColor = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else LiveColors.Divider
 
     Column(
         modifier = Modifier

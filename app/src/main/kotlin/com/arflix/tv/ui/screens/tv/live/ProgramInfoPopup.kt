@@ -46,6 +46,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvProgram
 import kotlinx.coroutines.delay
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * Shown when a program cell is selected in [EpgGrid]'s timeline — title, air time, and
@@ -128,16 +129,16 @@ fun ProgramInfoPopup(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = formatTimeWindow(program),
-                    style = LiveType.NumberMono.copy(color = LiveColors.Accent, fontSize = 14.sp),
+                    style = LiveType.NumberMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent), fontSize = 14.sp),
                 )
                 if (isLive) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(LiveColors.Accent.copy(alpha = 0.22f))
+                            .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     ) {
-                        Text("LIVE NOW", style = LiveType.Badge.copy(color = LiveColors.Accent, fontSize = 10.sp))
+                        Text("LIVE NOW", style = LiveType.Badge.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent), fontSize = 10.sp))
                     }
                 }
                 if (isFuture) {
@@ -168,7 +169,7 @@ fun ProgramInfoPopup(
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (focused) LiveColors.Accent else LiveColors.Panel)
+                        .background(if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Panel)
                         .focusRequester(focusRequester)
                         .onFocusChanged { focused = it.hasFocus }
                         .focusable()
@@ -197,7 +198,7 @@ fun ProgramInfoPopup(
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (focused) LiveColors.Accent else LiveColors.Panel)
+                        .background(if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Panel)
                         .focusRequester(focusRequester)
                         .onFocusChanged { focused = it.hasFocus }
                         .focusable()
@@ -229,7 +230,7 @@ fun ProgramInfoPopup(
                     Text(
                         text = "Notifications are off for Xadarr, so this won't actually notify you. " +
                             "Enable them in Android Settings → Apps → Xadarr → Notifications.",
-                        style = LiveType.SectionTag.copy(color = LiveColors.Accent, fontSize = 11.sp),
+                        style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent), fontSize = 11.sp),
                     )
                 }
             } else {

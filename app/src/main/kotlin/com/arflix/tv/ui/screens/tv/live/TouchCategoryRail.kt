@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 private data class TouchCategoryRailItem(
     val id: String,
@@ -84,7 +85,7 @@ fun TouchCategoryRail(
                     modifier = Modifier
                         .height(38.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (remoteModeActive) LiveColors.Accent else LiveColors.PanelRaised)
+                        .background(if (remoteModeActive) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.PanelRaised)
                         // Tap opens the panel, as it always has. Long-press flips between
                         // watching here and driving the other device — the pill highlights to show
                         // which, so surfing on the phone while the Shield plays something else
@@ -121,7 +122,7 @@ fun TouchCategoryRail(
                 modifier = Modifier
                     .height(38.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (active) LiveColors.Accent else LiveColors.Panel)
+                    .background(if (active) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Panel)
                     .clickable { onSelect(item.id) }
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center,

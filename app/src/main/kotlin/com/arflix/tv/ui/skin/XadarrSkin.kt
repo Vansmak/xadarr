@@ -16,18 +16,6 @@ val LocalXadarrSkinTokens = staticCompositionLocalOf { XadarrSkinTokens.defaults
 val LocalFocusBorderColorOverride = staticCompositionLocalOf<Color?> { null }
 
 /**
- * The user's raw *explicit* focus border colour pick — null when the setting is "Auto" (inherit
- * the theme's accent), unlike [LocalFocusBorderColorOverride] which always resolves to something
- * (the explicit pick, or the theme accent as its own built-in fallback). Poster-style cards read
- * this one specifically: an explicit pick applies everywhere including posters (Joe, 2026-09-14:
- * "I'd prefer the color I can always choose" — this setting predates per-theme accents and was
- * originally about catalogue/poster focus specifically), but Auto leaves posters on a safe white
- * border rather than inheriting whichever accent the current theme happens to carry, since an
- * arbitrary poster's own colours were never chosen with that theme in mind.
- */
-val LocalExplicitFocusBorderColorOverride = staticCompositionLocalOf<Color?> { null }
-
-/**
  * Resolves the effective focus border colour for a component that draws its
  * own focus border (for example, settings rows and glow chips) instead of
  * using the [xadarrFocusable] modifier. Returns the user's chosen override

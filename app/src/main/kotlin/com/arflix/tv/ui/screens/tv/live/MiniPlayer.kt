@@ -49,6 +49,7 @@ import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.util.formatGenreName
 import com.arflix.tv.util.DeviceType
 import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -344,7 +345,7 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("NOW", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+            Text("NOW", style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)))
             Text(
                 text = formatTimeWindow(now),
                 style = LiveType.TimeMono.copy(color = LiveColors.Fg),
@@ -354,7 +355,7 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
             if (remaining.isNotBlank()) {
                 Text(
                     text = remaining,
-                    style = LiveType.TimeMono.copy(color = LiveColors.Accent),
+                    style = LiveType.TimeMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                 )
             }
         }
@@ -377,7 +378,7 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                color = LiveColors.Accent,
+                color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                 trackColor = LiveColors.Panel,
             )
         }

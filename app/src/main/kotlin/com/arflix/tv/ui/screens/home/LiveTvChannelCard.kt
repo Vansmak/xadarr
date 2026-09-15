@@ -54,6 +54,7 @@ import com.arflix.tv.ui.screens.tv.live.LiveType
 import com.arflix.tv.ui.screens.tv.live.progressOf
 import com.arflix.tv.ui.screens.tv.live.remainingLabel
 import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /** Card width used in the On Now home row — matches standard landscape home cards. */
 val LiveTvCardWidth: Dp = 210.dp
@@ -185,7 +186,7 @@ fun LiveTvChannelCard(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(3.dp),
-                    color = if (isFocused) Pink else LiveColors.Accent,
+                    color = if (isFocused) Pink else (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                     trackColor = Color.White.copy(alpha = 0.12f),
                 )
             }
@@ -220,7 +221,7 @@ fun LiveTvChannelCard(
                     Text(
                         text = remaining,
                         style = LiveType.Badge.copy(
-                            color = LiveColors.Accent.copy(alpha = textBrightness),
+                            color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = textBrightness),
                             fontSize = 9.sp,
                         ),
                     )

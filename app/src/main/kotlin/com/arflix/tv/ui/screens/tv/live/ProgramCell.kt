@@ -47,6 +47,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.util.LocalDeviceType
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * A single EPG program cell placed inside a row with an absolute offset.
@@ -82,8 +83,8 @@ fun ProgramCell(
     }
     val bg = if (focused) LiveColors.PanelRaised else baseBg
     val borderColor = when {
-        focused -> LiveColors.FocusRing
-        isNow -> LiveColors.Accent.copy(alpha = 0.45f)
+        focused -> (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing)
+        isNow -> (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.45f)
         else -> Color.Transparent
     }
     val borderWidth by animateDpAsState(
@@ -176,7 +177,7 @@ fun ProgramCell(
                     .background(
                         Brush.horizontalGradient(
                             listOf(
-                                LiveColors.Accent.copy(alpha = 0.22f),
+                                (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f),
                                 Color.Transparent,
                             )
                         )
@@ -193,13 +194,13 @@ fun ProgramCell(
                     Badge("LIVE", Color.White, LiveColors.LiveRed)
                     Spacer(Modifier.size(6.dp))
                 } else if (isPast && isCatchupSupported) {
-                    Badge("ARCHIVE", LiveColors.Bg, LiveColors.Accent)
+                    Badge("ARCHIVE", LiveColors.Bg, (LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
                     Spacer(Modifier.size(6.dp))
                 } else if (!isPast) {
                     val isNewTag = (nowMs - program.startUtcMillis) in 0..24L * 60 * 60 * 1000L &&
                         !program.isLive(nowMs)
                     if (isNewTag) {
-                        Badge("NEW", LiveColors.Bg, LiveColors.Accent)
+                        Badge("NEW", LiveColors.Bg, (LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
                         Spacer(Modifier.size(6.dp))
                     }
                 }

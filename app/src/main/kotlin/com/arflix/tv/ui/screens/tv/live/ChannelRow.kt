@@ -53,6 +53,7 @@ import com.arflix.tv.data.model.IptvNowNext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * How many rows one direction-key event should move, given how long the key has been held.
@@ -142,7 +143,7 @@ fun ChannelRow(
             }
             .border(
                 width = animatedBorderWidth,
-                color = if (visuallyFocused) LiveColors.FocusRing else Color.Transparent,
+                color = if (visuallyFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
             )
             .background(if (visuallyFocused) LiveColors.PanelRaised else bg)
             .focusable()
@@ -214,7 +215,7 @@ fun ChannelRow(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(LiveDims.ActiveIndicator)
-                .background(if (isActive) LiveColors.Accent else Color.Transparent),
+                .background(if (isActive) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent),
         )
 
         Spacer(Modifier.width(10.dp))
@@ -231,7 +232,7 @@ fun ChannelRow(
                 Text(
                     text = channel.name,
                     style = LiveType.CellTitle.copy(
-                        color = if (isActive) LiveColors.Accent else LiveColors.Fg,
+                        color = if (isActive) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Fg,
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -265,7 +266,7 @@ fun ChannelRow(
                     Icon(
                         imageVector = Icons.Filled.History,
                         contentDescription = "Catchup available",
-                        tint = LiveColors.Accent.copy(alpha = 0.8f),
+                        tint = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.8f),
                         modifier = Modifier.size(11.dp),
                     )
                 }
@@ -278,7 +279,7 @@ fun ChannelRow(
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.width(80.dp).height(2.dp),
-                    color = LiveColors.Accent,
+                    color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                     trackColor = LiveColors.Divider,
                 )
             }

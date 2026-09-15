@@ -76,6 +76,7 @@ import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.ui.screens.tv.live.LiveType
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.util.PlexDeepLink
@@ -570,7 +571,7 @@ private fun PlexPosterCard(
     subtitleOverride: String? = null,
     onClick: () -> Unit,
 ) {
-    val borderColor = if (isFocused) LiveColors.FocusRing else LiveColors.Divider
+    val borderColor = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else LiveColors.Divider
 
     Column(
         modifier = modifier

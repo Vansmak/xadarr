@@ -71,6 +71,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 // ── ViewModel ────────────────────────────────────────────────────────────────
 
@@ -259,7 +260,7 @@ fun HomeDashboardScreen(
     Box(modifier = Modifier.fillMaxSize().background(LiveColors.Bg)) {
         if (uiState.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                CircularProgressIndicator(color = LiveColors.Accent)
+                CircularProgressIndicator(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -403,7 +404,7 @@ private fun PosterTile(
             )
             androidx.tv.material3.Text(
                 text = subtitle,
-                color = LiveColors.Accent,
+                color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                 style = LiveType.Badge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

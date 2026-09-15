@@ -96,6 +96,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 private enum class LiveTvFocusZone {
     CATEGORY_LIST,
@@ -1360,7 +1361,7 @@ fun LiveTvScreen(
                 // of freezing on the previous frame with no feedback at all.
                 if (isBuffering) {
                     CircularProgressIndicator(
-                        color = LiveColors.Accent,
+                        color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                         modifier = Modifier.align(Alignment.Center).size(48.dp),
                     )
                 }

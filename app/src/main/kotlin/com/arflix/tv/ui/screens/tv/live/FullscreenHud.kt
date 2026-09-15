@@ -44,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import kotlinx.coroutines.delay
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * Fullscreen playback HUD. Auto-hides 5s after the last `pokeSignal`
@@ -176,7 +177,7 @@ fun FullscreenHud(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text("NOW", style = LiveType.SectionTag.copy(color = LiveColors.Accent))
+                        Text("NOW", style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)))
                         Text(
                             text = formatTimeWindow(now),
                             style = LiveType.TimeMono.copy(color = LiveColors.Fg),
@@ -186,7 +187,7 @@ fun FullscreenHud(
                         if (remaining.isNotBlank()) {
                             Text(
                                 text = remaining,
-                                style = LiveType.TimeMono.copy(color = LiveColors.Accent),
+                                style = LiveType.TimeMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                             )
                         }
                     }
@@ -220,7 +221,7 @@ fun FullscreenHud(
                                 .fillMaxWidth()
                                 .height(3.dp)
                                 .clip(RoundedCornerShape(2.dp)),
-                            color = LiveColors.Accent,
+                            color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                             trackColor = LiveColors.Panel,
                         )
                     }

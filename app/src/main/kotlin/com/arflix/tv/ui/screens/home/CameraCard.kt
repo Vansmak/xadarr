@@ -50,6 +50,7 @@ import coil.compose.AsyncImage
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
 import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 val CameraCardWidth: Dp = 210.dp
 
@@ -173,7 +174,7 @@ fun CameraCard(
             Text(
                 text = "Camera",
                 style = LiveType.Badge.copy(
-                    color = LiveColors.Accent.copy(alpha = textBrightness * 0.7f),
+                    color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = textBrightness * 0.7f),
                     fontSize = 9.sp,
                 ),
             )

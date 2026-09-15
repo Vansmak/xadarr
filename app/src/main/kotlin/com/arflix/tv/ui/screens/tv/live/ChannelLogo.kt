@@ -29,6 +29,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import coil.size.Precision
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * Typographic channel logo placeholder. Variant chosen by first char-code % 3.
@@ -106,7 +107,7 @@ fun ChannelLogo(
                         .align(Alignment.BottomCenter)
                         .height((size.value / 22f).coerceAtLeast(2f).dp)
                         .fillMaxWidth(0.6f)
-                        .background(LiveColors.Accent),
+                        .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                 )
             }
         }

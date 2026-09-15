@@ -57,6 +57,7 @@ import com.arflix.tv.data.model.NavSectionKind
 import com.arflix.tv.navigation.NavTargets
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveDims
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * Callbacks a screen already has from AppNavigation.kt — same set NavRail needs
@@ -370,7 +371,7 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(LiveDims.FocusBorder, if (isFocused) LiveColors.Accent else Color.Transparent, RoundedCornerShape(12.dp))
+            .border(LiveDims.FocusBorder, if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent)
             .clickable(onClick = onClick)

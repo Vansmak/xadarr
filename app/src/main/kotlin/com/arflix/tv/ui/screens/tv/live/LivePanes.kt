@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -28,7 +29,7 @@ fun LoadingPane(message: String?, percent: Int) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(color = LiveColors.Accent)
+        CircularProgressIndicator(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
         if (!message.isNullOrBlank()) {
             Box(Modifier.padding(top = 20.dp)) {
                 Text(message, style = LiveType.CellTitle.copy(color = LiveColors.FgDim))
@@ -38,7 +39,7 @@ fun LoadingPane(message: String?, percent: Int) {
             LinearProgressIndicator(
                 progress = { (percent / 100f).coerceIn(0f, 1f) },
                 modifier = Modifier.padding(top = 12.dp).width(260.dp),
-                color = LiveColors.Accent,
+                color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
                 trackColor = LiveColors.Divider,
             )
         }
@@ -58,7 +59,7 @@ fun EmptyStatePane(message: String, actionLabel: String, onAction: () -> Unit) {
             modifier = Modifier
                 .padding(top = 18.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(LiveColors.Accent)
+                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent))
                 .clickable { onAction() }
                 .padding(horizontal = 18.dp, vertical = 10.dp),
         ) {

@@ -84,6 +84,7 @@ import com.arflix.tv.data.model.GroupState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 /**
  * Left-hand category sidebar. Spec §3.1.
@@ -502,7 +503,7 @@ private fun SearchEntry(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .border(
                 width = if (focused) 3.dp else 0.dp,
-                color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
             .clip(RoundedCornerShape(10.dp))
@@ -622,7 +623,7 @@ private fun SidebarRow(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(LiveDims.ActiveIndicator)
-                    .background(LiveColors.Accent),
+                    .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
             )
         }
         Row(
@@ -637,7 +638,7 @@ private fun SidebarRow(
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .border(
                     width = if (focused) 3.dp else 0.dp,
-                    color = if (focused) LiveColors.FocusRing else Color.Transparent,
+                    color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                     shape = RoundedCornerShape(8.dp),
                 )
                 .clip(RoundedCornerShape(8.dp))
@@ -693,7 +694,7 @@ private fun SidebarRow(
                 leadingCode != null -> Text(
                     text = leadingCode,
                     style = LiveType.NumberMono.copy(
-                        color = if (active) LiveColors.Accent else LiveColors.FgMute,
+                        color = if (active) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FgMute,
                     ),
                     modifier = Modifier.width(20.dp),
                 )
@@ -704,7 +705,7 @@ private fun SidebarRow(
                 icon != null -> Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (active) LiveColors.Accent else LiveColors.FgDim,
+                    tint = if (active) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FgDim,
                     modifier = Modifier.size(14.dp),
                 )
                 else -> Spacer(Modifier.size(14.dp))
@@ -821,7 +822,7 @@ private fun CategoryContextMenu(
             modifier = Modifier
                 .width(184.dp)
                 .background(LiveColors.PanelRaised, RoundedCornerShape(10.dp))
-                .border(1.dp, LiveColors.FocusRing.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                .border(1.dp, (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
                 .focusRequester(focusRequester)
                 .focusable()
                 .onPreviewKeyEvent { event ->
@@ -887,7 +888,7 @@ private fun CategoryMenuItem(
             .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (focused) LiveColors.FocusRing else Color.Transparent)
+            .background(if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent)
             .pointerInput(onClick) { detectTapGestures(onTap = { onClick() }) }
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
