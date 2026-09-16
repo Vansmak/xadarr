@@ -208,7 +208,16 @@ fun EpgGrid(
         val channel = channels.getOrNull(rowIdx) ?: return true
         activeChannelFocusId = channel.id
         pendingChannelFocusId = channel.id
-        onChannelFocused(channel)
+        // Deliberately NOT calling onChannelFocused(channel) here. It used to fire eagerly,
+        // synchronously, on every single call -- i.e. on every accelerated key-repeat during a
+        // hold, regardless of whether the row below ever actually got real focus. That drives
+        // LiveTvScreen's focusedChannelId, which feeds the "CH ###" header and each row's
+        // isActive styling, so a fast hold made the header race far ahead of wherever the
+        // LazyColumn had actually managed to scroll+focus to -- "press Up on 170, header jumps
+        // to 217, highlight stays on 170 for a few tries" (Joe, 2026-09-15). The row's own
+        // onFocused callback below already reports onChannelFocused() the moment Compose focus
+        // genuinely lands there (gated by pendingChannelFocusId against stale/out-of-order
+        // events), which is the only signal that should ever drive visible UI.
         focusMoveJobHolder[0]?.cancel()
         focusMoveJobHolder[0] = scope.launch {
             channelListState.scrollToItem(rowIdx)
