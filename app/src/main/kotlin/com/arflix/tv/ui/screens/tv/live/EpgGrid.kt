@@ -213,7 +213,18 @@ fun EpgGrid(
         focusMoveJobHolder[0] = scope.launch {
             channelListState.scrollToItem(rowIdx)
             delay(16L)
-            repeat(4) { attempt ->
+            // heldStep() (ChannelRow.kt) widens the jump to up to 8 rows per key-repeat the
+            // longer Up/Down is held, so a fast hold can land rowIdx well outside the LazyColumn's
+            // previously-composed window. Composing+measuring freshly-scrolled-into-view rows
+            // (each with its own EPG lookups/badges) can take longer than a couple of frames,
+            // and under any extra jank — cold JIT right after install being the obvious one,
+            // Joe 2026-09-15 — 4 attempts at 16ms (~80ms total) wasn't always enough: the
+            // FocusRequester for that row wasn't registered yet, every attempt failed, and the
+            // highlight visibly stuck on the last row that *did* focus instead of keeping up
+            // with continued holding. Give it a much longer runway (~300ms) since it still
+            // returns the instant a real requestFocus() succeeds — this only matters when the
+            // fast path was already failing.
+            repeat(15) { attempt ->
                 val requester = channelFocusRequesters[channel.id] ?: when {
                     rowIdx == 0 -> firstChannelFocusRequester
                     channel.id == selectedChannelId -> selectedChannelFocusRequester
@@ -222,7 +233,7 @@ fun EpgGrid(
                 if (requester != null && runCatching { requester.requestFocus() }.isSuccess) {
                     return@launch
                 }
-                if (attempt < 3) delay(16L)
+                if (attempt < 14) delay(20L)
             }
             // All retries exhausted — clear pending so future onFocused calls aren't blocked
             if (pendingChannelFocusId == channel.id) pendingChannelFocusId = null
