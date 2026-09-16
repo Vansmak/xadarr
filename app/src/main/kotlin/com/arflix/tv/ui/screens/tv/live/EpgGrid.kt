@@ -54,6 +54,7 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -170,6 +171,12 @@ fun EpgGrid(
     var pendingChannelFocusId by remember(channelsIdentity) { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
+    // Holds the in-flight keepChannelFocus() job so a new up/down move cancels the previous
+    // one instead of racing it. Holding the key repeats moveChannelFocus() faster than each
+    // scrollToItem()+retry-loop coroutine finishes; without cancellation, an older job's
+    // delayed requestFocus() could land after a newer one and yank focus back a row, which
+    // read as the channel list "sticking" during a fast up/down (Joe, 2026-09-15).
+    val focusMoveJobHolder = remember { arrayOfNulls<Job>(1) }
     fun requestProgramFocus(rowIdx: Int, targetIdx: Int): Boolean {
         val channel = channels.getOrNull(rowIdx) ?: return false
         val requesters = programFocusRequesters[channel.id].orEmpty()
@@ -202,7 +209,8 @@ fun EpgGrid(
         activeChannelFocusId = channel.id
         pendingChannelFocusId = channel.id
         onChannelFocused(channel)
-        scope.launch {
+        focusMoveJobHolder[0]?.cancel()
+        focusMoveJobHolder[0] = scope.launch {
             channelListState.scrollToItem(rowIdx)
             delay(16L)
             repeat(4) { attempt ->
