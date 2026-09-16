@@ -186,8 +186,16 @@ fun qualityFromText(text: String): Quality {
 }
 
 /** Extract a 2-letter bucket code from a group/channel name. Accepts ISO
- *  country codes or language prefixes (EN, JA, …) commonly used in IPTV. */
-fun countryFromText(text: String): String? {
+ *  country codes or language prefixes (EN, JA, …) commonly used in IPTV.
+ *
+ *  [allowRawPrefixFallback] should stay true only for playlist *group* text,
+ *  where a bare "UK|Sports"-style prefix with no space before the delimiter
+ *  is common. Applied to a plain channel display *name* it false-positives
+ *  on any name that happens to start with a country code by coincidence —
+ *  "ESPN HD" -> "ES" (Spain), "CNN" -> "CN" (China) — mislabeling the
+ *  channel's language badge (Joe, 2026-09-15: "ESPN HD says ES isn't the
+ *  Spain?"). */
+fun countryFromText(text: String, allowRawPrefixFallback: Boolean = true): String? {
     val tokens = text.split(TAG_RE).map { it.trim().trim('[', ']', '(', ')') }
     for (tok in tokens) {
         if (tok.length in 2..3) {
@@ -196,6 +204,7 @@ fun countryFromText(text: String): String? {
             if (canonical.length == 2 && canonical in KNOWN_COUNTRIES) return canonical
         }
     }
+    if (!allowRawPrefixFallback) return null
     // Fallback: first two/three chars of the string — handles "UK|Sports"
     // and similar no-delimiter prefixes.
     val head = text.trim().take(3).uppercase()
@@ -223,7 +232,7 @@ fun brandForGenre(genre: Genre): LiveColors.Brand = when (genre) {
 
 private fun IptvChannel.traits(): ChannelTraits {
     val combined = "$group | $name"
-    val country = countryFromText(group) ?: countryFromText(name)
+    val country = countryFromText(group) ?: countryFromText(name, allowRawPrefixFallback = false)
     val genre = genreFromText(combined)
     val quality = qualityFromText(name).takeUnless { it == Quality.SD } ?: qualityFromText(group)
     val lang = country ?: "EN"
