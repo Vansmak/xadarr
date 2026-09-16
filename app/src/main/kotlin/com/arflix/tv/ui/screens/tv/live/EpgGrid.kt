@@ -262,14 +262,23 @@ fun EpgGrid(
         //
         // Page jumps still clamp: overshooting by five and landing at the far end of the list is
         // disorienting in a way that stepping by one is not.
+        // If the anchor is already sitting AT the boundary a multi-row jump would clamp to,
+        // clamping again is a pure no-op — every further held Down/Up on a short list (e.g. a
+        // 13-channel Favorites list) re-lands on the exact same row forever once heldStep()'s
+        // acceleration has pushed delta past 1, reading as the list refusing to move at all.
+        // NewsMax FHD/NewsNation HD/Fox News HD sit last in Joe's Favorites, so any fast hold
+        // that reaches them immediately traps there (Joe, 2026-09-15: "I bet it can't find this
+        // channel[s]... happens elsewhere too but not noticed like favs" — exactly right: a
+        // long category list is rarely held long enough to reach its actual end). Once already
+        // at the boundary, wrap instead of re-clamping.
         if (nextIdx < 0) {
-            if (delta < -1) return keepChannelFocus(0)
+            if (delta < -1 && safeIdx != 0) return keepChannelFocus(0)
             if (lastIdx >= 0) return keepChannelFocus(lastIdx)
             onMoveUpFromTopOfChannels()
             return true
         }
         if (nextIdx > lastIdx) {
-            if (delta > 1) return keepChannelFocus(lastIdx)
+            if (delta > 1 && safeIdx != lastIdx) return keepChannelFocus(lastIdx)
             if (lastIdx >= 0) return keepChannelFocus(0)
             return true
         }
