@@ -246,42 +246,30 @@ fun EpgGrid(
         val anchorIdx = anchorId?.let { id -> channels.indexOfFirst { it.id == id } }
             ?.takeIf { it >= 0 }
             ?: channels.indexOfFirst { it.id == selectedChannelId }
-        // No anchor at all (null selectedChannelId on first entry) — start from first/last
-        val safeIdx = if (anchorIdx < 0) {
-            if (delta > 0) 0 else channels.lastIndex
-        } else anchorIdx
-        if (safeIdx < 0) return true
-        val nextIdx = safeIdx + delta
         val lastIdx = channels.lastIndex
-
-        // Single steps wrap around the ends. Both edges used to be dead stops — Up on the first
-        // channel called onMoveUpFromTopOfChannels(), which LiveTvScreen passes as {}, and Down
-        // past the last row fell through to getOrNull() and silently did nothing. Surfing a
-        // category therefore hit an invisible wall at each end, and getting from the top back to
-        // the bottom meant holding Down through every channel in between.
-        //
-        // Page jumps still clamp: overshooting by five and landing at the far end of the list is
-        // disorienting in a way that stepping by one is not.
-        // If the anchor is already sitting AT the boundary a multi-row jump would clamp to,
-        // clamping again is a pure no-op — every further held Down/Up on a short list (e.g. a
-        // 13-channel Favorites list) re-lands on the exact same row forever once heldStep()'s
-        // acceleration has pushed delta past 1, reading as the list refusing to move at all.
-        // NewsMax FHD/NewsNation HD/Fox News HD sit last in Joe's Favorites, so any fast hold
-        // that reaches them immediately traps there (Joe, 2026-09-15: "I bet it can't find this
-        // channel[s]... happens elsewhere too but not noticed like favs" — exactly right: a
-        // long category list is rarely held long enough to reach its actual end). Once already
-        // at the boundary, wrap instead of re-clamping.
-        if (nextIdx < 0) {
-            if (delta < -1 && safeIdx != 0) return keepChannelFocus(0)
-            if (lastIdx >= 0) return keepChannelFocus(lastIdx)
+        if (lastIdx < 0) {
             onMoveUpFromTopOfChannels()
             return true
         }
-        if (nextIdx > lastIdx) {
-            if (delta > 1 && safeIdx != lastIdx) return keepChannelFocus(lastIdx)
-            if (lastIdx >= 0) return keepChannelFocus(0)
-            return true
-        }
+        // No anchor at all (null selectedChannelId on first entry) — start from first/last
+        val safeIdx = if (anchorIdx < 0) {
+            if (delta > 0) 0 else lastIdx
+        } else anchorIdx
+
+        // True circular wraparound (single remainder-preserving hop), not "snap exactly to the
+        // boundary, only actually wrap on a later separate press". That older approach threw
+        // away how far a jump overshot by, and heldStep() (ChannelRow.kt) can hold near its max
+        // acceleration (8 rows/event) for the whole span of one continuous hold — so on a list
+        // short enough for that max to matter (an 11-channel Favorites list, Joe, 2026-09-15),
+        // every held repeat re-overshot the exact boundary the previous repeat had just
+        // snapped/wrapped to, producing a stable 3-4 row cycle that always landed back on the
+        // same couple of channels (NFL Network/ESPN) instead of moving — reads identically to
+        // being stuck. Modulo arithmetic preserves the overshoot distance, so a fast hold keeps
+        // advancing through genuinely new rows every repeat instead of bouncing in place,
+        // regardless of list length or how large heldStep()'s delta gets.
+        val listSize = lastIdx + 1
+        val cappedDelta = delta.coerceIn(-lastIdx, lastIdx)
+        val nextIdx = ((safeIdx + cappedDelta) % listSize + listSize) % listSize
         return keepChannelFocus(nextIdx)
     }
 
