@@ -236,33 +236,8 @@ fun ChannelRow(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    // Unconstrained width let a long channel name ("NewsNation HD", "NewsMax
-                    // FHD") consume the row's entire remaining space, leaving the now-playing
-                    // Text below zero room to render even its first character — it showed as a
-                    // bare "..." with no title at all, while shorter names (Fox News HD, ESPN
-                    // HD) still had leftover space and showed a few real characters. Both are
-                    // reading the identical nowNext[ch.id] data the grid uses correctly; this was
-                    // purely a layout width issue, not missing/stale EPG data (Joe, 2026-09-19:
-                    // "what's on NewsMax right now? I have to navigate to it then right to see").
-                    // Weighting both Texts guarantees the title always gets a real minimum share
-                    // regardless of channel name length.
-                    modifier = Modifier.weight(1.4f, fill = false),
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                // Inline now-playing title, TiviMate-style — was deliberately left out in favor
-                // of only the time-aligned grid cells, but product direction moved to matching
-                // TiviMate's row layout, where every channel row carries its own program title.
-                if (!now?.title.isNullOrBlank()) {
-                    Text(
-                        text = "  •  ${now?.title}",
-                        style = LiveType.CellTitle.copy(
-                            color = LiveColors.FgDim,
-                            fontSize = 11.sp,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
                 if (isFavorite) {
                     Spacer(Modifier.width(4.dp))
                     Icon(
@@ -282,9 +257,26 @@ fun ChannelRow(
                     )
                 }
             }
-            // Only the thin progress underline stays here — programme info
-            // itself is shown exclusively in the time-aligned grid cells to
-            // the right, not smeared across the channel name column.
+            // Now-playing title on its own full-width line, TiviMate-style. This used to be
+            // squeezed inline onto the channel-name row ("  •  " + title sharing space with
+            // channel.name), which meant a long channel name and a long program title fought
+            // over ~160dp total — NewsNation HD/NewsMax FHD's titles rendered as a bare "..."
+            // with zero real characters, and weighting the two Texts to guarantee the title
+            // *some* space just made both truncate hard instead (Joe, 2026-09-19: "how do I
+            // spell this out for you? I want to see what is on now"). Each line now gets the
+            // row's full width.
+            if (!now?.title.isNullOrBlank()) {
+                Text(
+                    text = now?.title.orEmpty(),
+                    style = LiveType.CellTitle.copy(
+                        color = LiveColors.FgDim,
+                        fontSize = 11.sp,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             val progress = remember(now, clockTickMillis) { progressOf(now) }
             if (progress != null) {
                 LinearProgressIndicator(
