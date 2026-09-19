@@ -642,20 +642,30 @@ fun EpgGrid(
                     val xDpInside = (nowMin * pxPerMin).dp - with(density) { hScroll.value.toDp() }
                     if (xDpInside >= 0.dp) {
                         val xDp = channelColumnWidth + 1.dp + xDpInside
+                        // This draws on top of every row's content, including whichever program
+                        // title text happens to fall at the current-time x-position in every
+                        // channel row — a fully opaque 2dp bar there visually sliced through
+                        // letters instead of just marking a position (Joe, 2026-09-19: "the
+                        // programs line cuts the current timeline's title"). Program cells use an
+                        // opaque background (LiveColors.Panel) except the one actually-airing
+                        // cell per row, so drawing this behind row content instead would hide it
+                        // almost everywhere rather than fix the overlap. Translucent tint reads
+                        // the same as a position marker while staying readable through text,
+                        // matching how other EPG guides mark "now" without obscuring it.
                         Box(
                             modifier = Modifier
                                 .offset(x = xDp)
                                 .fillMaxHeight()
                                 .width(2.dp)
-                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
+                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.4f)),
                         )
-                        // Glow behind the 2dp line
+                        // Glow behind the tinted line
                         Box(
                             modifier = Modifier
                                 .offset(x = xDp - 3.dp)
                                 .fillMaxHeight()
                                 .width(8.dp)
-                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f)),
+                                .background((LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.16f)),
                         )
                     }
                 }
