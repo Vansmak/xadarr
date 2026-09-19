@@ -236,6 +236,17 @@ fun ChannelRow(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // Unconstrained width let a long channel name ("NewsNation HD", "NewsMax
+                    // FHD") consume the row's entire remaining space, leaving the now-playing
+                    // Text below zero room to render even its first character — it showed as a
+                    // bare "..." with no title at all, while shorter names (Fox News HD, ESPN
+                    // HD) still had leftover space and showed a few real characters. Both are
+                    // reading the identical nowNext[ch.id] data the grid uses correctly; this was
+                    // purely a layout width issue, not missing/stale EPG data (Joe, 2026-09-19:
+                    // "what's on NewsMax right now? I have to navigate to it then right to see").
+                    // Weighting both Texts guarantees the title always gets a real minimum share
+                    // regardless of channel name length.
+                    modifier = Modifier.weight(1.4f, fill = false),
                 )
                 // Inline now-playing title, TiviMate-style — was deliberately left out in favor
                 // of only the time-aligned grid cells, but product direction moved to matching
