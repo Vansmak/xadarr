@@ -926,6 +926,17 @@ class TvViewModel @Inject constructor(
         if (_uiState.value.isRefreshingPlaylist) return
         val MIN_REFRESH_VISIBLE_MS = 1_200L
         val REFRESH_RESULT_VISIBLE_MS = 2_500L
+        // A provider-side M3U resync (dispatcharrCatalogRepository.refresh() -> Episeerr ->
+        // Dispatcharr) can take tens of seconds (a real Sanctum sync logged 47s), so this button
+        // used to only fire that server-side trigger and stop -- Xadarr's own cached channel
+        // list never re-pulled the result, and a new upstream category (e.g. a same-day PPV
+        // event) wouldn't appear in the guide until whatever independent background cycle Xadarr
+        // runs on its own happened to catch up. The button is labeled "Refresh Playlist/EPG",
+        // which promised both halves; it only ever did the first (Joe, 2026-09-19: "when I
+        // refresh it only refresh[es] my channels?" -- Dispatcharr had the new category, his own
+        // app didn't). Wait long enough for the server-side sync to realistically finish, then
+        // force Xadarr's own M3U+EPG reload silently in the background.
+        val SERVER_SYNC_SETTLE_MS = 60_000L
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRefreshingPlaylist = true, playlistRefreshResult = null)
             val startedAt = System.currentTimeMillis()
@@ -939,6 +950,10 @@ class TvViewModel @Inject constructor(
             delay(REFRESH_RESULT_VISIBLE_MS)
             if (_uiState.value.playlistRefreshResult != null) {
                 _uiState.value = _uiState.value.copy(playlistRefreshResult = null)
+            }
+            if (ok) {
+                delay(SERVER_SYNC_SETTLE_MS)
+                refresh(force = true, showLoading = false, forceEpg = true)
             }
         }
     }
