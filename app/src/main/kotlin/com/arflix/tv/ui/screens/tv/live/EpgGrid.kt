@@ -130,6 +130,33 @@ fun EpgGrid(
         Triple(channels.size, channels.firstOrNull()?.id, channels.lastOrNull()?.id)
     }
 
+    // Dynamic PPV/event channels (UFC Fight Pass, NFL Game Pass, DAZN, generic numbered PPV
+    // slots) frequently have zero real XMLTV programme data — verified directly against
+    // Dispatcharr's /output/epg for NFL Game Pass: a <channel> exists but no <programme>
+    // entries at all, while a normal channel like ESPN HD has 10. Falls back to parsing the
+    // matchup + start time the provider already bakes into the channel name (Joe, 2026-09-20:
+    // "why do they all say no info but tivimate has it?" — TiviMate evidently reads the same
+    // name text). Only fills in channels with no real listing; never overrides real EPG data.
+    val effectiveNowNext = remember(channels, nowNext, clockTickMillis / 30_000L) {
+        if (channels.isEmpty()) {
+            nowNext
+        } else {
+            val augmented = HashMap<String, IptvNowNext>(nowNext.size + 16)
+            augmented.putAll(nowNext)
+            for (ch in channels) {
+                val existing = nowNext[ch.id]
+                val hasRealData = existing != null &&
+                    (existing.now != null || existing.next != null || existing.upcoming.isNotEmpty())
+                if (!hasRealData) {
+                    synthesizeNowNextFromChannelName(ch.name, clockTickMillis)?.let { synth ->
+                        augmented[ch.id] = synth
+                    }
+                }
+            }
+            augmented
+        }
+    }
+
     val maxCatchupDays = remember(channels) {
         channels.maxOfOrNull { ch -> effectiveCatchupDays(ch) } ?: 0
     }
@@ -526,7 +553,7 @@ fun EpgGrid(
                                 channel = ch,
                                 isActive = ch.id == selectedChannelId,
                                 clockTickMillis = clockTickMillis,
-                                nowNext = nowNext[ch.id],
+                                nowNext = effectiveNowNext[ch.id],
                                 isFavorite = ch.id in favorites,
                                 stripe = idx % 2 == 1,
                                 onClick = { onChannelSelect(ch, null) },
@@ -585,11 +612,11 @@ fun EpgGrid(
                                 if (epgReady) {
                                 val rowPrograms = remember(
                                     ch.id,
-                                    nowNext[ch.id],
+                                    effectiveNowNext[ch.id],
                                     windowStartMillis,
                                     windowEndMillis,
                                 ) {
-                                    programsInWindow(nowNext[ch.id], windowStartMillis, windowEndMillis)
+                                    programsInWindow(effectiveNowNext[ch.id], windowStartMillis, windowEndMillis)
                                 }
                                 ProgramsRow(
                                     channel = ch,

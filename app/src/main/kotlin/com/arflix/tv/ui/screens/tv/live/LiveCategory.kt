@@ -2,6 +2,10 @@ package com.arflix.tv.ui.screens.tv.live
 
 import androidx.compose.ui.graphics.Color
 import com.arflix.tv.data.model.IptvChannel
+import com.arflix.tv.data.model.IptvNowNext
+import com.arflix.tv.data.model.IptvProgram
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 /** Broad channel genre derived from M3U group name. */
 enum class Genre {
@@ -945,3 +949,102 @@ private fun matchesCategoryId(channel: EnrichedChannel, categoryId: String): Boo
             }
         }
     }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Synthesized now/next for dynamic event channels with no real EPG entry
+// ─────────────────────────────────────────────────────────────────────────
+
+// Two conventions seen across provider groups, both trailing the descriptive title:
+//   "...  @ Sep 20 01:00 PM ET"   / "... @ 19 Sep 04:30 PM ET"   (Game Pass, DAZN, Paramount+)
+//   "... (9.19 9:00 PM ET)"                                      (PPV EVENT NN, UFC Fight Pass)
+private val AtTimeRe = Regex(
+    """@\s*(?:(\d{1,2})\s+([A-Za-z]{3})|([A-Za-z]{3})\s+(\d{1,2}))\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s*ET\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+private val ParenTimeRe = Regex(
+    """\((\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\s*ET\)\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+private val MonthAbbr = mapOf(
+    "jan" to 1, "feb" to 2, "mar" to 3, "apr" to 4, "may" to 5, "jun" to 6,
+    "jul" to 7, "aug" to 8, "sep" to 9, "oct" to 10, "nov" to 11, "dec" to 12,
+)
+private val EasternZone: ZoneId = ZoneId.of("America/New_York")
+
+// No confirmed end time is ever present in the name — these are single-event channels
+// (one fight card, one game slate slot), not a real schedule, so a fixed block is the best
+// available guess. Matches the duration TiviMate's own real EPG entries for comparable
+// events showed (120-210min) close enough to be useful without over-claiming precision.
+private const val SynthesizedDurationMillis = 3 * 60 * 60 * 1000L
+
+/**
+ * Dynamic PPV/event channels (UFC Fight Pass, NFL Game Pass, DAZN, Paramount+ event slots,
+ * generic numbered PPV "EVENT NN" channels) frequently have zero real XMLTV programme data --
+ * verified directly against Dispatcharr's own /output/epg for NFL Game Pass channels: a
+ * <channel> element exists but not a single <programme> entry, while a normal channel like
+ * ESPN HD has 10. The provider bakes the actual matchup and start time straight into the
+ * channel *name* instead ("NFL Game Pass 02: Carolina Panthers vs Atlanta Falcons @ Sep 20
+ * 01:00 PM ET"), which TiviMate evidently reads to show real info where Xadarr showed "No
+ * information" (Joe, 2026-09-20). This is a same-day fallback, applied only when the channel
+ * has no other listing at all — never overrides real EPG data.
+ */
+fun synthesizeNowNextFromChannelName(name: String, nowMs: Long): IptvNowNext? {
+    val colonIdx = name.indexOf(": ")
+    val afterColon = if (colonIdx in 0 until name.length - 2) name.substring(colonIdx + 2) else name
+
+    val atMatch = AtTimeRe.find(afterColon)
+    val parenMatch = if (atMatch == null) ParenTimeRe.find(afterColon) else null
+    val match = atMatch ?: parenMatch ?: return null
+
+    val title = afterColon.substring(0, match.range.first).trim().trim(':', '-').trim()
+    if (title.isBlank()) return null
+
+    val month: Int
+    val day: Int
+    var hour24: Int
+    val minute: Int
+    if (atMatch != null) {
+        val g = atMatch.groupValues
+        val monthAbbr: String
+        if (g[1].isNotEmpty()) { day = g[1].toInt(); monthAbbr = g[2] } else { monthAbbr = g[3]; day = g[4].toInt() }
+        month = MonthAbbr[monthAbbr.lowercase()] ?: return null
+        hour24 = g[5].toInt()
+        minute = g[6].toInt()
+        if (g[7].equals("PM", ignoreCase = true) && hour24 != 12) hour24 += 12
+        if (g[7].equals("AM", ignoreCase = true) && hour24 == 12) hour24 = 0
+    } else {
+        val g = parenMatch!!.groupValues
+        month = g[1].toInt()
+        day = g[2].toInt()
+        hour24 = g[3].toInt()
+        minute = g[4].toInt()
+        if (g[5].equals("PM", ignoreCase = true) && hour24 != 12) hour24 += 12
+        if (g[5].equals("AM", ignoreCase = true) && hour24 == 12) hour24 = 0
+    }
+    if (month !in 1..12 || day !in 1..31 || hour24 !in 0..23 || minute !in 0..59) return null
+
+    val nowEastern = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(nowMs), EasternZone)
+    var year = nowEastern.year
+    var start = runCatching {
+        ZonedDateTime.of(year, month, day, hour24, minute, 0, 0, EasternZone)
+    }.getOrNull() ?: return null
+    // No year in the name — if this date would already be more than a few days in the past
+    // this year, it almost certainly means next year's instance of a Dec/Jan-boundary event.
+    if (start.toInstant().toEpochMilli() < nowMs - 5L * 24 * 60 * 60 * 1000L) {
+        year += 1
+        start = runCatching {
+            ZonedDateTime.of(year, month, day, hour24, minute, 0, 0, EasternZone)
+        }.getOrNull() ?: return null
+    }
+
+    val startMs = start.toInstant().toEpochMilli()
+    val endMs = startMs + SynthesizedDurationMillis
+    if (nowMs >= endMs) return null // already past our guessed window -- nothing useful to show
+
+    val program = IptvProgram(title = title, description = null, startUtcMillis = startMs, endUtcMillis = endMs)
+    return if (program.isLive(nowMs)) {
+        IptvNowNext(now = program)
+    } else {
+        IptvNowNext(next = program)
+    }
+}
