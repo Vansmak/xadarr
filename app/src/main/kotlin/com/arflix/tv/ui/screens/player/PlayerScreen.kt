@@ -1877,7 +1877,15 @@ fun PlayerScreen(
                     if ((event.key == Key.Back || event.key == Key.Escape) &&
                         !showSubtitleMenu && !showSourceMenu && !showNextEpisodePrompt && uiState.error == null
                     ) {
-                        if (showControls) {
+                        // Mid-playback, Back hides controls first and exits on a second press --
+                        // reasonable, since there's still a video to return to. Once playback has
+                        // actually ended (frozen on the last frame, controls visible by design so
+                        // there's something to look at), that two-step dance has nothing to hide
+                        // controls "back to": Back just toggled visibility forever, never reaching
+                        // onBack(), reading as Back simply not working. Joe, 2026-09-21: "I still
+                        // don't like how I can[']t simply stop a title when [it's] over... stop
+                        // doesn't work nor does back." Exit immediately once ended.
+                        if (showControls && exoPlayer.playbackState != Player.STATE_ENDED) {
                             showControls = false
                         } else {
                             onBack()
