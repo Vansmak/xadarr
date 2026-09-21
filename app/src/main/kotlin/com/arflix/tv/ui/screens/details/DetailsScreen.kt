@@ -1002,6 +1002,10 @@ fun DetailsScreen(
                             }
                         }
                     },
+                    onEpisodeLongClick = { idx ->
+                        contextMenuEpisode = uiState.episodes.getOrNull(idx)
+                        showEpisodeContextMenu = true
+                    },
                     onCastClick = { idx ->
                         val member = uiState.cast.getOrNull(idx)
                         if (member != null) {
@@ -1478,6 +1482,7 @@ private fun DetailsContent(
     onSeasonClick: (Int) -> Unit = {},
     onSeasonLongClick: ((Int) -> Unit)? = null,
     onEpisodeClick: (Int) -> Unit = {},
+    onEpisodeLongClick: ((Int) -> Unit)? = null,
     onCastClick: (Int) -> Unit = {},
     spoilerBlurEnabled: Boolean = false,
     sonarrEpisodeStatuses: Map<Int, SonarrEpisodeInfo> = emptyMap(),
@@ -1902,11 +1907,15 @@ private fun DetailsContent(
                             key = { index, ep -> "mob_ep_${ep.seasonNumber}_${ep.episodeNumber}_$index" },
                             contentType = { _, _ -> "episode" }
                         ) { index, episode ->
+                            val episodeLongClick = remember(index, onEpisodeLongClick) {
+                                onEpisodeLongClick?.let { callback -> { callback(index) } }
+                            }
                             EpisodeCard(
                                 episode = episode,
                                 isFocused = false,
                                 spoilerBlurEnabled = spoilerBlurEnabled,
-                                onClick = { onEpisodeClick(index) }
+                                onClick = { onEpisodeClick(index) },
+                                onLongClick = episodeLongClick
                             )
                         }
                     }
@@ -3704,7 +3713,8 @@ private fun EpisodeCard(
     spoilerBlurEnabled: Boolean = false,
     sonarrInfo: SonarrEpisodeInfo? = null,
     onSonarrSearch: () -> Unit = {},
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null
 ) {
     val aspectRatio = 16f / 9f
     val context = LocalContext.current
@@ -3771,6 +3781,7 @@ private fun EpisodeCard(
         enableSystemFocus = false,
         isFocusedOverride = isFocused,
         onClick = onClick,
+        onLongClick = onLongClick,
     ) { _ ->
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
