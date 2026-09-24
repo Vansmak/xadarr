@@ -155,8 +155,24 @@ class HomeDashboardViewModel @Inject constructor(
         return (newEpisodes + continueWatching).take(12)
     }
 
-    private suspend fun loadWatchlist(): List<MediaItem> =
-        runCatching { watchlistRepository.getWatchlistItems() }.getOrDefault(emptyList()).take(12)
+    // In Plex Launcher Mode, getWatchlistItems() reads a local cache that can carry stale
+    // items forward indefinitely -- including old bad fuzzy-title-search TMDB matches from
+    // before the app switched to a live Plex pull (see WatchlistRepository.syncFromTraktOrder's
+    // own comment on this). HomeViewModel (TV) already branches on this and calls loadFromPlex()
+    // exclusively in that mode; this mobile path never did, so the Home row could show titles
+    // that were never actually in the user's real Plex watchlist. Joe, 2026-09-24, watchlist row
+    // showing unrelated titles (a 2008 French documentary, a WWE compilation, etc.) -- verified
+    // directly against Plex's own watchlist API that none of those were really there.
+    private suspend fun loadWatchlist(): List<MediaItem> {
+        val prefs = context.settingsDataStore.data.first()
+        val plexLauncherMode = (prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false) &&
+            (prefs[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false)
+        return if (plexLauncherMode) {
+            runCatching { watchlistRepository.loadFromPlex() }.getOrDefault(emptyList()).take(12)
+        } else {
+            runCatching { watchlistRepository.getWatchlistItems() }.getOrDefault(emptyList()).take(12)
+        }
+    }
 
     private suspend fun loadBookmarks(): List<Bookmark> {
         val prefs = context.settingsDataStore.data.first()
