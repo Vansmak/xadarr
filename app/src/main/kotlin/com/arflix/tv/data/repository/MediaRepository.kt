@@ -2877,7 +2877,15 @@ class MediaRepository @Inject constructor(
      * duplicating that one since it also handles Trakt-specific batching/direct-id shortcuts.
      */
     suspend fun resolveTmdbId(title: String, year: Int?, mediaType: MediaType): Int? {
-        val trimmed = title.trim()
+        // Some Plex metadata agents bake the year straight into the title ("Dark Matter (2024)")
+        // to disambiguate common titles in their own library UI. Searching TMDB with that literal
+        // string doesn't match its clean title ("Dark Matter"), so the search below came back
+        // empty for otherwise-perfectly-findable titles -- year is already passed separately for
+        // matching, so it doesn't need to also be embedded in the search query text. Confirmed via
+        // live device log against Joe's real Plex library, 2026-09-25: resolveTmdbId returned null
+        // for "Dark Matter (2024)", which then fell through to the broken generic-launch Plex
+        // fallback instead of ever reaching Details.
+        val trimmed = title.trim().replace(Regex("""\s*\(\d{4}\)\s*$"""), "").trim()
         if (trimmed.isEmpty()) return null
         return runCatching {
             val search = tmdbApi.searchMulti(apiKey, trimmed, language = contentLanguage).results
