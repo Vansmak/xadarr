@@ -64,6 +64,21 @@ import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 private const val EpgWindowMinutes = 10 * 60
 
+// Targeted EPG override for the 6 LA OTA locals when HDHR is configured as a playlist alongside
+// Sanctum with no Dispatcharr in between (Joe, 2026-09-27). HDHomeRun devices carry no guide data
+// of their own; Sanctum's own version of the same network already has real EPG loaded under its
+// own channel id. Keyed by HDHR's lineup.json GuideName (case-insensitive), pointing at Sanctum's
+// Xtream stream id for the matching network -- verified directly against both sources' live data.
+// Not a general per-channel EPG-mapping feature (Xadarr has none, confirmed) -- just these 6.
+private val hdhrLaLocalEpgOverride: Map<String, String> = mapOf(
+    "kcbs-hd" to "list_1:xtream:8482",   // CBS KCBS
+    "nbc4-la" to "list_1:xtream:11614",  // NBC KNBC
+    "ktladt" to "list_1:xtream:12450",   // CW KTLA
+    "kabc dt" to "list_1:xtream:8273",   // ABC KABC
+    "kcal-dt" to "list_1:xtream:8483",   // CBS KCAL
+    "kttv-dt" to "list_1:xtream:11404",  // FOX KTTV
+)
+
 enum class EpgGridFocusMode {
     ChannelList,
     Epg,
@@ -148,8 +163,27 @@ fun EpgGrid(
                 val hasRealData = existing != null &&
                     (existing.now != null || existing.next != null || existing.upcoming.isNotEmpty())
                 if (!hasRealData) {
-                    synthesizeNowNextFromChannelName(ch.name, clockTickMillis)?.let { synth ->
-                        augmented[ch.id] = synth
+                    // HDHR (added as a second playlist alongside Sanctum, no Dispatcharr in the
+                    // pipeline anymore) supplies zero EPG of its own for OTA locals -- an
+                    // HDHomeRun device just streams the broadcast, it has no guide data mechanism
+                    // at all. Sanctum's own XMLTV IS already loaded and merged into `nowNext`
+                    // (multi-playlist EPG sources are all fetched and combined), just keyed under
+                    // Sanctum's own channel id for the same network, not HDHR's. Borrow it by name
+                    // for these 6 known LA callsigns before falling back to synthesis -- real
+                    // guide data beats a name-parsed guess. Joe, 2026-09-27: "that [is] one area tm
+                    // let[']s you override" -- Xadarr has no general per-channel EPG-mapping UI
+                    // (confirmed, real gap), this is a targeted fix for the specific 6 channels
+                    // asked for, not that general feature.
+                    val overrideId = hdhrLaLocalEpgOverride[ch.name.trim().lowercase()]
+                    val overrideData = overrideId?.let { nowNext[it] }
+                    val overrideHasData = overrideData != null &&
+                        (overrideData.now != null || overrideData.next != null || overrideData.upcoming.isNotEmpty())
+                    if (overrideHasData) {
+                        augmented[ch.id] = overrideData!!
+                    } else {
+                        synthesizeNowNextFromChannelName(ch.name, clockTickMillis)?.let { synth ->
+                            augmented[ch.id] = synth
+                        }
                     }
                 }
             }
