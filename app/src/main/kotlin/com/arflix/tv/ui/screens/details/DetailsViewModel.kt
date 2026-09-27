@@ -1413,7 +1413,7 @@ class DetailsViewModel @Inject constructor(
             // next — see resolveAvailablePlayTarget()'s doc comment for why Sonarr leads.
             val playTarget = if (mediaType == MediaType.TV) {
                 val title = _uiState.value.item?.title.orEmpty()
-                resolveAvailablePlayTarget(tmdbId) ?: resolveEpiseerrPlayTarget(tmdbId, title) ?: traktPlayTarget
+                resolveAvailablePlayTarget(tmdbId, watchedKeys) ?: resolveEpiseerrPlayTarget(tmdbId, title) ?: traktPlayTarget
             } else {
                 traktPlayTarget
             }
@@ -1497,22 +1497,41 @@ class DetailsViewModel @Inject constructor(
     // season (e.g. an old show like Mad Men sampled one episode at a time) — accepted
     // limitation, not something to solve here; resolveEpiseerrPlayTarget() below is the
     // fallback for shows Sonarr isn't tracking at all.
-    private suspend fun resolveAvailablePlayTarget(tmdbId: Int): PlayTarget? {
+    // watchedKeys empty by default for the fast initial-load call site (runs before watch-history
+    // is fetched, by design -- see the "Sonarr availability first" comment at its call site). When
+    // real watchedKeys are available (refreshAfterPlayerReturn(), after playback), pass them so
+    // this actually skips episodes already watched instead of blindly returning the latest
+    // downloaded episode regardless of watch status. That gap was the bug: for a caught-up show
+    // where the newest download is also the one just finished, this always returned that same
+    // episode as "Continue", permanently overriding the correctly-recomputed next-unwatched target
+    // from Trakt/Plex history. Joe, 2026-09-27: "next is almost always stuck on the one I just
+    // watched... after I watch something... doesn't seem to reflect." Also changed from "last
+    // available episode in the last season that has one" to "first available-and-unwatched episode
+    // across seasons in order" -- the old semantics only made sense ignoring watch status; once
+    // watched episodes are excluded, "continue" should mean chronologically next, not newest.
+    private suspend fun resolveAvailablePlayTarget(tmdbId: Int, watchedKeys: Set<String> = emptySet()): PlayTarget? {
         val tvdbId = resolveExternalIds(MediaType.TV, tmdbId).tvdbId ?: return null
         return runCatching {
             val tvDetails = tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY)
-            var lastAvailable: Pair<Int, Int>? = null
+            val watchedPrefix = "show_tmdb:$tmdbId:"
             for (seasonNum in 1..tvDetails.numberOfSeasons) {
                 val statuses = runCatching {
                     sonarrRepository.getEpisodeStatuses(tvdbId.toString(), seasonNum)
                 }.getOrNull() ?: continue
-                val availableEpisodes = statuses.filterValues { it.status == SonarrEpisodeStatus.AVAILABLE }.keys
-                if (availableEpisodes.isNotEmpty()) {
-                    lastAvailable = seasonNum to availableEpisodes.max()
+                val nextAvailableUnwatched = statuses
+                    .filterValues { it.status == SonarrEpisodeStatus.AVAILABLE }
+                    .keys
+                    .filterNot { epNum -> watchedKeys.contains("$watchedPrefix$seasonNum:$epNum") }
+                    .minOrNull()
+                if (nextAvailableUnwatched != null) {
+                    return@runCatching PlayTarget(
+                        season = seasonNum,
+                        episode = nextAvailableUnwatched,
+                        label = "Continue S${seasonNum}E${nextAvailableUnwatched}"
+                    )
                 }
             }
-            val (season, episode) = lastAvailable ?: return@runCatching null
-            PlayTarget(season = season, episode = episode, label = "Continue S${season}E${episode}")
+            null
         }.getOrNull()
     }
 
