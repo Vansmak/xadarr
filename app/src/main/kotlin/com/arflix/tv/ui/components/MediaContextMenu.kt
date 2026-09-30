@@ -115,13 +115,19 @@ fun MediaContextMenu(
                 action = onRemoveFromContinueWatching
             ))
         }
+        add(CloseMenuItem)
     }
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
             focusedIndex = 0
             if (!isMobile) {
-                focusRequester.requestFocus()
+                // Retry: a single request can lose the race with AnimatedVisibility placing the
+                // content, leaving D-pad input on the screen behind.
+                repeat(6) { attempt ->
+                    kotlinx.coroutines.delay(if (attempt == 0) 16L else 32L)
+                    if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+                }
             }
         }
     }
@@ -156,10 +162,11 @@ fun MediaContextMenu(
                                     onDismiss()
                                     true
                                 }
-                                Key.Back, Key.Escape -> {
+                                Key.Back, Key.Escape, Key.DirectionLeft -> {
                                     onDismiss()
                                     true
                                 }
+                                Key.DirectionRight, Key.ChannelUp, Key.ChannelDown -> true
                                 else -> false
                             }
                         } else false
@@ -385,6 +392,10 @@ private data class MenuItem(
     val action: () -> Unit
 )
 
+// Selectable "Close" at the bottom of every TV menu (Joe, 2026-09-30). Its action is a no-op:
+// every menu here already calls onDismiss() after running the selected item.
+private val CloseMenuItem = MenuItem(icon = Icons.Default.Close, labelRes = R.string.close, action = {})
+
 /**
  * Context menu for "All Shows"/"All Movies" library-browser cards (Sonarr/Radarr
  * sourced). Same minimal fixed-list D-pad pattern as [LiveTvContextMenu].
@@ -416,12 +427,18 @@ fun LibraryItemContextMenu(
             action = onAssignRule
         ),
         MenuItem(icon = Icons.Default.Close, labelRes = R.string.delete_from_library, action = onDelete),
+        CloseMenuItem,
     )
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
             focusedIndex = 0
-            focusRequester.requestFocus()
+            // Retry: a single request can lose the race with AnimatedVisibility placing the
+                // content, leaving D-pad input on the screen behind.
+                repeat(6) { attempt ->
+                    kotlinx.coroutines.delay(if (attempt == 0) 16L else 32L)
+                    if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+                }
         }
     }
 
@@ -443,7 +460,8 @@ fun LibraryItemContextMenu(
                             Key.DirectionUp -> { if (focusedIndex > 0) focusedIndex--; true }
                             Key.DirectionDown -> { if (focusedIndex < menuItems.size - 1) focusedIndex++; true }
                             Key.Enter, Key.DirectionCenter -> { menuItems[focusedIndex].action(); onDismiss(); true }
-                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            Key.Back, Key.Escape, Key.DirectionLeft -> { onDismiss(); true }
+                            Key.DirectionRight, Key.ChannelUp, Key.ChannelDown -> true
                             else -> false
                         }
                     } else false
@@ -510,12 +528,18 @@ fun LiveTvContextMenu(
     val menuItems = listOf(
         MenuItem(icon = Icons.Default.PlayArrow, labelRes = R.string.play_full_screen, action = onPlayFullScreen),
         MenuItem(icon = Icons.Default.LiveTv, labelRes = R.string.tv_guide, action = onGuide),
+        CloseMenuItem,
     )
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
             focusedIndex = 0
-            focusRequester.requestFocus()
+            // Retry: a single request can lose the race with AnimatedVisibility placing the
+                // content, leaving D-pad input on the screen behind.
+                repeat(6) { attempt ->
+                    kotlinx.coroutines.delay(if (attempt == 0) 16L else 32L)
+                    if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+                }
         }
     }
 
@@ -537,7 +561,8 @@ fun LiveTvContextMenu(
                             Key.DirectionUp -> { if (focusedIndex > 0) focusedIndex--; true }
                             Key.DirectionDown -> { if (focusedIndex < menuItems.size - 1) focusedIndex++; true }
                             Key.Enter, Key.DirectionCenter -> { menuItems[focusedIndex].action(); onDismiss(); true }
-                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            Key.Back, Key.Escape, Key.DirectionLeft -> { onDismiss(); true }
+                            Key.DirectionRight, Key.ChannelUp, Key.ChannelDown -> true
                             else -> false
                         }
                     } else false
@@ -600,6 +625,8 @@ fun ChannelContextMenu(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    // 0 = favorite toggle, 1 = Close
+    var focusedIndex by remember { mutableIntStateOf(0) }
     val cardBg = XadarrTheme.colors.backgroundCard
     val borderColor = XadarrTheme.colors.borderLight
     val label = stringResource(
@@ -609,6 +636,7 @@ fun ChannelContextMenu(
 
     LaunchedEffect(isVisible) {
         if (!isVisible) return@LaunchedEffect
+        focusedIndex = 0
         // A single requestFocus() call loses the race against this popup's
         // own AnimatedVisibility enter transition placing its content — same
         // fix as EpgGrid's channel-focus restoration (see LiveTvScreen.kt
@@ -644,12 +672,14 @@ fun ChannelContextMenu(
                             // always starts at repeatCount 0.
                             Key.Enter, Key.DirectionCenter -> {
                                 if (event.nativeKeyEvent.repeatCount == 0) {
-                                    onToggleFavorite()
+                                    if (focusedIndex == 0) onToggleFavorite()
                                     onDismiss()
                                 }
                                 true
                             }
-                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            Key.DirectionUp -> { focusedIndex = 0; true }
+                            Key.DirectionDown -> { focusedIndex = 1; true }
+                            Key.Back, Key.Escape, Key.DirectionLeft -> { onDismiss(); true }
                             else -> true
                         }
                     } else false
@@ -675,14 +705,15 @@ fun ChannelContextMenu(
                 ContextMenuItem(
                     icon = icon,
                     label = label,
-                    isFocused = true,
+                    isFocused = focusedIndex == 0,
                     onClick = { onToggleFavorite(); onDismiss() }
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = stringResource(R.string.press_back_to_close),
-                    style = ArflixTypography.caption,
-                    color = TextSecondary.copy(alpha = 0.5f)
+                Spacer(modifier = Modifier.height(4.dp))
+                ContextMenuItem(
+                    icon = Icons.Default.Close,
+                    label = stringResource(R.string.close),
+                    isFocused = focusedIndex == 1,
+                    onClick = onDismiss
                 )
             }
         }

@@ -94,6 +94,8 @@ object ContextActions {
 /**
  * Context menu popup for media items and episodes
  */
+private val CloseMenuAction = ContextAction("__close", "Close", Icons.Default.Close, TextSecondary)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ContextMenu(
@@ -106,6 +108,9 @@ fun ContextMenu(
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     var focusedIndex by remember { mutableIntStateOf(0) }
+    // TV: a real, selectable Close as the last item (Joe, 2026-09-30), replacing the
+    // "Press Back to cancel" hint that looked like a button but couldn't be selected.
+    val tvActions = remember(actions) { actions + CloseMenuAction }
     val focusRequester = remember { FocusRequester() }
 
     // Request focus when menu becomes visible
@@ -113,7 +118,12 @@ fun ContextMenu(
         if (isVisible) {
             focusedIndex = 0 // Reset to first item
             if (!isMobile) {
-                focusRequester.requestFocus()
+                // A single requestFocus() can lose the race with AnimatedVisibility placing the
+                // content, leaving D-pad input on whatever screen is behind. Retry for a few frames.
+                repeat(6) { attempt ->
+                    kotlinx.coroutines.delay(if (attempt == 0) 16L else 32L)
+                    if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+                }
             }
         }
     }
@@ -134,7 +144,9 @@ fun ContextMenu(
                     .onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) {
                             when (event.key) {
-                                Key.Back, Key.Escape -> {
+                                // Left backs out like Back (Joe, 2026-09-30: it used to fall
+                                // through and move the guide behind the menu).
+                                Key.Back, Key.Escape, Key.DirectionLeft -> {
                                     onDismiss()
                                     true
                                 }
@@ -143,15 +155,19 @@ fun ContextMenu(
                                     true
                                 }
                                 Key.DirectionDown -> {
-                                    if (focusedIndex < actions.size - 1) focusedIndex++
+                                    if (focusedIndex < tvActions.size - 1) focusedIndex++
                                     true
                                 }
                                 Key.Enter, Key.DirectionCenter -> {
-                                    actions.getOrNull(focusedIndex)?.let { action ->
-                                        onAction(action)
+                                    tvActions.getOrNull(focusedIndex)?.let { action ->
+                                        if (action.id == CloseMenuAction.id) onDismiss() else onAction(action)
                                     }
                                     true
                                 }
+                                // Swallow the other navigation keys so they don't move the screen
+                                // behind the popup. Volume/media keys still pass through.
+                                Key.DirectionRight, Key.ChannelUp, Key.ChannelDown,
+                                Key.PageUp, Key.PageDown, Key.Tab -> true
                                 else -> false
                             }
                         } else false
@@ -199,35 +215,12 @@ fun ContextMenu(
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        actions.forEachIndexed { index, action ->
+                        tvActions.forEachIndexed { index, action ->
                             ContextMenuItem(
                                 action = action,
                                 isFocused = index == focusedIndex
                             )
                         }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(14.dp))
-                    
-                    // Close hint
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Press Back to cancel",
-                            style = ArflixTypography.caption,
-                            color = TextSecondary
-                        )
                     }
                 }
             }
