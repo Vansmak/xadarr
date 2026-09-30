@@ -267,6 +267,19 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    fun markMovieWatched(movie: com.arflix.tv.data.repository.LibraryMovie) {
+        viewModelScope.launch {
+            runCatching { homeServerRepository.setPlexMovieWatched(movie.tmdbId, movie.title, movie.year, watched = true) }
+            refreshShowsGuide(forceRefresh = true)
+        }
+    }
+
+    fun searchMovie(radarrId: Int, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            onResult(runCatching { radarrRepository.triggerMovieSearch(radarrId) }.getOrDefault(false))
+        }
+    }
+
     fun searchShowEpisode(tvdbId: Int, season: Int, episode: Int, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { sonarrRepository.triggerEpisodeSearch(tvdbId.toString(), season, episode) }

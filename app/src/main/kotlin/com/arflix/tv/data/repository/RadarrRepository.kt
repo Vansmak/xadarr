@@ -31,20 +31,21 @@ data class RadarrMovieSummary(
 )
 
 @Singleton
-// Xadarr's two synthetic movie guide channels (Episeerr /api/radarr/guide-schedule).
-// "Watch Now" slots carry real start/end times (a linear back-to-back schedule shared by
-// every device); "Premiering" items only have a release date.
-data class MovieGuideSlot(
+// Xadarr's movie guide channels (Episeerr /api/radarr/guide-schedule): one channel per
+// downloaded movie, plus one per movie Radarr is still waiting on ("premiering").
+data class LibraryMovie(
+    val radarrId: Int,
     val tmdbId: Int,
     val title: String,
     val year: Int?,
     val overview: String,
-    val startMs: Long,
-    val endMs: Long,
-    val fanart: String? = null,
+    val fanart: String?,
+    val runtimeMinutes: Int,
+    val watched: Boolean,
 )
 
 data class MoviePremiere(
+    val radarrId: Int,
     val tmdbId: Int,
     val title: String,
     val year: Int?,
@@ -54,7 +55,7 @@ data class MoviePremiere(
 )
 
 data class MovieGuide(
-    val watchNow: List<MovieGuideSlot> = emptyList(),
+    val movies: List<LibraryMovie> = emptyList(),
     val premiering: List<MoviePremiere> = emptyList(),
 )
 
@@ -82,20 +83,21 @@ class RadarrRepository @Inject constructor(
             }
             val root = JSONObject(body)
             fun JSONObject.yearOrNull() = optInt("year", 0).takeIf { it > 0 }
-            val slots = root.optJSONArray("watchNow")
+            val movies = root.optJSONArray("movies")
             val prem = root.optJSONArray("premiering")
             MovieGuide(
-                watchNow = buildList {
-                    for (i in 0 until (slots?.length() ?: 0)) {
-                        val m = slots!!.optJSONObject(i) ?: continue
-                        add(MovieGuideSlot(
+                movies = buildList {
+                    for (i in 0 until (movies?.length() ?: 0)) {
+                        val m = movies!!.optJSONObject(i) ?: continue
+                        add(LibraryMovie(
+                            radarrId = m.optInt("radarrId"),
                             tmdbId = m.optInt("tmdbId"),
                             title = m.optString("title"),
                             year = m.yearOrNull(),
                             overview = m.optString("overview"),
-                            startMs = m.optLong("startMs"),
-                            endMs = m.optLong("endMs"),
                             fanart = m.optString("fanart").takeIf { it.isNotBlank() },
+                            runtimeMinutes = m.optInt("runtime"),
+                            watched = m.optBoolean("watched"),
                         ))
                     }
                 },
@@ -103,6 +105,7 @@ class RadarrRepository @Inject constructor(
                     for (i in 0 until (prem?.length() ?: 0)) {
                         val m = prem!!.optJSONObject(i) ?: continue
                         add(MoviePremiere(
+                            radarrId = m.optInt("radarrId"),
                             tmdbId = m.optInt("tmdbId"),
                             title = m.optString("title"),
                             year = m.yearOrNull(),
@@ -116,6 +119,20 @@ class RadarrRepository @Inject constructor(
         } catch (e: Exception) {
             Log.d(tag, "getMovieGuide failed: ${e.message}")
             MovieGuide()
+        }
+    }
+
+    // Radarr MoviesSearch for one movie (Episeerr /api/radarr/movie-search).
+    suspend fun triggerMovieSearch(radarrId: Int): Boolean = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext false }
+        try {
+            val body = JSONObject().put("movie_id", radarrId).toString()
+                .toRequestBody("application/json".toMediaType())
+            val req = Request.Builder().url("$base/api/radarr/movie-search").post(body).build()
+            http.newCall(req).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.d(tag, "triggerMovieSearch failed: ${e.message}")
+            false
         }
     }
 

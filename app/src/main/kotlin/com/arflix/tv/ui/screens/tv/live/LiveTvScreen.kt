@@ -285,7 +285,7 @@ fun LiveTvScreen(
         "${state.snapshot.channels.firstOrNull()?.id}:${state.snapshot.channels.lastOrNull()?.id}:" +
         "pinned=${pinnedProviderChannels.size}:${pinnedProviderChannels.joinToString(",") { it.id }}:" +
         "shows=${showsGuideSchedule.size}:" +
-        "movies=${movieGuide.watchNow.isNotEmpty()}/${movieGuide.premiering.isNotEmpty()}:" +
+        "movies=${movieGuide.movies.size}/${movieGuide.premiering.size}:" +
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
         val snapshot = state.snapshot.channels +
@@ -462,7 +462,7 @@ fun LiveTvScreen(
     // for the nowNext map instead, since IptvSnapshot keeps the two decoupled (channels vs.
     // nowNext keyed separately by id).
     val effectiveSnapshotNowNext = remember(state.snapshot.nowNext, showsGuideSchedule, movieGuide, guideClockMillis) {
-        if (showsGuideSchedule.isEmpty() && movieGuide.watchNow.isEmpty() && movieGuide.premiering.isEmpty()) {
+        if (showsGuideSchedule.isEmpty() && movieGuide.movies.isEmpty() && movieGuide.premiering.isEmpty()) {
             state.snapshot.nowNext
         } else {
             state.snapshot.nowNext + showsGuideSchedule.associate {
@@ -564,10 +564,10 @@ fun LiveTvScreen(
     var upLongPressConsumed by remember { mutableStateOf(false) }
     var upLongPressJob by remember { mutableStateOf<Job?>(null) }
     var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
-    // Long-press on a Shows/Movies channel: Episodes & Info / Movie Info, Change Rule.
+    // Selecting (or long-pressing) a Shows/Movies channel: Episodes & Info / Movie Info, Change Rule.
     var libraryMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
-    // Long-press on a downloaded episode cell: Mark Watched.
-    var episodeMenuTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
+    // Selecting an episode/movie cell on a library row: Play / Mark Watched / Search.
+    var libraryCellTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     // Rule picker opened from a show's channel menu.
     var rulePickerShow by remember { mutableStateOf<com.arflix.tv.data.repository.ShowGuideEntry?>(null) }
     // Short confirmation drawn inside the guide. Android Toasts don't render on Joe's
@@ -731,67 +731,44 @@ fun LiveTvScreen(
         return true
     }
 
-    // Selecting a specific episode cell in a Shows-channel row plays it directly -- the same
-    // path DetailsScreen's own episode click uses (onNavigateToPlayer -> Screen.Player), not a
-    // detour through the Details screen. Joe, 2026-09-29: "moving right into the episodes is
-    // where if I select it plays just like if I was in details and select an ep." Season/episode
-    // is parsed back out of the program's title text (see episodeProgramTitle/ShowEpisodeTitleRegex
-    // below) since IptvProgram carries no structured field for it by design (see plan).
-    fun playShowEpisode(channel: EnrichedChannel, program: IptvProgram) {
-        val seriesId = channel.id.removePrefix(ShowsChannelIdPrefix).toIntOrNull() ?: return
-        val entry = showsGuideSchedule.find { it.seriesId == seriesId } ?: return
+    fun showEntryFor(channelId: String?) =
+        channelId?.removePrefix(ShowsChannelIdPrefix)?.toIntOrNull()
+            ?.takeIf { channelId.startsWith(ShowsChannelIdPrefix) }
+            ?.let { id -> showsGuideSchedule.find { it.seriesId == id } }
+    fun libraryMovieFor(channelId: String?) =
+        channelId?.takeIf { it.startsWith(MovieChannelIdPrefix) }?.removePrefix(MovieChannelIdPrefix)?.toIntOrNull()
+            ?.let { id -> movieGuide.movies.find { it.tmdbId == id } }
+    fun premiereFor(channelId: String?) =
+        channelId?.takeIf { it.startsWith(PremiereChannelIdPrefix) }?.removePrefix(PremiereChannelIdPrefix)?.toIntOrNull()
+            ?.let { id -> movieGuide.premiering.find { it.tmdbId == id } }
+
+    // Backdrop for the preview box when a library row is highlighted.
+    fun libraryArtFor(channel: EnrichedChannel?): String? =
+        showEntryFor(channel?.id)?.fanart ?: libraryMovieFor(channel?.id)?.fanart ?: premiereFor(channel?.id)?.fanart
+
+    // Highlighting a Shows/Movies row swaps the top preview + info to that title (Joe,
+    // 2026-09-30) -- no stream behind it, so this just points the hero at it. The live channel
+    // it replaces is remembered as "previous" only if it was a real channel.
+    fun previewLibraryChannel(channel: EnrichedChannel) {
+        if (!isLibraryChannelGroup(channel.source.group) || playingChannelId == channel.id) return
+        if (!isLibraryChannelId(playingChannelId)) previousChannelId = playingChannelId
+        playingChannelId = channel.id
+        playingCatchupProgram = null
+    }
+
+    fun playLibraryEpisode(entry: com.arflix.tv.data.repository.ShowGuideEntry, season: Int, episode: Int) {
         val tvdbId = entry.tvdbId ?: return
-        val (season, episode) = parseShowEpisodeTitle(program.title) ?: return
-        val isNow = entry.now?.season == season && entry.now.episode == episode
-        val next = entry.next?.takeIf { it.season == season && it.episode == episode }
-        when {
-            // Downloaded (NOW, or a NEXT that's already grabbed): play it, same path as
-            // selecting an episode in Details.
-            isNow || next?.downloaded == true -> fsScope.launch {
-                viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
-                    onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
-                }
-            }
-            // Not downloaded: selecting it asks Sonarr to search for it.
-            next != null -> viewModel.searchShowEpisode(tvdbId, season, episode) { ok ->
-                guideMessage = if (ok) "Searching for ${entry.title} S${season}E$episode" else "Search failed"
+        fsScope.launch {
+            viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
+                onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
             }
         }
     }
 
-    // Movies channels. Watch Now is a real linear schedule: selecting the movie that's on right
-    // now joins it where the schedule is (like tuning into a channel mid-movie); selecting a later
-    // one starts it from the top. Premiering items aren't downloaded yet, so they open Details.
-    // Programs are matched back to their movie by start time, which is unique per channel.
-    fun selectMovieProgram(channel: EnrichedChannel, program: IptvProgram) {
-        when (channel.id) {
-            MoviesWatchNowChannelId -> {
-                val slot = movieGuide.watchNow.firstOrNull { it.startMs == program.startUtcMillis } ?: return
-                val now = System.currentTimeMillis()
-                val joinAt = if (now in slot.startMs until slot.endMs) now - slot.startMs else null
-                onNavigateToPlayer(MediaType.MOVIE, slot.tmdbId, null, null, null, null, null, null, joinAt, false)
-            }
-            MoviesPremieringChannelId -> {
-                val idx = premiereIndexForStart(program.startUtcMillis, guideClockMillis)
-                val premiere = movieGuide.premiering.getOrNull(idx) ?: return
-                onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
-            }
-        }
-    }
-
-    // Backdrop for the preview box when a library row is selected: the show's fanart, or the
-    // movie on right now (Watch Now) / first upcoming one (Premiering).
-    fun libraryArtFor(channel: EnrichedChannel?): String? {
-        channel ?: return null
-        return when {
-            channel.source.group == ShowsChannelGroup ->
-                showsGuideSchedule.find { "$ShowsChannelIdPrefix${it.seriesId}" == channel.id }?.fanart
-            channel.id == MoviesWatchNowChannelId -> {
-                val now = System.currentTimeMillis()
-                (movieGuide.watchNow.firstOrNull { now in it.startMs until it.endMs } ?: movieGuide.watchNow.firstOrNull())?.fanart
-            }
-            channel.id == MoviesPremieringChannelId -> movieGuide.premiering.firstOrNull()?.fanart
-            else -> null
+    fun openShowDetails(entry: com.arflix.tv.data.repository.ShowGuideEntry) {
+        val tvdbId = entry.tvdbId ?: return
+        fsScope.launch {
+            viewModel.resolveShowTmdbRef(tvdbId)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
         }
     }
 
@@ -804,16 +781,12 @@ fun LiveTvScreen(
         // that's the explicit "I want to actually watch this" signal.
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
-        // Shows/Movies channels have no real stream -- selecting the CHANNEL/row itself never
-        // plays or navigates anywhere, only ever shows hero/info, exactly like any other channel
-        // you're merely browsing to. Joe, 2026-09-29: "selecting a channel which in this case is
-        // a show or movie will not play or select the episode it will show the hero and Info."
-        // Real playback only happens by moving right and selecting a specific episode cell --
-        // see onProgramSelect below, not here.
+        // Shows/Movies channels have no stream. Highlighting one already shows it in the hero
+        // (previewLibraryChannel); selecting it opens its menu (Episodes & Info / Change Rule).
+        // Episode/movie actions live on the cells -- see libraryCellTarget.
         if (isLibraryChannelGroup(channel.source.group)) {
-            previousChannelId = playingChannelId
-            playingChannelId = channel.id
-            playingCatchupProgram = null
+            previewLibraryChannel(channel)
+            libraryMenuChannel = channel
             return
         }
         if (channel.id == playingChannelId) {
@@ -1205,12 +1178,9 @@ fun LiveTvScreen(
                             focusZone = LiveTvFocusZone.CHANNEL_LIST
                             selectChannel(channel)
                         },
-                        onProgramLongPress = { channel, program -> episodeMenuTarget = channel to program },
                         onProgramSelect = { channel, program ->
-                            if (channel.source.group == ShowsChannelGroup) {
-                                if (program != null) playShowEpisode(channel, program)
-                            } else if (channel.source.group == MoviesChannelGroup) {
-                                if (program != null) selectMovieProgram(channel, program)
+                            if (isLibraryChannelGroup(channel.source.group)) {
+                                if (program != null) libraryCellTarget = channel to program
                             } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
@@ -1219,6 +1189,7 @@ fun LiveTvScreen(
                         },
                         onChannelFocused = { channel ->
                             focusedChannelId = channel.id
+                            previewLibraryChannel(channel)
                             rememberedChannelByCategory[selectedCategoryId] = channel.id
                         },
                         onChannelLongPress = { channel -> if (isLibraryChannelGroup(channel.source.group)) libraryMenuChannel = channel else favoriteMenuChannel = channel },
@@ -1276,12 +1247,9 @@ fun LiveTvScreen(
                             compact = compactTouchLayout,
                             gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
                             onChannelSelect = { channel, _ -> selectChannel(channel) },
-                            onProgramLongPress = { channel, program -> episodeMenuTarget = channel to program },
                             onProgramSelect = { channel, program ->
-                            if (channel.source.group == ShowsChannelGroup) {
-                                if (program != null) playShowEpisode(channel, program)
-                            } else if (channel.source.group == MoviesChannelGroup) {
-                                if (program != null) selectMovieProgram(channel, program)
+                            if (isLibraryChannelGroup(channel.source.group)) {
+                                if (program != null) libraryCellTarget = channel to program
                             } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
@@ -1290,6 +1258,7 @@ fun LiveTvScreen(
                         },
                             onChannelFocused = { channel ->
                                 focusedChannelId = channel.id
+                                previewLibraryChannel(channel)
                                 rememberedChannelByCategory[selectedCategoryId] = channel.id
                             },
                             onChannelLongPress = { channel -> if (isLibraryChannelGroup(channel.source.group)) libraryMenuChannel = channel else favoriteMenuChannel = channel },
@@ -1735,9 +1704,9 @@ fun LiveTvScreen(
         )
 
         libraryMenuChannel?.let { menuCh ->
-            val showEntry = showsGuideSchedule.find { "$ShowsChannelIdPrefix${it.seriesId}" == menuCh.id }
-            val nowSlot = movieGuide.watchNow.firstOrNull { System.currentTimeMillis() in it.startMs until it.endMs }
-            val premiere = movieGuide.premiering.firstOrNull()
+            val showEntry = showEntryFor(menuCh.id)
+            val movie = libraryMovieFor(menuCh.id)
+            val premiere = premiereFor(menuCh.id)
             val actions = buildList {
                 add(com.arflix.tv.ui.components.ContextAction(
                     "info", if (showEntry != null) "Episodes & Info" else "Movie Info", Icons.Default.Info,
@@ -1755,19 +1724,14 @@ fun LiveTvScreen(
             com.arflix.tv.ui.components.ContextMenu(
                 isVisible = true,
                 title = menuCh.name,
-                subtitle = showEntry?.rule?.let { "Rule: ${it.replace('_', ' ')}" }
-                    ?: nowSlot?.takeIf { menuCh.id == MoviesWatchNowChannelId }?.let { "On now: ${it.title}" }
-                    ?: premiere?.takeIf { menuCh.id == MoviesPremieringChannelId }?.title.orEmpty(),
+                subtitle = showEntry?.rule?.let { "Rule: ${it.replace('_', ' ')}" }.orEmpty(),
                 actions = actions,
                 onAction = { action ->
                     when (action.id) {
                         "info" -> {
                             when {
-                                showEntry != null -> fsScope.launch {
-                                    val tvdb = showEntry.tvdbId ?: return@launch
-                                    viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
-                                }
-                                menuCh.id == MoviesWatchNowChannelId && nowSlot != null -> onNavigateToDetails(MediaType.MOVIE, nowSlot.tmdbId)
+                                showEntry != null -> openShowDetails(showEntry)
+                                movie != null -> onNavigateToDetails(MediaType.MOVIE, movie.tmdbId)
                                 premiere != null -> onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
                             }
                             closeMenu()
@@ -1784,40 +1748,76 @@ fun LiveTvScreen(
             )
         }
 
-        episodeMenuTarget?.let { (epChannel, epProgram) ->
-            val seriesId = epChannel.id.removePrefix(ShowsChannelIdPrefix).toIntOrNull()
-            val entry = showsGuideSchedule.find { it.seriesId == seriesId }
-            val se = parseShowEpisodeTitle(epProgram.title)
-            val downloaded = entry != null && se != null && (
-                (entry.now?.season == se.first && entry.now.episode == se.second) ||
-                    (entry.next?.season == se.first && entry.next.episode == se.second && entry.next.downloaded)
-                )
+        libraryCellTarget?.let { (cellChannel, cellProgram) ->
+            val showEntry = showEntryFor(cellChannel.id)
+            val movie = libraryMovieFor(cellChannel.id)
+            val premiere = premiereFor(cellChannel.id)
+            val se = parseShowEpisodeTitle(cellProgram.title)
             val closeMenu = {
-                episodeMenuTarget = null
-                focusEpg(epChannel.id)
+                libraryCellTarget = null
+                focusEpg(cellChannel.id)
             }
-            if (entry == null || se == null || !downloaded) {
-                // Only downloaded episodes have a long-press action (not-downloaded ones search
-                // on a normal select), so there's nothing to show -- just restore focus.
-                LaunchedEffect(epProgram) { closeMenu() }
-            } else {
-                com.arflix.tv.ui.components.ContextMenu(
-                    isVisible = true,
-                    title = entry.title,
-                    subtitle = epProgram.title,
-                    actions = listOf(
-                        com.arflix.tv.ui.components.ContextActions.markWatched.copy(label = "Mark S${se.first}E${se.second} Watched"),
-                    ),
-                    onAction = { action ->
-                        if (action.id == "mark_watched") {
-                            viewModel.markShowEpisodeWatched(entry, se.first, se.second)
-                            guideMessage = "Marked ${entry.title} S${se.first}E${se.second} watched"
+            // Which episode this cell is, and whether it's on disk.
+            val isNowEp = showEntry != null && se != null && showEntry.now?.season == se.first && showEntry.now.episode == se.second
+            val nextEp = showEntry?.next?.takeIf { se != null && it.season == se.first && it.episode == se.second }
+            val epDownloaded = isNowEp || nextEp?.downloaded == true
+            val epAired = nextEp != null && runCatching { java.time.Instant.parse(nextEp.airDate).toEpochMilli() <= System.currentTimeMillis() }.getOrDefault(true)
+            val actions = buildList {
+                when {
+                    showEntry != null && se != null -> {
+                        if (epDownloaded) {
+                            add(com.arflix.tv.ui.components.ContextActions.play)
+                            add(com.arflix.tv.ui.components.ContextActions.markWatched)
+                        } else if (nextEp != null && epAired) {
+                            add(com.arflix.tv.ui.components.ContextActions.searchSonarr)
                         }
-                        closeMenu()
-                    },
-                    onDismiss = closeMenu,
-                )
+                    }
+                    movie != null -> {
+                        add(com.arflix.tv.ui.components.ContextActions.play)
+                        if (!movie.watched) add(com.arflix.tv.ui.components.ContextActions.markWatched)
+                    }
+                    premiere != null -> add(com.arflix.tv.ui.components.ContextActions.searchSonarr)
+                }
+                // Nothing to do on this cell (future episode, or one already watched): offer the
+                // show's page instead of an empty menu.
+                if (isEmpty() && showEntry != null) add(com.arflix.tv.ui.components.ContextAction("info", "Episodes & Info", Icons.Default.Info))
             }
+            com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = cellChannel.name,
+                subtitle = cellProgram.title,
+                actions = actions,
+                onAction = { action ->
+                    when (action.id) {
+                        "play" -> when {
+                            showEntry != null && se != null -> playLibraryEpisode(showEntry, se.first, se.second)
+                            movie != null -> onNavigateToPlayer(MediaType.MOVIE, movie.tmdbId, null, null, null, null, null, null, null, false)
+                        }
+                        "mark_watched" -> when {
+                            showEntry != null && se != null -> {
+                                viewModel.markShowEpisodeWatched(showEntry, se.first, se.second)
+                                guideMessage = "Marked ${showEntry.title} S${se.first}E${se.second} watched"
+                            }
+                            movie != null -> {
+                                viewModel.markMovieWatched(movie)
+                                guideMessage = "Marked ${movie.title} watched"
+                            }
+                        }
+                        "search_sonarr" -> when {
+                            showEntry?.tvdbId != null && se != null ->
+                                viewModel.searchShowEpisode(showEntry.tvdbId, se.first, se.second) { ok ->
+                                    guideMessage = if (ok) "Searching for ${showEntry.title} S${se.first}E${se.second}" else "Search failed"
+                                }
+                            premiere != null -> viewModel.searchMovie(premiere.radarrId) { ok ->
+                                guideMessage = if (ok) "Searching for ${premiere.title}" else "Search failed"
+                            }
+                        }
+                        "info" -> showEntry?.let { openShowDetails(it) }
+                    }
+                    closeMenu()
+                },
+                onDismiss = closeMenu,
+            )
         }
 
         rulePickerShow?.let { show ->
@@ -1953,62 +1953,46 @@ private const val ShowsChannelIdPrefix = "show:"
 const val MoviesChannelGroup = "Movies"
 fun isLibraryChannelGroup(group: String?): Boolean = group == ShowsChannelGroup || group == MoviesChannelGroup
 
-private const val MoviesWatchNowChannelId = "movies:watchnow"
-private const val MoviesPremieringChannelId = "movies:premiering"
-private const val PremiereSlotMs = 60 * 60 * 1000L
+private const val MovieChannelIdPrefix = "movie:"
+private const val PremiereChannelIdPrefix = "movieprem:"
 
-fun com.arflix.tv.data.repository.MovieGuide.toIptvChannels(): List<IptvChannel> = buildList {
-    if (watchNow.isNotEmpty()) add(IptvChannel(id = MoviesWatchNowChannelId, name = "Watch Now", streamUrl = "", group = MoviesChannelGroup))
-    if (premiering.isNotEmpty()) add(IptvChannel(id = MoviesPremieringChannelId, name = "Premiering", streamUrl = "", group = MoviesChannelGroup))
-}
+fun isLibraryChannelId(id: String?): Boolean =
+    id != null && (id.startsWith(ShowsChannelIdPrefix) || id.startsWith(MovieChannelIdPrefix) || id.startsWith(PremiereChannelIdPrefix))
 
 private fun movieTitle(title: String, year: Int?) = if (year != null) "$title ($year)" else title
 
-// Premiering items have only a date, not an air time, so like the Shows NEXT slot they get
-// placeholder hour-long blocks: the first spans "now", each next one follows it.
-private fun premiereSlotStart(index: Int, clockMillis: Long): Long = clockMillis - PremiereSlotMs + index * PremiereSlotMs
-private fun premiereIndexForStart(startMs: Long, clockMillis: Long): Int =
-    ((startMs - (clockMillis - PremiereSlotMs)) / PremiereSlotMs).toInt()
+// One channel per movie (Joe, 2026-09-30: "every movie is a channel is better easier"):
+// downloaded ones first (unwatched before watched, as Episeerr orders them), then the ones
+// Radarr is still waiting on.
+fun com.arflix.tv.data.repository.MovieGuide.toIptvChannels(): List<IptvChannel> =
+    movies.map { IptvChannel(id = "$MovieChannelIdPrefix${it.tmdbId}", name = movieTitle(it.title, it.year), streamUrl = "", group = MoviesChannelGroup) } +
+        premiering.map { IptvChannel(id = "$PremiereChannelIdPrefix${it.tmdbId}", name = movieTitle(it.title, it.year), streamUrl = "", group = MoviesChannelGroup) }
 
+// Each movie is a single cell spanning "now", so it reads as one block like a show's NOW episode.
 fun com.arflix.tv.data.repository.MovieGuide.toIptvNowNext(clockMillis: Long): Map<String, IptvNowNext> = buildMap {
-    if (watchNow.isNotEmpty()) {
-        val programs = watchNow.map {
-            IptvProgram(
-                title = movieTitle(it.title, it.year),
-                description = it.overview.ifBlank { null },
-                startUtcMillis = it.startMs,
-                endUtcMillis = it.endMs,
-            )
-        }
-        val nowIdx = programs.indexOfFirst { clockMillis in it.startUtcMillis until it.endUtcMillis }
-        val future = programs.filter { it.startUtcMillis >= clockMillis }
-        put(MoviesWatchNowChannelId, IptvNowNext(
-            now = programs.getOrNull(nowIdx),
-            next = future.getOrNull(0),
-            later = future.getOrNull(1),
-            upcoming = future.drop(2),
-            recent = programs.filter { it.endUtcMillis <= clockMillis },
-        ))
+    val hour = 60 * 60 * 1000L
+    movies.forEach { m ->
+        val runtimeMs = (m.runtimeMinutes.takeIf { it > 0 } ?: 120) * 60_000L
+        put("$MovieChannelIdPrefix${m.tmdbId}", IptvNowNext(now = IptvProgram(
+            title = if (m.watched) "${movieTitle(m.title, m.year)} · Watched" else movieTitle(m.title, m.year),
+            description = m.overview.ifBlank { null },
+            startUtcMillis = clockMillis - hour,
+            endUtcMillis = clockMillis + runtimeMs,
+        )))
     }
-    if (premiering.isNotEmpty()) {
-        val programs = premiering.mapIndexed { i, p ->
-            val date = runCatching {
-                java.time.LocalDate.parse(p.releaseDate).format(java.time.format.DateTimeFormatter.ofPattern("M/d"))
-            }.getOrNull()
-            val start = premiereSlotStart(i, clockMillis)
-            IptvProgram(
-                title = listOfNotNull(movieTitle(p.title, p.year), date).joinToString(" · "),
-                description = p.overview.ifBlank { null },
-                startUtcMillis = start,
-                endUtcMillis = start + PremiereSlotMs,
-            )
+    premiering.forEach { p ->
+        val date = runCatching { java.time.LocalDate.parse(p.releaseDate) }.getOrNull()
+        val label = when {
+            date == null -> "Not downloaded"
+            date.isAfter(java.time.LocalDate.now()) -> "Premieres ${date.format(java.time.format.DateTimeFormatter.ofPattern("M/d"))}"
+            else -> "Released ${date.format(java.time.format.DateTimeFormatter.ofPattern("M/d"))} · Not downloaded"
         }
-        put(MoviesPremieringChannelId, IptvNowNext(
-            now = programs.first(),
-            next = programs.getOrNull(1),
-            later = programs.getOrNull(2),
-            upcoming = programs.drop(3),
-        ))
+        put("$PremiereChannelIdPrefix${p.tmdbId}", IptvNowNext(now = IptvProgram(
+            title = label,
+            description = p.overview.ifBlank { null },
+            startUtcMillis = clockMillis - hour,
+            endUtcMillis = clockMillis + 3 * hour,
+        )))
     }
 }
 
@@ -2050,13 +2034,15 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
     val nowProgram = now?.let {
         IptvProgram(
             title = episodeProgramTitle(title, it.season, it.episode, suffix = it.title.ifBlank { null }),
-            description = overview.ifBlank { null },
+            // The episode's own synopsis (Joe: more useful than the show's), show's as fallback.
+            description = it.overview.ifBlank { overview }.ifBlank { null },
             startUtcMillis = clockMillis - hour,
             endUtcMillis = clockMillis + hour,
         )
     } ?: lastPlayed?.let {
         IptvProgram(
             title = episodeProgramTitle(title, it.season, it.episode, suffix = listOfNotNull(it.title.ifBlank { null }, "Watched").joinToString(" · ")),
+            description = it.overview.ifBlank { overview }.ifBlank { null },
             startUtcMillis = clockMillis - hour,
             endUtcMillis = clockMillis + hour,
         )
@@ -2074,11 +2060,12 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
             when {
                 aired == null -> "Not downloaded"
                 aired.toEpochMilli() > clockMillis -> "Airs $date"
-                else -> "Not downloaded · select to search"
+                else -> "Not downloaded"
             }
         }
         IptvProgram(
             title = episodeProgramTitle(title, n.season, n.episode, suffix = suffix),
+            description = n.overview.ifBlank { null },
             startUtcMillis = clockMillis + hour,
             endUtcMillis = clockMillis + 2 * hour,
         )

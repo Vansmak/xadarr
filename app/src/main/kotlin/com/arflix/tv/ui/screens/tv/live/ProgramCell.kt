@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.data.model.IptvProgram
-import kotlinx.coroutines.launch
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
@@ -66,9 +65,6 @@ fun ProgramCell(
     focusable: Boolean = true,
     isCatchupSupported: Boolean = false,
     onClick: () -> Unit,
-    // Non-null only for library (Shows) cells: select then fires on key-up and a 520ms hold
-    // (or the Menu key) calls this instead, same timing as ChannelRow's long-press.
-    onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {},
     onMoveLeft: () -> Boolean = { false },
     onMoveRight: () -> Boolean = { false },
@@ -81,10 +77,6 @@ fun ProgramCell(
     val deviceType = LocalDeviceType.current
     val isTouchDevice = deviceType.isTouchDevice()
     var focused by remember { mutableStateOf(false) }
-    var selectPressed by remember { mutableStateOf(false) }
-    var consumedLongPress by remember { mutableStateOf(false) }
-    var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val baseBg = when {
         isNow -> LiveColors.FocusBg
         else -> LiveColors.Panel
@@ -152,36 +144,6 @@ fun ProgramCell(
             .then(
                 if (focusable) {
                     Modifier.onKeyEvent { ev ->
-                        val isSelect = ev.key == Key.DirectionCenter || ev.key == Key.Enter
-                        if (onLongPress != null && (isSelect || ev.key == Key.Menu)) {
-                            return@onKeyEvent when {
-                                ev.key == Key.Menu -> { if (ev.type == KeyEventType.KeyDown) onLongPress(); true }
-                                ev.type == KeyEventType.KeyDown -> {
-                                    if (!selectPressed) {
-                                        selectPressed = true
-                                        consumedLongPress = false
-                                        longPressJob?.cancel()
-                                        longPressJob = scope.launch {
-                                            kotlinx.coroutines.delay(520L)
-                                            if (selectPressed) {
-                                                consumedLongPress = true
-                                                onLongPress()
-                                            }
-                                        }
-                                    }
-                                    true
-                                }
-                                ev.type == KeyEventType.KeyUp -> {
-                                    longPressJob?.cancel()
-                                    val wasLong = consumedLongPress
-                                    selectPressed = false
-                                    consumedLongPress = false
-                                    if (!wasLong) onClick()
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
                         if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
                         when (ev.key) {
                             Key.DirectionLeft -> onMoveLeft()
@@ -201,9 +163,7 @@ fun ProgramCell(
             )
             .then(
                 if (focusable || isTouchDevice) {
-                    Modifier.pointerInput(onLongPress) {
-                        detectTapGestures(onTap = { onClick() }, onLongPress = onLongPress?.let { cb -> { _ -> cb() } })
-                    }
+                    Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
                 } else {
                     Modifier
                 }

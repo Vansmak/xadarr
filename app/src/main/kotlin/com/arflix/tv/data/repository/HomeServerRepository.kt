@@ -755,6 +755,17 @@ class HomeServerRepository @Inject constructor(
         }.getOrDefault(false)
     }
 
+    suspend fun setPlexMovieWatched(tmdbId: Int, title: String, year: Int?, watched: Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            val connection = currentConnections()
+                .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext false
+            runCatching {
+                val movie = findBestMovie(connection, null, title, year, tmdbId) ?: return@runCatching false
+                scrobblePlex(connection, movie.id, watched)
+                true
+            }.getOrDefault(false)
+        }
+
     // Plex's actual mark-watched/unwatched calls — same GET-with-query-params shape already
     // used by ServerSessionRepository's /:/timeline progress reporting.
     fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean) {

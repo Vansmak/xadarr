@@ -49,6 +49,7 @@ data class ShowGuideEpisodeRef(
     val season: Int,
     val episode: Int,
     val title: String,
+    val overview: String = "",
 )
 
 data class ShowGuideNextEpisode(
@@ -57,6 +58,7 @@ data class ShowGuideNextEpisode(
     val title: String,
     val downloaded: Boolean,
     val airDate: String,   // ISO 8601, only meaningful when downloaded == false
+    val overview: String = "",
 )
 
 // One row for Xadarr's synthetic "Shows" live-guide channel (Episeerr's
@@ -299,6 +301,7 @@ class SonarrRepository @Inject constructor(
                             season = it.optInt("season"),
                             episode = it.optInt("episode"),
                             title = it.optString("title"),
+                            overview = it.optString("overview"),
                         )
                     }
                     val nextObj = s.optJSONObject("next")
@@ -315,6 +318,7 @@ class SonarrRepository @Inject constructor(
                                     title = it.optString("title"),
                                     downloaded = it.optBoolean("downloaded", false),
                                     airDate = it.optString("airDate"),
+                                    overview = it.optString("overview"),
                                 )
                             },
                             lastPlayed = episodeRef(s.optJSONObject("lastPlayed")),
