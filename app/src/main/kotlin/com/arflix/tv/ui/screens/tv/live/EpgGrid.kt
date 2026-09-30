@@ -635,9 +635,15 @@ fun EpgGrid(
                                     epgMode = focusMode == EpgGridFocusMode.Epg,
                                     rowHeight = rowHeight,
                                     onClick = { program ->
-                                        onExitEpg(ch)
-                                        onProgramSelect(ch, program)
-                                        keepChannelFocus(idx)
+                                        if (isLibraryChannelGroup(ch.source.group)) {
+                                            // Opens a popup menu; pulling focus back to the channel
+                                            // row here (delayed retries) stole it from the menu.
+                                            onProgramSelect(ch, program)
+                                        } else {
+                                            onExitEpg(ch)
+                                            onProgramSelect(ch, program)
+                                            keepChannelFocus(idx)
+                                        }
                                     },
                                     onFocused = {
                                         if (focusMode == EpgGridFocusMode.Epg) {

@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -111,6 +113,10 @@ fun ContextMenu(
     // TV: a real, selectable Close as the last item (Joe, 2026-09-30), replacing the
     // "Press Back to cancel" hint that looked like a button but couldn't be selected.
     val tvActions = remember(actions) { actions + CloseMenuAction }
+    // Self-heal: if another component grabs focus while the menu is open (e.g. a screen's
+    // delayed focus restoration), take it back -- otherwise D-pad input silently goes to the
+    // screen behind and the menu looks frozen (Joe, 2026-09-30).
+    var menuHasFocus by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     // Request focus when menu becomes visible
@@ -128,6 +134,13 @@ fun ContextMenu(
         }
     }
 
+    LaunchedEffect(isVisible, menuHasFocus) {
+        if (isVisible && !isMobile && !menuHasFocus) {
+            kotlinx.coroutines.delay(120L)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
     if (!isMobile) {
         // --- TV layout: centered card with D-pad navigation ---
         AnimatedVisibility(
@@ -140,6 +153,7 @@ fun ContextMenu(
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.56f))
                     .focusRequester(focusRequester)
+                    .onFocusChanged { menuHasFocus = it.hasFocus }
                     .focusable()
                     .onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) {

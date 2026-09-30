@@ -570,6 +570,11 @@ fun LiveTvScreen(
     var libraryCellTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     // Rule picker opened from a show's channel menu.
     var rulePickerShow by remember { mutableStateOf<com.arflix.tv.data.repository.ShowGuideEntry?>(null) }
+    // Backing out of Details (opened from a library menu) reopens that channel's menu -- going
+    // back means nothing was chosen (Joe, 2026-09-30). Saveable: this screen's composition is
+    // torn down while Details is on top. Armed on ON_RESUME so it can't fire before navigating.
+    var reopenMenuAfterDetails by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingMenuReopen by remember { mutableStateOf<String?>(null) }
     // Short confirmation drawn inside the guide. Android Toasts don't render on Joe's
     // Shield/onn boxes (see project_remote_mode memory), so they'd be invisible there.
     var guideMessage by remember { mutableStateOf<String?>(null) }
@@ -767,6 +772,7 @@ fun LiveTvScreen(
 
     fun openShowDetails(entry: com.arflix.tv.data.repository.ShowGuideEntry) {
         val tvdbId = entry.tvdbId ?: return
+        reopenMenuAfterDetails = "$ShowsChannelIdPrefix${entry.seriesId}"
         fsScope.launch {
             viewModel.resolveShowTmdbRef(tvdbId)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
         }
@@ -868,6 +874,10 @@ fun LiveTvScreen(
                 // Process-level backgrounding is handled by LiveTvPlayerViewModel's
                 // ProcessLifecycleOwner observer.
                 Lifecycle.Event.ON_RESUME -> {
+                    reopenMenuAfterDetails?.let {
+                        pendingMenuReopen = it
+                        reopenMenuAfterDetails = null
+                    }
                     guideClockMillis = System.currentTimeMillis()
                     epgScrollToNowSignal++
                     // Coming back from the player: the Shows channel's NOW slot has usually just
@@ -1731,8 +1741,14 @@ fun LiveTvScreen(
                         "info" -> {
                             when {
                                 showEntry != null -> openShowDetails(showEntry)
-                                movie != null -> onNavigateToDetails(MediaType.MOVIE, movie.tmdbId)
-                                premiere != null -> onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
+                                movie != null -> {
+                                    reopenMenuAfterDetails = menuCh.id
+                                    onNavigateToDetails(MediaType.MOVIE, movie.tmdbId)
+                                }
+                                premiere != null -> {
+                                    reopenMenuAfterDetails = menuCh.id
+                                    onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
+                                }
                             }
                             closeMenu()
                         }
@@ -1746,6 +1762,14 @@ fun LiveTvScreen(
                 },
                 onDismiss = closeMenu,
             )
+        }
+
+        LaunchedEffect(pendingMenuReopen, enrichedState.value.index) {
+            val id = pendingMenuReopen ?: return@LaunchedEffect
+            val ch = enrichedState.value.index.byId[id] ?: return@LaunchedEffect
+            pendingMenuReopen = null
+            previewLibraryChannel(ch)
+            libraryMenuChannel = ch
         }
 
         libraryCellTarget?.let { (cellChannel, cellProgram) ->
@@ -1830,6 +1854,12 @@ fun LiveTvScreen(
                     rulePickerShow = null
                     focusChannelList("$ShowsChannelIdPrefix${show.seriesId}")
                 }
+                // Back out of the picker without choosing -> back to the channel menu.
+                val backToMenu = {
+                    rulePickerShow = null
+                    libraryMenuChannel = enrichedState.value.index.byId["$ShowsChannelIdPrefix${show.seriesId}"]
+                    if (libraryMenuChannel == null) focusChannelList("$ShowsChannelIdPrefix${show.seriesId}")
+                }
                 com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
                     pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
                         id = show.seriesId.toString(),
@@ -1844,7 +1874,7 @@ fun LiveTvScreen(
                     episeerrUrl = episeerrUrl,
                     currentRuleName = show.rule,
                     onAssignRule = { ruleName -> rulePickerVm.episeerrRepository.assignRuleToSeries(show.seriesId, ruleName) },
-                    onDismiss = closePicker,
+                    onDismiss = backToMenu,
                     onRuleAssigned = {
                         viewModel.refreshShowsGuide(forceRefresh = true)
                         closePicker()
