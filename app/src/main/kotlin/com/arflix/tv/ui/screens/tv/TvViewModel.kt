@@ -77,6 +77,7 @@ class TvViewModel @Inject constructor(
     private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
     private val sonarrRepository: com.arflix.tv.data.repository.SonarrRepository,
     private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
+    private val homeServerRepository: com.arflix.tv.data.repository.HomeServerRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -240,14 +241,37 @@ class TvViewModel @Inject constructor(
         kotlinx.coroutines.flow.MutableStateFlow(com.arflix.tv.data.repository.MovieGuide())
     val movieGuide: StateFlow<com.arflix.tv.data.repository.MovieGuide> = _movieGuide.asStateFlow()
 
-    fun refreshShowsGuide() {
+    fun refreshShowsGuide(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _showsGuideSchedule.value = runCatching { sonarrRepository.getShowsGuideSchedule() }
+            _showsGuideSchedule.value = runCatching { sonarrRepository.getShowsGuideSchedule(forceRefresh = forceRefresh) }
                 .getOrDefault(emptyList())
         }
         viewModelScope.launch {
-            _movieGuide.value = runCatching { radarrRepository.getMovieGuide() }
+            _movieGuide.value = runCatching { radarrRepository.getMovieGuide(forceRefresh) }
                 .getOrDefault(com.arflix.tv.data.repository.MovieGuide())
+        }
+    }
+
+    // Long-press actions on a Shows guide row. Mark watched goes straight to Plex (the watched
+    // source the guide reads), then forces a fresh guide so the row moves on immediately.
+    fun markShowEpisodeWatched(entry: com.arflix.tv.data.repository.ShowGuideEntry, season: Int, episode: Int) {
+        viewModelScope.launch {
+            val tmdbId = entry.tvdbId?.let { resolveShowTmdbRef(it)?.second }
+            runCatching {
+                homeServerRepository.setPlexEpisodeWatched(
+                    imdbId = null, title = entry.title, season = season, episode = episode,
+                    tmdbId = tmdbId, tvdbId = entry.tvdbId, watched = true,
+                )
+            }
+            refreshShowsGuide(forceRefresh = true)
+        }
+    }
+
+    fun searchShowEpisode(tvdbId: Int, season: Int, episode: Int, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { sonarrRepository.triggerEpisodeSearch(tvdbId.toString(), season, episode) }
+                .getOrDefault(false)
+            onResult(ok)
         }
     }
 

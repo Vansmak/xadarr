@@ -41,6 +41,7 @@ data class MovieGuideSlot(
     val overview: String,
     val startMs: Long,
     val endMs: Long,
+    val fanart: String? = null,
 )
 
 data class MoviePremiere(
@@ -49,6 +50,7 @@ data class MoviePremiere(
     val year: Int?,
     val overview: String,
     val releaseDate: String,  // yyyy-MM-dd, may be blank
+    val fanart: String? = null,
 )
 
 data class MovieGuide(
@@ -69,10 +71,11 @@ class RadarrRepository @Inject constructor(
 
     suspend fun isConfigured(): Boolean = syncBase().isNotBlank()
 
-    suspend fun getMovieGuide(): MovieGuide = withContext(Dispatchers.IO) {
+    suspend fun getMovieGuide(forceRefresh: Boolean = false): MovieGuide = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext MovieGuide() }
         try {
-            val req = Request.Builder().url("$base/api/radarr/guide-schedule").get().build()
+            val query = if (forceRefresh) "?refresh=1" else ""
+            val req = Request.Builder().url("$base/api/radarr/guide-schedule$query").get().build()
             val body = http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext MovieGuide()
                 resp.body?.string() ?: "{}"
@@ -92,6 +95,7 @@ class RadarrRepository @Inject constructor(
                             overview = m.optString("overview"),
                             startMs = m.optLong("startMs"),
                             endMs = m.optLong("endMs"),
+                            fanart = m.optString("fanart").takeIf { it.isNotBlank() },
                         ))
                     }
                 },
@@ -104,6 +108,7 @@ class RadarrRepository @Inject constructor(
                             year = m.yearOrNull(),
                             overview = m.optString("overview"),
                             releaseDate = m.optString("releaseDate"),
+                            fanart = m.optString("fanart").takeIf { it.isNotBlank() },
                         ))
                     }
                 },

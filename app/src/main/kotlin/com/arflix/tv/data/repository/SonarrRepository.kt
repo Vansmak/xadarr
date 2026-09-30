@@ -73,6 +73,8 @@ data class ShowGuideEntry(
     val now: ShowGuideEpisodeRef?,
     val next: ShowGuideNextEpisode?,
     val lastPlayed: ShowGuideEpisodeRef?,
+    val fanart: String? = null,   // 16:9 backdrop for the guide's preview box
+    val overview: String = "",
 )
 
 data class SonarrSeriesSummary(
@@ -274,10 +276,14 @@ class SonarrRepository @Inject constructor(
     suspend fun getShowGuideEntry(tvdbId: Int): ShowGuideEntry? =
         getShowsGuideSchedule(tvdbId).firstOrNull { it.tvdbId == tvdbId }
 
-    suspend fun getShowsGuideSchedule(onlyTvdbId: Int? = null): List<ShowGuideEntry> = withContext(Dispatchers.IO) {
+    suspend fun getShowsGuideSchedule(onlyTvdbId: Int? = null, forceRefresh: Boolean = false): List<ShowGuideEntry> = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext emptyList() }
         try {
-            val query = onlyTvdbId?.let { "?tvdbId=$it" }.orEmpty()
+            val query = when {
+                onlyTvdbId != null -> "?tvdbId=$onlyTvdbId"
+                forceRefresh -> "?refresh=1"
+                else -> ""
+            }
             val req = Request.Builder().url("$base/api/sonarr/guide-schedule$query").get().build()
             val body = http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext emptyList()
@@ -311,6 +317,8 @@ class SonarrRepository @Inject constructor(
                                 )
                             },
                             lastPlayed = episodeRef(s.optJSONObject("lastPlayed")),
+                            fanart = s.optString("fanart").takeIf { it.isNotBlank() },
+                            overview = s.optString("overview"),
                         )
                     )
                 }

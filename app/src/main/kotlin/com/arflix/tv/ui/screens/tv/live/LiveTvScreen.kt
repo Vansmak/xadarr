@@ -7,6 +7,10 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Add
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -555,6 +559,8 @@ fun LiveTvScreen(
     var upLongPressConsumed by remember { mutableStateOf(false) }
     var upLongPressJob by remember { mutableStateOf<Job?>(null) }
     var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
+    // Long-press menu for Shows/Movies rows (play / mark watched / search / Episodes & Info).
+    var libraryMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
     var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
@@ -747,6 +753,22 @@ fun LiveTvScreen(
                 val premiere = movieGuide.premiering.getOrNull(idx) ?: return
                 onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
             }
+        }
+    }
+
+    // Backdrop for the preview box when a library row is selected: the show's fanart, or the
+    // movie on right now (Watch Now) / first upcoming one (Premiering).
+    fun libraryArtFor(channel: EnrichedChannel?): String? {
+        channel ?: return null
+        return when {
+            channel.source.group == ShowsChannelGroup ->
+                showsGuideSchedule.find { "$ShowsChannelIdPrefix${it.seriesId}" == channel.id }?.fanart
+            channel.id == MoviesWatchNowChannelId -> {
+                val now = System.currentTimeMillis()
+                (movieGuide.watchNow.firstOrNull { now in it.startMs until it.endMs } ?: movieGuide.watchNow.firstOrNull())?.fanart
+            }
+            channel.id == MoviesPremieringChannelId -> movieGuide.premiering.firstOrNull()?.fanart
+            else -> null
         }
     }
 
@@ -1127,6 +1149,7 @@ fun LiveTvScreen(
                         favoriteSet = favSet,
                         onFullscreenClick = openFullScreenPlayer,
                         compact = true,
+                        artUrl = libraryArtFor(playingChannel),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     TouchCategoryRail(
@@ -1174,7 +1197,7 @@ fun LiveTvScreen(
                             focusedChannelId = channel.id
                             rememberedChannelByCategory[selectedCategoryId] = channel.id
                         },
-                        onChannelLongPress = { channel -> favoriteMenuChannel = channel },
+                        onChannelLongPress = { channel -> if (isLibraryChannelGroup(channel.source.group)) libraryMenuChannel = channel else favoriteMenuChannel = channel },
                         favorites = favSet,
                         onMoveLeftFromChannels = { focusPlaylistSearch() },
                         onEnterEpg = { channel -> focusEpg(channel.id) },
@@ -1207,6 +1230,7 @@ fun LiveTvScreen(
                         favoriteSet = favSet,
                         onFullscreenClick = openFullScreenPlayer,
                         compact = compactTouchLayout,
+                        artUrl = libraryArtFor(playingChannel),
                         modifier = Modifier.fillMaxWidth().onGloballyPositioned { coords ->
                             miniPlayerHeightPx = coords.size.height
                         },
@@ -1243,7 +1267,7 @@ fun LiveTvScreen(
                                 focusedChannelId = channel.id
                                 rememberedChannelByCategory[selectedCategoryId] = channel.id
                             },
-                            onChannelLongPress = { channel -> favoriteMenuChannel = channel },
+                            onChannelLongPress = { channel -> if (isLibraryChannelGroup(channel.source.group)) libraryMenuChannel = channel else favoriteMenuChannel = channel },
                             favorites = favSet,
                             onMoveLeftFromChannels = { openSidebar() },
                             onMoveUpFromTopOfChannels = {},
@@ -1685,6 +1709,84 @@ fun LiveTvScreen(
             },
         )
 
+        libraryMenuChannel?.let { menuCh ->
+            val ctx = LocalContext.current
+            val showEntry = showsGuideSchedule.find { "$ShowsChannelIdPrefix${it.seriesId}" == menuCh.id }
+            val nowSlot = movieGuide.watchNow.firstOrNull { System.currentTimeMillis() in it.startMs until it.endMs }
+            val premiere = movieGuide.premiering.firstOrNull()
+            val isFav = menuCh.id in favSet
+            val fav = com.arflix.tv.ui.components.ContextAction(
+                "fav", if (isFav) "Remove from Favorites" else "Add to Favorites",
+                if (isFav) Icons.Default.Remove else Icons.Default.Add,
+            )
+            val info = com.arflix.tv.ui.components.ContextAction(
+                "info", if (showEntry != null) "Episodes & Info" else "Movie Info", Icons.Default.Info,
+            )
+            val searchTarget = showEntry?.next?.takeIf { !it.downloaded }?.let { it.season to it.episode }
+            val actions = buildList {
+                when {
+                    showEntry?.now != null -> {
+                        add(com.arflix.tv.ui.components.ContextActions.play.copy(label = "Play S${showEntry.now.season}E${showEntry.now.episode}"))
+                        add(com.arflix.tv.ui.components.ContextActions.markWatched.copy(label = "Mark S${showEntry.now.season}E${showEntry.now.episode} Watched"))
+                    }
+                    menuCh.id == MoviesWatchNowChannelId && nowSlot != null ->
+                        add(com.arflix.tv.ui.components.ContextActions.play.copy(label = "Play From Start"))
+                }
+                if (searchTarget != null) {
+                    add(com.arflix.tv.ui.components.ContextActions.searchSonarr.copy(label = "Search S${searchTarget.first}E${searchTarget.second}"))
+                }
+                if (showEntry != null || nowSlot != null || premiere != null) add(info)
+                add(fav)
+            }
+            val closeMenu = {
+                libraryMenuChannel = null
+                focusChannelList(menuCh.id)
+            }
+            com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = menuCh.name,
+                subtitle = when {
+                    showEntry?.now != null -> "Up next: S${showEntry.now.season}E${showEntry.now.episode} ${showEntry.now.title}"
+                    menuCh.id == MoviesWatchNowChannelId -> nowSlot?.title?.let { "On now: $it" }.orEmpty()
+                    else -> premiere?.title.orEmpty()
+                },
+                actions = actions,
+                onAction = { action ->
+                    when (action.id) {
+                        "play" -> when {
+                            showEntry?.now != null -> fsScope.launch {
+                                val tvdb = showEntry.tvdbId ?: return@launch
+                                viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) ->
+                                    onNavigateToPlayer(type, tmdbId, showEntry.now.season, showEntry.now.episode, null, null, null, null, null, false)
+                                }
+                            }
+                            nowSlot != null -> onNavigateToPlayer(MediaType.MOVIE, nowSlot.tmdbId, null, null, null, null, null, null, null, false)
+                        }
+                        "mark_watched" -> showEntry?.now?.let { viewModel.markShowEpisodeWatched(showEntry, it.season, it.episode) }
+                        "search_sonarr" -> {
+                            val tvdb = showEntry?.tvdbId
+                            if (tvdb != null && searchTarget != null) {
+                                viewModel.searchShowEpisode(tvdb, searchTarget.first, searchTarget.second) { ok ->
+                                    Toast.makeText(ctx, if (ok) "Searching for S${searchTarget.first}E${searchTarget.second}" else "Search failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        "info" -> when {
+                            showEntry != null -> fsScope.launch {
+                                val tvdb = showEntry.tvdbId ?: return@launch
+                                viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
+                            }
+                            menuCh.id == MoviesWatchNowChannelId && nowSlot != null -> onNavigateToDetails(MediaType.MOVIE, nowSlot.tmdbId)
+                            premiere != null -> onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
+                        }
+                        "fav" -> viewModel.toggleFavoriteChannel(menuCh.id)
+                    }
+                    closeMenu()
+                },
+                onDismiss = closeMenu,
+            )
+        }
+
         programInfoTarget?.let { (infoChannel, infoProgram) ->
             val reminders by viewModel.programReminders.collectAsStateWithLifecycle()
             val reminderKey = remember(infoChannel.id, infoProgram) { reminderKey(infoChannel.id, infoProgram) }
@@ -1859,6 +1961,7 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
     val nowProgram = now?.let {
         IptvProgram(
             title = episodeProgramTitle(title, it.season, it.episode, suffix = it.title.ifBlank { null }),
+            description = overview.ifBlank { null },
             startUtcMillis = clockMillis - hour,
             endUtcMillis = clockMillis + hour,
         )

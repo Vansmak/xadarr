@@ -63,6 +63,8 @@ fun MiniPlayerRow(
     onFavoriteToggle: (String) -> Unit,
     onFullscreenClick: (() -> Unit)? = null,
     compact: Boolean = false,
+    // Backdrop shown in place of video for library (Shows/Movies) channels.
+    artUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     if (compact) {
@@ -77,6 +79,7 @@ fun MiniPlayerRow(
                 channel = channel,
                 compact = true,
                 onFullscreenClick = onFullscreenClick,
+                artUrl = artUrl,
                 modifier = Modifier.fillMaxWidth(),
             )
             InfoColumn(
@@ -100,6 +103,7 @@ fun MiniPlayerRow(
                 exoPlayer = exoPlayer,
                 channel = channel,
                 onFullscreenClick = onFullscreenClick,
+                artUrl = artUrl,
             )
             InfoColumn(
                 channel = channel,
@@ -120,6 +124,7 @@ private fun VideoCard(
     channel: EnrichedChannel?,
     compact: Boolean = false,
     onFullscreenClick: (() -> Unit)? = null,
+    artUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val deviceType = LocalDeviceType.current
@@ -140,10 +145,9 @@ private fun VideoCard(
             .clip(RoundedCornerShape(LiveDims.VideoRadius))
             .background(LiveColors.PanelDeep),
     ) {
-        // Fallback brand gradient while video is loading, channel is null, or (new) the focused
-        // channel is a synthetic "Shows" row -- its streamUrl is deliberately empty (see
-        // ShowGuideEntry.toIptvChannel), so there's no real video to attempt. No poster art here
-        // either, per Joe's screenshots 2026-09-29: this feature has no imagery anywhere.
+        // Fallback brand gradient while video is loading or channel is null. Library channels
+        // (Shows/Movies) have no stream, so they show the title's backdrop here instead of video
+        // (Joe, 2026-09-30: channel select should show the hero art + info).
         if (channel == null || isLibraryChannelGroup(channel.source.group)) {
             Box(
                 modifier = Modifier
@@ -154,6 +158,14 @@ private fun VideoCard(
                         )
                     ),
             )
+            if (artUrl != null) {
+                coil.compose.AsyncImage(
+                    model = artUrl,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         } else {
             Box(
                 modifier = Modifier
