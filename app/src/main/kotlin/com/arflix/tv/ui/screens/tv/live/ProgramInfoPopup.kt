@@ -87,6 +87,10 @@ fun ProgramInfoPopup(
             .fillMaxSize()
             .zIndex(60f)
             .background(Color(0xB3000000))
+            // A past program with no catchup has no button, so nothing inside took the focus
+            // request: focus stayed on the grid behind and even Back couldn't reach this popup.
+            // The popup itself takes focus in that case.
+            .then(if (!canWatch && !isFuture) Modifier.focusRequester(focusRequester) else Modifier)
             .focusable()
             .onPreviewKeyEvent { ev ->
                 // Must swallow every KeyDown here, not just Back/Escape. Direction

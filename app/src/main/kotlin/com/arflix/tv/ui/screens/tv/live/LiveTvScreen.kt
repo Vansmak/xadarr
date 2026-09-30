@@ -9,6 +9,7 @@ import android.content.pm.ActivityInfo
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Add
 import androidx.activity.compose.BackHandler
@@ -97,6 +98,10 @@ import com.arflix.tv.util.LocalDeviceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import androidx.tv.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -559,8 +564,21 @@ fun LiveTvScreen(
     var upLongPressConsumed by remember { mutableStateOf(false) }
     var upLongPressJob by remember { mutableStateOf<Job?>(null) }
     var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
-    // Long-press menu for Shows/Movies rows (play / mark watched / search / Episodes & Info).
+    // Long-press on a Shows/Movies channel: Episodes & Info / Movie Info, Change Rule.
     var libraryMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
+    // Long-press on a downloaded episode cell: Mark Watched.
+    var episodeMenuTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
+    // Rule picker opened from a show's channel menu.
+    var rulePickerShow by remember { mutableStateOf<com.arflix.tv.data.repository.ShowGuideEntry?>(null) }
+    // Short confirmation drawn inside the guide. Android Toasts don't render on Joe's
+    // Shield/onn boxes (see project_remote_mode memory), so they'd be invisible there.
+    var guideMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(guideMessage) {
+        if (guideMessage != null) {
+            delay(2500L)
+            guideMessage = null
+        }
+    }
     var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
@@ -724,14 +742,19 @@ fun LiveTvScreen(
         val entry = showsGuideSchedule.find { it.seriesId == seriesId } ?: return
         val tvdbId = entry.tvdbId ?: return
         val (season, episode) = parseShowEpisodeTitle(program.title) ?: return
-        // Only the actually-downloaded "now" episode is playable -- the NEXT block is either a
-        // real downloaded episode (safe to also allow, but not yet confirmed fresh at click time)
-        // or a bare future air date with no file at all. Guarding to exactly entry.now here keeps
-        // "select plays" honest: it never tries to play something that isn't really there.
-        if (entry.now?.season != season || entry.now.episode != episode) return
-        fsScope.launch {
-            viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
-                onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
+        val isNow = entry.now?.season == season && entry.now.episode == episode
+        val next = entry.next?.takeIf { it.season == season && it.episode == episode }
+        when {
+            // Downloaded (NOW, or a NEXT that's already grabbed): play it, same path as
+            // selecting an episode in Details.
+            isNow || next?.downloaded == true -> fsScope.launch {
+                viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
+                    onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
+                }
+            }
+            // Not downloaded: selecting it asks Sonarr to search for it.
+            next != null -> viewModel.searchShowEpisode(tvdbId, season, episode) { ok ->
+                guideMessage = if (ok) "Searching for ${entry.title} S${season}E$episode" else "Search failed"
             }
         }
     }
@@ -1182,6 +1205,7 @@ fun LiveTvScreen(
                             focusZone = LiveTvFocusZone.CHANNEL_LIST
                             selectChannel(channel)
                         },
+                        onProgramLongPress = { channel, program -> episodeMenuTarget = channel to program },
                         onProgramSelect = { channel, program ->
                             if (channel.source.group == ShowsChannelGroup) {
                                 if (program != null) playShowEpisode(channel, program)
@@ -1252,6 +1276,7 @@ fun LiveTvScreen(
                             compact = compactTouchLayout,
                             gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
                             onChannelSelect = { channel, _ -> selectChannel(channel) },
+                            onProgramLongPress = { channel, program -> episodeMenuTarget = channel to program },
                             onProgramSelect = { channel, program ->
                             if (channel.source.group == ShowsChannelGroup) {
                                 if (program != null) playShowEpisode(channel, program)
@@ -1710,34 +1735,19 @@ fun LiveTvScreen(
         )
 
         libraryMenuChannel?.let { menuCh ->
-            val ctx = LocalContext.current
             val showEntry = showsGuideSchedule.find { "$ShowsChannelIdPrefix${it.seriesId}" == menuCh.id }
             val nowSlot = movieGuide.watchNow.firstOrNull { System.currentTimeMillis() in it.startMs until it.endMs }
             val premiere = movieGuide.premiering.firstOrNull()
-            val isFav = menuCh.id in favSet
-            val fav = com.arflix.tv.ui.components.ContextAction(
-                "fav", if (isFav) "Remove from Favorites" else "Add to Favorites",
-                if (isFav) Icons.Default.Remove else Icons.Default.Add,
-            )
-            val info = com.arflix.tv.ui.components.ContextAction(
-                "info", if (showEntry != null) "Episodes & Info" else "Movie Info", Icons.Default.Info,
-            )
-            val searchTarget = showEntry?.next?.takeIf { !it.downloaded }?.let { it.season to it.episode }
             val actions = buildList {
-                when {
-                    showEntry?.now != null -> {
-                        add(com.arflix.tv.ui.components.ContextActions.play.copy(label = "Play S${showEntry.now.season}E${showEntry.now.episode}"))
-                        add(com.arflix.tv.ui.components.ContextActions.markWatched.copy(label = "Mark S${showEntry.now.season}E${showEntry.now.episode} Watched"))
-                    }
-                    menuCh.id == MoviesWatchNowChannelId && nowSlot != null ->
-                        add(com.arflix.tv.ui.components.ContextActions.play.copy(label = "Play From Start"))
+                add(com.arflix.tv.ui.components.ContextAction(
+                    "info", if (showEntry != null) "Episodes & Info" else "Movie Info", Icons.Default.Info,
+                ))
+                if (showEntry != null) {
+                    add(com.arflix.tv.ui.components.ContextAction("rule", "Change Rule", Icons.Default.Tune))
                 }
-                if (searchTarget != null) {
-                    add(com.arflix.tv.ui.components.ContextActions.searchSonarr.copy(label = "Search S${searchTarget.first}E${searchTarget.second}"))
-                }
-                if (showEntry != null || nowSlot != null || premiere != null) add(info)
-                add(fav)
             }
+            // Popups take real focus to receive D-pad input and nothing hands it back when they
+            // close, which strands the guide with no focused node. Always reclaim the row.
             val closeMenu = {
                 libraryMenuChannel = null
                 focusChannelList(menuCh.id)
@@ -1745,46 +1755,119 @@ fun LiveTvScreen(
             com.arflix.tv.ui.components.ContextMenu(
                 isVisible = true,
                 title = menuCh.name,
-                subtitle = when {
-                    showEntry?.now != null -> "Up next: S${showEntry.now.season}E${showEntry.now.episode} ${showEntry.now.title}"
-                    menuCh.id == MoviesWatchNowChannelId -> nowSlot?.title?.let { "On now: $it" }.orEmpty()
-                    else -> premiere?.title.orEmpty()
-                },
+                subtitle = showEntry?.rule?.let { "Rule: ${it.replace('_', ' ')}" }
+                    ?: nowSlot?.takeIf { menuCh.id == MoviesWatchNowChannelId }?.let { "On now: ${it.title}" }
+                    ?: premiere?.takeIf { menuCh.id == MoviesPremieringChannelId }?.title.orEmpty(),
                 actions = actions,
                 onAction = { action ->
                     when (action.id) {
-                        "play" -> when {
-                            showEntry?.now != null -> fsScope.launch {
-                                val tvdb = showEntry.tvdbId ?: return@launch
-                                viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) ->
-                                    onNavigateToPlayer(type, tmdbId, showEntry.now.season, showEntry.now.episode, null, null, null, null, null, false)
+                        "info" -> {
+                            when {
+                                showEntry != null -> fsScope.launch {
+                                    val tvdb = showEntry.tvdbId ?: return@launch
+                                    viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
                                 }
+                                menuCh.id == MoviesWatchNowChannelId && nowSlot != null -> onNavigateToDetails(MediaType.MOVIE, nowSlot.tmdbId)
+                                premiere != null -> onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
                             }
-                            nowSlot != null -> onNavigateToPlayer(MediaType.MOVIE, nowSlot.tmdbId, null, null, null, null, null, null, null, false)
+                            closeMenu()
                         }
-                        "mark_watched" -> showEntry?.now?.let { viewModel.markShowEpisodeWatched(showEntry, it.season, it.episode) }
-                        "search_sonarr" -> {
-                            val tvdb = showEntry?.tvdbId
-                            if (tvdb != null && searchTarget != null) {
-                                viewModel.searchShowEpisode(tvdb, searchTarget.first, searchTarget.second) { ok ->
-                                    Toast.makeText(ctx, if (ok) "Searching for S${searchTarget.first}E${searchTarget.second}" else "Search failed", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                        "rule" -> {
+                            // Hand straight over to the picker; it restores focus when it closes.
+                            libraryMenuChannel = null
+                            rulePickerShow = showEntry
                         }
-                        "info" -> when {
-                            showEntry != null -> fsScope.launch {
-                                val tvdb = showEntry.tvdbId ?: return@launch
-                                viewModel.resolveShowTmdbRef(tvdb)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
-                            }
-                            menuCh.id == MoviesWatchNowChannelId && nowSlot != null -> onNavigateToDetails(MediaType.MOVIE, nowSlot.tmdbId)
-                            premiere != null -> onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
-                        }
-                        "fav" -> viewModel.toggleFavoriteChannel(menuCh.id)
+                        else -> closeMenu()
                     }
-                    closeMenu()
                 },
                 onDismiss = closeMenu,
             )
+        }
+
+        episodeMenuTarget?.let { (epChannel, epProgram) ->
+            val seriesId = epChannel.id.removePrefix(ShowsChannelIdPrefix).toIntOrNull()
+            val entry = showsGuideSchedule.find { it.seriesId == seriesId }
+            val se = parseShowEpisodeTitle(epProgram.title)
+            val downloaded = entry != null && se != null && (
+                (entry.now?.season == se.first && entry.now.episode == se.second) ||
+                    (entry.next?.season == se.first && entry.next.episode == se.second && entry.next.downloaded)
+                )
+            val closeMenu = {
+                episodeMenuTarget = null
+                focusEpg(epChannel.id)
+            }
+            if (entry == null || se == null || !downloaded) {
+                // Only downloaded episodes have a long-press action (not-downloaded ones search
+                // on a normal select), so there's nothing to show -- just restore focus.
+                LaunchedEffect(epProgram) { closeMenu() }
+            } else {
+                com.arflix.tv.ui.components.ContextMenu(
+                    isVisible = true,
+                    title = entry.title,
+                    subtitle = epProgram.title,
+                    actions = listOf(
+                        com.arflix.tv.ui.components.ContextActions.markWatched.copy(label = "Mark S${se.first}E${se.second} Watched"),
+                    ),
+                    onAction = { action ->
+                        if (action.id == "mark_watched") {
+                            viewModel.markShowEpisodeWatched(entry, se.first, se.second)
+                            guideMessage = "Marked ${entry.title} S${se.first}E${se.second} watched"
+                        }
+                        closeMenu()
+                    },
+                    onDismiss = closeMenu,
+                )
+            }
+        }
+
+        rulePickerShow?.let { show ->
+            Box(modifier = Modifier.fillMaxSize().zIndex(200f)) {
+                val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+                    androidx.hilt.navigation.compose.hiltViewModel()
+                val syncServerUrl by rulePickerVm.syncServerUrl.collectAsStateWithLifecycle()
+                val episeerrUrl by rulePickerVm.episeerrUrl.collectAsStateWithLifecycle()
+                val closePicker = {
+                    rulePickerShow = null
+                    focusChannelList("$ShowsChannelIdPrefix${show.seriesId}")
+                }
+                com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+                    pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                        id = show.seriesId.toString(),
+                        seriesId = show.seriesId,
+                        title = show.title,
+                        tmdbId = null,
+                        tvdbId = show.tvdbId?.toString(),
+                        poster = show.fanart,
+                    ),
+                    episeerrRepository = rulePickerVm.episeerrRepository,
+                    syncServerUrl = syncServerUrl,
+                    episeerrUrl = episeerrUrl,
+                    currentRuleName = show.rule,
+                    onAssignRule = { ruleName -> rulePickerVm.episeerrRepository.assignRuleToSeries(show.seriesId, ruleName) },
+                    onDismiss = closePicker,
+                    onRuleAssigned = {
+                        viewModel.refreshShowsGuide(forceRefresh = true)
+                        closePicker()
+                    },
+                )
+            }
+        }
+
+        guideMessage?.let { msg ->
+            Box(
+                modifier = Modifier.fillMaxSize().zIndex(300f).padding(bottom = 48.dp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Text(
+                    text = msg,
+                    style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 16.sp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(LiveColors.PanelRaised)
+                        .border(1.dp, LiveColors.Divider, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
         }
 
         programInfoTarget?.let { (infoChannel, infoProgram) ->
@@ -1797,11 +1880,17 @@ fun LiveTvScreen(
                 isReminderSet = reminders.any { it.key == reminderKey },
                 notificationsEnabled = remember(infoChannel.id, infoProgram) { viewModel.notificationsEnabled() },
                 onToggleReminder = {
-                    if (reminders.any { it.key == reminderKey }) {
+                    val wasSet = reminders.any { it.key == reminderKey }
+                    if (wasSet) {
                         viewModel.cancelProgramReminder(infoChannel.id, infoProgram)
                     } else {
                         viewModel.setProgramReminder(infoChannel.id, infoChannel.name, infoProgram)
                     }
+                    // Close and hand focus back to the program, instead of leaving the popup up
+                    // (Joe, 2026-09-30: popups "lose focus like the remind me").
+                    guideMessage = if (wasSet) "Reminder cancelled" else "Reminder set"
+                    programInfoTarget = null
+                    focusEpg(infoChannel.id)
                 },
                 onWatch = {
                     playProgramInMini(infoChannel, infoProgram)
@@ -1967,19 +2056,26 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
         )
     } ?: lastPlayed?.let {
         IptvProgram(
-            title = episodeProgramTitle(title, it.season, it.episode, suffix = it.title.ifBlank { null }),
+            title = episodeProgramTitle(title, it.season, it.episode, suffix = listOfNotNull(it.title.ifBlank { null }, "Watched").joinToString(" · ")),
             startUtcMillis = clockMillis - hour,
             endUtcMillis = clockMillis + hour,
         )
     }
     val nextProgram = next?.let { n ->
+        // Downloaded: the episode title, like NOW. Not downloaded: say so, with the air date --
+        // selecting it searches Sonarr.
         val suffix = if (n.downloaded) {
-            null
+            n.title.ifBlank { null }
         } else {
-            runCatching { java.time.Instant.parse(n.airDate) }
-                .getOrNull()
-                ?.let { java.time.format.DateTimeFormatter.ofPattern("M/d").withZone(java.time.ZoneId.systemDefault()).format(it) }
-                ?: n.airDate
+            val aired = runCatching { java.time.Instant.parse(n.airDate) }.getOrNull()
+            val date = aired?.let {
+                java.time.format.DateTimeFormatter.ofPattern("M/d").withZone(java.time.ZoneId.systemDefault()).format(it)
+            }
+            when {
+                aired == null -> "Not downloaded"
+                aired.toEpochMilli() > clockMillis -> "Airs $date"
+                else -> "Not downloaded · select to search"
+            }
         }
         IptvProgram(
             title = episodeProgramTitle(title, n.season, n.episode, suffix = suffix),

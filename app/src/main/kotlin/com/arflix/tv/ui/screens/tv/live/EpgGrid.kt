@@ -88,6 +88,8 @@ fun EpgGrid(
     focusMode: EpgGridFocusMode = EpgGridFocusMode.ChannelList,
     onChannelSelect: (EnrichedChannel, IptvProgram?) -> Unit,
     onProgramSelect: (EnrichedChannel, IptvProgram?) -> Unit = onChannelSelect,
+    // Long-press on a program cell; only wired for library (Shows) rows.
+    onProgramLongPress: ((EnrichedChannel, IptvProgram) -> Unit)? = null,
     onChannelFocused: (EnrichedChannel) -> Unit = {},
     onChannelLongPress: (EnrichedChannel) -> Unit = {},
     favorites: Set<String>,
@@ -639,6 +641,11 @@ fun EpgGrid(
                                         onProgramSelect(ch, program)
                                         keepChannelFocus(idx)
                                     },
+                                    onLongPress = if (ch.source.group == ShowsChannelGroup && onProgramLongPress != null) {
+                                        { program -> onProgramLongPress(ch, program) }
+                                    } else {
+                                        null
+                                    },
                                     onFocused = {
                                         if (focusMode == EpgGridFocusMode.Epg) {
                                             onChannelFocused(ch)
@@ -720,6 +727,7 @@ private fun ProgramsRow(
     epgMode: Boolean,
     rowHeight: Dp,
     onClick: (IptvProgram?) -> Unit,
+    onLongPress: ((IptvProgram) -> Unit)? = null,
     onFocused: () -> Unit,
     onMoveVertically: (rowIdx: Int, anchorStartMin: Int) -> Boolean,
     onMoveLeftFromStart: () -> Boolean,
@@ -798,6 +806,11 @@ private fun ProgramsRow(
                     // program and skips the info popup entirely for live/future cells (Joe,
                     // 2026-08-14: "I goto the program I press and it goes back").
                     onClick = { onClick(placement.program) },
+                    onLongPress = if (onLongPress != null && !placement.isPlaceholder) {
+                        { onLongPress(placement.program) }
+                    } else {
+                        null
+                    },
                     onFocused = onFocused,
                     onMoveLeft = {
                         if (focusableIndex > 0) {

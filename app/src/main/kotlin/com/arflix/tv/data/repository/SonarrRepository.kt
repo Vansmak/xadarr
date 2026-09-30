@@ -75,6 +75,7 @@ data class ShowGuideEntry(
     val lastPlayed: ShowGuideEpisodeRef?,
     val fanart: String? = null,   // 16:9 backdrop for the guide's preview box
     val overview: String = "",
+    val rule: String? = null,     // assigned Episeerr rule key, for the guide's Change Rule
 )
 
 data class SonarrSeriesSummary(
@@ -319,6 +320,7 @@ class SonarrRepository @Inject constructor(
                             lastPlayed = episodeRef(s.optJSONObject("lastPlayed")),
                             fanart = s.optString("fanart").takeIf { it.isNotBlank() },
                             overview = s.optString("overview"),
+                            rule = s.optString("rule").takeIf { it.isNotBlank() && it != "null" },
                         )
                     )
                 }
