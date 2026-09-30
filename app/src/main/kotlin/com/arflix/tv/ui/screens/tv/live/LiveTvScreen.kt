@@ -1352,7 +1352,10 @@ fun LiveTvScreen(
                                 ?: filteredChannels.firstOrNull()?.id
                             focusChannelList(target)
                         },
-                        onMoveUpFromSearch = { isNavRailOpen.value = true },
+                        // Up at the top of the sidebar is a dead end on purpose: it used to open the
+                        // nav menu, so a stray Up (or two) from Search pulled it open (Joe,
+                        // 2026-09-30). Left is the one way in.
+                        onMoveUpFromSearch = {},
                         onOpenNavRail = { isNavRailOpen.value = true },
                         focusSearchSignal = focusSearchCategorySignal,
                         focusFirstCategorySignal = focusCategorySignal,
