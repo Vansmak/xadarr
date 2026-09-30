@@ -43,6 +43,38 @@ data class SonarrCalendarEntry(
     val poster: String?,     // full remote URL, ready to use as-is
 )
 
+// One episode reference used by ShowGuideEntry's now/next/lastPlayed slots — deliberately
+// carries no downloaded/airDate info itself; that lives on the slot that needs it (next).
+data class ShowGuideEpisodeRef(
+    val season: Int,
+    val episode: Int,
+    val title: String,
+)
+
+data class ShowGuideNextEpisode(
+    val season: Int,
+    val episode: Int,
+    val title: String,
+    val downloaded: Boolean,
+    val airDate: String,   // ISO 8601, only meaningful when downloaded == false
+)
+
+// One row for Xadarr's synthetic "Shows" live-guide channel (Episeerr's
+// /api/sonarr/guide-schedule, computed server-side across every monitored series in one
+// call since Sonarr has no bulk per-episode endpoint). Exactly one of `now`/`lastPlayed` is
+// non-null for a well-formed entry: `now` when there's a real unwatched-downloaded episode
+// ready, `lastPlayed` (most recently watched) when the show is fully caught up -- caught-up
+// shows stay in the list rather than disappearing (Joe, 2026-09-29: "I'd like to see all
+// shows if just to know") and sort to the bottom of the row.
+data class ShowGuideEntry(
+    val seriesId: Int,
+    val tvdbId: Int?,
+    val title: String,
+    val now: ShowGuideEpisodeRef?,
+    val next: ShowGuideNextEpisode?,
+    val lastPlayed: ShowGuideEpisodeRef?,
+)
+
 data class SonarrSeriesSummary(
     val seriesId: Int,
     val title: String,
@@ -232,6 +264,59 @@ class SonarrRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Log.d(tag, "getCalendar failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // Single show, computed fresh server-side (bypasses the guide's cache) — Details uses this
+    // so its Continue target is the exact same answer the guide shows. Null = Episeerr has no
+    // entry (unreachable, or not a monitored Sonarr series).
+    suspend fun getShowGuideEntry(tvdbId: Int): ShowGuideEntry? =
+        getShowsGuideSchedule(tvdbId).firstOrNull { it.tvdbId == tvdbId }
+
+    suspend fun getShowsGuideSchedule(onlyTvdbId: Int? = null): List<ShowGuideEntry> = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext emptyList() }
+        try {
+            val query = onlyTvdbId?.let { "?tvdbId=$it" }.orEmpty()
+            val req = Request.Builder().url("$base/api/sonarr/guide-schedule$query").get().build()
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext emptyList()
+                resp.body?.string() ?: "{}"
+            }
+            val arr = JSONObject(body).optJSONArray("shows") ?: return@withContext emptyList()
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val s = arr.optJSONObject(i) ?: continue
+                    fun episodeRef(obj: JSONObject?) = obj?.let {
+                        ShowGuideEpisodeRef(
+                            season = it.optInt("season"),
+                            episode = it.optInt("episode"),
+                            title = it.optString("title"),
+                        )
+                    }
+                    val nextObj = s.optJSONObject("next")
+                    add(
+                        ShowGuideEntry(
+                            seriesId = s.optInt("seriesId"),
+                            tvdbId = s.optInt("tvdbId", -1).takeIf { it > 0 },
+                            title = s.optString("title"),
+                            now = episodeRef(s.optJSONObject("now")),
+                            next = nextObj?.let {
+                                ShowGuideNextEpisode(
+                                    season = it.optInt("season"),
+                                    episode = it.optInt("episode"),
+                                    title = it.optString("title"),
+                                    downloaded = it.optBoolean("downloaded", false),
+                                    airDate = it.optString("airDate"),
+                                )
+                            },
+                            lastPlayed = episodeRef(s.optJSONObject("lastPlayed")),
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "getShowsGuideSchedule failed: ${e.message}")
             emptyList()
         }
     }

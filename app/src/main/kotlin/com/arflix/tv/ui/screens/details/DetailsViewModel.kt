@@ -1511,6 +1511,16 @@ class DetailsViewModel @Inject constructor(
     // watched episodes are excluded, "continue" should mean chronologically next, not newest.
     private suspend fun resolveAvailablePlayTarget(tmdbId: Int, watchedKeys: Set<String> = emptySet()): PlayTarget? {
         val tvdbId = resolveExternalIds(MediaType.TV, tmdbId).tvdbId ?: return null
+        // Same answer the live guide's Shows channel shows (Episeerr's guide-schedule: first
+        // downloaded episode after the latest-watched one, across Plex + Xadarr + Tautulli
+        // signals). The two used to be separate heuristics and disagreed — Ted Lasso,
+        // 2026-09-30. A caught-up show (now == null) falls through to the fallbacks at the
+        // call sites; the local computation below only runs when Episeerr can't answer.
+        val shared = runCatching { sonarrRepository.getShowGuideEntry(tvdbId) }.getOrNull()
+        if (shared != null) {
+            val now = shared.now ?: return null
+            return PlayTarget(season = now.season, episode = now.episode, label = "Continue S${now.season}E${now.episode}")
+        }
         return runCatching {
             val tvDetails = tmdbApi.getTvDetails(tmdbId, Constants.TMDB_API_KEY)
             val watchedPrefix = "show_tmdb:$tmdbId:"
