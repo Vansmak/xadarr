@@ -368,7 +368,14 @@ fun LiveTvScreen(
                 groupOrder = state.snapshot.groupOrder,
             )
         }
-        enrichedState.value = current.copy(tree = tree)
+        // Compare-and-set: the full enrichment pass above can land while this was computing from
+        // the quick favorites-only first pass. Writing `current.copy(...)` unconditionally then
+        // put that partial channel set back over the full one, and nothing re-ran afterwards --
+        // the sidebar stuck with no Shows/Movies/Hidden/OTA (Joe, 2026-09-30, Shield). More
+        // likely now that Shows and Movies arriving separately each re-run enrichment.
+        if (enrichedState.value === current) {
+            enrichedState.value = current.copy(tree = tree)
+        }
     }
     LaunchedEffect(hiddenGroupSet, selectedCategoryId, enrichedState.value.tree) {
         // Was checking the string "favorites", which is not a real id anywhere in this file (the
