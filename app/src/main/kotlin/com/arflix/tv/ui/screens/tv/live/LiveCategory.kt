@@ -342,6 +342,23 @@ fun playlistGroupCategoryId(group: String): String {
     return "grp:${normalized.hashCode().toUInt().toString(16)}"
 }
 
+// Display-only: a provider's raw M3U group-title can collide with the app's own reserved "top"
+// category names (HDHR literally tags its OTA locals group-title="Favorites"), which then shows
+// up as a second, unstarred sidebar entry with the identical label to the real Favorites row --
+// confirmed confusing in practice (Joe, 2026-09-27: "that is awkward"). Renamed for display only;
+// playlistGroupName (used by hide/remove and the Dispatcharr blacklist file) stays the raw name.
+// "Favorites" -> "OTA" specifically (not a generic "(playlist)" suffix) because on Joe's own setup
+// this collision only ever comes from the HDHR OTA playlist -- Joe, 2026-09-27: "why can't you have
+// the name to just OTA?".
+private fun disambiguatedGroupLabel(label: String): String =
+    if (label.equals("Favorites", ignoreCase = true)) {
+        "OTA"
+    } else if (label.equals("Recent", ignoreCase = true)) {
+        "$label (playlist)"
+    } else {
+        label
+    }
+
 /**
  * Build the category tree from a list of enriched channels. Counts are
  * computed up front so the sidebar can render without filtering again.
@@ -489,21 +506,28 @@ fun buildCategoryTree(
     val adultCategories = listOf(
         LiveCategory("adult", "Adult", adultCount, CategoryIcon.Lock),
     ).filter { it.count > 0 }
+    // "Shows" (and, later, "Movies") sit with Favorites/Recent in the top tier rather than
+    // buried in the long PLAYLIST group list -- Joe, 2026-09-29: "I'd rather the group shows and
+    // movies be in the fav and recents sections so it kinda separate". Same category object/id
+    // (still the ordinary grp:<hash> id from playlistGroupCategoryId) as it would have gotten in
+    // PLAYLIST -- only which list it renders in changes, so bestCategoryIdForChannel/
+    // categoryMatcher need no special-casing at all.
+    val (showsTopCategories, otherPlaylistGroupCategories) = orderPlaylistGroups(playlistGroupCounts, groupOrder)
+        .map { (id, value) -> LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first) }
+        .partition { isLibraryChannelGroup(it.playlistGroupName) }
     val top = listOf(
         LiveCategory("fav", "Favorites", favoritesCount, CategoryIcon.Favorite),
         LiveCategory("recent", "Recent", recentCount, CategoryIcon.Recent),
-    )
-    val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
-    }
+    ) + showsTopCategories
+    val playlistGroups = otherPlaylistGroupCategories
     val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
     val newGroupsList = newPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
     }
     val removedGroupsList = removedPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
     }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())
@@ -659,16 +683,16 @@ fun buildCategoryTree(
         LiveCategory("recent", "Recent", recents.count { it in channelIds }, CategoryIcon.Recent),
     )
     val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder).map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
     val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
     val newGroupsList = newPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first, isNew = true)
     }
     val removedGroupsList = removedPlaylistGroupCounts.map { (id, value) ->
-        LiveCategory(id, value.first, value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
+        LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first, isRemoved = true)
     }
     val global = LiveSection("playlist", "PLAYLIST", playlistGroups)
     val countries = LiveSection("matched", "MATCHED", emptyList())

@@ -72,7 +72,7 @@ class NavSectionRepository @Inject constructor(
     fun defaultSections(): List<NavSectionConfig> {
         val customs = defaultCustomEntries(startOrder = 1)
         return listOf(
-            NavSectionConfig(kind = NavSectionKind.TV, label = "Guide", order = 0),
+            NavSectionConfig(kind = NavSectionKind.TV, label = "Now Playing", order = 0),
             customs[0],
             customs[1],
             customs[2],

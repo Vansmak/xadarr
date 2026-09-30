@@ -79,6 +79,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.arflix.tv.data.model.GroupState
 import com.arflix.tv.data.model.IptvChannel
+import com.arflix.tv.data.model.IptvNowNext
 import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.data.model.Profile
@@ -173,6 +174,12 @@ fun LiveTvScreen(
     onNavigateToMovies: () -> Unit = {},
     onNavigateToShows: () -> Unit = {},
     onNavigateToDetails: (MediaType, Int) -> Unit = { _, _ -> },
+    // Selecting a specific episode cell in a synthetic Shows-channel row plays it directly, the
+    // same path DetailsScreen's own episode click uses -- see playShowEpisode below. Signature
+    // matches DetailsScreen.kt's onNavigateToPlayer exactly (mediaType, tmdbId, season, episode,
+    // imdbId, streamUrl, preferredAddonId, preferredSourceName, startPositionMs, isDeliberateSourcePick).
+    onNavigateToPlayer: (MediaType, Int, Int?, Int?, String?, String?, String?, String?, Long?, Boolean) -> Unit =
+        { _, _, _, _, _, _, _, _, _, _ -> },
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
 ) {
@@ -198,7 +205,14 @@ fun LiveTvScreen(
             guideClockMillis = System.currentTimeMillis()
         }
     }
-    var selectedCategoryId by rememberSaveable { mutableStateOf(if (!isTouchDevice) "fav" else "all") }
+    // Touch used to default to "all" here, which is defined as "everything except adult" and was
+    // never built to respect hiddenGroups -- so a device landing on it looked like hidden-group
+    // curation had no effect, even though the category pill row itself correctly excludes hidden
+    // groups. Matching the D-pad default (Joe, 2026-09-27: "ok but showing ALL groups", after
+    // confirming server-side hiddenGroups was correctly synced) is the smaller, safer fix over
+    // teaching "all" itself to filter, since "all" is relied on elsewhere as a true unfiltered
+    // catch-all.
+    var selectedCategoryId by rememberSaveable { mutableStateOf("fav") }
     var guideGroupsVisible by rememberSaveable { mutableStateOf(false) }
     var miniPlayerHeightPx by remember { mutableIntStateOf(0) }
     val favoriteSortMode by viewModel.favoriteSortMode.collectAsStateWithLifecycle()
@@ -214,6 +228,10 @@ fun LiveTvScreen(
     // the Dispatcharr M3U, merged in here purely for guide rendering/playback so they behave
     // like any other channel without touching IptvRepository's M3U cache pipeline.
     val pinnedProviderChannels by viewModel.pinnedProviderChannels.collectAsStateWithLifecycle()
+    // Synthetic "Shows" guide channel — one row per Sonarr-monitored show, spliced in the exact
+    // same way pinnedProviderChannels are, below. See project_nostalgex_style_media_channel memory.
+    val showsGuideSchedule by viewModel.showsGuideSchedule.collectAsStateWithLifecycle()
+    val movieGuide by viewModel.movieGuide.collectAsStateWithLifecycle()
     val dispatcharrCatalogAvailable by viewModel.dispatcharrCatalogAvailable.collectAsStateWithLifecycle()
     val remoteTarget by viewModel.remoteTarget.collectAsStateWithLifecycle()
     // Collected at screen level, not just inside the panel: the Remote pill's highlight depends on
@@ -257,10 +275,14 @@ fun LiveTvScreen(
     val channelsIdentitySignature = "${state.snapshot.channels.size}:" +
         "${state.snapshot.channels.firstOrNull()?.id}:${state.snapshot.channels.lastOrNull()?.id}:" +
         "pinned=${pinnedProviderChannels.size}:${pinnedProviderChannels.joinToString(",") { it.id }}:" +
+        "shows=${showsGuideSchedule.size}:" +
+        "movies=${movieGuide.watchNow.isNotEmpty()}/${movieGuide.premiering.isNotEmpty()}:" +
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
         val snapshot = state.snapshot.channels +
             pinnedProviderChannels.map { it.toIptvChannel(PinnedChannelsGroup) } +
+            showsGuideSchedule.map { it.toIptvChannel() } +
+            movieGuide.toIptvChannels() +
             listOfNotNull(ephemeralSearchPick)
         if (snapshot.isEmpty()) {
             enrichedState.value = EnrichedChannels.Empty
@@ -340,7 +362,16 @@ fun LiveTvScreen(
         enrichedState.value = current.copy(tree = tree)
     }
     LaunchedEffect(hiddenGroupSet, selectedCategoryId, enrichedState.value.tree) {
-        val builtIn = selectedCategoryId == "all" || selectedCategoryId == "favorites" || selectedCategoryId == "recent"
+        // Was checking the string "favorites", which is not a real id anywhere in this file (the
+        // actual id is "fav" -- see LiveCategory("fav", "Favorites", ...) in LiveCategory.kt). On
+        // the very first composition, before any channels have loaded, enrichedState.value.tree is
+        // still its empty default, so tree.byId("fav") returns null and this immediately reset the
+        // new touch default of "fav" back to "all" before real data ever arrived -- permanently for
+        // that session, since nothing here restores it once the tree populates. "all" was never
+        // affected because it was (accidentally) the one default this typo didn't break. Joe,
+        // 2026-09-27, after a full data-clear + reinstall still showed unfiltered "all": "it's doing
+        // same".
+        val builtIn = selectedCategoryId == "all" || selectedCategoryId == "fav" || selectedCategoryId == "recent"
         if (!builtIn && enrichedState.value.tree.byId(selectedCategoryId) == null) {
             selectedCategoryId = "all"
         }
@@ -416,8 +447,22 @@ fun LiveTvScreen(
         playingChannelId?.let { enrichedState.value.index.byId[it] }
             ?: filteredChannels.firstOrNull { it.id == playingChannelId }
     }
-    val currentNowNext = remember(playingChannelId, playingCatchupProgram, state.snapshot.nowNext) {
-        val live = playingChannelId?.let { state.snapshot.nowNext[it] }
+    // Real nowNext plus synthetic Shows-channel entries, merged for every render site that
+    // reads the guide's now/next data (both EpgGrid layouts, SearchOverlay) -- mirrors how
+    // pinnedProviderChannels/ephemeralSearchPick are merged into the channel list above, just
+    // for the nowNext map instead, since IptvSnapshot keeps the two decoupled (channels vs.
+    // nowNext keyed separately by id).
+    val effectiveSnapshotNowNext = remember(state.snapshot.nowNext, showsGuideSchedule, movieGuide, guideClockMillis) {
+        if (showsGuideSchedule.isEmpty() && movieGuide.watchNow.isEmpty() && movieGuide.premiering.isEmpty()) {
+            state.snapshot.nowNext
+        } else {
+            state.snapshot.nowNext + showsGuideSchedule.associate {
+                "$ShowsChannelIdPrefix${it.seriesId}" to it.toIptvNowNext(guideClockMillis)
+            } + movieGuide.toIptvNowNext(guideClockMillis)
+        }
+    }
+    val currentNowNext = remember(playingChannelId, playingCatchupProgram, effectiveSnapshotNowNext) {
+        val live = playingChannelId?.let { effectiveSnapshotNowNext[it] }
         val catchup = playingCatchupProgram
         if (catchup != null) {
             com.arflix.tv.data.model.IptvNowNext(
@@ -662,6 +707,49 @@ fun LiveTvScreen(
         return true
     }
 
+    // Selecting a specific episode cell in a Shows-channel row plays it directly -- the same
+    // path DetailsScreen's own episode click uses (onNavigateToPlayer -> Screen.Player), not a
+    // detour through the Details screen. Joe, 2026-09-29: "moving right into the episodes is
+    // where if I select it plays just like if I was in details and select an ep." Season/episode
+    // is parsed back out of the program's title text (see episodeProgramTitle/ShowEpisodeTitleRegex
+    // below) since IptvProgram carries no structured field for it by design (see plan).
+    fun playShowEpisode(channel: EnrichedChannel, program: IptvProgram) {
+        val seriesId = channel.id.removePrefix(ShowsChannelIdPrefix).toIntOrNull() ?: return
+        val entry = showsGuideSchedule.find { it.seriesId == seriesId } ?: return
+        val tvdbId = entry.tvdbId ?: return
+        val (season, episode) = parseShowEpisodeTitle(program.title) ?: return
+        // Only the actually-downloaded "now" episode is playable -- the NEXT block is either a
+        // real downloaded episode (safe to also allow, but not yet confirmed fresh at click time)
+        // or a bare future air date with no file at all. Guarding to exactly entry.now here keeps
+        // "select plays" honest: it never tries to play something that isn't really there.
+        if (entry.now?.season != season || entry.now.episode != episode) return
+        fsScope.launch {
+            viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
+                onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
+            }
+        }
+    }
+
+    // Movies channels. Watch Now is a real linear schedule: selecting the movie that's on right
+    // now joins it where the schedule is (like tuning into a channel mid-movie); selecting a later
+    // one starts it from the top. Premiering items aren't downloaded yet, so they open Details.
+    // Programs are matched back to their movie by start time, which is unique per channel.
+    fun selectMovieProgram(channel: EnrichedChannel, program: IptvProgram) {
+        when (channel.id) {
+            MoviesWatchNowChannelId -> {
+                val slot = movieGuide.watchNow.firstOrNull { it.startMs == program.startUtcMillis } ?: return
+                val now = System.currentTimeMillis()
+                val joinAt = if (now in slot.startMs until slot.endMs) now - slot.startMs else null
+                onNavigateToPlayer(MediaType.MOVIE, slot.tmdbId, null, null, null, null, null, null, joinAt, false)
+            }
+            MoviesPremieringChannelId -> {
+                val idx = premiereIndexForStart(program.startUtcMillis, guideClockMillis)
+                val premiere = movieGuide.premiering.getOrNull(idx) ?: return
+                onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
+            }
+        }
+    }
+
     fun selectChannel(channel: EnrichedChannel) {
         if (remoteTuneOrHandled(channel)) return
         // Two-step, back to the pre-TiviMate-redesign behavior at Joe's request: selecting a
@@ -671,6 +759,18 @@ fun LiveTvScreen(
         // that's the explicit "I want to actually watch this" signal.
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
+        // Shows/Movies channels have no real stream -- selecting the CHANNEL/row itself never
+        // plays or navigates anywhere, only ever shows hero/info, exactly like any other channel
+        // you're merely browsing to. Joe, 2026-09-29: "selecting a channel which in this case is
+        // a show or movie will not play or select the episode it will show the hero and Info."
+        // Real playback only happens by moving right and selecting a specific episode cell --
+        // see onProgramSelect below, not here.
+        if (isLibraryChannelGroup(channel.source.group)) {
+            previousChannelId = playingChannelId
+            playingChannelId = channel.id
+            playingCatchupProgram = null
+            return
+        }
         if (channel.id == playingChannelId) {
             isFullScreen = true
             hudPokeSignal++
@@ -752,6 +852,9 @@ fun LiveTvScreen(
                 Lifecycle.Event.ON_RESUME -> {
                     guideClockMillis = System.currentTimeMillis()
                     epgScrollToNowSignal++
+                    // Coming back from the player: the Shows channel's NOW slot has usually just
+                    // moved on (Episeerr drops its cache when an episode crosses the threshold).
+                    viewModel.refreshShowsGuide()
                     // Losing and regaining window focus (e.g. handing off to Plex/TiviMate and
                     // coming back) drops real Compose focus without restoring it. The highlighted
                     // channel row is just styling (the isActive prop), not real focus, so D-pad
@@ -1040,7 +1143,7 @@ fun LiveTvScreen(
                         focusSuspended = searchOpen,
                         channels = filteredChannels,
                         clockTickMillis = guideClockMillis,
-                        nowNext = state.snapshot.nowNext,
+                        nowNext = effectiveSnapshotNowNext,
                         selectedChannelId = focusedChannelId ?: playingChannelId,
                         focusSelectedChannelSignal = focusSelectedChannelSignal,
                         focusEpgSignal = focusEpgSignal,
@@ -1057,7 +1160,11 @@ fun LiveTvScreen(
                             selectChannel(channel)
                         },
                         onProgramSelect = { channel, program ->
-                            if (program != null) {
+                            if (channel.source.group == ShowsChannelGroup) {
+                                if (program != null) playShowEpisode(channel, program)
+                            } else if (channel.source.group == MoviesChannelGroup) {
+                                if (program != null) selectMovieProgram(channel, program)
+                            } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
                                 playProgramInMini(channel, null)
@@ -1108,7 +1215,7 @@ fun LiveTvScreen(
                         focusSuspended = searchOpen,
                             channels = filteredChannels,
                             clockTickMillis = guideClockMillis,
-                            nowNext = state.snapshot.nowNext,
+                            nowNext = effectiveSnapshotNowNext,
                             selectedChannelId = focusedChannelId ?: playingChannelId,
                             focusSelectedChannelSignal = focusSelectedChannelSignal,
                             focusEpgSignal = focusEpgSignal,
@@ -1122,7 +1229,11 @@ fun LiveTvScreen(
                             gridFocused = focusZone == LiveTvFocusZone.CHANNEL_LIST || focusZone == LiveTvFocusZone.EPG,
                             onChannelSelect = { channel, _ -> selectChannel(channel) },
                             onProgramSelect = { channel, program ->
-                            if (program != null) {
+                            if (channel.source.group == ShowsChannelGroup) {
+                                if (program != null) playShowEpisode(channel, program)
+                            } else if (channel.source.group == MoviesChannelGroup) {
+                                if (program != null) selectMovieProgram(channel, program)
+                            } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
                                 playProgramInMini(channel, null)
@@ -1514,7 +1625,7 @@ fun LiveTvScreen(
                     val removed = state.snapshot.removedGroups.toSet()
                     enrichedState.value.all.filterNot { it.source.group in removed }
                 },
-                nowNext = state.snapshot.nowNext,
+                nowNext = effectiveSnapshotNowNext,
                 offLineupGroups = remember(state.snapshot.hiddenGroups, state.snapshot.newGroups) {
                     (state.snapshot.hiddenGroups + state.snapshot.newGroups).toSet()
                 },
@@ -1629,6 +1740,152 @@ fun RawProviderStream.toIptvChannel(groupOverride: String? = null): IptvChannel 
     logo = logo,
     epgId = tvgId,
 )
+
+/**
+ * Synthetic "Shows" guide channel — see project_nostalgex_style_media_channel_2026-09-29 memory
+ * for the full design. Xadarr's own library (Sonarr-backed) presented as one row per show in the
+ * live guide, same shape as [RawProviderStream.toIptvChannel] above: a plain [IptvChannel] +
+ * [IptvNowNext] pair spliced into the real guide pipeline, not a new structural path.
+ *
+ * `streamUrl` is deliberately empty — this channel is never handed to ExoPlayer directly.
+ * Season/episode is encoded in each [IptvProgram]'s title text (e.g. "S6E2 · Slow Horses"), the
+ * same way [com.arflix.tv.ui.screens.tv.live.synthesizeNowNextFromChannelName] already parses
+ * structured info back out of title text for PPV channels — not extending the shared model for
+ * data only this one synthetic source needs. No poster/logo field: confirmed against Joe's own
+ * screenshots 2026-09-29 that this channel type renders as plain EPG text cells, identical to a
+ * real channel, never poster art.
+ */
+const val ShowsChannelGroup = "Shows"
+private const val ShowsChannelIdPrefix = "show:"
+
+/** Library-backed synthetic guide groups (no real stream behind the channel row itself). */
+const val MoviesChannelGroup = "Movies"
+fun isLibraryChannelGroup(group: String?): Boolean = group == ShowsChannelGroup || group == MoviesChannelGroup
+
+private const val MoviesWatchNowChannelId = "movies:watchnow"
+private const val MoviesPremieringChannelId = "movies:premiering"
+private const val PremiereSlotMs = 60 * 60 * 1000L
+
+fun com.arflix.tv.data.repository.MovieGuide.toIptvChannels(): List<IptvChannel> = buildList {
+    if (watchNow.isNotEmpty()) add(IptvChannel(id = MoviesWatchNowChannelId, name = "Watch Now", streamUrl = "", group = MoviesChannelGroup))
+    if (premiering.isNotEmpty()) add(IptvChannel(id = MoviesPremieringChannelId, name = "Premiering", streamUrl = "", group = MoviesChannelGroup))
+}
+
+private fun movieTitle(title: String, year: Int?) = if (year != null) "$title ($year)" else title
+
+// Premiering items have only a date, not an air time, so like the Shows NEXT slot they get
+// placeholder hour-long blocks: the first spans "now", each next one follows it.
+private fun premiereSlotStart(index: Int, clockMillis: Long): Long = clockMillis - PremiereSlotMs + index * PremiereSlotMs
+private fun premiereIndexForStart(startMs: Long, clockMillis: Long): Int =
+    ((startMs - (clockMillis - PremiereSlotMs)) / PremiereSlotMs).toInt()
+
+fun com.arflix.tv.data.repository.MovieGuide.toIptvNowNext(clockMillis: Long): Map<String, IptvNowNext> = buildMap {
+    if (watchNow.isNotEmpty()) {
+        val programs = watchNow.map {
+            IptvProgram(
+                title = movieTitle(it.title, it.year),
+                description = it.overview.ifBlank { null },
+                startUtcMillis = it.startMs,
+                endUtcMillis = it.endMs,
+            )
+        }
+        val nowIdx = programs.indexOfFirst { clockMillis in it.startUtcMillis until it.endUtcMillis }
+        val future = programs.filter { it.startUtcMillis >= clockMillis }
+        put(MoviesWatchNowChannelId, IptvNowNext(
+            now = programs.getOrNull(nowIdx),
+            next = future.getOrNull(0),
+            later = future.getOrNull(1),
+            upcoming = future.drop(2),
+            recent = programs.filter { it.endUtcMillis <= clockMillis },
+        ))
+    }
+    if (premiering.isNotEmpty()) {
+        val programs = premiering.mapIndexed { i, p ->
+            val date = runCatching {
+                java.time.LocalDate.parse(p.releaseDate).format(java.time.format.DateTimeFormatter.ofPattern("M/d"))
+            }.getOrNull()
+            val start = premiereSlotStart(i, clockMillis)
+            IptvProgram(
+                title = listOfNotNull(movieTitle(p.title, p.year), date).joinToString(" · "),
+                description = p.overview.ifBlank { null },
+                startUtcMillis = start,
+                endUtcMillis = start + PremiereSlotMs,
+            )
+        }
+        put(MoviesPremieringChannelId, IptvNowNext(
+            now = programs.first(),
+            next = programs.getOrNull(1),
+            later = programs.getOrNull(2),
+            upcoming = programs.drop(3),
+        ))
+    }
+}
+
+fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvChannel(): IptvChannel = IptvChannel(
+    id = "$ShowsChannelIdPrefix$seriesId",
+    name = title,
+    streamUrl = "",
+    group = ShowsChannelGroup,
+)
+
+private fun episodeProgramTitle(showTitle: String, season: Int, episode: Int, suffix: String? = null): String {
+    val base = "S${season}E$episode"
+    return if (suffix != null) "$base · $suffix" else "$base · $showTitle"
+}
+
+private val ShowEpisodeTitleRegex = Regex("""^S(\d+)E(\d+)""")
+
+/** Inverse of [episodeProgramTitle]'s "S{season}E{episode} · ..." prefix. */
+private fun parseShowEpisodeTitle(title: String): Pair<Int, Int>? =
+    ShowEpisodeTitleRegex.find(title)?.let { m ->
+        val season = m.groupValues[1].toIntOrNull() ?: return null
+        val episode = m.groupValues[2].toIntOrNull() ?: return null
+        season to episode
+    }
+
+/**
+ * One synthetic [IptvNowNext] per show. `now` is the show's own title (real, ready episode) or
+ * its most recently watched one (caught up — see the `lastPlayed` fallback in
+ * ShowGuideEntry/xadarr.py's guide-schedule endpoint). `next` mirrors the real EPG's date-text
+ * convention ("NEXT 18:00 KTLA 5 News at 6") for the not-yet-downloaded case, just with a date
+ * instead of a time. Both start/end are placeholder windows — [EpgGrid]'s existing gap-filler
+ * (see plan) covers everything between real entries, this only needs to anchor them in time.
+ */
+fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long): IptvNowNext {
+    val hour = 60 * 60 * 1000L
+    // Real per-episode title (Sonarr's own episode name, e.g. "Fishes"), not the literal word
+    // "Last watched" -- Joe, 2026-09-29 screenshot: "i also see last watched on some nit the ep
+    // title". Falls back to the show's own title only if Sonarr has no episode title on file.
+    val nowProgram = now?.let {
+        IptvProgram(
+            title = episodeProgramTitle(title, it.season, it.episode, suffix = it.title.ifBlank { null }),
+            startUtcMillis = clockMillis - hour,
+            endUtcMillis = clockMillis + hour,
+        )
+    } ?: lastPlayed?.let {
+        IptvProgram(
+            title = episodeProgramTitle(title, it.season, it.episode, suffix = it.title.ifBlank { null }),
+            startUtcMillis = clockMillis - hour,
+            endUtcMillis = clockMillis + hour,
+        )
+    }
+    val nextProgram = next?.let { n ->
+        val suffix = if (n.downloaded) {
+            null
+        } else {
+            runCatching { java.time.Instant.parse(n.airDate) }
+                .getOrNull()
+                ?.let { java.time.format.DateTimeFormatter.ofPattern("M/d").withZone(java.time.ZoneId.systemDefault()).format(it) }
+                ?: n.airDate
+        }
+        IptvProgram(
+            title = episodeProgramTitle(title, n.season, n.episode, suffix = suffix),
+            startUtcMillis = clockMillis + hour,
+            endUtcMillis = clockMillis + 2 * hour,
+        )
+    }
+    return IptvNowNext(now = nowProgram, next = nextProgram)
+}
 
 data class EnrichedChannels(
     val all: List<EnrichedChannel>,

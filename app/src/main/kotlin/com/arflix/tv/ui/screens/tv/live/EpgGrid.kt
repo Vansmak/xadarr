@@ -64,21 +64,6 @@ import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 
 private const val EpgWindowMinutes = 10 * 60
 
-// Targeted EPG override for the 6 LA OTA locals when HDHR is configured as a playlist alongside
-// Sanctum with no Dispatcharr in between (Joe, 2026-09-27). HDHomeRun devices carry no guide data
-// of their own; Sanctum's own version of the same network already has real EPG loaded under its
-// own channel id. Keyed by HDHR's lineup.json GuideName (case-insensitive), pointing at Sanctum's
-// Xtream stream id for the matching network -- verified directly against both sources' live data.
-// Not a general per-channel EPG-mapping feature (Xadarr has none, confirmed) -- just these 6.
-private val hdhrLaLocalEpgOverride: Map<String, String> = mapOf(
-    "kcbs-hd" to "list_1:xtream:8482",   // CBS KCBS
-    "nbc4-la" to "list_1:xtream:11614",  // NBC KNBC
-    "ktladt" to "list_1:xtream:12450",   // CW KTLA
-    "kabc dt" to "list_1:xtream:8273",   // ABC KABC
-    "kcal-dt" to "list_1:xtream:8483",   // CBS KCAL
-    "kttv-dt" to "list_1:xtream:11404",  // FOX KTTV
-)
-
 enum class EpgGridFocusMode {
     ChannelList,
     Epg,
@@ -163,27 +148,12 @@ fun EpgGrid(
                 val hasRealData = existing != null &&
                     (existing.now != null || existing.next != null || existing.upcoming.isNotEmpty())
                 if (!hasRealData) {
-                    // HDHR (added as a second playlist alongside Sanctum, no Dispatcharr in the
-                    // pipeline anymore) supplies zero EPG of its own for OTA locals -- an
-                    // HDHomeRun device just streams the broadcast, it has no guide data mechanism
-                    // at all. Sanctum's own XMLTV IS already loaded and merged into `nowNext`
-                    // (multi-playlist EPG sources are all fetched and combined), just keyed under
-                    // Sanctum's own channel id for the same network, not HDHR's. Borrow it by name
-                    // for these 6 known LA callsigns before falling back to synthesis -- real
-                    // guide data beats a name-parsed guess. Joe, 2026-09-27: "that [is] one area tm
-                    // let[']s you override" -- Xadarr has no general per-channel EPG-mapping UI
-                    // (confirmed, real gap), this is a targeted fix for the specific 6 channels
-                    // asked for, not that general feature.
-                    val overrideId = hdhrLaLocalEpgOverride[ch.name.trim().lowercase()]
-                    val overrideData = overrideId?.let { nowNext[it] }
-                    val overrideHasData = overrideData != null &&
-                        (overrideData.now != null || overrideData.next != null || overrideData.upcoming.isNotEmpty())
-                    if (overrideHasData) {
-                        augmented[ch.id] = overrideData!!
-                    } else {
-                        synthesizeNowNextFromChannelName(ch.name, clockTickMillis)?.let { synth ->
-                            augmented[ch.id] = synth
-                        }
+                    // HDHR's LA locals are now stacked as failover streams on the same
+                    // Dispatcharr channel objects Sanctum's real EPG is already assigned to
+                    // (2026-09-28), so they arrive in `nowNext` with real data like everything
+                    // else -- the client-side name-matching override this used to need is gone.
+                    synthesizeNowNextFromChannelName(ch.name, clockTickMillis)?.let { synth ->
+                        augmented[ch.id] = synth
                     }
                 }
             }
@@ -771,8 +741,12 @@ private fun ProgramsRow(
                 }
             ),
     ) {
-        val placements = remember(programs, windowStartMillis, windowEndMillis, nowMillis) {
-            buildProgramPlacements(programs, windowStartMillis, windowEndMillis, nowMillis)
+        val placements = remember(programs, windowStartMillis, windowEndMillis, nowMillis, channel.source.group) {
+            // "Shows" channel gaps are a genuinely-not-released-yet episode, not a missing EPG
+            // feed -- "No Information" would read as a data problem instead of the intended
+            // "nothing airs here until then" (see plan: project_nostalgex_style_media_channel).
+            val placeholderText = if (isLibraryChannelGroup(channel.source.group)) "Not yet released" else "No Information"
+            buildProgramPlacements(programs, windowStartMillis, windowEndMillis, nowMillis, placeholderText)
         }
         val focusablePlacementIndices = remember(placements, channel.catchupDays, nowMillis, epgMode) {
             if (!epgMode) return@remember emptyList()
@@ -806,7 +780,11 @@ private fun ProgramsRow(
                     program = placement.program,
                     clockTickMillis = clockTickMillis,
                     width = width,
-                    isNow = placement.isNow,
+                    // A gap-filler placeholder spanning "now" isn't a real airing program — a
+                    // "LIVE Not yet released" badge is nonsensical (Joe, 2026-09-29, screenshot:
+                    // "whats with the LIVE nit yet released"). Same latent issue existed for real
+                    // channels' "No Information" gaps too, just less visibly self-contradictory.
+                    isNow = placement.isNow && !placement.isPlaceholder,
                     isPast = placement.isPast,
                     isFocusTarget = placement.isNow,
                     focusable = isFocusable,
@@ -979,7 +957,8 @@ private fun buildProgramPlacements(
     programs: List<IptvProgram>,
     windowStartMillis: Long,
     windowEndMillis: Long,
-    nowMillis: Long
+    nowMillis: Long,
+    placeholderText: String = "No Information",
 ): List<ProgramPlacement> {
     val placements = mutableListOf<ProgramPlacement>()
     var cursor = windowStartMillis
@@ -994,7 +973,7 @@ private fun buildProgramPlacements(
                 while (placeholderStart < gapEnd) {
                     val blockEnd = minOf(placeholderStart + 60 * 60_000L, gapEnd)
                     placements += ProgramPlacement(
-                        program = IptvProgram("No Information", startUtcMillis = placeholderStart, endUtcMillis = blockEnd),
+                        program = IptvProgram(placeholderText, startUtcMillis = placeholderStart, endUtcMillis = blockEnd),
                         startMin = ((placeholderStart - windowStartMillis) / 60_000L).toInt(),
                         durationMin = ((blockEnd - placeholderStart) / 60_000L).toInt().coerceAtLeast(1),
                         isNow = nowMillis in placeholderStart until blockEnd,
@@ -1031,7 +1010,7 @@ private fun buildProgramPlacements(
         while (placeholderStart < windowEndMillis) {
             val blockEnd = minOf(placeholderStart + 60 * 60_000L, windowEndMillis)
             placements += ProgramPlacement(
-                program = IptvProgram("No Information", startUtcMillis = placeholderStart, endUtcMillis = blockEnd),
+                program = IptvProgram(placeholderText, startUtcMillis = placeholderStart, endUtcMillis = blockEnd),
                 startMin = ((placeholderStart - windowStartMillis) / 60_000L).toInt(),
                 durationMin = ((blockEnd - placeholderStart) / 60_000L).toInt().coerceAtLeast(1),
                 isNow = nowMillis in placeholderStart until blockEnd,

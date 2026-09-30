@@ -75,6 +75,8 @@ class TvViewModel @Inject constructor(
     private val remoteVolumeRouter: com.arflix.tv.data.repository.tvremote.RemoteVolumeRouter,
     private val homeAssistantRepository: com.arflix.tv.data.repository.HomeAssistantRepository,
     private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
+    private val sonarrRepository: com.arflix.tv.data.repository.SonarrRepository,
+    private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -213,6 +215,45 @@ class TvViewModel @Inject constructor(
     val pinnedProviderChannels: StateFlow<List<RawProviderStream>> =
         pinnedProviderChannelsRepository.observePinned()
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    // Synthetic "Shows" guide channel data (see project_nostalgex_style_media_channel memory) —
+    // one-shot fetch, not a Flow, since Episeerr caches this server-side already
+    // (_GUIDE_SCHEDULE_TTL_SECONDS in xadarr.py) and re-fetching on every recomposition would
+    // just hit that cache repeatedly for no benefit. Refreshed by calling refreshShowsGuide()
+    // (e.g. alongside a manual playlist refresh), not automatically.
+    private val _showsGuideSchedule =
+        kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>>(emptyList())
+    val showsGuideSchedule: StateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>> =
+        _showsGuideSchedule.asStateFlow()
+
+    // Selecting a synthetic Shows-channel row/program navigates to Details instead of trying to
+    // play a raw stream URL (there isn't one) -- Details already has the real, tested episode
+    // resolution + VOD playback path (resolveAvailablePlayTarget et al.), so this reuses it
+    // rather than duplicating stream-resolution logic inside the live guide. mediaRepository is
+    // private to this ViewModel, hence this thin public wrapper for LiveTvScreen to call.
+    suspend fun resolveShowTmdbRef(tvdbId: Int): Pair<com.arflix.tv.data.model.MediaType, Int>? =
+        runCatching { mediaRepository.resolveTvdbToTmdbRef(tvdbId, com.arflix.tv.data.model.MediaType.TV) }.getOrNull()
+
+    // Synthetic Movies channels ("Watch Now" linear schedule + "Premiering"), refreshed together
+    // with the Shows data.
+    private val _movieGuide =
+        kotlinx.coroutines.flow.MutableStateFlow(com.arflix.tv.data.repository.MovieGuide())
+    val movieGuide: StateFlow<com.arflix.tv.data.repository.MovieGuide> = _movieGuide.asStateFlow()
+
+    fun refreshShowsGuide() {
+        viewModelScope.launch {
+            _showsGuideSchedule.value = runCatching { sonarrRepository.getShowsGuideSchedule() }
+                .getOrDefault(emptyList())
+        }
+        viewModelScope.launch {
+            _movieGuide.value = runCatching { radarrRepository.getMovieGuide() }
+                .getOrDefault(com.arflix.tv.data.repository.MovieGuide())
+        }
+    }
+
+    init {
+        refreshShowsGuide()
+    }
 
     // Observed rather than sampled once at construction: the flag is written while the Settings
     // screen loads addons, so a one-shot read meant installing the Dispatcharr bridge had no

@@ -95,6 +95,8 @@ private fun sectionLabelFor(entry: NavSectionConfig): String? = when {
     else -> null
 }
 
+private val LegacyTvLabels = setOf("Live TV", "Guide")
+
 private fun NavSectionKind.toRailLabel(): String = when (this) {
     // "Find", not "Search", to distinguish it from the search inside the Live TV guide. That one
     // is EPG: channels and what is on them. This one is for movies and shows — whether or not
@@ -102,7 +104,7 @@ private fun NavSectionKind.toRailLabel(): String = when (this) {
     NavSectionKind.SEARCH -> "Find"
     NavSectionKind.HOME -> "Home"
     NavSectionKind.DISCOVER -> "Discover"
-    NavSectionKind.TV -> "Guide"
+    NavSectionKind.TV -> "Now Playing"
     NavSectionKind.CAMERAS -> "Cameras"
     NavSectionKind.SETTINGS -> "Settings"
     NavSectionKind.CUSTOM -> ""
@@ -367,7 +369,11 @@ fun navRailHandleKey(
 
 @Composable
 private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> Unit) {
-    val label = entry.label ?: entry.kind.toRailLabel().ifBlank { entry.customId.orEmpty() }
+    // "Live TV"/"Guide" were the TV section's old default names and are still stored verbatim in
+    // existing profiles' nav config; treat them as unset so the current default ("Now Playing")
+    // shows. A genuinely custom name still wins.
+    val storedLabel = entry.label?.takeUnless { entry.kind == NavSectionKind.TV && it in LegacyTvLabels }
+    val label = storedLabel ?: entry.kind.toRailLabel().ifBlank { entry.customId.orEmpty() }
     Row(
         modifier = Modifier
             .fillMaxWidth()

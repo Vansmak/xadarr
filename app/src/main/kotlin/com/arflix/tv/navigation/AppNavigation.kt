@@ -308,6 +308,22 @@ fun AppNavigation(
                     onNavigateToDetails = { type, id ->
                         navController.navigate(Screen.Details.createRoute(type, id))
                     },
+                    onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs, isDeliberateSourcePick ->
+                        navController.navigate(
+                            Screen.Player.createRoute(
+                                mediaType = type,
+                                mediaId = id,
+                                seasonNumber = season,
+                                episodeNumber = episode,
+                                imdbId = imdbId,
+                                streamUrl = url,
+                                preferredAddonId = preferredAddonId,
+                                preferredSourceName = preferredSourceName,
+                                startPositionMs = startPositionMs,
+                                isDeliberateSourcePick = isDeliberateSourcePick
+                            )
+                        )
+                    },
                     onSwitchProfile = {
                         onSwitchProfile()
                         navController.navigate(Screen.ProfileSelection.route) {

@@ -140,8 +140,11 @@ private fun VideoCard(
             .clip(RoundedCornerShape(LiveDims.VideoRadius))
             .background(LiveColors.PanelDeep),
     ) {
-        // Fallback brand gradient while video is loading or channel is null.
-        if (channel == null) {
+        // Fallback brand gradient while video is loading, channel is null, or (new) the focused
+        // channel is a synthetic "Shows" row -- its streamUrl is deliberately empty (see
+        // ShowGuideEntry.toIptvChannel), so there's no real video to attempt. No poster art here
+        // either, per Joe's screenshots 2026-09-29: this feature has no imagery anywhere.
+        if (channel == null || isLibraryChannelGroup(channel.source.group)) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

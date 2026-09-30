@@ -31,6 +31,31 @@ data class RadarrMovieSummary(
 )
 
 @Singleton
+// Xadarr's two synthetic movie guide channels (Episeerr /api/radarr/guide-schedule).
+// "Watch Now" slots carry real start/end times (a linear back-to-back schedule shared by
+// every device); "Premiering" items only have a release date.
+data class MovieGuideSlot(
+    val tmdbId: Int,
+    val title: String,
+    val year: Int?,
+    val overview: String,
+    val startMs: Long,
+    val endMs: Long,
+)
+
+data class MoviePremiere(
+    val tmdbId: Int,
+    val title: String,
+    val year: Int?,
+    val overview: String,
+    val releaseDate: String,  // yyyy-MM-dd, may be blank
+)
+
+data class MovieGuide(
+    val watchNow: List<MovieGuideSlot> = emptyList(),
+    val premiering: List<MoviePremiere> = emptyList(),
+)
+
 class RadarrRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
@@ -43,6 +68,51 @@ class RadarrRepository @Inject constructor(
     }
 
     suspend fun isConfigured(): Boolean = syncBase().isNotBlank()
+
+    suspend fun getMovieGuide(): MovieGuide = withContext(Dispatchers.IO) {
+        val base = syncBase().ifBlank { return@withContext MovieGuide() }
+        try {
+            val req = Request.Builder().url("$base/api/radarr/guide-schedule").get().build()
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext MovieGuide()
+                resp.body?.string() ?: "{}"
+            }
+            val root = JSONObject(body)
+            fun JSONObject.yearOrNull() = optInt("year", 0).takeIf { it > 0 }
+            val slots = root.optJSONArray("watchNow")
+            val prem = root.optJSONArray("premiering")
+            MovieGuide(
+                watchNow = buildList {
+                    for (i in 0 until (slots?.length() ?: 0)) {
+                        val m = slots!!.optJSONObject(i) ?: continue
+                        add(MovieGuideSlot(
+                            tmdbId = m.optInt("tmdbId"),
+                            title = m.optString("title"),
+                            year = m.yearOrNull(),
+                            overview = m.optString("overview"),
+                            startMs = m.optLong("startMs"),
+                            endMs = m.optLong("endMs"),
+                        ))
+                    }
+                },
+                premiering = buildList {
+                    for (i in 0 until (prem?.length() ?: 0)) {
+                        val m = prem!!.optJSONObject(i) ?: continue
+                        add(MoviePremiere(
+                            tmdbId = m.optInt("tmdbId"),
+                            title = m.optString("title"),
+                            year = m.yearOrNull(),
+                            overview = m.optString("overview"),
+                            releaseDate = m.optString("releaseDate"),
+                        ))
+                    }
+                },
+            )
+        } catch (e: Exception) {
+            Log.d(tag, "getMovieGuide failed: ${e.message}")
+            MovieGuide()
+        }
+    }
 
     suspend fun getAllMovies(): List<RadarrMovieSummary> = withContext(Dispatchers.IO) {
         val base = syncBase().ifBlank { return@withContext emptyList() }
