@@ -1,6 +1,7 @@
 package com.arflix.tv.data.repository
 
 import android.net.Uri
+import android.util.Log
 import com.arflix.tv.data.model.MediaType
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -46,6 +47,31 @@ class ServerSessionRepository @Inject constructor(
         durationMs: Long
     ) = report("stop", serverItemId, mediaType, positionMs, durationMs)
 
+    // Explicit mark-watched on the home server when Xadarr's own watched threshold is crossed.
+    // Plex/Jellyfin only auto-mark from a timeline/stop report past their *own* threshold (~90%),
+    // so with Xadarr's threshold set lower (or credits skipped) the server never flipped the
+    // episode to watched — the "last episode never gets marked" gap.
+    suspend fun markWatched(serverItemId: String) = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val connection = runCatching { homeServerRepository.currentConnection() }.getOrNull()
+            ?: return@withContext
+        if (!connection.isUsable) return@withContext
+        runCatching {
+            when (connection.serverKind) {
+                HomeServerKind.PLEX -> homeServerRepository.scrobblePlex(connection, serverItemId, watched = true)
+                HomeServerKind.JELLYFIN, HomeServerKind.EMBY -> {
+                    if (connection.userId.isBlank()) return@runCatching
+                    val url = connection.serverUrl.trimEnd('/') +
+                        "/Users/${Uri.encode(connection.userId)}/PlayedItems/${Uri.encode(serverItemId)}" +
+                        "?api_key=" + Uri.encode(connection.accessToken)
+                    val request = Request.Builder().url(url)
+                        .post(ByteArray(0).toRequestBody(null)).build()
+                    okHttpClient.newCall(request).execute().close()
+                }
+                HomeServerKind.UNKNOWN -> Unit
+            }
+        }.onFailure { Log.w(TAG, "markWatched failed for $serverItemId: ${it.message}") }
+    }
+
     private suspend fun report(
         event: String,
         serverItemId: String,
@@ -67,7 +93,7 @@ class ServerSessionRepository @Inject constructor(
                 )
                 HomeServerKind.UNKNOWN -> Unit
             }
-        }
+        }.onFailure { Log.w(TAG, "$event report failed for $serverItemId: ${it.message}") }
     }
 
     private fun reportJellyfin(
@@ -122,7 +148,17 @@ class ServerSessionRepository @Inject constructor(
             .appendQueryParameter("X-Plex-Token", connection.accessToken)
             .build()
             .toString()
-        val request = Request.Builder().url(url).get().build()
-        okHttpClient.newCall(request).execute().close()
+        val request = Request.Builder().url(url).get()
+            .apply { homeServerRepository.plexClientHeaders(connection).forEach { (k, v) -> header(k, v) } }
+            .build()
+        okHttpClient.newCall(request).execute().use { resp ->
+            // Was fire-and-forget with the status ignored, which is how every report being
+            // rejected (400, missing client identifier) went unnoticed.
+            if (!resp.isSuccessful) Log.w(TAG, "Plex timeline $state for $ratingKey -> HTTP ${resp.code}")
+        }
+    }
+
+    private companion object {
+        const val TAG = "ServerSession"
     }
 }

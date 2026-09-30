@@ -2228,6 +2228,24 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    // Leaving the player mid-episode: saveProgress() only ever sends the server a "stop" from
+    // the watched-threshold block, so an early exit left a playing/paused session hanging on
+    // Plex (and in Tautulli) until it timed out. Separate from saveProgress so its debounce
+    // can't swallow it.
+    fun reportServerSessionExit(position: Long, duration: Long) {
+        val serverItemId = _uiState.value.selectedStream?.serverItemId
+        if (serverItemId.isNullOrBlank() || duration <= 0) return
+        val mediaType = currentMediaType
+        progressReportScope.launch {
+            runCatching {
+                serverSessionRepository.reportStop(
+                    serverItemId = serverItemId, mediaType = mediaType,
+                    positionMs = position, durationMs = duration
+                )
+            }
+        }
+    }
+
     fun saveProgress(position: Long, duration: Long, progressPercent: Int, isPlaying: Boolean, playbackState: Int) {
         if (duration <= 0) return
 
@@ -2510,6 +2528,7 @@ class PlayerViewModel @Inject constructor(
                             positionMs = position, durationMs = duration
                         )
                     }
+                    runCatching { serverSessionRepository.markWatched(serverItemId) }
                 }
                 try {
                     val safeSeason = snapSeason

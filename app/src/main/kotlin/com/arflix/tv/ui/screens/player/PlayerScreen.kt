@@ -1601,6 +1601,7 @@ fun PlayerScreen(
                     isPlaying = exoPlayer.isPlaying,
                     playbackState = exoPlayer.playbackState
                 )
+                viewModel.reportServerSessionExit(exoPlayer.currentPosition, safeDuration)
             }
             runCatching { exoPlayer.release() }
             // Restore the system stream volume if the player left it at zero.

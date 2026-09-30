@@ -757,7 +757,7 @@ class HomeServerRepository @Inject constructor(
 
     // Plex's actual mark-watched/unwatched calls — same GET-with-query-params shape already
     // used by ServerSessionRepository's /:/timeline progress reporting.
-    private fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean) {
+    fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean) {
         val path = if (watched) "/:/scrobble" else "/:/unscrobble"
         val url = buildUrl(
             connection.serverUrl,
@@ -1099,6 +1099,11 @@ class HomeServerRepository @Inject constructor(
         .add("X-Plex-Device", "Android")
         .add("X-Plex-Platform", "Android")
         .build()
+
+    // Exposed for ServerSessionRepository: Plex answers /:/timeline with a bare 400 when
+    // X-Plex-Client-Identifier is missing, so every in-app playback report was being rejected.
+    fun plexClientHeaders(connection: HomeServerConnection): Map<String, String> =
+        plexHeaders(connection.accessToken)
 
     private fun plexHeaders(token: String? = null): Map<String, String> = buildMap {
         put("Accept", "application/json")
