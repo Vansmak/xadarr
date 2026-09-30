@@ -2056,8 +2056,11 @@ class IptvRepository @Inject constructor(
             .filter { it.isNotBlank() && (currentSet.isEmpty() || it in currentSet) }
             .distinct()
             .toMutableList()
-        current.forEach { group ->
-            if (group !in merged) merged.add(group)
+        // A group missing from the saved order goes in at its current position rather than always
+        // last, so e.g. Shows/Movies (listed first by default) don't jump to the bottom the
+        // first time anything is moved.
+        current.forEachIndexed { index, group ->
+            if (group !in merged) merged.add(index.coerceAtMost(merged.size), group)
         }
         return merged
     }

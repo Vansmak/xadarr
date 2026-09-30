@@ -131,6 +131,7 @@ fun CategorySidebar(
     var expandedAll by rememberSaveable { mutableStateOf(false) }
     var menuForGroup by rememberSaveable { mutableStateOf<String?>(null) }
     var groupEditMode by rememberSaveable { mutableStateOf(false) }
+    var toolsOpen by rememberSaveable { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val firstCategoryFocusRequester = remember { FocusRequester() }
     val activeCategoryFocusRequester = remember(selectedId) { FocusRequester() }
@@ -287,8 +288,60 @@ fun CategorySidebar(
                     }
                 }
             }
+            // One "Edit / Refresh" row that expands in place to its two actions, right under
+            // Favorites/Recent, and no "PLAYLIST" heading -- the group list below (Shows, Movies,
+            // then IPTV groups) reads as one continuous column (Joe, 2026-09-30). Stays open
+            // while editing so "Done editing" is reachable.
+            item {
+                SidebarRow(
+                    label = "Edit / Refresh",
+                    count = 0,
+                    icon = Icons.Filled.Edit,
+                    active = false,
+                    expanded = expanded,
+                    hasChildren = true,
+                    isOpenGroup = toolsOpen || groupEditMode,
+                    onFocused = { onTopBoundaryFocusChanged(false) },
+                    onClick = { toolsOpen = !toolsOpen },
+                    labelSize = 12.sp,
+                )
+            }
+            if ((toolsOpen || groupEditMode) && expanded) {
+                item {
+                    SidebarRow(
+                        label = if (groupEditMode) "Done editing" else "Edit groups",
+                        count = 0,
+                        icon = if (groupEditMode) Icons.Filled.DoneAll else Icons.Filled.Edit,
+                        active = false,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = {
+                            groupEditMode = !groupEditMode
+                            if (!groupEditMode) toolsOpen = false
+                        },
+                        labelSize = 12.sp,
+                    )
+                }
+                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
+                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
+                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
+                item {
+                    SidebarRow(
+                        label = playlistRefreshResult
+                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
+                        count = 0,
+                        icon = Icons.Filled.Refresh,
+                        active = false,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
+                        labelSize = 12.sp,
+                    )
+                }
+            }
             if (tree.global.categories.isNotEmpty()) {
-                item { SectionHeader(tree.global.label, expanded) }
                 items(tree.global.categories, key = { it.id }) { cat ->
                     SidebarRow(
                         label = cat.label,
@@ -298,7 +351,9 @@ fun CategorySidebar(
                         expanded = expanded,
                         showMenu = menuForGroup == cat.playlistGroupName,
                         canHide = cat.playlistGroupName != null,
-                        canRemove = cat.playlistGroupName != null && groupBlacklistEnabled,
+                        // Remove = blacklist in Dispatcharr; meaningless for library groups.
+                        canRemove = cat.playlistGroupName != null && groupBlacklistEnabled &&
+                            !isLibraryChannelGroup(cat.playlistGroupName),
                         canMove = cat.playlistGroupName != null,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onLongClick = { menuForGroup = cat.playlistGroupName },
@@ -329,35 +384,6 @@ fun CategorySidebar(
                             onMoveCategoryDown(groupName)
                         },
                         onClick = { onSelect(cat.id) },
-                    )
-                }
-                // Edit groups toggle — at the end of the PLAYLIST section
-                item {
-                    SidebarRow(
-                        label = if (groupEditMode) "Done editing" else "Edit groups",
-                        count = 0,
-                        icon = if (groupEditMode) Icons.Filled.DoneAll else Icons.Filled.Edit,
-                        active = false,
-                        expanded = expanded,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = { groupEditMode = !groupEditMode },
-                        labelSize = 12.sp,
-                    )
-                }
-                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
-                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
-                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
-                item {
-                    SidebarRow(
-                        label = playlistRefreshResult
-                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
-                        count = 0,
-                        icon = Icons.Filled.Refresh,
-                        active = false,
-                        expanded = expanded,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
-                        labelSize = 12.sp,
                     )
                 }
             }

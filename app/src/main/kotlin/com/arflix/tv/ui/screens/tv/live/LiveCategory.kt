@@ -506,20 +506,15 @@ fun buildCategoryTree(
     val adultCategories = listOf(
         LiveCategory("adult", "Adult", adultCount, CategoryIcon.Lock),
     ).filter { it.count > 0 }
-    // "Shows" (and, later, "Movies") sit with Favorites/Recent in the top tier rather than
-    // buried in the long PLAYLIST group list -- Joe, 2026-09-29: "I'd rather the group shows and
-    // movies be in the fav and recents sections so it kinda separate". Same category object/id
-    // (still the ordinary grp:<hash> id from playlistGroupCategoryId) as it would have gotten in
-    // PLAYLIST -- only which list it renders in changes, so bestCategoryIdForChannel/
-    // categoryMatcher need no special-casing at all.
-    val (showsTopCategories, otherPlaylistGroupCategories) = orderPlaylistGroups(playlistGroupCounts, groupOrder)
-        .map { (id, value) -> LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first) }
-        .partition { isLibraryChannelGroup(it.playlistGroupName) }
+    // Shows/Movies are ordinary groups in the one continuous group list (Joe, 2026-09-30: "add
+    // movies and shows in the same way ... though I'd like to be able to change order"), first by
+    // default -- see orderPlaylistGroups. Favorites/Recent stay the fixed top tier.
     val top = listOf(
         LiveCategory("fav", "Favorites", favoritesCount, CategoryIcon.Favorite),
         LiveCategory("recent", "Recent", recentCount, CategoryIcon.Recent),
-    ) + showsTopCategories
-    val playlistGroups = otherPlaylistGroupCategories
+    )
+    val playlistGroups = orderPlaylistGroups(playlistGroupCounts, groupOrder)
+        .map { (id, value) -> LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first) }
     val hiddenGroupsList = hiddenPlaylistGroupCounts.map { (id, value) ->
         LiveCategory(id, disambiguatedGroupLabel(value.first), value.second, CategoryIcon.Grid, playlistGroupName = value.first)
     }
@@ -708,13 +703,15 @@ private fun orderPlaylistGroups(
     groupOrder: List<String>,
 ): List<Map.Entry<String, Pair<String, Int>>> {
     if (groups.isEmpty()) return emptyList()
-    if (groupOrder.isEmpty()) return groups.entries.toList()
     val orderMap = groupOrder
         .map(::playlistGroupLabel)
         .withIndex()
         .associate { (index, groupName) -> groupName to index }
+    // Library groups (Shows/Movies) default to the top until the user has placed them.
     return groups.entries.sortedWith(
-        compareBy<Map.Entry<String, Pair<String, Int>>> { entry -> orderMap[entry.value.first] ?: Int.MAX_VALUE }
+        compareBy<Map.Entry<String, Pair<String, Int>>> { entry ->
+            orderMap[entry.value.first] ?: if (isLibraryChannelGroup(entry.value.first)) -1 else Int.MAX_VALUE
+        }
             .thenBy { entry -> groups.keys.indexOf(entry.key) }
     )
 }

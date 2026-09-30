@@ -1167,12 +1167,20 @@ class TvViewModel @Inject constructor(
     private fun currentVisiblePlaylistGroups(): List<String> {
         val snapshot = _uiState.value.snapshot
         val hidden = (snapshot.hiddenGroups + snapshot.newGroups + snapshot.removedGroups).mapTo(HashSet()) { it.trim() }
-        return snapshot.grouped.keys
+        // Library groups first, matching their default position in the sidebar, so they can be
+        // moved like any IPTV group.
+        val library = listOfNotNull(
+            com.arflix.tv.ui.screens.tv.live.ShowsChannelGroup.takeIf { _showsGuideSchedule.value.isNotEmpty() },
+            com.arflix.tv.ui.screens.tv.live.MoviesChannelGroup.takeIf {
+                _movieGuide.value.movies.isNotEmpty() || _movieGuide.value.premiering.isNotEmpty()
+            },
+        ).filter { it !in hidden }
+        return (library + snapshot.grouped.keys
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() && it !in hidden }
+            .toList())
             .distinct()
-            .toList()
     }
 
     fun rememberTvSession(
