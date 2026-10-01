@@ -2679,9 +2679,20 @@ class PlayerViewModel @Inject constructor(
         episodeNumber: Int?,
         timeoutMs: Long
     ) {
+        // Plex rarely matches these shows by IMDb/TMDB/TVDB id, so the title search is what
+        // actually finds them -- but on a first play (e.g. straight from the guide) the title
+        // often hasn't loaded yet, the lookup ran id-only and came back empty: "not available",
+        // then the retry worked because the title was cached by then (Joe, 2026-09-30, The
+        // Gentlemen / Tires). Fetch it when it's missing rather than skipping the title search.
         val lookupTitle = currentItemTitle
             .ifBlank { currentTitle }
             .ifBlank { mediaRepository.getCachedItem(mediaType, currentMediaId)?.title.orEmpty() }
+            .ifBlank {
+                runCatching {
+                    if (mediaType == MediaType.MOVIE) mediaRepository.getMovieDetails(currentMediaId).title
+                    else mediaRepository.getTvDetails(currentMediaId).title
+                }.getOrNull().orEmpty()
+            }
 
         val sources = if (mediaType == MediaType.MOVIE) {
             streamRepository.resolveMovieHomeServerSources(
@@ -2739,9 +2750,20 @@ class PlayerViewModel @Inject constructor(
         episodeNumber: Int?,
         timeoutMs: Long
     ) {
+        // Plex rarely matches these shows by IMDb/TMDB/TVDB id, so the title search is what
+        // actually finds them -- but on a first play (e.g. straight from the guide) the title
+        // often hasn't loaded yet, the lookup ran id-only and came back empty: "not available",
+        // then the retry worked because the title was cached by then (Joe, 2026-09-30, The
+        // Gentlemen / Tires). Fetch it when it's missing rather than skipping the title search.
         val lookupTitle = currentItemTitle
             .ifBlank { currentTitle }
             .ifBlank { mediaRepository.getCachedItem(mediaType, currentMediaId)?.title.orEmpty() }
+            .ifBlank {
+                runCatching {
+                    if (mediaType == MediaType.MOVIE) mediaRepository.getMovieDetails(currentMediaId).title
+                    else mediaRepository.getTvDetails(currentMediaId).title
+                }.getOrNull().orEmpty()
+            }
 
         val vodSources = if (mediaType == MediaType.MOVIE) {
             streamRepository.resolveMovieVodSources(

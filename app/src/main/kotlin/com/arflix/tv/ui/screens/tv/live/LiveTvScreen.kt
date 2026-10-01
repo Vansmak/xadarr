@@ -1021,7 +1021,9 @@ fun LiveTvScreen(
         }
     }
     LaunchedEffect(currentStreamUrl, playingCatchupProgram) {
-        val stream = currentStreamUrl ?: return@LaunchedEffect
+        // Library rows (Shows/Movies) have no stream: highlighting one points the hero at it,
+        // which must not hand ExoPlayer an empty URL ("Malformed URL" playback error).
+        val stream = currentStreamUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
 
         // If this exact URL is already playing in the ViewModel (e.g. user returned
         // from another screen), skip re-setup to avoid interrupting playback.
