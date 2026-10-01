@@ -649,7 +649,19 @@ fun LiveTvScreen(
     LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
         if (alignedOnEntry) return@LaunchedEffect
         val id = playingChannelId ?: return@LaunchedEffect
-        if (isLibraryChannelId(id)) { alignedOnEntry = true; return@LaunchedEffect }
+        if (isLibraryChannelId(id)) {
+            // The remembered "playing" channel is a Shows/Movies row the user had highlighted
+            // (no stream -- the preview sat black on its art while the guide showed Favorites,
+            // Joe 2026-10-01). Go back to the last real channel instead.
+            val real = LiveTvResumeMemory.current()?.first
+                ?: state.tvSession.lastChannelId.takeIf { it.isNotBlank() && !isLibraryChannelId(it) }
+            if (real != null && enrichedState.value.index.byId[real] != null) {
+                playingChannelId = real // re-runs this effect for the real channel
+            } else {
+                alignedOnEntry = true
+            }
+            return@LaunchedEffect
+        }
         if (enrichedState.value.index.byId[id] == null) return@LaunchedEffect // not loaded yet
         if (filteredChannels.none { it.id == id }) {
             val remembered = LiveTvResumeMemory.categoryId

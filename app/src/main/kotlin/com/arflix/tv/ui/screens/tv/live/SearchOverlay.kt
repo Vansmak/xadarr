@@ -115,6 +115,24 @@ private data class EventHit(
     val channels: List<SearchHit>,
 )
 
+private val SearchAliases = mapOf(
+    "tnf" to listOf("thursday night football"),
+    "snf" to listOf("sunday night football"),
+    "mnf" to listOf("monday night football"),
+    "nfl" to listOf("nfl", "football"),
+    "mlb" to listOf("mlb", "baseball"),
+    "nba" to listOf("nba", "basketball"),
+    "nhl" to listOf("nhl", "hockey"),
+    "ufc" to listOf("ufc"),
+    "cfb" to listOf("college football"),
+)
+
+/** The query plus any sports shorthand it stands for. */
+private fun expandSearchQuery(q: String): List<String> {
+    val trimmed = q.trim()
+    return (listOf(trimmed) + SearchAliases[trimmed].orEmpty()).filter { it.isNotBlank() }.distinct()
+}
+
 private val FrenchChannelHints = listOf(
     "rds", "tva", "tqs", "radio-canada", "ici ", "télé", "tele-quebec", "télé-québec", "tv5",
     "canal+", "noovo", "fr |", "fr:", "(fr)", "french", "bein sports fr",
@@ -303,6 +321,9 @@ fun SearchOverlay(
 
     LaunchedEffect(debounced, channels, nowNext) {
         val q = debounced.lowercase()
+        // Shorthand people actually type for sports ("tnf") vs. how listings spell it.
+        val qTerms = expandSearchQuery(q)
+        fun String.matchesQuery() = qTerms.any { this.contains(it) }
         if (q.isEmpty()) {
             // Show the first 60 by default — gives a preview list users can scroll.
             results = channels.take(60).map { SearchHit(it, isOffLineup = it.source.group in offLineupGroups) }
@@ -357,9 +378,14 @@ fun SearchOverlay(
                         // the fixture in the description ("San Francisco 49ers @ Los Angeles
                         // Rams on 2026-09-10..."). Matching titles alone meant searching a team
                         // found the odd channel named after it and missed every actual game.
+                        // Descriptions only count on sports channels: that's where fixtures hide in
+                        // the description ("49ers @ Rams"). Elsewhere it matched every 24/7 cartoon
+                        // whose episode blurb mentions the word -- "baseball" returned Davey and
+                        // Goliath, Mighty Max, I Love Lucy... burying the actual games (Joe,
+                        // 2026-10-01).
                         .filter { prog ->
-                            prog.title.lowercase().contains(q) ||
-                                prog.description?.lowercase()?.contains(q) == true
+                            prog.title.lowercase().matchesQuery() ||
+                                (ch.genre == Genre.Sports && prog.description?.lowercase()?.matchesQuery() == true)
                         }
                         .distinctBy { p -> p.title to p.startUtcMillis }
                         .map { prog -> SearchHit(ch, prog, ch.source.group in offLineupGroups) }
@@ -374,8 +400,12 @@ fun SearchOverlay(
                     val ranked = hits.distinctBy { it.channel.id }.sortedByDescending { channelRank(it, favoriteIds) }
                     EventHit(key = key, program = ranked.first().matchedProgram!!, channels = ranked)
                 }
-                .sortedBy { it.program.startUtcMillis }
-                .take(60)
+                // Title matches first (the program IS the thing searched for), then by start time.
+                .sortedWith(
+                    compareBy<EventHit> { if (it.program.title.lowercase().matchesQuery()) 0 else 1 }
+                        .thenBy { it.program.startUtcMillis }
+                )
+                .take(25)
                 .toList()
         }
         expandedEvents = emptySet()
