@@ -114,6 +114,30 @@ private enum class LiveTvFocusZone {
     EPG,
 }
 
+/**
+ * Last channel actually played, kept in process memory only (Joe, 2026-09-30): coming back to
+ * Now Playing resumes it, in its own group, unless the app was freshly started or it's a new day
+ * -- then it starts at the first favorite. Persisted tvSession.lastChannelId is deliberately NOT
+ * used for this anymore, since a cold start should begin fresh.
+ */
+private object LiveTvResumeMemory {
+    var channelId: String? = null
+    var categoryId: String? = null
+    var epochDay: Long = -1L
+
+    fun current(): Pair<String, String?>? {
+        val id = channelId ?: return null
+        if (epochDay != java.time.LocalDate.now().toEpochDay()) return null
+        return id to categoryId
+    }
+
+    fun remember(id: String, category: String?) {
+        channelId = id
+        categoryId = category
+        epochDay = java.time.LocalDate.now().toEpochDay()
+    }
+}
+
 private fun chooseStartupChannelId(
     filteredChannels: List<EnrichedChannel>,
     explicitInitialChannelId: String?,
@@ -141,8 +165,11 @@ private fun chooseStartupChannelId(
     // watched. Favorites are still the right fallback for a brand-new session that has no
     // watch history yet.
     if (hasOpenedBefore) {
+        // Any category: the resumed channel's own group gets reselected by the caller. Checking
+        // only filteredChannels (the default "fav" category) meant a non-favorite last channel
+        // was never found and it fell through to the first favorite every time.
         sessionLastChannelId
-            .takeIf { id -> id.isNotBlank() && filteredChannels.any { it.id == id } }
+            .takeIf { id -> id.isNotBlank() && (allChannelIds.contains(id) || filteredChannels.any { it.id == id }) }
             ?.let { return it }
 
         if (sessionLastChannelId.isNotBlank() && !isFullyEnriched) return null
@@ -526,11 +553,12 @@ fun LiveTvScreen(
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
         if (entersBlock) {
+            val resume = LiveTvResumeMemory.current()
             val result = chooseStartupChannelId(
                 filteredChannels = filteredChannels,
                 explicitInitialChannelId = initialChannelId,
-                sessionLastChannelId = state.tvSession.lastChannelId,
-                hasOpenedBefore = state.tvSession.lastOpenedAt > 0L,
+                sessionLastChannelId = resume?.first.orEmpty(),
+                hasOpenedBefore = resume != null,
                 favoriteChannelIds = state.snapshot.favoriteChannels,
                 isFullyEnriched = enrichedState.value.all.size >= state.snapshot.channels.size,
                 allChannelIds = allChannelIds,
@@ -544,6 +572,11 @@ fun LiveTvScreen(
                 filteredChannels.none { it.id == playingChannelId }
             ) {
                 selectedCategoryId = "all"
+            } else if (playingChannelId != null && playingChannelId == resume?.first &&
+                filteredChannels.none { it.id == playingChannelId }
+            ) {
+                // Resumed a channel outside the default category: reopen the group it was in.
+                selectedCategoryId = resume?.second ?: "all"
             }
         }
         if (focusedChannelId == null || filteredChannels.none { it.id == focusedChannelId }) {
@@ -990,6 +1023,7 @@ fun LiveTvScreen(
                 lastFocusedZone = "GUIDE",
                 markOpened = true,
             )
+            LiveTvResumeMemory.remember(id, selectedCategoryId)
             // Tell the ViewModel which channel/stream is active — used for pause/resume around
             // VOD and camera playback (LiveTvPlayerViewModel.pauseForVod()/resumeIfActive()).
             playerViewModel.setActiveChannel(
