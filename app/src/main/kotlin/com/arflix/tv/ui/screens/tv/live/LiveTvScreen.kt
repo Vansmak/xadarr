@@ -115,10 +115,8 @@ private enum class LiveTvFocusZone {
 }
 
 /**
- * Last channel actually played, kept in process memory only (Joe, 2026-09-30): coming back to
- * Now Playing resumes it, in its own group, unless the app was freshly started or it's a new day
- * -- then it starts at the first favorite. Persisted tvSession.lastChannelId is deliberately NOT
- * used for this anymore, since a cold start should begin fresh.
+ * Last channel actually played, kept in process memory (freshest source); the persisted
+ * tvSession.lastChannelId covers restarts. Now Playing always resumes it in its own group.
  */
 private object LiveTvResumeMemory {
     var channelId: String? = null
@@ -553,7 +551,12 @@ fun LiveTvScreen(
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
         if (entersBlock) {
+            // Always resume the last channel actually watched (= top of Recent), across restarts
+            // and days too (Joe, 2026-09-30: "if recents persists then yes" -- the top of Recent is
+            // the persisted tvSession.lastChannelId). In-process memory first, it's freshest.
             val resume = LiveTvResumeMemory.current()
+                ?: state.tvSession.lastChannelId.takeIf { it.isNotBlank() }
+                    ?.let { it to state.tvSession.lastGroupName.takeIf { g -> g.isNotBlank() } }
             val result = chooseStartupChannelId(
                 filteredChannels = filteredChannels,
                 explicitInitialChannelId = initialChannelId,
