@@ -1986,7 +1986,10 @@ fun LiveTvScreen(
                     val ep = s.now ?: return@mapNotNull null
                     s.fanart?.let { it to "UP NEXT · ${s.title} S${ep.season}E${ep.episode}" }
                 }
-                val movies = movieGuide.movies.filter { !it.watched }.mapNotNull { m ->
+                // Joe's a TV-show person: movies only make the cut when they're this year's
+                // releases (2026-09-30: "unless it's a very recent movie").
+                val thisYear = java.time.Year.now().value
+                val movies = movieGuide.movies.filter { !it.watched && (it.year ?: 0) >= thisYear }.mapNotNull { m ->
                     m.fanart?.let { it to "READY TO WATCH · ${m.title}" }
                 }
                 splash = (shows + movies).randomOrNull()
