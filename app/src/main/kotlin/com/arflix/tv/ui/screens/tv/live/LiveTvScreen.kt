@@ -107,6 +107,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
+import androidx.compose.ui.graphics.Brush
 
 private enum class LiveTvFocusZone {
     CATEGORY_LIST,
@@ -1968,6 +1969,94 @@ fun LiveTvScreen(
                         closePicker()
                     },
                 )
+            }
+        }
+
+        // Loading screen (Joe, 2026-09-30: "instead of blank guide a nice hero poster like a
+        // loading screen"): a random backdrop from his own library while the IPTV channels load
+        // on a cold start. Returning to the guide reuses cached channels, so it doesn't show
+        // then; capped at 20s so a setup with no IPTV can never leave it up.
+        // The newest download across shows and movies (Joe: "prefer latest download"), named on
+        // the screen so loading doubles as a "just arrived" card.
+        var splash by remember { mutableStateOf<Pair<String, String>?>(null) }
+        LaunchedEffect(showsGuideSchedule, movieGuide) {
+            if (splash == null) {
+                val candidates = showsGuideSchedule.mapNotNull { s -> s.fanart?.let { Triple(s.lastAdded.orEmpty(), it, s.title) } } +
+                    movieGuide.movies.mapNotNull { m -> m.fanart?.let { Triple(m.lastAdded.orEmpty(), it, m.title) } }
+                splash = candidates.maxByOrNull { it.first }?.let { it.second to it.third }
+            }
+        }
+        val splashArt = splash?.first
+        var splashTimedOut by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            delay(20_000L)
+            splashTimedOut = true
+        }
+        val iptvLoaded = enrichedState.value.all.any { !isLibraryChannelGroup(it.source.group) }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !iptvLoaded && !splashTimedOut,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(600)),
+            modifier = Modifier.fillMaxSize().zIndex(400f),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.radialGradient(colors = listOf(LiveColors.Panel, LiveColors.Bg))),
+            ) {
+                splashArt?.let { art ->
+                    coil.compose.AsyncImage(
+                        model = art,
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.15f),
+                                0.55f to Color.Black.copy(alpha = 0.45f),
+                                1f to Color.Black.copy(alpha = 0.92f),
+                            )
+                        ),
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 64.dp, bottom = 56.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    splash?.second?.let { title ->
+                        Text(
+                            text = "JUST DOWNLOADED · $title",
+                            style = LiveType.SectionTag.copy(
+                                color = LocalFocusBorderColorOverride.current ?: LiveColors.Accent,
+                                fontSize = 14.sp,
+                            ),
+                        )
+                    }
+                    Text(
+                        text = "Xadarr",
+                        style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 44.sp),
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = LocalFocusBorderColorOverride.current ?: LiveColors.Accent,
+                        )
+                        Text(
+                            text = "Loading your guide…",
+                            style = LiveType.CellTitle.copy(color = LiveColors.FgDim, fontSize = 16.sp),
+                        )
+                    }
+                }
             }
         }
 

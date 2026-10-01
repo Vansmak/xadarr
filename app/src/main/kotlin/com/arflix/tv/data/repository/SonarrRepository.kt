@@ -79,6 +79,7 @@ data class ShowGuideEntry(
     val overview: String = "",
     val rule: String? = null,     // assigned Episeerr rule key, for the guide's Change Rule
     val tmdbId: Int? = null,      // for "In library" marks in guide search
+    val lastAdded: String? = null, // ISO time of the latest episode import
 )
 
 data class SonarrSeriesSummary(
@@ -327,6 +328,7 @@ class SonarrRepository @Inject constructor(
                             overview = s.optString("overview"),
                             rule = s.optString("rule").takeIf { it.isNotBlank() && it != "null" },
                             tmdbId = s.optInt("tmdbId", -1).takeIf { it > 0 },
+                            lastAdded = s.optString("lastAdded").takeIf { it.isNotBlank() && it != "null" },
                         )
                     )
                 }

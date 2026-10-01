@@ -42,6 +42,7 @@ data class LibraryMovie(
     val fanart: String?,
     val runtimeMinutes: Int,
     val watched: Boolean,
+    val lastAdded: String? = null, // ISO time the file was downloaded
 )
 
 data class MoviePremiere(
@@ -98,6 +99,7 @@ class RadarrRepository @Inject constructor(
                             fanart = m.optString("fanart").takeIf { it.isNotBlank() },
                             runtimeMinutes = m.optInt("runtime"),
                             watched = m.optBoolean("watched"),
+                            lastAdded = m.optString("lastAdded").takeIf { it.isNotBlank() && it != "null" },
                         ))
                     }
                 },
