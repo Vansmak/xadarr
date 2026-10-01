@@ -642,6 +642,10 @@ fun LiveTvScreen(
     // you were watching (Joe, 2026-09-30). Show the playing channel's group -- or Recent, where it
     // is at the top -- and highlight it. Once per entry.
     var alignedOnEntry by remember { mutableStateOf(false) }
+    // Set on the first key press. The startup focus jump below waits up to ~1s for the guide to
+    // settle; if the user is already navigating by then (Joe, 2026-09-30: opened a show's menu
+    // within that second), jumping to the sidebar stole focus from the open menu.
+    var userPressedKey by remember { mutableStateOf(false) }
     LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
         if (alignedOnEntry) return@LaunchedEffect
         val id = playingChannelId ?: return@LaunchedEffect
@@ -1092,12 +1096,14 @@ fun LiveTvScreen(
             // Let the guide settle on the playing channel's group, then open with the group
             // list showing and that group highlighted (Joe, 2026-09-30: start like "screen 2").
             repeat(20) {
-                if (alignedOnEntry) return@repeat
+                if (alignedOnEntry || userPressedKey) return@repeat
                 delay(50L)
             }
             delay(80L)
-            focusSelectedChannelSignal += 1
-            openSidebar()
+            if (!userPressedKey) {
+                focusSelectedChannelSignal += 1
+                openSidebar()
+            }
         }
     }
 
@@ -1151,6 +1157,7 @@ fun LiveTvScreen(
             .then(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) userPressedKey = true
                         if (searchOpen || isFullScreen) return@onPreviewKeyEvent false
                         if (event.type == KeyEventType.KeyDown && event.key == Key.Search) {
                             searchOpen = true
