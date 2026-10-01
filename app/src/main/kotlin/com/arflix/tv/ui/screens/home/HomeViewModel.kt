@@ -758,7 +758,8 @@ class HomeViewModel @Inject constructor(
             // finds no matching entry and does nothing.
             val statusId = if (isMergedPlexTile) "navtile:custom:plex_library"
                 else if (isCustom) "navtile:custom:${entry.customId}" else "navtile:kind:${entry.kind.name}"
-            val label = if (isMergedPlexTile) "Movies & Shows" else entry.label ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
+            val storedLabel = entry.label?.let { if (entry.customId == "plex" && it == "Plex Discover") "Plex" else it }
+            val label = if (isMergedPlexTile) "Movies & Shows" else storedLabel ?: entry.customId?.replaceFirstChar { it.uppercase() } ?: entry.kind.name
             val sourceItem = when {
                 entry.kind == com.arflix.tv.data.model.NavSectionKind.TV -> onNowChannelItem()
                 entry.kind == com.arflix.tv.data.model.NavSectionKind.CAMERAS -> firstItem(CAMERAS_CATEGORY_ID)

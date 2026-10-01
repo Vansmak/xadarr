@@ -64,7 +64,7 @@ class NavSectionRepository @Inject constructor(
         // may go to discover stuff" — browsing Plex's own recommendations, separate from Xadarr's
         // own Movies/Shows grid. Could live under the generic "Apps" screen instead, but he wants
         // it as its own rail entry rather than buried there.
-        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "plex", label = "Plex Discover", order = startOrder + 3),
+        NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = "plex", label = "Plex", order = startOrder + 3),
     )
 
     // TiviMate-clone side menu: Guide (Home IS the guide) / Movies / Shows / Apps /

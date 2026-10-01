@@ -98,10 +98,9 @@ private fun sectionLabelFor(entry: NavSectionConfig): String? = when {
 private val LegacyTvLabels = setOf("Live TV", "Guide")
 
 private fun NavSectionKind.toRailLabel(): String = when (this) {
-    // "Find", not "Search", to distinguish it from the search inside the Live TV guide. That one
-    // is EPG: channels and what is on them. This one is for movies and shows — whether or not
-    // they are in the library yet — and leads to adding them.
-    NavSectionKind.SEARCH -> "Find"
+    // Was "Find" (a search screen); now browse-only Discover -- searching lives in the guide
+    // (Joe, 2026-09-30).
+    NavSectionKind.SEARCH -> "Discover"
     NavSectionKind.HOME -> "Home"
     NavSectionKind.DISCOVER -> "Discover"
     NavSectionKind.TV -> "Now Playing"
@@ -118,7 +117,7 @@ private fun NavSectionKind.toRailLabel(): String = when (this) {
  * of the same config look consistent.
  */
 fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry.kind) {
-    NavSectionKind.SEARCH -> SidebarItem.SEARCH.icon
+    NavSectionKind.SEARCH -> Icons.Outlined.Explore
     NavSectionKind.HOME -> SidebarItem.HOME.icon
     NavSectionKind.DISCOVER -> SidebarItem.DISCOVER.icon
     NavSectionKind.TV -> SidebarItem.TV.icon
@@ -372,7 +371,11 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
     // "Live TV"/"Guide" were the TV section's old default names and are still stored verbatim in
     // existing profiles' nav config; treat them as unset so the current default ("Now Playing")
     // shows. A genuinely custom name still wins.
-    val storedLabel = entry.label?.takeUnless { entry.kind == NavSectionKind.TV && it in LegacyTvLabels }
+    // Same for Find (now Discover) and "Plex Discover" (now just Plex).
+    val storedLabel = entry.label?.takeUnless {
+        (entry.kind == NavSectionKind.TV && it in LegacyTvLabels) ||
+            (entry.kind == NavSectionKind.SEARCH && it == "Find")
+    }?.let { if (entry.customId == "plex" && it == "Plex Discover") "Plex" else it }
     val label = storedLabel ?: entry.kind.toRailLabel().ifBlank { entry.customId.orEmpty() }
     Row(
         modifier = Modifier

@@ -146,7 +146,8 @@ fun SearchScreen(
         else -> uiState.discoverLogoUrls
     }
 
-    var focusZone by remember { mutableStateOf(FocusZone.SEARCH_INPUT) }
+    val discoverMode = true
+    var focusZone by remember { mutableStateOf(if (discoverMode) FocusZone.FILTERS else FocusZone.SEARCH_INPUT) }
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
@@ -179,6 +180,16 @@ fun SearchScreen(
     val searchFocusRequester = remember { FocusRequester() }
     val textInputFocusRequester = remember { FocusRequester() }
     val filtersFocusRequester = remember { FocusRequester() }
+    // Top of the screen: the search box, or in Discover mode the filter chips.
+    fun focusTopZone() {
+        if (discoverMode) {
+            focusZone = FocusZone.FILTERS
+            runCatching { filtersFocusRequester.requestFocus() }
+        } else {
+            focusZone = FocusZone.SEARCH_INPUT
+            runCatching { searchFocusRequester.requestFocus() }
+        }
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
     val actionGenre = remember { ALL_GENRES.firstOrNull { it.id == 28 } }
     val comedyGenre = remember { ALL_GENRES.firstOrNull { it.id == 35 } }
@@ -242,7 +253,7 @@ fun SearchScreen(
         // the screen is composed then immediately navigated away). Swallow that
         // specific case so it doesn't surface to the user as a crash — TalkBack
         // focus will re-claim on next frame.
-        if (!isTouchDevice) runCatching { searchFocusRequester.requestFocus() }
+        if (!isTouchDevice) focusTopZone()
         suppressSelectUntilMs = SystemClock.elapsedRealtime() + 150L
     }
     LaunchedEffect(isSearchEditing, searchEditRequestNonce) {
@@ -300,10 +311,13 @@ fun SearchScreen(
                             focusedFilterIndex = focusedFilterIndex.coerceIn(0, (quickFilters.size - 1).coerceAtLeast(0))
                             try { filtersFocusRequester.requestFocus() } catch (_: Exception) {}
                         }
-                        else { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus() }
+                        else focusTopZone()
                         true
                     }
-                    FocusZone.FILTERS -> { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
+                    FocusZone.FILTERS -> {
+                        if (discoverMode) onBack() else focusTopZone()
+                        true
+                    }
                     FocusZone.SEARCH_INPUT -> {
                         // No sidebar/top bar to progress into — Search has no top bar of
                         // its own (Joe, 2026-07-11: "I do not want top bar on search
@@ -318,7 +332,8 @@ fun SearchScreen(
                 Key.DirectionUp -> when (focusZone) {
                     FocusZone.SEARCH_INPUT -> true
                     FocusZone.FILTERS -> {
-                        focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true
+                        if (!discoverMode) focusTopZone()
+                        true
                     }
                     FocusZone.RESULTS -> {
                         if (hasAiResults) false // AI grid: let native focus handle navigation
@@ -334,7 +349,7 @@ fun SearchScreen(
                             try { filtersFocusRequester.requestFocus() } catch (_: Exception) {}
                             true
                         }
-                        else { focusZone = FocusZone.SEARCH_INPUT; searchFocusRequester.requestFocus(); true }
+                        else { focusTopZone(); true }
                     }
                 }
                 Key.DirectionDown -> when (focusZone) {
@@ -473,7 +488,7 @@ fun SearchScreen(
                     isOpen = isNavRailOpen.value,
                     onClose = {
                         isNavRailOpen.value = false
-                        runCatching { searchFocusRequester.requestFocus() }
+                        focusTopZone()
                     },
                     currentScreen = com.arflix.tv.data.model.NavSectionKind.SEARCH,
                     navSections = navSections,
@@ -506,6 +521,9 @@ fun SearchScreen(
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Discover (was Find): no search box -- searching lives in the guide now
+                // (Joe, 2026-09-30). Focus starts on, and Up/Back stop at, the filter chips.
+                if (!discoverMode) {
                 SearchInputBar(
                     query = uiState.query,
                     searchBarWidth = searchBarWidth,
@@ -550,6 +568,7 @@ fun SearchScreen(
                         }
                     }
                 )
+                }
             }
 
             // ── Filter Chips (discover mode) - focusable with D-pad ──
