@@ -1077,13 +1077,20 @@ fun LiveTvScreen(
     // Always snap back to Favorites on entry if the user has any.
     LaunchedEffect(enrichedState.value !== EnrichedChannels.Empty) {
         if (!isTouchDevice && enrichedState.value !== EnrichedChannels.Empty) {
-            if (state.snapshot.favoriteChannels.isNotEmpty()) {
+            // Favorites only when there's nothing to resume -- forcing "fav" here fought the
+            // resume-last-channel logic (alignedOnEntry then had to move it back).
+            if (playingChannelId == null && state.snapshot.favoriteChannels.isNotEmpty()) {
                 selectedCategoryId = "fav"
             }
-            focusZone = LiveTvFocusZone.CHANNEL_LIST
+            // Let the guide settle on the playing channel's group, then open with the group
+            // list showing and that group highlighted (Joe, 2026-09-30: start like "screen 2").
+            repeat(20) {
+                if (alignedOnEntry) return@repeat
+                delay(50L)
+            }
             delay(80L)
             focusSelectedChannelSignal += 1
-            runCatching { epgFocus.requestFocus() }
+            openSidebar()
         }
     }
 
