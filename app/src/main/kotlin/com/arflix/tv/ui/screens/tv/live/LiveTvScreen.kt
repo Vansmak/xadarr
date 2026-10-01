@@ -629,6 +629,30 @@ fun LiveTvScreen(
     }
     var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
+    // Entering Now Playing with a channel already playing (back from another screen -- the player
+    // keeps running) used to leave the guide on its default Favorites list, highlighting nothing
+    // you were watching (Joe, 2026-09-30). Show the playing channel's group -- or Recent, where it
+    // is at the top -- and highlight it. Once per entry.
+    var alignedOnEntry by remember { mutableStateOf(false) }
+    LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
+        if (alignedOnEntry) return@LaunchedEffect
+        val id = playingChannelId ?: return@LaunchedEffect
+        if (isLibraryChannelId(id)) { alignedOnEntry = true; return@LaunchedEffect }
+        if (enrichedState.value.index.byId[id] == null) return@LaunchedEffect // not loaded yet
+        if (filteredChannels.none { it.id == id }) {
+            val remembered = LiveTvResumeMemory.categoryId
+                ?.takeIf { LiveTvResumeMemory.channelId == id && it != selectedCategoryId }
+            when {
+                remembered != null -> selectedCategoryId = remembered
+                selectedCategoryId != "recent" -> selectedCategoryId = "recent"
+                else -> alignedOnEntry = true // nowhere better to show it
+            }
+            return@LaunchedEffect // re-runs once filteredChannels reflects the new category
+        }
+        alignedOnEntry = true
+        focusedChannelId = id
+        focusSelectedChannelSignal += 1
+    }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
     var focusSearchCategorySignal by remember { mutableIntStateOf(1) }
     var focusCategorySignal by remember { mutableIntStateOf(0) }
@@ -1726,6 +1750,17 @@ fun LiveTvScreen(
                     onNavigateToDetails(media.mediaType, media.id)
                 },
                 favoriteIds = favSet,
+                libraryItems = remember(showsGuideSchedule, movieGuide) {
+                    showsGuideSchedule.mapNotNull { show ->
+                        show.tmdbId?.let { id ->
+                            com.arflix.tv.data.model.MediaItem(id = id, title = show.title, mediaType = MediaType.TV, backdrop = show.fanart)
+                        }
+                    } + movieGuide.movies.map { m ->
+                        com.arflix.tv.data.model.MediaItem(id = m.tmdbId, title = m.title, year = m.year?.toString().orEmpty(), mediaType = MediaType.MOVIE, backdrop = m.fanart)
+                    } + movieGuide.premiering.map { m ->
+                        com.arflix.tv.data.model.MediaItem(id = m.tmdbId, title = m.title, year = m.year?.toString().orEmpty(), mediaType = MediaType.MOVIE, backdrop = m.fanart)
+                    }
+                },
                 libraryMediaKeys = remember(showsGuideSchedule, movieGuide) {
                     (showsGuideSchedule.mapNotNull { it.tmdbId?.let { id -> "tv:$id" } } +
                         movieGuide.movies.map { "movie:${it.tmdbId}" } +

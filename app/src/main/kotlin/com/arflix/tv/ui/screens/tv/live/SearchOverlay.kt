@@ -196,6 +196,9 @@ fun SearchOverlay(
     // library (Movies & Shows rows say "In library" instead of offering to add).
     favoriteIds: Set<String> = emptySet(),
     libraryMediaKeys: Set<String> = emptySet(),
+    // Your own shows/movies (Sonarr/Radarr), matched locally and instantly -- they lead the
+    // Movies & Shows row, ahead of TMDB results that could be added.
+    libraryItems: List<MediaItem> = emptyList(),
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
     // Long-press (520ms hold, Menu key, or touch long-press — same gesture as RemoteStreamRow's
@@ -212,6 +215,18 @@ fun SearchOverlay(
     var remoteLoading by remember { mutableStateOf(false) }
     var mediaResults by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var programResults by remember { mutableStateOf<List<EventHit>>(emptyList()) }
+    // Movies & Shows row: library matches first (instant), then TMDB results not already shown.
+    val titleRow = remember(debounced, libraryItems, mediaResults) {
+        val q = debounced.trim().lowercase()
+        if (q.length < 2) {
+            emptyList()
+        } else {
+            fun key(m: MediaItem) = (if (m.mediaType == com.arflix.tv.data.model.MediaType.TV) "tv:" else "movie:") + m.id
+            val lib = libraryItems.filter { it.title.lowercase().contains(q) }
+            val libKeys = lib.mapTo(HashSet(), ::key)
+            lib + mediaResults.filterNot { key(it) in libKeys }
+        }
+    }
     // Events whose other channels are shown (Right on the row expands, Left collapses).
     var expandedEvents by remember { mutableStateOf<Set<String>>(emptySet()) }
     var mediaLoading by remember { mutableStateOf(false) }
@@ -430,7 +445,7 @@ fun SearchOverlay(
                             // matches sitting unreachable below it.
                             if (ev.type == KeyEventType.KeyDown &&
                                 ev.key == Key.DirectionDown &&
-                                (results.isNotEmpty() || programResults.isNotEmpty())
+                                (titleRow.isNotEmpty() || results.isNotEmpty() || programResults.isNotEmpty())
                             ) {
                                 resultsFocused = true
                                 overlayScope.launch {
@@ -476,6 +491,33 @@ fun SearchOverlay(
                 modifier = Modifier.fillMaxWidth().height(440.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                if (debounced.length >= 2 && (titleRow.isNotEmpty() || mediaLoading)) {
+                    item(key = "titles") {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = if (mediaLoading && titleRow.isEmpty()) "SEARCHING MOVIES & SHOWS…" else "MOVIES & SHOWS",
+                                style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                            )
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
+                                items(titleRow, key = { "title:${it.mediaType}:${it.id}" }) { media ->
+                                    val isFirst = media === titleRow.first()
+                                    val key = (if (media.mediaType == com.arflix.tv.data.model.MediaType.TV) "tv:" else "movie:") + media.id
+                                    TitleCard(
+                                        media = media,
+                                        inLibrary = key in libraryMediaKeys,
+                                        onPick = { onPickMedia(media) },
+                                        onMoveUp = { resultsFocused = false; runCatching { focusRequester.requestFocus() } },
+                                        modifier = if (isFirst) Modifier.focusRequester(firstResultFocus) else Modifier,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (programResults.isNotEmpty()) {
                     item(key = "program-header") {
                         Text(
@@ -485,7 +527,7 @@ fun SearchOverlay(
                         )
                     }
                     items(programResults, key = { "event:${it.key}" }) { event ->
-                        val isFirst = event === programResults.first()
+                        val isFirst = titleRow.isEmpty() && event === programResults.first()
                         val expanded = event.key in expandedEvents
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             SearchResultRow(
@@ -531,7 +573,7 @@ fun SearchOverlay(
                         }
                     }
                     items(results, key = { it.channel.id }) { hit ->
-                        val isFirst = programResults.isEmpty() && hit.channel.id == results.first().channel.id
+                        val isFirst = titleRow.isEmpty() && programResults.isEmpty() && hit.channel.id == results.first().channel.id
                         SearchResultRow(
                             hit = hit,
                             langLabel = detectLanguage(hit.channel, hit.matchedProgram),
@@ -544,19 +586,6 @@ fun SearchOverlay(
                             },
                             modifier = if (isFirst) Modifier.focusRequester(firstResultFocus) else Modifier,
                         )
-                    }
-                }
-                if (debounced.length >= 2) {
-                    item(key = "media-header") {
-                        Text(
-                            text = if (mediaLoading) "SEARCHING MOVIES & SHOWS…" else "MOVIES & SHOWS",
-                            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
-                            modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
-                        )
-                    }
-                    items(mediaResults, key = { "media:${it.mediaType}:${it.id}" }) { media ->
-                        val key = (if (media.mediaType == com.arflix.tv.data.model.MediaType.TV) "tv:" else "movie:") + media.id
-                        MediaSearchResultRow(media = media, inLibrary = key in libraryMediaKeys, onPick = { onPickMedia(media) })
                     }
                 }
                 if (remoteSearchAvailable && debounced.length >= 2) {
@@ -582,6 +611,88 @@ fun SearchOverlay(
                 }
             }
         }
+    }
+}
+
+/** Landscape card in the Movies & Shows row: backdrop, title, IN LIBRARY / + ADD. */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TitleCard(
+    media: MediaItem,
+    inLibrary: Boolean,
+    onPick: () -> Unit,
+    onMoveUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val accent = LocalFocusBorderColorOverride.current ?: LiveColors.Accent
+    Column(
+        modifier = modifier
+            .width(196.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) LiveColors.Panel else Color.Transparent)
+            .border(
+                width = if (focused) 3.dp else 0.dp,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .onFocusChanged { focused = it.hasFocus }
+            .focusable()
+            .onKeyEvent { ev ->
+                when {
+                    ev.type != KeyEventType.KeyDown -> false
+                    ev.key == Key.DirectionCenter || ev.key == Key.Enter -> { onPick(); true }
+                    ev.key == Key.DirectionUp -> { onMoveUp(); true }
+                    else -> false
+                }
+            }
+            .pointerInput(media.id, media.mediaType) { detectTapGestures(onTap = { onPick() }) }
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(104.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(LiveColors.PanelDeep),
+        ) {
+            val art = media.backdrop?.takeIf { it.isNotBlank() } ?: media.image.takeIf { it.isNotBlank() }
+            if (art != null) {
+                AsyncImage(
+                    model = art,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (inLibrary) accent else Color(0xCC000000))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    if (inLibrary) "IN LIBRARY" else "+ ADD",
+                    style = LiveType.Badge.copy(color = if (inLibrary) LiveColors.PanelDeep else LiveColors.Fg, fontSize = 9.sp),
+                )
+            }
+        }
+        Text(
+            text = media.title,
+            style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 13.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = listOfNotNull(
+                if (media.mediaType == com.arflix.tv.data.model.MediaType.TV) "Show" else "Movie",
+                media.year.takeIf { it.isNotBlank() },
+            ).joinToString(" · "),
+            style = LiveType.SectionTag.copy(color = LiveColors.FgMute, fontSize = 11.sp),
+        )
     }
 }
 
