@@ -1976,14 +1976,20 @@ fun LiveTvScreen(
         // loading screen"): a random backdrop from his own library while the IPTV channels load
         // on a cold start. Returning to the guide reuses cached channels, so it doesn't show
         // then; capped at 20s so a setup with no IPTV can never leave it up.
-        // The newest download across shows and movies (Joe: "prefer latest download"), named on
-        // the screen so loading doubles as a "just arrived" card.
+        // A random title that's ready to watch -- a show with its next episode downloaded, or an
+        // unwatched movie -- different each cold start. Was "latest download", which tended to
+        // be things like UFC (Joe, 2026-09-30: "doesn't excite me media wise").
         var splash by remember { mutableStateOf<Pair<String, String>?>(null) }
         LaunchedEffect(showsGuideSchedule, movieGuide) {
             if (splash == null) {
-                val candidates = showsGuideSchedule.mapNotNull { s -> s.fanart?.let { Triple(s.lastAdded.orEmpty(), it, s.title) } } +
-                    movieGuide.movies.mapNotNull { m -> m.fanart?.let { Triple(m.lastAdded.orEmpty(), it, m.title) } }
-                splash = candidates.maxByOrNull { it.first }?.let { it.second to it.third }
+                val shows = showsGuideSchedule.mapNotNull { s ->
+                    val ep = s.now ?: return@mapNotNull null
+                    s.fanart?.let { it to "UP NEXT · ${s.title} S${ep.season}E${ep.episode}" }
+                }
+                val movies = movieGuide.movies.filter { !it.watched }.mapNotNull { m ->
+                    m.fanart?.let { it to "READY TO WATCH · ${m.title}" }
+                }
+                splash = (shows + movies).randomOrNull()
             }
         }
         val splashArt = splash?.first
@@ -2029,9 +2035,9 @@ fun LiveTvScreen(
                         .padding(start = 64.dp, bottom = 56.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    splash?.second?.let { title ->
+                    splash?.second?.let { caption ->
                         Text(
-                            text = "JUST DOWNLOADED · $title",
+                            text = caption,
                             style = LiveType.SectionTag.copy(
                                 color = LocalFocusBorderColorOverride.current ?: LiveColors.Accent,
                                 fontSize = 14.sp,
