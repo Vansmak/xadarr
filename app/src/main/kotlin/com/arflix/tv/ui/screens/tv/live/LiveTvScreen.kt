@@ -314,6 +314,13 @@ fun LiveTvScreen(
         "movies=${movieGuide.movies.size}/${movieGuide.premiering.size}:" +
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
+        // Returning to the guide: the new TvViewModel hasn't re-read the playlist yet, but the
+        // session cache already holds the fully built guide -- keep showing it instead of
+        // blanking to the loading screen. Real playlist changes clear the cache.
+        if (state.snapshot.channels.isEmpty() && viewModel.cachedEnrichedChannels is EnrichedChannels) {
+            enrichedState.value = viewModel.cachedEnrichedChannels as EnrichedChannels
+            return@LaunchedEffect
+        }
         val snapshot = state.snapshot.channels +
             pinnedProviderChannels.map { it.toIptvChannel(PinnedChannelsGroup) } +
             showsGuideSchedule.map { it.toIptvChannel() } +

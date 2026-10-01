@@ -61,6 +61,18 @@ data class TvUiState(
             config.playlists.any { it.enabled && it.m3uUrl.isNotBlank() }
 }
 
+/**
+ * Guide state that must outlive a single TvViewModel: Home's back-stack entry (and so its
+ * ViewModel) is recreated on every return to the guide. Process lifetime, so a cold start
+ * still loads fresh.
+ */
+object GuideSessionCache {
+    @Volatile var enrichedChannels: Any? = null
+    @Volatile var channelsSignature: String? = null
+    @Volatile var shows: List<com.arflix.tv.data.repository.ShowGuideEntry> = emptyList()
+    @Volatile var movies: com.arflix.tv.data.repository.MovieGuide = com.arflix.tv.data.repository.MovieGuide()
+}
+
 @HiltViewModel
 class TvViewModel @Inject constructor(
     val iptvRepository: IptvRepository,
@@ -223,7 +235,7 @@ class TvViewModel @Inject constructor(
     // just hit that cache repeatedly for no benefit. Refreshed by calling refreshShowsGuide()
     // (e.g. alongside a manual playlist refresh), not automatically.
     private val _showsGuideSchedule =
-        kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>>(emptyList())
+        kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>>(GuideSessionCache.shows)
     val showsGuideSchedule: StateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>> =
         _showsGuideSchedule.asStateFlow()
 
@@ -238,17 +250,28 @@ class TvViewModel @Inject constructor(
     // Synthetic Movies channels ("Watch Now" linear schedule + "Premiering"), refreshed together
     // with the Shows data.
     private val _movieGuide =
-        kotlinx.coroutines.flow.MutableStateFlow(com.arflix.tv.data.repository.MovieGuide())
+        kotlinx.coroutines.flow.MutableStateFlow(GuideSessionCache.movies)
     val movieGuide: StateFlow<com.arflix.tv.data.repository.MovieGuide> = _movieGuide.asStateFlow()
 
     fun refreshShowsGuide(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _showsGuideSchedule.value = runCatching { sonarrRepository.getShowsGuideSchedule(forceRefresh = forceRefresh) }
+            val shows = runCatching { sonarrRepository.getShowsGuideSchedule(forceRefresh = forceRefresh) }
                 .getOrDefault(emptyList())
+            // A failed fetch keeps what we had rather than blanking the Shows rows.
+            if (shows.isNotEmpty() || GuideSessionCache.shows.isEmpty()) {
+                _showsGuideSchedule.value = shows
+                GuideSessionCache.shows = shows
+            }
         }
         viewModelScope.launch {
-            _movieGuide.value = runCatching { radarrRepository.getMovieGuide(forceRefresh) }
+            val movies = runCatching { radarrRepository.getMovieGuide(forceRefresh) }
                 .getOrDefault(com.arflix.tv.data.repository.MovieGuide())
+            if (movies.movies.isNotEmpty() || movies.premiering.isNotEmpty() ||
+                (GuideSessionCache.movies.movies.isEmpty() && GuideSessionCache.movies.premiering.isEmpty())
+            ) {
+                _movieGuide.value = movies
+                GuideSessionCache.movies = movies
+            }
         }
     }
 
@@ -361,8 +384,16 @@ class TvViewModel @Inject constructor(
      * paint when returning to the TV screen — the costly enrichment of 52k
      * channels only runs once per session.
      */
-    @Volatile var cachedEnrichedChannels: Any? = null
-    @Volatile var cachedChannelsSignature: String? = null
+    // Backed by process-level storage (GuideSessionCache), not this ViewModel: navigateHome pops
+    // Home *inclusive*, so every return to the guide built a brand-new TvViewModel and this
+    // "only once per session" cache was thrown away each time -- the full re-enrichment (and the
+    // loading screen) ran again on every Discover -> Now Playing trip (Joe, 2026-09-30).
+    var cachedEnrichedChannels: Any?
+        get() = GuideSessionCache.enrichedChannels
+        set(value) { GuideSessionCache.enrichedChannels = value }
+    var cachedChannelsSignature: String?
+        get() = GuideSessionCache.channelsSignature
+        set(value) { GuideSessionCache.channelsSignature = value }
 
     private fun countBucket(count: Int): String = when {
         count < 100 -> "lt_100"
