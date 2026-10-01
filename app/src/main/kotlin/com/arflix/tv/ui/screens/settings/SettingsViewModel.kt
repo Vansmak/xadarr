@@ -538,7 +538,7 @@ class SettingsViewModel @Inject constructor(
             val webhookCompletionPercent = prefs[webhookCompletionPercentKey]?.toIntOrNull()?.coerceIn(50, 99) ?: Constants.WATCHED_THRESHOLD
             val pinnedApps = prefs[com.arflix.tv.data.repository.PINNED_APPS_KEY]
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
-                ?: listOf("org.smarttube.stable", "org.smarttube.beta", "com.cxinventor.file.explorer", "com.android.tv.settings")
+                ?: com.arflix.tv.data.repository.DEFAULT_PINNED_APPS
             val launcherModeEnabled = prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false
             val driveAccountName = prefs[DRIVE_ACCOUNT_NAME_KEY]?.takeIf { it.isNotBlank() }
             val driveAvailableAccounts = driveSyncRepository.listGoogleAccounts().map { it.name }

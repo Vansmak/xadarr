@@ -30,6 +30,16 @@ val USER_TMDB_API_KEY = stringPreferencesKey("user_tmdb_api_key")
 val USER_TRAKT_CLIENT_ID = stringPreferencesKey("user_trakt_client_id")
 val USER_TRAKT_CLIENT_SECRET = stringPreferencesKey("user_trakt_client_secret")
 val PINNED_APPS_KEY = stringPreferencesKey("pinned_apps") // comma-separated package names
+
+// What Manage Apps Row shows -- and the Home Apps row and Apps screen use -- until the user saves
+// their own list. One copy: the Apps screen read only the stored key, so with nothing saved it
+// ignored the list Manage Apps displayed (Joe, 2026-09-30: "cx explorer at 3 but it's not showing").
+val DEFAULT_PINNED_APPS = listOf(
+    "org.smarttube.stable",
+    "org.smarttube.beta",
+    "com.cxinventor.file.explorer",
+    "com.android.tv.settings",
+)
 val NEOLINK_URL_KEY = stringPreferencesKey("neolink_url")
 val HA_URL_KEY = stringPreferencesKey("ha_url")
 val HA_TOKEN_KEY = stringPreferencesKey("ha_token")

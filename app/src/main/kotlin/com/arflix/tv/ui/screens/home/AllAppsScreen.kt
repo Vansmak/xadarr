@@ -164,7 +164,8 @@ fun AllAppsScreen(
     var tvPinned by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) {
         tvPinned = context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PINNED_APPS_KEY]
-            .orEmpty().split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct()
+            ?: com.arflix.tv.data.repository.DEFAULT_PINNED_APPS
     }
 
     LaunchedEffect(Unit) {

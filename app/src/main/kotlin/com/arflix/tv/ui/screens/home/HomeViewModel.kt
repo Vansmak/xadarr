@@ -569,12 +569,7 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    private val defaultPinnedApps = listOf(
-        "org.smarttube.stable",
-        "org.smarttube.beta",
-        "com.cxinventor.file.explorer",
-        "com.android.tv.settings",
-    )
+    private val defaultPinnedApps = com.arflix.tv.data.repository.DEFAULT_PINNED_APPS
 
     private fun buildInstalledAppsCategory(): Category {
         val pm = context.packageManager
