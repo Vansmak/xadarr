@@ -102,6 +102,75 @@ private data class SearchHit(
 )
 
 /**
+ * One fixture/program airing on one or more channels, best channel first (see [channelRank]).
+ * Used to be one row per fixture keeping whichever channel happened to come first, which is how
+ * searching "baseball" tuned Joe to RDS -- a French-Canadian channel -- for Red Sox at Yankees
+ * when English US channels carried the same game (2026-09-30: "hit or miss").
+ */
+private data class EventHit(
+    val key: String,
+    val program: IptvProgram,
+    val channels: List<SearchHit>,
+)
+
+private val FrenchChannelHints = listOf(
+    "rds", "tva", "tqs", "radio-canada", "ici ", "télé", "tele-quebec", "télé-québec", "tv5",
+    "canal+", "noovo", "fr |", "fr:", "(fr)", "french", "bein sports fr",
+)
+private val SpanishChannelHints = listOf(
+    "deportes", "univision", "telemundo", "tudn", "unimas", "unimás", "galavision", "galavisión",
+    "español", "espanol", "latino", "es |", "es:", "mx |", "(es)", "spanish", "estrella",
+)
+private val EnglishWords = setOf("the", "and", "of", "to", "in", "with", "at", "on", "for", "from", "live")
+private val FrenchWords = setOf("le", "la", "les", "des", "du", "et", "à", "au", "aux", "pour", "avec", "une", "dans", "sur", "contre", "direct")
+private val SpanishWords = setOf("el", "los", "las", "del", "y", "con", "para", "una", "por", "al", "vivo", "contra", "partido")
+
+/**
+ * Best-effort spoken language for a channel ("EN", "FR", "ES", or the country code when that's
+ * all we know). [EnrichedChannel.lang] is really just the country, so a French-Canadian sports
+ * channel read as "CA". Uses name/group hints first, then the program text: French writes
+ * "Baseball MLB : Boston..." (space before the colon) and both have tell-tale function words.
+ */
+private fun detectLanguage(channel: EnrichedChannel, program: IptvProgram?): String {
+    val name = (channel.name + " " + channel.source.group).lowercase()
+    if (FrenchChannelHints.any { it in name }) return "FR"
+    if (SpanishChannelHints.any { it in name }) return "ES"
+    if (program != null) {
+        val text = (program.title + " " + program.description.orEmpty())
+        if (Regex("""\w :""").containsMatchIn(program.title)) return "FR"
+        val words = text.lowercase().split(Regex("""[^\p{L}]+""")).filter { it.isNotBlank() }
+        val en = words.count { it in EnglishWords }
+        val fr = words.count { it in FrenchWords }
+        val es = words.count { it in SpanishWords }
+        if (fr > en && fr >= es && fr >= 2) return "FR"
+        if (es > en && es > fr && es >= 2) return "ES"
+    }
+    return when (channel.country) {
+        null, "US", "UK", "GB", "CA", "AU", "IE", "NZ" -> "EN"
+        else -> channel.country
+    }
+}
+
+/** Higher = better place to watch. English, in your lineup, not Low BW, favorite, US, quality. */
+private fun channelRank(hit: SearchHit, favorites: Set<String>): Int {
+    val ch = hit.channel
+    var score = 0
+    if (detectLanguage(ch, hit.matchedProgram) == "EN") score += 1000
+    if (!hit.isOffLineup) score += 400
+    val lowBw = ch.source.group.contains("low bw", ignoreCase = true) || ch.name.startsWith("LBW", ignoreCase = true)
+    if (!lowBw) score += 200
+    if (ch.id in favorites) score += 150
+    if (ch.country == null || ch.country == "US") score += 100
+    score += when (ch.quality) {
+        Quality.K4 -> 40
+        Quality.FHD -> 30
+        Quality.HD -> 20
+        Quality.SD -> 10
+    }
+    return score
+}
+
+/**
  * Modal search overlay. Spec §3.5 — 760dp panel, accent caret, result rows with
  * channel number / logo / name / category / quality / lang.
  *
@@ -123,6 +192,10 @@ fun SearchOverlay(
     onTogglePin: (RawProviderStream) -> Unit = {},
     onMediaSearch: suspend (String) -> List<MediaItem> = { emptyList() },
     onPickMedia: (MediaItem) -> Unit = {},
+    // Favorite channel ids (ranking boost) and "movie:<tmdb>"/"tv:<tmdb>" keys already in the
+    // library (Movies & Shows rows say "In library" instead of offering to add).
+    favoriteIds: Set<String> = emptySet(),
+    libraryMediaKeys: Set<String> = emptySet(),
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
     // Long-press (520ms hold, Menu key, or touch long-press — same gesture as RemoteStreamRow's
@@ -138,7 +211,9 @@ fun SearchOverlay(
     var remoteResults by remember { mutableStateOf<List<RawProviderStream>>(emptyList()) }
     var remoteLoading by remember { mutableStateOf(false) }
     var mediaResults by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var programResults by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
+    var programResults by remember { mutableStateOf<List<EventHit>>(emptyList()) }
+    // Events whose other channels are shown (Right on the row expands, Left collapses).
+    var expandedEvents by remember { mutableStateOf<Set<String>>(emptySet()) }
     var mediaLoading by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
@@ -272,18 +347,21 @@ fun SearchOverlay(
                         .distinctBy { p -> p.title to p.startUtcMillis }
                         .map { prog -> SearchHit(ch, prog, ch.source.group in offLineupGroups) }
                 }
-                .sortedBy { hit -> hit.matchedProgram?.startUtcMillis ?: Long.MAX_VALUE }
-                // One row per fixture. The same game is carried by several channels — and by
-                // the same channel's regional variants — so without this a single match filled
-                // the whole list and buried everything else. Sorted by start time first, so the
-                // survivor is the earliest, and the channel shown is a real place to watch it.
-                .distinctBy { hit ->
-                    (hit.matchedProgram?.title?.lowercase()?.trim() ?: hit.channel.id) to
+                // One row per fixture: the same game is carried by several channels (and regional
+                // variants), grouped here with the best place to watch it first.
+                .groupBy { hit ->
+                    (hit.matchedProgram?.title?.lowercase()?.trim() ?: hit.channel.id) + "@" +
                         (hit.matchedProgram?.startUtcMillis ?: 0L)
                 }
-                .take(80)
+                .map { (key, hits) ->
+                    val ranked = hits.distinctBy { it.channel.id }.sortedByDescending { channelRank(it, favoriteIds) }
+                    EventHit(key = key, program = ranked.first().matchedProgram!!, channels = ranked)
+                }
+                .sortedBy { it.program.startUtcMillis }
+                .take(60)
                 .toList()
         }
+        expandedEvents = emptySet()
     }
 
     Box(
@@ -398,56 +476,87 @@ fun SearchOverlay(
                 modifier = Modifier.fillMaxWidth().height(440.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(results, key = { it.channel.id }) { hit ->
-                    val focusMod = if (results.isNotEmpty() && hit.channel.id == results.first().channel.id) {
-                        Modifier.focusRequester(firstResultFocus)
-                    } else Modifier
-                    SearchResultRow(
-                        hit = hit,
-                        onPick = onPick,
-                        onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
-                        onMoveUp = if (results.isNotEmpty() && hit.channel.id == results.first().channel.id) {
-                            { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
-                        } else {
-                            null
-                        },
-                        modifier = focusMod,
-                    )
-                }
                 if (programResults.isNotEmpty()) {
                     item(key = "program-header") {
                         Text(
                             text = "ON NOW & COMING UP",
                             style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
-                            modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
+                            modifier = Modifier.padding(top = 4.dp, start = 4.dp, bottom = 2.dp),
                         )
                     }
-                    items(
-                        programResults,
-                        // Keyed on the programme, not the channel: one channel can legitimately
-                        // appear several times here when it is showing more than one match.
-                        key = { hit -> "prog:${hit.channel.id}:${hit.matchedProgram?.startUtcMillis ?: 0L}" },
-                    ) { hit ->
-                        // When nothing matched on channel name, the programmes are the whole
-                        // result set, so the first of them has to be what Down from the text
-                        // field lands on. Without this the focus requester was attached to a row
-                        // that did not exist and the request silently failed.
-                        val isFirstFocusable = results.isEmpty() && hit == programResults.first()
+                    items(programResults, key = { "event:${it.key}" }) { event ->
+                        val isFirst = event === programResults.first()
+                        val expanded = event.key in expandedEvents
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            SearchResultRow(
+                                hit = event.channels.first(),
+                                langLabel = detectLanguage(event.channels.first().channel, event.program),
+                                moreCount = event.channels.size - 1,
+                                expanded = expanded,
+                                onToggleExpand = {
+                                    expandedEvents = if (expanded) expandedEvents - event.key else expandedEvents + event.key
+                                },
+                                onPick = onPick,
+                                onShowInfo = { onShowInfo(event.channels.first().channel, event.program) },
+                                onMoveUp = if (isFirst) {
+                                    { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
+                                } else {
+                                    null
+                                },
+                                modifier = if (isFirst) Modifier.focusRequester(firstResultFocus) else Modifier,
+                            )
+                            if (expanded) {
+                                event.channels.drop(1).forEach { alt ->
+                                    SearchResultRow(
+                                        hit = alt,
+                                        langLabel = detectLanguage(alt.channel, alt.matchedProgram),
+                                        indent = 40.dp,
+                                        onCollapse = { expandedEvents = expandedEvents - event.key },
+                                        onPick = onPick,
+                                        onShowInfo = { onShowInfo(alt.channel, alt.matchedProgram) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if (results.isNotEmpty()) {
+                    if (debounced.isNotEmpty()) {
+                        item(key = "channel-header") {
+                            Text(
+                                text = "CHANNELS",
+                                style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                                modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
+                            )
+                        }
+                    }
+                    items(results, key = { it.channel.id }) { hit ->
+                        val isFirst = programResults.isEmpty() && hit.channel.id == results.first().channel.id
                         SearchResultRow(
                             hit = hit,
+                            langLabel = detectLanguage(hit.channel, hit.matchedProgram),
                             onPick = onPick,
                             onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
-                            onMoveUp = if (isFirstFocusable) {
+                            onMoveUp = if (isFirst) {
                                 { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
                             } else {
                                 null
                             },
-                            modifier = if (isFirstFocusable) {
-                                Modifier.focusRequester(firstResultFocus)
-                            } else {
-                                Modifier
-                            },
+                            modifier = if (isFirst) Modifier.focusRequester(firstResultFocus) else Modifier,
                         )
+                    }
+                }
+                if (debounced.length >= 2) {
+                    item(key = "media-header") {
+                        Text(
+                            text = if (mediaLoading) "SEARCHING MOVIES & SHOWS…" else "MOVIES & SHOWS",
+                            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                            modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(mediaResults, key = { "media:${it.mediaType}:${it.id}" }) { media ->
+                        val key = (if (media.mediaType == com.arflix.tv.data.model.MediaType.TV) "tv:" else "movie:") + media.id
+                        MediaSearchResultRow(media = media, inLibrary = key in libraryMediaKeys, onPick = { onPickMedia(media) })
                     }
                 }
                 if (remoteSearchAvailable && debounced.length >= 2) {
@@ -471,18 +580,6 @@ fun SearchOverlay(
                         )
                     }
                 }
-                if (debounced.length >= 2) {
-                    item(key = "media-header") {
-                        Text(
-                            text = if (mediaLoading) "SEARCHING MOVIES & SHOWS…" else "MOVIES & SHOWS",
-                            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
-                            modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 2.dp),
-                        )
-                    }
-                    items(mediaResults, key = { "media:${it.mediaType}:${it.id}" }) { media ->
-                        MediaSearchResultRow(media = media, onPick = { onPickMedia(media) })
-                    }
-                }
             }
         }
     }
@@ -497,6 +594,7 @@ fun SearchOverlay(
 @Composable
 private fun MediaSearchResultRow(
     media: MediaItem,
+    inLibrary: Boolean = false,
     onPick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -555,6 +653,21 @@ private fun MediaSearchResultRow(
                 style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
             )
         }
+        // Already yours (play it from its page) vs. something its page can add.
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (inLibrary) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.22f) else LiveColors.Panel)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text(
+                if (inLibrary) "IN LIBRARY" else "+ ADD",
+                style = LiveType.Badge.copy(
+                    color = if (inLibrary) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FgMute,
+                    fontSize = 10.sp,
+                ),
+            )
+        }
     }
 }
 
@@ -565,6 +678,15 @@ private fun SearchResultRow(
     onPick: (EnrichedChannel) -> Unit,
     onShowInfo: () -> Unit = {},
     onMoveUp: (() -> Unit)? = null,
+    // Detected spoken language (see detectLanguage), shown instead of the bare country code.
+    langLabel: String = hit.channel.lang,
+    // Event rows: how many other channels carry it; Right expands them, Left collapses.
+    moreCount: Int = 0,
+    expanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
+    // Alternate-channel rows under an expanded event: indented, Left collapses the event.
+    indent: androidx.compose.ui.unit.Dp = 0.dp,
+    onCollapse: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val channel = hit.channel
@@ -577,6 +699,7 @@ private fun SearchResultRow(
     val scope = rememberCoroutineScope()
     Row(
         modifier = modifier
+            .padding(start = indent)
             .fillMaxWidth()
             .height(if (hit.matchedProgram != null) 72.dp else 64.dp)
             .clip(RoundedCornerShape(10.dp))
@@ -629,6 +752,15 @@ private fun SearchResultRow(
                             false
                         }
                     }
+                    ev.key == Key.DirectionRight && moreCount > 0 && !expanded && onToggleExpand != null -> {
+                        onToggleExpand(); true
+                    }
+                    ev.key == Key.DirectionLeft && expanded && onToggleExpand != null -> {
+                        onToggleExpand(); true
+                    }
+                    ev.key == Key.DirectionLeft && onCollapse != null -> {
+                        onCollapse(); true
+                    }
                     else -> false
                 }
             }
@@ -673,6 +805,12 @@ private fun SearchResultRow(
             }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (moreCount > 0) {
+                Text(
+                    text = if (expanded) "◂ hide" else "+$moreCount more ▸",
+                    style = LiveType.Badge.copy(color = LiveColors.FgDim, fontSize = 11.sp),
+                )
+            }
             if (hit.isOffLineup) {
                 Box(
                     modifier = Modifier
@@ -708,7 +846,12 @@ private fun SearchResultRow(
                         .background(LiveColors.Panel)
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                 ) {
-                    Text(channel.lang, style = LiveType.Badge.copy(color = LiveColors.FgMute))
+                    Text(
+                        langLabel,
+                        style = LiveType.Badge.copy(
+                            color = if (langLabel == "EN") LiveColors.FgMute else (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
+                        ),
+                    )
                 }
             }
         }

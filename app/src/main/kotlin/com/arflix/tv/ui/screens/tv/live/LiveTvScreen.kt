@@ -1688,6 +1688,12 @@ fun LiveTvScreen(
                     searchOpen = false
                     onNavigateToDetails(media.mediaType, media.id)
                 },
+                favoriteIds = favSet,
+                libraryMediaKeys = remember(showsGuideSchedule, movieGuide) {
+                    (showsGuideSchedule.mapNotNull { it.tmdbId?.let { id -> "tv:$id" } } +
+                        movieGuide.movies.map { "movie:${it.tmdbId}" } +
+                        movieGuide.premiering.map { "movie:${it.tmdbId}" }).toSet()
+                },
                 onDismiss = { searchOpen = false },
                 onPick = { channel -> tuneFromSearch(channel) },
                 onShowInfo = { channel, program ->

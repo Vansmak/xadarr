@@ -78,6 +78,7 @@ data class ShowGuideEntry(
     val fanart: String? = null,   // 16:9 backdrop for the guide's preview box
     val overview: String = "",
     val rule: String? = null,     // assigned Episeerr rule key, for the guide's Change Rule
+    val tmdbId: Int? = null,      // for "In library" marks in guide search
 )
 
 data class SonarrSeriesSummary(
@@ -325,6 +326,7 @@ class SonarrRepository @Inject constructor(
                             fanart = s.optString("fanart").takeIf { it.isNotBlank() },
                             overview = s.optString("overview"),
                             rule = s.optString("rule").takeIf { it.isNotBlank() && it != "null" },
+                            tmdbId = s.optInt("tmdbId", -1).takeIf { it > 0 },
                         )
                     )
                 }

@@ -147,7 +147,7 @@ fun SearchScreen(
     }
 
     val discoverMode = true
-    var focusZone by remember { mutableStateOf(if (discoverMode) FocusZone.FILTERS else FocusZone.SEARCH_INPUT) }
+    var focusZone by remember { mutableStateOf(if (discoverMode) FocusZone.RESULTS else FocusZone.SEARCH_INPUT) }
     val neolinkConfigured = LocalNeolinkConfigured.current
     val navSections = com.arflix.tv.util.LocalNavSections.current
     val isNavRailOpen = com.arflix.tv.ui.components.rememberNavRailOpen()
@@ -183,7 +183,9 @@ fun SearchScreen(
     // Top of the screen: the search box, or in Discover mode the filter chips.
     fun focusTopZone() {
         if (discoverMode) {
-            focusZone = FocusZone.FILTERS
+            // No chips in Discover: focus sits on an invisible anchor so this screen's key
+            // handler drives the rows (see the anchor Box below).
+            focusZone = FocusZone.RESULTS
             runCatching { filtersFocusRequester.requestFocus() }
         } else {
             focusZone = FocusZone.SEARCH_INPUT
@@ -195,7 +197,9 @@ fun SearchScreen(
     val comedyGenre = remember { ALL_GENRES.firstOrNull { it.id == 35 } }
     val horrorGenre = remember { ALL_GENRES.firstOrNull { it.id == 27 } }
     val sciFiGenre = remember { ALL_GENRES.firstOrNull { it.id == 878 } }
-    val quickFilters = listOfNotNull(
+    // Discover drops the All/Movies/TV/Anime chips (Joe, 2026-09-30: "don't do anything, lose
+    // them ... I hate anime"): rows always mix movies and shows.
+    val quickFilters = if (discoverMode) emptyList() else listOfNotNull(
         DiscoverQuickFilter(
             key = "all",
             label = "All",
@@ -237,6 +241,9 @@ fun SearchScreen(
     LaunchedEffect(uiState.selectedType, uiState.selectedGenre?.id, uiState.selectedCountry?.code) {
         currentRowIndex = 0
         currentItemIndex = 0
+    }
+    LaunchedEffect(Unit) {
+        if (discoverMode && uiState.selectedType != DiscoverType.ALL) viewModel.setDiscoverFilters(DiscoverType.ALL, null, null)
     }
 
     // LaunchedEffect to restore RESULTS focus when results become available
@@ -311,6 +318,7 @@ fun SearchScreen(
                             focusedFilterIndex = focusedFilterIndex.coerceIn(0, (quickFilters.size - 1).coerceAtLeast(0))
                             try { filtersFocusRequester.requestFocus() } catch (_: Exception) {}
                         }
+                        else if (discoverMode) onBack()
                         else focusTopZone()
                         true
                     }
@@ -571,6 +579,9 @@ fun SearchScreen(
                 }
             }
 
+            if (discoverMode && !isTouchDevice) {
+                Box(Modifier.size(1.dp).focusRequester(filtersFocusRequester).focusable())
+            }
             // ── Filter Chips (discover mode) - focusable with D-pad ──
             if (showFilters) {
                 DiscoverFilterStrip(
