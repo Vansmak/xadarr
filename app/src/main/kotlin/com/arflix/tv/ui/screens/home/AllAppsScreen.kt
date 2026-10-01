@@ -124,11 +124,14 @@ private sealed class AppsGridEntry {
     data class InstalledApp(val entry: AppEntry) : AppsGridEntry()
     // TV: last tile, expands the filtered list to every installed app (or collapses it again).
     data class ToggleAll(val showingAll: Boolean, val hiddenCount: Int) : AppsGridEntry()
+    // TV: opens Manage Apps Row (pin/reorder) right here, the list this screen honors.
+    object Manage : AppsGridEntry()
 
     val key: String get() = when (this) {
         is BookmarkEntry -> "bm:${bookmark.name}"
         is InstalledApp -> entry.packageName
         is ToggleAll -> "__toggle_all_apps__"
+        is Manage -> "__manage_apps__"
     }
 }
 
@@ -161,6 +164,7 @@ fun AllAppsScreen(
     var showAppsPicker by remember { mutableStateOf(false) }
     // TV: media apps + Manage Apps picks by default; the All apps tile shows everything.
     var tvShowAll by remember { mutableStateOf(false) }
+    var showManageApps by remember { mutableStateOf(false) }
     var tvPinned by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) {
         tvPinned = context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PINNED_APPS_KEY]
@@ -264,7 +268,8 @@ fun AllAppsScreen(
         } else {
             val hidden = allInstalledApps.size - tvFilteredApps.size
             displayedApps.map { AppsGridEntry.InstalledApp(it) } +
-                listOfNotNull(AppsGridEntry.ToggleAll(tvShowAll, hidden).takeIf { hidden > 0 })
+                listOfNotNull(AppsGridEntry.ToggleAll(tvShowAll, hidden).takeIf { hidden > 0 }) +
+                AppsGridEntry.Manage
         }
     }
 
@@ -280,6 +285,22 @@ fun AllAppsScreen(
     DisposableEffect(webviewUrl) {
         onBookmarkWebviewOpenChanged(webviewUrl != null)
         onDispose { onBookmarkWebviewOpenChanged(false) }
+    }
+
+    if (showManageApps) {
+        com.arflix.tv.ui.screens.settings.ManageAppsModal(
+            pinnedApps = tvPinned,
+            onSave = { packages ->
+                tvPinned = packages
+                showManageApps = false
+                coroutineScope.launch {
+                    context.settingsDataStore.edit {
+                        it[com.arflix.tv.data.repository.PINNED_APPS_KEY] = packages.joinToString(",")
+                    }
+                }
+            },
+            onDismiss = { showManageApps = false },
+        )
     }
 
     if (webviewUrl != null) {
@@ -365,6 +386,14 @@ fun AllAppsScreen(
                                 onFocused = {},
                                 enableSystemFocus = true,
                                 onClick = { launchApp(context, gridEntry.entry.packageName) }
+                            )
+                            is AppsGridEntry.Manage -> BookmarkTileCard(
+                                iconUrl = null,
+                                label = "Manage apps",
+                                isFocused = false,
+                                onFocused = {},
+                                enableSystemFocus = true,
+                                onClick = { showManageApps = true },
                             )
                             is AppsGridEntry.ToggleAll -> BookmarkTileCard(
                                 iconUrl = null,

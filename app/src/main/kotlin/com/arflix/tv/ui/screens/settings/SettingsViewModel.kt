@@ -259,15 +259,8 @@ class SettingsViewModel @Inject constructor(
     private val navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
     private val episeerrRepository: com.arflix.tv.data.repository.EpiseerrRepository,
 ) : ViewModel() {
-    private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> {
-        return catalogs.filter { config ->
-            when (config.kind) {
-                CatalogKind.COLLECTION -> false
-                CatalogKind.COLLECTION_RAIL -> CollectionTemplateManifest.isValidCollectionConfig(config)
-                else -> true
-            }
-        }
-    }
+    private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> =
+        catalogs.filter { catalogRepository.isShownInCatalogSettings(it) }
 
 
     private val _uiState = MutableStateFlow(SettingsUiState())

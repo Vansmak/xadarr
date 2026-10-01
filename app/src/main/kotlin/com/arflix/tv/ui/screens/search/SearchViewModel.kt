@@ -171,7 +171,7 @@ class SearchViewModel @Inject constructor(
 
             val allCatalogs = catalogRepository.getCatalogs()
             val searchCatalogs = allCatalogs
-                .filter { !it.isHidden && it.placement == CatalogPlacement.SEARCH && it.kind != CatalogKind.COLLECTION }
+                .filter { !it.isHidden && catalogRepository.isDiscoverRow(it) }
 
             val categories = mutableListOf<Category>()
 

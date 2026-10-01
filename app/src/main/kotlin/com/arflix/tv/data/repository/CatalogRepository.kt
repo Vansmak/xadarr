@@ -793,13 +793,30 @@ class CatalogRepository @Inject constructor(
         return current
     }
 
-    private fun isVisibleCatalogInSettings(config: CatalogConfig): Boolean {
+    /**
+     * Whether a catalog is a row on the Discover screen -- the only place catalogs render since
+     * the guide replaced Home and the old Discover screen became a redirect (Joe, 2026-09-30:
+     * of 76 catalogs, ~70 showed nowhere). DISCOVER/SEARCH placements and the user's own
+     * Trakt/MDBList lists count; Home-era rows (On Now, Apps, Cameras, collections, home-server
+     * libraries) don't. Nothing is deleted -- they just aren't listed.
+     */
+    fun isDiscoverRow(config: CatalogConfig): Boolean {
         if (config.kind == CatalogKind.COLLECTION) return false
         if (config.kind == CatalogKind.COLLECTION_RAIL) {
-            return CollectionTemplateManifest.isValidCollectionConfig(config)
+            return CollectionTemplateManifest.isValidCollectionConfig(config) &&
+                (config.placement == CatalogPlacement.SEARCH || config.placement == CatalogPlacement.DISCOVER)
         }
-        return true
+        if (config.sourceType == CatalogSourceType.HOME_SERVER) return false
+        if (config.placement == CatalogPlacement.SEARCH || config.placement == CatalogPlacement.DISCOVER) return true
+        return !config.isPreinstalled &&
+            (config.sourceType == CatalogSourceType.TRAKT || config.sourceType == CatalogSourceType.MDBLIST)
     }
+
+    /** Settings' "Discover rows" page: the Discover rows plus the Apps entry (Manage Apps Row). */
+    fun isShownInCatalogSettings(config: CatalogConfig): Boolean =
+        isDiscoverRow(config) || config.id == "installed_apps"
+
+    private fun isVisibleCatalogInSettings(config: CatalogConfig): Boolean = isShownInCatalogSettings(config)
 
     suspend fun addCustomCatalog(rawUrl: String): Result<CatalogConfig> {
         val validation = validateCatalogUrl(rawUrl)

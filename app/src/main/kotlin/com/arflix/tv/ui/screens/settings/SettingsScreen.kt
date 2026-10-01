@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
@@ -1082,14 +1083,8 @@ fun SettingsScreen(
                                                         } else viewModel.toggleCatalogVisibility(catalog.id)
                                                         else -> when (catalogActionIndex) {
                                                             eyeIdx -> viewModel.toggleCatalogVisibility(catalog.id)
-                                                            placementIdx -> {
-                                                                val next = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
-                                                                    com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                                                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
-                                                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
-                                                                }
-                                                                viewModel.setCatalogPlacement(catalog.id, next)
-                                                            }
+                                                            // Placement is fixed now: every listed row is on Discover.
+                                                            placementIdx -> Unit
                                                             deleteIdx -> viewModel.removeCatalog(catalog.id)
                                                             else -> viewModel.removeCatalog(catalog.id)
                                                         }
@@ -1301,7 +1296,7 @@ fun SettingsScreen(
                                     "network" -> stringResource(R.string.network)
                                     "iptv" -> "Live TV"
                                     "home_server" -> "Home Server"
-                                    "catalogs" -> stringResource(R.string.catalogs)
+                                    "catalogs" -> "Discover rows"
                                     "stremio" -> stringResource(R.string.addons)
                                     "accounts" -> stringResource(R.string.accounts)
                                     else -> section.replaceFirstChar { it.uppercase() }
@@ -5009,7 +5004,7 @@ private fun tvSettingsSectionTitle(section: String): String {
         "network" -> stringResource(R.string.network)
         "iptv" -> "Live TV"
         "home_server" -> "Home Server"
-        "catalogs" -> stringResource(R.string.catalogs)
+        "catalogs" -> "Discover rows"
         "stremio" -> stringResource(R.string.addons)
         "accounts" -> stringResource(R.string.accounts)
         else -> section.replaceFirstChar { it.uppercase() }
@@ -5028,7 +5023,7 @@ private fun tvSettingsSectionDescription(section: String): String {
         "network" -> "DNS and loading diagnostic preferences."
         "iptv" -> "Live TV playlists, EPG refresh, channel loading and playlist management."
         "home_server" -> "Connect personal media servers and use their libraries as sources."
-        "catalogs" -> "Discover, rename, order and remove home rows and list catalogs."
+        "catalogs" -> "Rows on the Discover screen: show/hide, order, rename, and add Trakt or MDBList lists. Apps opens Manage Apps."
         "stremio" -> "Manage third-party addon sources."
         "accounts" -> "Cloud sync, Trakt, app updates and account controls."
         else -> "Configure Xadarr for this profile."
@@ -7943,20 +7938,9 @@ private fun CatalogsSettings(
                                 modifier = Modifier.weight(1f)
                             )
                             MobileCatalogChip(
-                                icon = when (placement) {
-                                    com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
-                                    com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
-                                    else -> Icons.Outlined.Home
-                                },
-                                label = placementLabel,
-                                onClick = {
-                                    val next = when (placement) {
-                                        com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                                        com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
-                                        com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
-                                    }
-                                    onSetPlacement(catalog, next)
-                                },
+                                icon = if (catalog.id == "installed_apps") Icons.Outlined.Apps else Icons.Outlined.Explore,
+                                label = if (catalog.id == "installed_apps") "Apps" else "Discover",
+                                onClick = {},
                                 modifier = Modifier.weight(1f)
                             )
                             MobileCatalogChip(
@@ -8055,24 +8039,14 @@ private fun CatalogsSettings(
                         onClick = { onToggleVisibility(catalog) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    val placementLabel = (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME)
-                        .name.lowercase().replaceFirstChar { it.uppercase() }
+                    // Where the row shows -- fixed now (Discover, or the Apps screen for the Apps
+                    // entry); the old Home/Discover/Search cycling pointed at screens that no
+                    // longer exist (Joe, 2026-09-30).
                     CatalogActionChip(
-                        icon = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
-                            com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> Icons.Outlined.Explore
-                            com.arflix.tv.data.model.CatalogPlacement.SEARCH -> Icons.Outlined.Search
-                            else -> Icons.Outlined.Home
-                        },
-                        label = placementLabel,
+                        icon = if (isApps) Icons.Outlined.Apps else Icons.Outlined.Explore,
+                        label = if (isApps) "Apps" else "Discover",
                         isFocused = isRowFocused && focusedActionIndex == placementIdx,
-                        onClick = {
-                            val next = when (catalog.placement ?: com.arflix.tv.data.model.CatalogPlacement.HOME) {
-                                com.arflix.tv.data.model.CatalogPlacement.HOME -> com.arflix.tv.data.model.CatalogPlacement.DISCOVER
-                                com.arflix.tv.data.model.CatalogPlacement.DISCOVER -> com.arflix.tv.data.model.CatalogPlacement.SEARCH
-                                com.arflix.tv.data.model.CatalogPlacement.SEARCH -> null
-                            }
-                            onSetPlacement(catalog, next)
-                        }
+                        onClick = {}
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CatalogActionChip(
@@ -8261,7 +8235,7 @@ private fun NavigationCustomizationModal(
 }
 
 @Composable
-private fun ManageAppsModal(
+internal fun ManageAppsModal(
     pinnedApps: List<String>,
     onSave: (List<String>) -> Unit,
     onDismiss: () -> Unit,
