@@ -161,10 +161,10 @@ fun AllAppsScreen(
     var showAppsPicker by remember { mutableStateOf(false) }
     // TV: media apps + Manage Apps picks by default; the All apps tile shows everything.
     var tvShowAll by remember { mutableStateOf(false) }
-    var tvPinned by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var tvPinned by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) {
         tvPinned = context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PINNED_APPS_KEY]
-            .orEmpty().split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            .orEmpty().split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct()
     }
 
     LaunchedEffect(Unit) {
@@ -238,10 +238,16 @@ fun AllAppsScreen(
     }
 
     // TV used to list every installed app, assuming streaming boxes carry no clutter -- true
-    // for the onn boxes, not the Shield (NVIDIA apps, games, system tools). Same media-app
-    // filter as phones now, plus anything picked in Settings -> Manage Apps.
+    // for the onn boxes, not the Shield (NVIDIA apps, games, system tools). Now it honors
+    // Settings -> Manage Apps Row exactly, in its order (Joe, 2026-09-30); the media-app guess is
+    // only the fallback when nothing is pinned. "All apps" still expands to everything.
     val tvFilteredApps = remember(allInstalledApps, tvPinned) {
-        allInstalledApps.filter { it.packageName in tvPinned || isMediaApp(context, it.packageName) }
+        if (tvPinned.isNotEmpty()) {
+            val byPkg = allInstalledApps.associateBy { it.packageName }
+            tvPinned.mapNotNull { byPkg[it] }
+        } else {
+            allInstalledApps.filter { isMediaApp(context, it.packageName) }
+        }
     }
     val displayedApps = remember(allInstalledApps, isTouchDevice, appsAllowlist, tvFilteredApps, tvShowAll) {
         when {

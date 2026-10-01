@@ -8295,7 +8295,13 @@ private fun ManageAppsModal(
                 .fillMaxWidth(0.75f)
                 .fillMaxHeight(0.85f)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                .background(Color(0xFF1A1A2E))
+                // Themed like the rest of the app (was hard-coded navy/purple).
+                .background(com.arflix.tv.ui.theme.XadarrTheme.colors.backgroundCard)
+                .border(
+                    1.dp,
+                    com.arflix.tv.ui.theme.XadarrTheme.colors.borderLight,
+                    androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                )
                 .padding(24.dp)
                 .focusRequester(focusRequester)
                 .focusable()
@@ -8376,7 +8382,8 @@ private fun ManageAppsModal(
                                 if (isPinned) {
                                     Text(
                                         text = "${pinPos + 1}",
-                                        color = Color(0xFF7C6AF7),
+                                        color = com.arflix.tv.ui.skin.LocalFocusBorderColorOverride.current
+                                            ?: com.arflix.tv.ui.theme.XadarrTheme.colors.focusRing,
                                         style = ArflixTypography.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                                     )
                                 } else {
