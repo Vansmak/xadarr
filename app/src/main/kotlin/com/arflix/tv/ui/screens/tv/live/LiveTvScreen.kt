@@ -660,6 +660,13 @@ fun LiveTvScreen(
     // settle; if the user is already navigating by then (Joe, 2026-09-30: opened a show's menu
     // within that second), jumping to the sidebar stole focus from the open menu.
     var userPressedKey by remember { mutableStateOf(false) }
+    // "Back returns to your search" (Joe, 2026-10-01): search is where you see all the
+    // options; picking one closed it and the list was gone, so a wrong pick meant starting
+    // over. The query of the last pick is kept until the next Back reopens it, or until the
+    // user picks something else in the guide.
+    var lastSearchQuery by remember { mutableStateOf("") }
+    var searchReturnQuery by remember { mutableStateOf<String?>(null) }
+    var reopenSearchQuery by remember { mutableStateOf<String?>(null) }
     // Channel number being typed on a remote's number pad ("" when idle).
     var channelDigits by remember { mutableStateOf("") }
     LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
@@ -887,6 +894,7 @@ fun LiveTvScreen(
 
     fun selectChannel(channel: EnrichedChannel) {
         if (remoteTuneOrHandled(channel)) return
+        if (channel.id != playingChannelId) searchReturnQuery = null
         // Two-step, back to the pre-TiviMate-redesign behavior at Joe's request: selecting a
         // channel that isn't already the mini-playing one just loads it into the mini preview
         // and keeps the guide open, so surfing channel-to-channel doesn't force fullscreen each
@@ -1178,6 +1186,12 @@ fun LiveTvScreen(
             LiveTvFocusZone.CATEGORY_LIST -> focusChannelList(focusedChannelId ?: playingChannelId)
             LiveTvFocusZone.CHANNEL_LIST -> onBack()
         }
+    }
+    // Declared after the guide's handler so it wins while a search pick is "returnable".
+    BackHandler(enabled = !searchOpen && !isFullScreen && programInfoTarget == null && searchReturnQuery != null) {
+        reopenSearchQuery = searchReturnQuery
+        searchReturnQuery = null
+        searchOpen = true
     }
 
     Box(
@@ -1770,6 +1784,8 @@ fun LiveTvScreen(
             playingChannelId = channel.id
             focusedChannelId = channel.id
             searchOpen = false
+            searchReturnQuery = lastSearchQuery.takeIf { it.isNotBlank() }
+            reopenSearchQuery = null
             focusChannelList(channel.id)
         }
 
@@ -1780,7 +1796,8 @@ fun LiveTvScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             SearchOverlay(
-                initialQuery = remoteSearchQuery ?: initialSearchQuery.orEmpty(),
+                initialQuery = reopenSearchQuery ?: remoteSearchQuery ?: initialSearchQuery.orEmpty(),
+                onQueryChange = { lastSearchQuery = it },
                 channels = remember(enrichedState.value.all, state.snapshot.removedGroups) {
                     val removed = state.snapshot.removedGroups.toSet()
                     enrichedState.value.all.filterNot { it.source.group in removed }

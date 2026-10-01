@@ -219,6 +219,8 @@ fun SearchOverlay(
     // Your own shows/movies (Sonarr/Radarr), matched locally and instantly -- they lead the
     // Movies & Shows row, ahead of TMDB results that could be added.
     libraryItems: List<MediaItem> = emptyList(),
+    // Reports the current text, so "Back returns to your search" can reopen it.
+    onQueryChange: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onPick: (EnrichedChannel) -> Unit,
     // Long-press (520ms hold, Menu key, or touch long-press — same gesture as RemoteStreamRow's
@@ -229,6 +231,7 @@ fun SearchOverlay(
     onShowInfo: (EnrichedChannel, IptvProgram?) -> Unit = { _, _ -> },
 ) {
     var query by remember(initialQuery) { mutableStateOf(initialQuery) }
+    LaunchedEffect(query) { onQueryChange(query) }
     var debounced by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var remoteResults by remember { mutableStateOf<List<RawProviderStream>>(emptyList()) }
