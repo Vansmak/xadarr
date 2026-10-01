@@ -40,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -179,7 +181,7 @@ private fun channelRank(hit: SearchHit, favorites: Set<String>): Int {
  * program airing on a channel outside the curated daily lineup is still findable. Channels
  * in Removed groups are excluded: those are marked for deletion and shouldn't resurface.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SearchOverlay(
     initialQuery: String = "",
@@ -394,7 +396,13 @@ fun SearchOverlay(
                 .background(LiveColors.PanelRaised)
                 .border(1.dp, LiveColors.Divider, RoundedCornerShape(16.dp))
                 .padding(16.dp)
-                .pointerInput(Unit) { detectTapGestures(onTap = {}) },
+                .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                // Focus trap: D-pad focus search could leave the panel (e.g. Up from a row whose
+                // neighbour above isn't composed, or back into the text box) and land on the
+                // guide behind it -- Joe, 2026-09-30, screenshot with the guide row highlighted
+                // behind the open search. Nothing leaves this panel while it's open.
+                .focusProperties { exit = { androidx.compose.ui.focus.FocusRequester.Cancel } }
+                .focusGroup(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
