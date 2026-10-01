@@ -122,10 +122,13 @@ private fun isMediaApp(context: android.content.Context, packageName: String): B
 private sealed class AppsGridEntry {
     data class BookmarkEntry(val bookmark: Bookmark) : AppsGridEntry()
     data class InstalledApp(val entry: AppEntry) : AppsGridEntry()
+    // TV: last tile, expands the filtered list to every installed app (or collapses it again).
+    data class ToggleAll(val showingAll: Boolean, val hiddenCount: Int) : AppsGridEntry()
 
     val key: String get() = when (this) {
         is BookmarkEntry -> "bm:${bookmark.name}"
         is InstalledApp -> entry.packageName
+        is ToggleAll -> "__toggle_all_apps__"
     }
 }
 
@@ -156,6 +159,13 @@ fun AllAppsScreen(
     var appsAllowlist by remember { mutableStateOf<Set<String>?>(null) }
     var webviewUrl by remember { mutableStateOf<String?>(null) }
     var showAppsPicker by remember { mutableStateOf(false) }
+    // TV: media apps + Manage Apps picks by default; the All apps tile shows everything.
+    var tvShowAll by remember { mutableStateOf(false) }
+    var tvPinned by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(Unit) {
+        tvPinned = context.settingsDataStore.data.first()[com.arflix.tv.data.repository.PINNED_APPS_KEY]
+            .orEmpty().split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    }
 
     LaunchedEffect(Unit) {
         val pm = context.packageManager
@@ -227,19 +237,27 @@ fun AllAppsScreen(
         (bookmarks + visibleEpiseerrLinks).distinctBy { it.name.trim() }
     }
 
-    val displayedApps = remember(allInstalledApps, isTouchDevice, appsAllowlist) {
+    // TV used to list every installed app, assuming streaming boxes carry no clutter -- true
+    // for the onn boxes, not the Shield (NVIDIA apps, games, system tools). Same media-app
+    // filter as phones now, plus anything picked in Settings -> Manage Apps.
+    val tvFilteredApps = remember(allInstalledApps, tvPinned) {
+        allInstalledApps.filter { it.packageName in tvPinned || isMediaApp(context, it.packageName) }
+    }
+    val displayedApps = remember(allInstalledApps, isTouchDevice, appsAllowlist, tvFilteredApps, tvShowAll) {
         when {
-            !isTouchDevice -> allInstalledApps
+            !isTouchDevice -> if (tvShowAll) allInstalledApps else tvFilteredApps
             appsAllowlist != null -> allInstalledApps.filter { it.packageName in appsAllowlist!! }
             else -> allInstalledApps.filter { isMediaApp(context, it.packageName) }
         }
     }
 
-    val gridEntries = remember(displayedBookmarks, displayedApps, isTouchDevice) {
+    val gridEntries = remember(displayedBookmarks, displayedApps, isTouchDevice, tvShowAll, tvFilteredApps, allInstalledApps) {
         if (isTouchDevice) {
             displayedBookmarks.map { AppsGridEntry.BookmarkEntry(it) } + displayedApps.map { AppsGridEntry.InstalledApp(it) }
         } else {
-            displayedApps.map { AppsGridEntry.InstalledApp(it) }
+            val hidden = allInstalledApps.size - tvFilteredApps.size
+            displayedApps.map { AppsGridEntry.InstalledApp(it) } +
+                listOfNotNull(AppsGridEntry.ToggleAll(tvShowAll, hidden).takeIf { hidden > 0 })
         }
     }
 
@@ -340,6 +358,14 @@ fun AllAppsScreen(
                                 onFocused = {},
                                 enableSystemFocus = true,
                                 onClick = { launchApp(context, gridEntry.entry.packageName) }
+                            )
+                            is AppsGridEntry.ToggleAll -> BookmarkTileCard(
+                                iconUrl = null,
+                                label = if (gridEntry.showingAll) "Fewer apps" else "All apps (+${gridEntry.hiddenCount})",
+                                isFocused = false,
+                                onFocused = {},
+                                enableSystemFocus = true,
+                                onClick = { tvShowAll = !tvShowAll },
                             )
                         }
                     }
