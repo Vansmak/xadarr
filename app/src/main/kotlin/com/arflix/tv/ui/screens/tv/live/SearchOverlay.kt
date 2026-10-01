@@ -238,7 +238,7 @@ fun SearchOverlay(
     // Movies & Shows row: library matches first (instant), then TMDB results not already shown.
     val titleRow = remember(debounced, libraryItems, mediaResults) {
         val q = debounced.trim().lowercase()
-        if (q.length < 2) {
+        if (q.length < 2 || q.all { it.isDigit() }) {
             emptyList()
         } else {
             fun key(m: MediaItem) = (if (m.mediaType == com.arflix.tv.data.model.MediaType.TV) "tv:" else "movie:") + m.id
@@ -309,7 +309,7 @@ fun SearchOverlay(
     // provider-catalog search above. This is currently the only reachable general search in
     // the app (the standalone Search screen was retired in the TiviMate redesign).
     LaunchedEffect(debounced) {
-        if (debounced.length < 2) {
+        if (debounced.length < 2 || debounced.all { it.isDigit() }) {
             mediaResults = emptyList()
             mediaLoading = false
             return@LaunchedEffect
@@ -321,6 +321,9 @@ fun SearchOverlay(
 
     LaunchedEffect(debounced, channels, nowNext) {
         val q = debounced.lowercase()
+        // A bare number is a channel number: just the channel list (exact number first, see
+        // the 1000 score below), no program/event matches.
+        val isChannelNumber = q.isNotEmpty() && q.all { it.isDigit() }
         // Shorthand people actually type for sports ("tnf") vs. how listings spell it.
         val qTerms = expandSearchQuery(q)
         fun String.matchesQuery() = qTerms.any { this.contains(it) }
@@ -366,7 +369,7 @@ fun SearchOverlay(
         // filled the list with channels whose *names* matched and buried what was actually on.
         // A channel can now surface several programmes, and they are ordered by start time,
         // because "what is on soonest" is the useful ordering for a guide.
-        programResults = withContext(Dispatchers.Default) {
+        programResults = if (isChannelNumber) emptyList() else withContext(Dispatchers.Default) {
             channels.asSequence()
                 .flatMap { ch ->
                     val nn = nowNext[ch.id]

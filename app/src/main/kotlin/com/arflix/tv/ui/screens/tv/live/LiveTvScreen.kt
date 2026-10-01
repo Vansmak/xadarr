@@ -119,6 +119,20 @@ private enum class LiveTvFocusZone {
  * Last channel actually played, kept in process memory (freshest source); the persisted
  * tvSession.lastChannelId covers restarts. Now Playing always resumes it in its own group.
  */
+private fun digitForKey(key: Key): Char? = when (key) {
+    Key.Zero, Key.NumPad0 -> '0'
+    Key.One, Key.NumPad1 -> '1'
+    Key.Two, Key.NumPad2 -> '2'
+    Key.Three, Key.NumPad3 -> '3'
+    Key.Four, Key.NumPad4 -> '4'
+    Key.Five, Key.NumPad5 -> '5'
+    Key.Six, Key.NumPad6 -> '6'
+    Key.Seven, Key.NumPad7 -> '7'
+    Key.Eight, Key.NumPad8 -> '8'
+    Key.Nine, Key.NumPad9 -> '9'
+    else -> null
+}
+
 private object LiveTvResumeMemory {
     var channelId: String? = null
     var categoryId: String? = null
@@ -646,6 +660,8 @@ fun LiveTvScreen(
     // settle; if the user is already navigating by then (Joe, 2026-09-30: opened a show's menu
     // within that second), jumping to the sidebar stole focus from the open menu.
     var userPressedKey by remember { mutableStateOf(false) }
+    // Channel number being typed on a remote's number pad ("" when idle).
+    var channelDigits by remember { mutableStateOf("") }
     LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
         if (alignedOnEntry) return@LaunchedEffect
         val id = playingChannelId ?: return@LaunchedEffect
@@ -1172,6 +1188,15 @@ fun LiveTvScreen(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) userPressedKey = true
+                        // Number buttons (remotes/phone remote apps that have them): TiVo-style
+                        // direct tune -- digits collect in channelDigits, tuned after a pause.
+                        if (!searchOpen && event.type == KeyEventType.KeyDown) {
+                            val digit = digitForKey(event.key)
+                            if (digit != null) {
+                                if (channelDigits.length < 5) channelDigits += digit
+                                return@onPreviewKeyEvent true
+                            }
+                        }
                         if (searchOpen || isFullScreen) return@onPreviewKeyEvent false
                         if (event.type == KeyEventType.KeyDown && event.key == Key.Search) {
                             searchOpen = true
@@ -2101,6 +2126,40 @@ fun LiveTvScreen(
                         )
                     }
                 }
+            }
+        }
+
+        // Direct channel-number entry: show the digits, tune 1.5s after the last one.
+        LaunchedEffect(channelDigits) {
+            if (channelDigits.isEmpty()) return@LaunchedEffect
+            delay(1_500L)
+            val number = channelDigits.toIntOrNull()
+            val target = number?.let { n -> enrichedState.value.all.firstOrNull { it.number == n && !isLibraryChannelGroup(it.source.group) } }
+            if (target != null) {
+                previousChannelId = playingChannelId
+                playingChannelId = target.id
+                playingCatchupProgram = null
+                focusedChannelId = target.id
+                focusSelectedChannelSignal += 1
+            } else {
+                guideMessage = "No channel $channelDigits"
+            }
+            channelDigits = ""
+        }
+        if (channelDigits.isNotEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().zIndex(350f).padding(top = 40.dp, end = 48.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                Text(
+                    text = "CH  " + channelDigits.padEnd(3, '_'),
+                    style = LiveType.NumberMono.copy(color = LiveColors.Fg, fontSize = 34.sp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(LiveColors.PanelRaised)
+                        .border(2.dp, LocalFocusBorderColorOverride.current ?: LiveColors.Accent, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 22.dp, vertical = 10.dp),
+                )
             }
         }
 
