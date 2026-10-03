@@ -635,6 +635,12 @@ fun LiveTvScreen(
     var favoriteMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
     // Selecting (or long-pressing) a Shows/Movies channel: Episodes & Info / Movie Info, Change Rule.
     var libraryMenuChannel by remember { mutableStateOf<EnrichedChannel?>(null) }
+    // The zone picker acts on select's key-down, but guide rows act on key-up: closing the
+    // picker hands focus back to the row, and the release of that same press "selected" the row
+    // again and reopened the picker. Re-opening within this window of a close is ignored.
+    var musicMenuClosedAt by remember { mutableLongStateOf(0L) }
+    fun musicMenuJustClosed(channelId: String) =
+        isMusicChannelId(channelId) && android.os.SystemClock.uptimeMillis() - musicMenuClosedAt < 700
     // Selecting an episode/movie cell on a library row: Play / Mark Watched / Search.
     var libraryCellTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     // Rule picker opened from a show's channel menu.
@@ -912,7 +918,7 @@ fun LiveTvScreen(
         // Episode/movie actions live on the cells -- see libraryCellTarget.
         if (isLibraryChannelGroup(channel.source.group)) {
             previewLibraryChannel(channel)
-            libraryMenuChannel = channel
+            if (!musicMenuJustClosed(channel.id)) libraryMenuChannel = channel
             return
         }
         if (channel.id == playingChannelId) {
@@ -1338,7 +1344,7 @@ fun LiveTvScreen(
                         },
                         onProgramSelect = { channel, program ->
                             if (isLibraryChannelGroup(channel.source.group)) {
-                                if (program != null) libraryCellTarget = channel to program
+                                if (program != null && !musicMenuJustClosed(channel.id)) libraryCellTarget = channel to program
                             } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
@@ -1407,7 +1413,7 @@ fun LiveTvScreen(
                             onChannelSelect = { channel, _ -> selectChannel(channel) },
                             onProgramSelect = { channel, program ->
                             if (isLibraryChannelGroup(channel.source.group)) {
-                                if (program != null) libraryCellTarget = channel to program
+                                if (program != null && !musicMenuJustClosed(channel.id)) libraryCellTarget = channel to program
                             } else if (program != null) {
                                 programInfoTarget = channel to program
                             } else {
@@ -1953,6 +1959,7 @@ fun LiveTvScreen(
             // Last-used zone first, so "select, select" replays where you last listened.
             val ordered = remember(zones, lastZoneId) { zones.sortedBy { if (it.id == lastZoneId) 0 else 1 } }
             val closeMenu = {
+                musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
                 libraryMenuChannel = null
                 libraryCellTarget = null
                 if (fromCell) focusEpg(musicCh.id) else focusChannelList(musicCh.id)
