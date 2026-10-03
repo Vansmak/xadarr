@@ -25,6 +25,7 @@ class NavSectionRepository @Inject constructor(
     private val profileManager: ProfileManager,
 ) {
     private val gson = Gson()
+    private val MUSIC_ID = "music"
     private fun navSectionsKey(profileId: String) = stringPreferencesKey("profile_${profileId}_nav_sections_v1")
     private val listType = TypeToken.getParameterized(List::class.java, NavSectionConfig::class.java).type
 
@@ -89,7 +90,25 @@ class NavSectionRepository @Inject constructor(
         section.kind in retiredKinds ||
             (section.kind == NavSectionKind.CUSTOM && section.customId == "watchlist")
 
-    private fun readSectionsFromPrefs(profileId: String, prefs: Preferences): List<NavSectionConfig> {
+    private fun readSectionsFromPrefs(profileId: String, prefs: Preferences): List<NavSectionConfig> =
+        withMusicEntry(readBaseSections(profileId, prefs), prefs)
+
+    // "Music" (Music Assistant remote) is a hidden integration: it exists in the rail only while
+    // Music Assistant is set up (URL + token), and is added on read rather than seeded into the
+    // defaults so profiles without it never see it. A stored entry keeps the user's own
+    // rename/hide/reorder choices.
+    private fun withMusicEntry(sections: List<NavSectionConfig>, prefs: Preferences): List<NavSectionConfig> {
+        val configured = !prefs[com.arflix.tv.music.MA_URL_KEY].isNullOrBlank() &&
+            !prefs[com.arflix.tv.music.MA_TOKEN_KEY].isNullOrBlank()
+        val isMusic = { s: NavSectionConfig -> s.kind == NavSectionKind.CUSTOM && s.customId == MUSIC_ID }
+        if (!configured) return sections.filterNot(isMusic)
+        if (sections.any(isMusic)) return sections
+        val order = (sections.filter { it.kind != NavSectionKind.SETTINGS }.maxOfOrNull { it.order } ?: 0) + 1
+        return (sections + NavSectionConfig(kind = NavSectionKind.CUSTOM, customId = MUSIC_ID, label = "Music",
+            target = "app:music", order = order)).sortedBy { it.order }
+    }
+
+    private fun readBaseSections(profileId: String, prefs: Preferences): List<NavSectionConfig> {
         val raw = prefs[navSectionsKey(profileId)]
         if (raw.isNullOrBlank()) return defaultSections()
         return try {

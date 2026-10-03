@@ -222,6 +222,12 @@ data class SettingsUiState(
     val deviceName: String = "",
     val haUrl: String = "",
     val haToken: String = "",
+    // Music Assistant: only the URL/username are shown; the password is never stored.
+    val maUrl: String = "",
+    val maUsername: String = "",
+    val maLoggedIn: Boolean = false,
+    val maLoginBusy: Boolean = false,
+    val maLoginError: String? = null,
     val blacklistPath: String = "",
     val groupBlacklistEnabled: Boolean = false,
     val tmdbApiKey: String = "",
@@ -258,6 +264,7 @@ class SettingsViewModel @Inject constructor(
     private val driveSyncRepository: DriveSyncRepository,
     private val navSectionRepository: com.arflix.tv.data.repository.NavSectionRepository,
     private val episeerrRepository: com.arflix.tv.data.repository.EpiseerrRepository,
+    private val musicAssistantRepository: com.arflix.tv.music.MusicAssistantRepository,
 ) : ViewModel() {
     private fun visibleCatalogs(catalogs: List<CatalogConfig>): List<CatalogConfig> =
         catalogs.filter { catalogRepository.isShownInCatalogSettings(it) }
@@ -509,6 +516,9 @@ class SettingsViewModel @Inject constructor(
                 ?: android.os.Build.MODEL
             val haUrl = prefs[com.arflix.tv.data.repository.HA_URL_KEY].orEmpty().trim()
             val haToken = prefs[com.arflix.tv.data.repository.HA_TOKEN_KEY].orEmpty().trim()
+            val maUrl = prefs[com.arflix.tv.music.MA_URL_KEY].orEmpty().trim()
+            val maUsername = prefs[com.arflix.tv.music.MA_USERNAME_KEY].orEmpty().trim()
+            val maLoggedIn = !prefs[com.arflix.tv.music.MA_TOKEN_KEY].isNullOrBlank()
             val blacklistPath = prefs[com.arflix.tv.data.repository.DISPATCHARR_BLACKLIST_PATH_KEY].orEmpty().trim()
             val groupBlacklistEnabled = prefs[com.arflix.tv.data.repository.GROUP_BLACKLIST_ENABLED_KEY] ?: false
             val tmdbApiKey = prefs[com.arflix.tv.data.repository.USER_TMDB_API_KEY].orEmpty()
@@ -616,6 +626,9 @@ class SettingsViewModel @Inject constructor(
                 deviceName = deviceName,
                 haUrl = haUrl,
                 haToken = haToken,
+                maUrl = maUrl,
+                maUsername = maUsername,
+                maLoggedIn = maLoggedIn,
                 blacklistPath = blacklistPath,
                 groupBlacklistEnabled = groupBlacklistEnabled,
                 tmdbApiKey = tmdbApiKey,
@@ -1498,6 +1511,36 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.data.repository.HA_URL_KEY] = url.trim() }
             _uiState.value = _uiState.value.copy(haUrl = url.trim())
+        }
+    }
+
+    fun saveMaUrl(url: String) {
+        viewModelScope.launch {
+            musicAssistantRepository.saveUrl(url)
+            _uiState.value = _uiState.value.copy(maUrl = url.trim(), maLoginError = null)
+        }
+    }
+
+    /** Logs in to Music Assistant and keeps a long-lived token; the password is not saved. */
+    fun loginMusicAssistant(username: String, password: String) {
+        val url = _uiState.value.maUrl.ifBlank { com.arflix.tv.music.MA_DEFAULT_URL }
+        _uiState.value = _uiState.value.copy(maLoginBusy = true, maLoginError = null)
+        viewModelScope.launch {
+            val error = musicAssistantRepository.login(url, username.trim(), password)
+            _uiState.value = _uiState.value.copy(
+                maLoginBusy = false,
+                maLoginError = error,
+                maLoggedIn = error == null || _uiState.value.maLoggedIn,
+                maUsername = if (error == null) username.trim() else _uiState.value.maUsername,
+                maUrl = if (error == null) url else _uiState.value.maUrl,
+            )
+        }
+    }
+
+    fun logoutMusicAssistant() {
+        viewModelScope.launch {
+            musicAssistantRepository.logout()
+            _uiState.value = _uiState.value.copy(maLoggedIn = false, maUsername = "", maLoginError = null)
         }
     }
 

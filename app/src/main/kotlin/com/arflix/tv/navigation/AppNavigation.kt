@@ -80,6 +80,8 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object Cameras : Screen("cameras")
     object SmartHome : Screen("smart_home")
+    // Music Assistant remote (com.arflix.tv.music) — opened from the "Music" nav entry or Settings.
+    object Music : Screen("music")
     object CameraPlayer : Screen("camera_player?streamUrl={streamUrl}&cameraName={cameraName}") {
         fun createRoute(streamUrl: String, cameraName: String): String {
             val encUrl = java.net.URLEncoder.encode(streamUrl, "UTF-8")
@@ -226,6 +228,16 @@ fun AppNavigation(
     // Falling back to Home means Back always leads somewhere.
     val goBack: () -> Unit = {
         if (!navController.popBackStack()) navigateHome()
+    }
+
+    // Nav-rail targets with no per-screen callback (see PendingAppRoute) land here.
+    val pendingAppRoute by PendingAppRoute.value.collectAsState()
+    LaunchedEffect(pendingAppRoute) {
+        when (pendingAppRoute) {
+            "app:music" -> navigateTopLevel(Screen.Music.route)
+            else -> Unit
+        }
+        if (pendingAppRoute != null) PendingAppRoute.value.value = null
     }
 
     NavHost(
@@ -672,6 +684,11 @@ fun AppNavigation(
         // Smart Home status/control screen
         composable(Screen.SmartHome.route) {
             com.arflix.tv.ui.screens.smarthome.SmartHomeScreen(onBack = goBack)
+        }
+
+        // Music Assistant remote — controls the Sonos zones, never plays audio itself.
+        composable(Screen.Music.route) {
+            com.arflix.tv.music.MusicScreen(onBack = goBack)
         }
 
         // All Apps grid — full alphabetical list of installed apps.

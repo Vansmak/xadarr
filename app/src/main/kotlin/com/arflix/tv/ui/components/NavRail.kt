@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material3.Icon
@@ -129,6 +130,7 @@ fun navEntryIcon(entry: com.arflix.tv.data.model.NavSectionConfig) = when (entry
         "apps" -> Icons.Outlined.Apps
         "plex" -> Icons.Outlined.Explore
         "watchlist" -> Icons.Outlined.Bookmark
+        "music" -> Icons.Outlined.MusicNote
         else -> Icons.Outlined.Star
     }
 }

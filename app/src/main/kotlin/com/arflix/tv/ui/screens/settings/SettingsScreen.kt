@@ -427,6 +427,10 @@ fun SettingsScreen(
     var showDeviceNameDialog by remember { mutableStateOf(false) }
     var showHaUrlDialog by remember { mutableStateOf(false) }
     var showHaTokenDialog by remember { mutableStateOf(false) }
+    var showMaUrlDialog by remember { mutableStateOf(false) }
+    var showMaUserDialog by remember { mutableStateOf(false) }
+    var showMaPasswordDialog by remember { mutableStateOf(false) }
+    var maPendingUsername by remember { mutableStateOf("") }
     var showBlacklistPathDialog by remember { mutableStateOf(false) }
     var showTmdbApiKeyDialog by remember { mutableStateOf(false) }
     var showTraktClientIdDialog by remember { mutableStateOf(false) }
@@ -467,7 +471,7 @@ fun SettingsScreen(
             "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
-            "stremio" -> stremioAddons.size + 8 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Neolink + HA url/token + Smart Home link + optional blacklist path
+            "stremio" -> stremioAddons.size + 11 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Neolink + HA url/token + Smart Home link + Music Assistant url/login/open + optional blacklist path
             "accounts" -> 9
             else -> 0
         }
@@ -706,6 +710,9 @@ fun SettingsScreen(
         showDeviceNameDialog ||
         showHaUrlDialog ||
         showHaTokenDialog ||
+        showMaUrlDialog ||
+        showMaUserDialog ||
+        showMaPasswordDialog ||
         showBlacklistPathDialog ||
         showTmdbApiKeyDialog ||
         showTraktClientIdDialog ||
@@ -1120,7 +1127,10 @@ fun SettingsScreen(
                                                 contentFocusIndex == stremioAddons.size + 6 + uiState.webhookUrls.size -> showHaUrlDialog = true
                                                 contentFocusIndex == stremioAddons.size + 7 + uiState.webhookUrls.size -> showHaTokenDialog = true
                                                 contentFocusIndex == stremioAddons.size + 8 + uiState.webhookUrls.size -> onNavigateToSmartHome()
-                                                contentFocusIndex == stremioAddons.size + 9 + uiState.webhookUrls.size && uiState.groupBlacklistEnabled -> showBlacklistPathDialog = true
+                                                contentFocusIndex == stremioAddons.size + 9 + uiState.webhookUrls.size -> showMaUrlDialog = true
+                                                contentFocusIndex == stremioAddons.size + 10 + uiState.webhookUrls.size -> showMaUserDialog = true
+                                                contentFocusIndex == stremioAddons.size + 11 + uiState.webhookUrls.size && uiState.maLoggedIn -> com.arflix.tv.navigation.PendingAppRoute.value.value = "app:music"
+                                                contentFocusIndex == stremioAddons.size + 12 + uiState.webhookUrls.size && uiState.groupBlacklistEnabled -> showBlacklistPathDialog = true
                                             }
                                         }
                                         "accounts" -> {
@@ -1569,6 +1579,14 @@ fun SettingsScreen(
                             haToken = uiState.haToken,
                             onHaTokenClick = { showHaTokenDialog = true },
                             onOpenSmartHomeClick = onNavigateToSmartHome,
+                            maUrl = uiState.maUrl,
+                            maUsername = uiState.maUsername,
+                            maLoggedIn = uiState.maLoggedIn,
+                            maLoginBusy = uiState.maLoginBusy,
+                            maLoginError = uiState.maLoginError,
+                            onMaUrlClick = { showMaUrlDialog = true },
+                            onMaLoginClick = { showMaUserDialog = true },
+                            onOpenMusicClick = { com.arflix.tv.navigation.PendingAppRoute.value.value = "app:music" },
                             groupBlacklistEnabled = uiState.groupBlacklistEnabled,
                             blacklistPath = uiState.blacklistPath,
                             onBlacklistPathClick = { showBlacklistPathDialog = true },
@@ -1701,6 +1719,45 @@ fun SettingsScreen(
                     showHaUrlDialog = false
                 },
                 onDismiss = { showHaUrlDialog = false }
+            )
+        }
+
+        if (showMaUrlDialog) {
+            ApiKeyDialog(
+                title = "Music Assistant Server",
+                currentValue = uiState.maUrl.ifBlank { com.arflix.tv.music.MA_DEFAULT_URL },
+                onSave = { url ->
+                    viewModel.saveMaUrl(url)
+                    showMaUrlDialog = false
+                },
+                onDismiss = { showMaUrlDialog = false }
+            )
+        }
+
+        // Login is two dialogs in a row (username, then password) using the same input dialog.
+        if (showMaUserDialog) {
+            ApiKeyDialog(
+                title = "Music Assistant Username",
+                currentValue = uiState.maUsername,
+                onSave = { user ->
+                    maPendingUsername = user
+                    showMaUserDialog = false
+                    if (user.isNotBlank()) showMaPasswordDialog = true
+                },
+                onDismiss = { showMaUserDialog = false }
+            )
+        }
+
+        if (showMaPasswordDialog) {
+            ApiKeyDialog(
+                title = "Music Assistant Password",
+                currentValue = "",
+                isPassword = true,
+                onSave = { password ->
+                    showMaPasswordDialog = false
+                    viewModel.loginMusicAssistant(maPendingUsername, password)
+                },
+                onDismiss = { showMaPasswordDialog = false }
             )
         }
 
@@ -8622,6 +8679,14 @@ private fun StremioAddonsSettings(
     haToken: String = "",
     onHaTokenClick: () -> Unit = {},
     onOpenSmartHomeClick: () -> Unit = {},
+    maUrl: String = "",
+    maUsername: String = "",
+    maLoggedIn: Boolean = false,
+    maLoginBusy: Boolean = false,
+    maLoginError: String? = null,
+    onMaUrlClick: () -> Unit = {},
+    onMaLoginClick: () -> Unit = {},
+    onOpenMusicClick: () -> Unit = {},
     groupBlacklistEnabled: Boolean = false,
     blacklistPath: String = "",
     onBlacklistPathClick: () -> Unit = {},
@@ -8848,6 +8913,55 @@ private fun StremioAddonsSettings(
             modifier = Modifier.settingsFocusSlot(addons.size + 8 + webhookUrls.size)
         )
 
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "MUSIC ASSISTANT",
+            style = ArflixTypography.caption.copy(fontSize = 12.sp, letterSpacing = 1.sp),
+            color = TextSecondary,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        SettingsRow(
+            icon = Icons.Default.Link,
+            title = "Music Assistant Server",
+            subtitle = maUrl.ifBlank { "Default: ${com.arflix.tv.music.MA_DEFAULT_URL}" },
+            value = "Edit",
+            isFocused = focusedIndex == addons.size + 9 + webhookUrls.size,
+            onClick = onMaUrlClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 9 + webhookUrls.size)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow(
+            icon = Icons.Default.Person,
+            title = "Music Assistant Login",
+            subtitle = when {
+                maLoginBusy -> "Logging in…"
+                maLoginError != null -> maLoginError
+                maLoggedIn && maUsername.isNotBlank() -> "Logged in as $maUsername"
+                maLoggedIn -> "Logged in"
+                else -> "Not logged in — your Music Assistant username and password"
+            },
+            value = if (maLoggedIn) "Change" else "Log in",
+            isFocused = focusedIndex == addons.size + 10 + webhookUrls.size,
+            onClick = onMaLoginClick,
+            modifier = Modifier.settingsFocusSlot(addons.size + 10 + webhookUrls.size)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow(
+            icon = Icons.Default.ChevronRight,
+            title = "Open Music",
+            subtitle = if (maLoggedIn) "Now playing, zones, queue and library" else "Log in first",
+            value = if (maLoggedIn) "Open" else "",
+            isFocused = focusedIndex == addons.size + 11 + webhookUrls.size,
+            onClick = { if (maLoggedIn) onOpenMusicClick() },
+            modifier = Modifier.settingsFocusSlot(addons.size + 11 + webhookUrls.size)
+        )
+
         if (groupBlacklistEnabled) {
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -8863,9 +8977,9 @@ private fun StremioAddonsSettings(
                 title = "Group Blacklist Path",
                 subtitle = if (blacklistPath.isNotBlank()) blacklistPath else "Default: /data/dispatcharr_blacklist.txt",
                 value = "Edit",
-                isFocused = focusedIndex == addons.size + 9 + webhookUrls.size,
+                isFocused = focusedIndex == addons.size + 12 + webhookUrls.size,
                 onClick = onBlacklistPathClick,
-                modifier = Modifier.settingsFocusSlot(addons.size + 9 + webhookUrls.size)
+                modifier = Modifier.settingsFocusSlot(addons.size + 12 + webhookUrls.size)
             )
         }
     }

@@ -1,0 +1,672 @@
+package com.arflix.tv.music
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import coil.compose.AsyncImage
+import com.arflix.tv.music.MusicAssistantRepository.ConnectionState
+import kotlinx.coroutines.delay
+
+private enum class Area { TABS, CONTENT }
+
+// Now Playing has two focusable rows: the seek bar (0) and the transport controls (1).
+private const val ROW_SEEK = 0
+private const val ROW_CONTROLS = 1
+
+private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, VOLUME_DOWN, VOLUME_UP }
+
+private val TAB_LABELS = mapOf(
+    MusicTab.NOW_PLAYING to "Now Playing",
+    MusicTab.QUEUE to "Queue",
+    MusicTab.ZONES to "Zones",
+    MusicTab.BROWSE to "Library",
+)
+
+/**
+ * TV front end for Music Assistant: a remote and display only. It never plays audio on this
+ * device — every action is a command to MA, and the Sonos speakers do the playing.
+ *
+ * D-pad focus is tracked by index (like SmartHomeScreen) rather than Compose focus, so the
+ * whole screen is driven from one key handler and can't lose focus to an off-screen item.
+ */
+@Composable
+fun MusicScreen(
+    viewModel: MusicViewModel = hiltViewModel(),
+    onBack: () -> Unit = {},
+) {
+    val ui by viewModel.ui.collectAsState()
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
+
+    var area by remember { mutableStateOf(Area.CONTENT) }
+    var npRow by remember { mutableIntStateOf(ROW_CONTROLS) }
+    var controlIndex by remember { mutableIntStateOf(Control.PLAY_PAUSE.ordinal) }
+    var listIndex by remember { mutableIntStateOf(0) }
+    var showSearch by remember { mutableStateOf(false) }
+    val rootFocus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+
+    // Ticks the progress bar between server updates while playing.
+    var nowTick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(ui.isPlaying) {
+        while (ui.isPlaying) { nowTick++; delay(500) }
+    }
+
+    LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(showSearch) { if (!showSearch) runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(ui.tab) { listIndex = 0 }
+    LaunchedEffect(listIndex, ui.tab) {
+        if (ui.tab != MusicTab.NOW_PLAYING && listIndex >= 0) runCatching { listState.animateScrollToItem(listIndex) }
+    }
+    // Open the queue at the playing track.
+    LaunchedEffect(ui.tab, ui.queueItems.size) {
+        if (ui.tab == MusicTab.QUEUE) {
+            val cur = ui.queue?.current?.id
+            val idx = ui.queueItems.indexOfFirst { it.id == cur }
+            if (idx >= 0) listIndex = idx
+        }
+    }
+
+    val listSize = when (ui.tab) {
+        MusicTab.NOW_PLAYING -> 0
+        MusicTab.QUEUE -> ui.queueItems.size
+        MusicTab.ZONES -> ui.players.size
+        MusicTab.BROWSE -> ui.browse.items.size + 1 // +1 = the Search row at the top
+    }
+
+    fun activateControl(c: Control) = when (c) {
+        Control.SHUFFLE -> viewModel.toggleShuffle()
+        Control.PREVIOUS -> { viewModel.previous(); Unit }
+        Control.PLAY_PAUSE -> viewModel.playPause()
+        Control.NEXT -> { viewModel.next(); Unit }
+        Control.REPEAT -> viewModel.cycleRepeat()
+        Control.VOLUME_DOWN -> viewModel.changeVolume(-3)
+        Control.VOLUME_UP -> viewModel.changeVolume(3)
+    }
+
+    fun activateListItem(index: Int) {
+        when (ui.tab) {
+            MusicTab.QUEUE -> viewModel.playQueueIndex(index)
+            MusicTab.ZONES -> ui.players.getOrNull(index)?.let {
+                viewModel.selectPlayer(it.id)
+                viewModel.setTab(MusicTab.NOW_PLAYING)
+            }
+            MusicTab.BROWSE -> if (index == 0) showSearch = true else ui.browse.items.getOrNull(index - 1)?.let { item ->
+                if (item.isFolder) viewModel.openFolder(item) else viewModel.play(item)
+            }
+            MusicTab.NOW_PLAYING -> Unit
+        }
+    }
+
+    fun handleBack() {
+        when {
+            ui.tab == MusicTab.BROWSE && area == Area.CONTENT && viewModel.browseBack() -> listIndex = 0
+            ui.tab != MusicTab.NOW_PLAYING -> { viewModel.setTab(MusicTab.NOW_PLAYING); area = Area.CONTENT; npRow = ROW_CONTROLS }
+            else -> onBack()
+        }
+    }
+
+    BackHandler(enabled = !showSearch) { handleBack() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .focusRequester(rootFocus)
+            .focusable()
+            .onPreviewKeyEvent { evt ->
+                if (showSearch) return@onPreviewKeyEvent false
+                // Consume both halves of Back here so the system BackHandler (kept for touch
+                // gestures) doesn't fire a second time on key-up.
+                if (evt.key == Key.Back || evt.key == Key.Escape) {
+                    if (evt.type == KeyEventType.KeyDown) handleBack()
+                    return@onPreviewKeyEvent true
+                }
+                if (evt.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val tabs = MusicTab.entries
+                when (evt.key) {
+                    // Remote media keys work from anywhere on the screen.
+                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { viewModel.playPause(); true }
+                    Key.MediaNext -> { viewModel.next(); true }
+                    Key.MediaPrevious -> { viewModel.previous(); true }
+                    Key.MediaFastForward -> { viewModel.seekBy(15); true }
+                    Key.MediaRewind -> { viewModel.seekBy(-15); true }
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        val d = if (evt.key == Key.DirectionRight) 1 else -1
+                        when {
+                            area == Area.TABS -> {
+                                val next = (ui.tab.ordinal + d).coerceIn(0, tabs.size - 1)
+                                viewModel.setTab(tabs[next])
+                            }
+                            ui.tab == MusicTab.NOW_PLAYING && npRow == ROW_SEEK -> viewModel.seekBy(10 * d)
+                            ui.tab == MusicTab.NOW_PLAYING ->
+                                controlIndex = (controlIndex + d).coerceIn(0, Control.entries.size - 1)
+                            else -> Unit
+                        }
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        when {
+                            area == Area.TABS -> Unit
+                            ui.tab == MusicTab.NOW_PLAYING ->
+                                if (npRow == ROW_CONTROLS) npRow = ROW_SEEK else area = Area.TABS
+                            listIndex > 0 -> listIndex--
+                            else -> area = Area.TABS
+                        }
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        when {
+                            area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
+                            ui.tab == MusicTab.NOW_PLAYING -> npRow = ROW_CONTROLS
+                            listIndex < listSize - 1 -> listIndex++
+                            else -> Unit
+                        }
+                        true
+                    }
+                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                        when {
+                            area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
+                            ui.tab == MusicTab.NOW_PLAYING ->
+                                if (npRow == ROW_SEEK) viewModel.playPause() else activateControl(Control.entries[controlIndex])
+                            else -> activateListItem(listIndex)
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
+            // ── Header: tabs + the zone being controlled ──
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MusicTab.entries.forEach { tab ->
+                    val selected = ui.tab == tab
+                    val focused = area == Area.TABS && selected
+                    Box(
+                        Modifier
+                            .padding(end = 10.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (selected) accent.copy(alpha = if (focused) 0.35f else 0.18f) else Color.Transparent)
+                            .border(2.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(20.dp))
+                            .clickable { viewModel.setTab(tab); area = Area.CONTENT }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
+                    ) {
+                        Text(TAB_LABELS.getValue(tab), color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+                            fontSize = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                ui.selectedPlayer?.let { p ->
+                    Icon(Icons.Default.Speaker, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(p.name, color = colors.onSurface, fontSize = 16.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                ConnectionDot(ui.connection)
+            }
+            Spacer(Modifier.height(24.dp))
+
+            Box(Modifier.fillMaxSize()) {
+                when {
+                    ui.connection != ConnectionState.CONNECTED && ui.players.isEmpty() -> ConnectionEmptyState(ui.connection)
+                    ui.players.isEmpty() -> EmptyState("No zones found", "Music Assistant didn't report any players.")
+                    else -> when (ui.tab) {
+                        MusicTab.NOW_PLAYING -> NowPlaying(
+                            ui = ui,
+                            elapsed = remember(nowTick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
+                            seekFocused = area == Area.CONTENT && npRow == ROW_SEEK,
+                            focusedControl = if (area == Area.CONTENT && npRow == ROW_CONTROLS) Control.entries[controlIndex] else null,
+                            onControl = { c -> controlIndex = c.ordinal; npRow = ROW_CONTROLS; area = Area.CONTENT; activateControl(c) },
+                        )
+                        MusicTab.QUEUE -> if (ui.queueItems.isEmpty()) {
+                            EmptyState("The queue is empty", "Pick something in Library to start playing on ${ui.selectedPlayer?.name ?: "this zone"}.")
+                        } else {
+                            LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+                                itemsIndexed(ui.queueItems, key = { i, it -> "${it.id}#$i" }) { i, item ->
+                                    MediaRow(
+                                        title = item.name,
+                                        subtitle = listOfNotNull(item.artist, item.album).joinToString(" · ").ifBlank { null },
+                                        imageUrl = item.imageUrl,
+                                        trailing = formatTime(item.durationSec.toDouble()),
+                                        highlighted = item.id == ui.queue?.current?.id,
+                                        focused = area == Area.CONTENT && listIndex == i,
+                                        onClick = { listIndex = i; area = Area.CONTENT; activateListItem(i) },
+                                    )
+                                }
+                            }
+                        }
+                        MusicTab.ZONES -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+                            itemsIndexed(ui.players, key = { _, p -> p.id }) { i, p ->
+                                MediaRow(
+                                    title = p.name + if (p.isGroupLeader) "  +${p.groupMembers.size - 1}" else "",
+                                    subtitle = when {
+                                        p.nowTitle != null -> listOfNotNull(if (p.isPlaying) "Playing" else "Paused", p.nowTitle, p.nowArtist).joinToString(" · ")
+                                        else -> "Idle"
+                                    },
+                                    imageUrl = p.nowImageUrl,
+                                    fallbackIcon = Icons.Default.Speaker,
+                                    trailing = p.effectiveVolume?.let { "Vol $it" },
+                                    highlighted = p.id == ui.selectedPlayerId,
+                                    focused = area == Area.CONTENT && listIndex == i,
+                                    onClick = { listIndex = i; area = Area.CONTENT; activateListItem(i) },
+                                )
+                            }
+                        }
+                        MusicTab.BROWSE -> Column {
+                            Text(ui.browse.title, color = colors.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+                            LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
+                                item(key = "search") {
+                                    MediaRow(
+                                        title = if (ui.browse.query.isBlank()) "Search" else "Search: ${ui.browse.query}",
+                                        subtitle = "Artists, albums, playlists, tracks, radio",
+                                        imageUrl = null,
+                                        fallbackIcon = Icons.Default.Search,
+                                        focused = area == Area.CONTENT && listIndex == 0,
+                                        onClick = { listIndex = 0; showSearch = true },
+                                    )
+                                }
+                                if (ui.browse.loading) item(key = "loading") {
+                                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = accent)
+                                    }
+                                }
+                                ui.browse.error?.let { err ->
+                                    item(key = "error") { Text(err, color = colors.onSurfaceVariant, fontSize = 15.sp, modifier = Modifier.padding(16.dp)) }
+                                }
+                                itemsIndexed(ui.browse.items, key = { i, it -> "${it.uri}|${it.browsePath}|$i" }) { i, item ->
+                                    MediaRow(
+                                        title = item.name,
+                                        subtitle = item.subtitle ?: item.mediaType.replaceFirstChar { it.uppercase() },
+                                        imageUrl = item.imageUrl,
+                                        fallbackIcon = if (item.isFolder) Icons.Default.Folder else Icons.Default.Album,
+                                        focused = area == Area.CONTENT && listIndex == i + 1,
+                                        onClick = { listIndex = i + 1; area = Area.CONTENT; activateListItem(i + 1) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ui.message?.let { msg ->
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
+                            .clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant)
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    ) { Text(msg, color = colors.onSurface, fontSize = 15.sp) }
+                }
+            }
+        }
+
+        if (showSearch) {
+            SearchDialog(
+                initial = ui.browse.query,
+                onSearch = { q -> showSearch = false; listIndex = 0; area = Area.CONTENT; viewModel.search(q) },
+                onDismiss = { showSearch = false },
+            )
+        }
+    }
+}
+
+// ── Now Playing ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun NowPlaying(
+    ui: MusicUiState,
+    elapsed: Double,
+    seekFocused: Boolean,
+    focusedControl: Control?,
+    onControl: (Control) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val player = ui.selectedPlayer
+    val item = ui.queue?.current
+    val title = item?.name ?: player?.nowTitle
+    val artist = item?.artist ?: player?.nowArtist
+    val image = item?.imageUrl ?: player?.nowImageUrl
+
+    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.fillMaxHeight(0.92f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (image != null) {
+                AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(96.dp))
+            }
+        }
+        Spacer(Modifier.width(48.dp))
+        Column(Modifier.weight(1f)) {
+            if (title == null) {
+                Text("Nothing playing", color = colors.onSurface, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Open Library to start something on ${player?.name ?: "a zone"}.", color = colors.onSurfaceVariant, fontSize = 18.sp)
+            } else {
+                Text(title, color = colors.onSurface, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                artist?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, color = colors.onSurface.copy(alpha = 0.85f), fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                item?.album?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = colors.onSurfaceVariant, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                player?.let { Chip(it.name + if (it.isGroupLeader) " +${it.groupMembers.size - 1}" else "") }
+                item?.quality?.let { Spacer(Modifier.width(8.dp)); Chip(it, highlight = true) }
+                player?.effectiveVolume?.let { Spacer(Modifier.width(8.dp)); Chip("Vol $it") }
+            }
+
+            Spacer(Modifier.height(28.dp))
+            SeekBar(elapsed = elapsed, duration = item?.durationSec ?: 0, focused = seekFocused)
+            Spacer(Modifier.height(24.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val q = ui.queue
+                ControlButton(Icons.Default.Shuffle, "Shuffle", focusedControl == Control.SHUFFLE, active = q?.shuffle == true) { onControl(Control.SHUFFLE) }
+                ControlButton(Icons.Default.SkipPrevious, "Previous", focusedControl == Control.PREVIOUS) { onControl(Control.PREVIOUS) }
+                ControlButton(
+                    if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    if (ui.isPlaying) "Pause" else "Play",
+                    focusedControl == Control.PLAY_PAUSE, large = true,
+                ) { onControl(Control.PLAY_PAUSE) }
+                ControlButton(Icons.Default.SkipNext, "Next", focusedControl == Control.NEXT) { onControl(Control.NEXT) }
+                ControlButton(
+                    if (q?.repeat == "one") Icons.Default.RepeatOne else Icons.Default.Repeat, "Repeat",
+                    focusedControl == Control.REPEAT, active = q != null && q.repeat != "off",
+                ) { onControl(Control.REPEAT) }
+                Spacer(Modifier.width(20.dp))
+                ControlButton(Icons.Default.VolumeDown, "Volume down", focusedControl == Control.VOLUME_DOWN) { onControl(Control.VOLUME_DOWN) }
+                ControlButton(Icons.Default.VolumeUp, "Volume up", focusedControl == Control.VOLUME_UP) { onControl(Control.VOLUME_UP) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeekBar(elapsed: Double, duration: Int, focused: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
+    val fraction = if (duration > 0) (elapsed / duration).toFloat().coerceIn(0f, 1f) else 0f
+    Column {
+        Box(
+            Modifier.fillMaxWidth().height(if (focused) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp))
+                .background(colors.onSurface.copy(alpha = 0.18f))
+                .border(if (focused) 2.dp else 0.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(5.dp))
+        ) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(accent))
+        }
+        Spacer(Modifier.height(6.dp))
+        Row {
+            Text(formatTime(elapsed), color = colors.onSurfaceVariant, fontSize = 14.sp)
+            Spacer(Modifier.weight(1f))
+            if (focused) Text("◀ ▶ seek 10s", color = accent, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            Text(if (duration > 0) formatTime(duration.toDouble()) else "--:--", color = colors.onSurfaceVariant, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun ControlButton(
+    icon: ImageVector,
+    label: String,
+    focused: Boolean,
+    active: Boolean = false,
+    large: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
+    val size = if (large) 72.dp else 54.dp
+    Box(
+        Modifier.padding(end = 12.dp).size(size).clip(CircleShape)
+            .background(
+                when {
+                    focused -> accent
+                    large -> colors.onSurface.copy(alpha = 0.16f)
+                    else -> Color.Transparent
+                }
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon, contentDescription = label,
+            tint = when {
+                focused -> colors.onPrimary
+                active -> accent
+                else -> colors.onSurface
+            },
+            modifier = Modifier.size(if (large) 40.dp else 30.dp),
+        )
+    }
+}
+
+@Composable
+private fun Chip(text: String, highlight: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        Modifier.clip(RoundedCornerShape(6.dp))
+            .background(if (highlight) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.10f))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(text, color = if (highlight) colors.primary else colors.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ── Lists ────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun MediaRow(
+    title: String,
+    subtitle: String?,
+    imageUrl: String?,
+    fallbackIcon: ImageVector = Icons.Default.MusicNote,
+    trailing: String? = null,
+    highlighted: Boolean = false,
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    focused -> accent.copy(alpha = 0.22f)
+                    highlighted -> colors.onSurface.copy(alpha = 0.07f)
+                    else -> Color.Transparent
+                }
+            )
+            .border(2.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)).background(colors.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (imageUrl != null) {
+                AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(fallbackIcon, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(26.dp))
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (highlighted) accent else colors.onSurface, fontSize = 18.sp,
+                fontWeight = if (highlighted) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            subtitle?.let {
+                Text(it, color = colors.onSurfaceVariant, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        trailing?.let {
+            Spacer(Modifier.width(12.dp))
+            Text(it, color = colors.onSurfaceVariant, fontSize = 14.sp)
+        }
+    }
+}
+
+// ── Empty / status states ────────────────────────────────────────────────────
+
+@Composable
+private fun ConnectionDot(state: ConnectionState) {
+    val color = when (state) {
+        ConnectionState.CONNECTED -> Color(0xFF34D399)
+        ConnectionState.CONNECTING -> Color(0xFFFBBF24)
+        else -> Color(0xFFF87171)
+    }
+    Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+}
+
+@Composable
+private fun ConnectionEmptyState(state: ConnectionState) {
+    when (state) {
+        ConnectionState.CONNECTING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
+        ConnectionState.NOT_CONFIGURED -> EmptyState(
+            "Music Assistant isn't set up",
+            "Settings → Plugins & Extensions → Music Assistant: enter the server and log in.",
+        )
+        ConnectionState.AUTH_FAILED -> EmptyState(
+            "Music Assistant login needed",
+            "The saved login was rejected. Log in again in Settings → Plugins & Extensions → Music Assistant.",
+        )
+        ConnectionState.OFFLINE, ConnectionState.CONNECTED -> EmptyState(
+            "Can't reach Music Assistant",
+            "Retrying automatically. Check that the server is running.",
+        )
+    }
+}
+
+@Composable
+private fun EmptyState(title: String, body: String) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(56.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(title, color = colors.onSurface, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text(body, color = colors.onSurfaceVariant, fontSize = 16.sp)
+    }
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+
+@Composable
+private fun SearchDialog(initial: String, onSearch: (String) -> Unit, onDismiss: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    var text by remember { mutableStateOf(initial) }
+    val fieldFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(100); runCatching { fieldFocus.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.width(560.dp).clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(24.dp)
+        ) {
+            Text("Search music", color = colors.onSurface, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(14.dp))
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                placeholder = { androidx.compose.material3.Text("Artist, album, playlist, song…") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch(text) }),
+                modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = colors.onSurface,
+                    unfocusedTextColor = colors.onSurface,
+                    focusedBorderColor = colors.primary,
+                    cursorColor = colors.primary,
+                ),
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("Press the keyboard's search key to search, Back to cancel.", color = colors.onSurfaceVariant, fontSize = 13.sp)
+        }
+    }
+}
+
+private fun formatTime(seconds: Double): String {
+    val s = seconds.toInt().coerceAtLeast(0)
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}

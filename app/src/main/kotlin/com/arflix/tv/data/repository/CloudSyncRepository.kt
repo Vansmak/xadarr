@@ -793,6 +793,12 @@ class CloudSyncRepository @Inject constructor(
         // Which speaker each device's volume buttons drive. Keyed by device, so it's meaningful on
         // every surface — same reasoning as the HA URL/token above.
         prefs[HA_DEVICE_PROFILE_BY_HOST_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ha_device_profiles", it) }
+        // Music Assistant: log in once on any device and every device gets Music. Only the
+        // long-lived token travels, never the password. Selected zone stays per-device.
+        prefs[com.arflix.tv.music.MA_URL_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_url", it) }
+        prefs[com.arflix.tv.music.MA_TOKEN_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_token", it) }
+        prefs[com.arflix.tv.music.MA_SERVER_ID_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_server_id", it) }
+        prefs[com.arflix.tv.music.MA_USERNAME_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_username", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
         root.put(
@@ -1580,6 +1586,18 @@ class CloudSyncRepository @Inject constructor(
                 if (haToken.isNotBlank())         prefs[HA_TOKEN_KEY]              = haToken
                 if (haExposedIds.isNotBlank())    prefs[HA_EXPOSED_ENTITIES_KEY]   = haExposedIds
                 if (haDeviceProfiles.isNotBlank()) prefs[HA_DEVICE_PROFILE_BY_HOST_KEY] = haDeviceProfiles
+            }
+        }
+
+        // ── Music Assistant (see the export side) ──
+        val maUrl = root.optString("ma_url", "")
+        val maToken = root.optString("ma_token", "")
+        if (maUrl.isNotBlank() && maToken.isNotBlank()) {
+            context.settingsDataStore.edit { prefs ->
+                prefs[com.arflix.tv.music.MA_URL_KEY] = maUrl
+                prefs[com.arflix.tv.music.MA_TOKEN_KEY] = maToken
+                root.optString("ma_server_id", "").takeIf { it.isNotBlank() }?.let { prefs[com.arflix.tv.music.MA_SERVER_ID_KEY] = it }
+                root.optString("ma_username", "").takeIf { it.isNotBlank() }?.let { prefs[com.arflix.tv.music.MA_USERNAME_KEY] = it }
             }
         }
 
