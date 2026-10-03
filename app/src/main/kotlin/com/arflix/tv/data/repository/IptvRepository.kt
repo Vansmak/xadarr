@@ -249,7 +249,17 @@ class IptvRepository @Inject constructor(
     private val xtreamShortEpgLimit = 40
     private val startupShortEpgChannelLimit = 1200
     private val xtreamShortEpgBatchSize = 512
-    private val xtreamShortEpgConcurrency = 32
+    // Was 5 (OkHttp's default maxRequestsPerHost, unintentionally -- see xtreamLookupHttpClient's
+    // Dispatcher override), then bumped to 32 once that Dispatcher was actually wired up correctly.
+    // 32 is fine for a single device but three real devices on this account (phone, Shield, a
+    // third TV) can all trigger a full cold backfill around the same time, and 32-per-device
+    // stacks into up to ~96 simultaneous requests against one Xtream account -- confirmed via
+    // logcat on 2026-09-27: get_short_epg calls returning 503, xmltv.php returning 404, and a
+    // reload eventually giving up and falling back to a stale cache after repeated cancelled
+    // jobs, right as multiple devices were mid-reload together. 10 keeps most of the win over the
+    // accidental default of 5 while giving three devices headroom to run concurrently without
+    // saturating one account.
+    private val xtreamShortEpgConcurrency = 10
     private val cacheUpcomingProgramLimit = 8
     private val cacheRecentProgramLimit = 1
     private val catchupRecentProgramLimit = 1000
@@ -266,12 +276,23 @@ class IptvRepository @Inject constructor(
             .build()
     }
     private val xtreamLookupHttpClient: OkHttpClient by lazy {
-        // Fast-fail client for VOD/source lookups - must be quick for instant playback
+        // Fast-fail client for VOD/source lookups - must be quick for instant playback.
+        // Own Dispatcher because fetchXtreamEpgListingsAsync's Semaphore(32) is pointless
+        // against OkHttp's default maxRequestsPerHost=5 — without this override, a raw
+        // (non-Dispatcharr-curated) Xtream catalog's per-channel short-EPG backfill (thousands
+        // of get_short_epg calls, one per channel with no bulk endpoint) serializes down to 5
+        // concurrent requests and can take 10+ minutes instead of the intended ~32-way fan-out.
         okHttpClient.newBuilder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(6, TimeUnit.SECONDS)
             .callTimeout(12, TimeUnit.SECONDS)
+            .dispatcher(
+                okhttp3.Dispatcher().apply {
+                    maxRequestsPerHost = xtreamShortEpgConcurrency
+                    maxRequests = xtreamShortEpgConcurrency * 2
+                }
+            )
             .build()
     }
     private val iptvCatalogHttpClient: OkHttpClient by lazy {
@@ -4835,12 +4856,20 @@ class IptvRepository @Inject constructor(
                                     "&password=${creds.password}&action=get_short_epg&stream_id=$sid&limit=$xtreamShortEpgLimit"
                                 var listings: List<XtreamEpgListing>? = null
                                 try {
-                                    var resp: XtreamEpgResponse? = requestJson(url, XtreamEpgResponse::class.java)
+                                    // requestJson() defaults its client param to iptvHttpClient, which
+                                    // this call never overrode -- so the Semaphore(32) above was gated
+                                    // by iptvHttpClient's unmodified default Dispatcher (maxRequestsPerHost=5)
+                                    // the whole time, not xtreamLookupHttpClient's raised one. Confirmed
+                                    // live: logcat still showed exactly 5-6 concurrent get_short_epg calls
+                                    // after bumping xtreamLookupHttpClient's Dispatcher (Joe, 2026-09-27:
+                                    // "well it's not [faster]"). Passing the client explicitly here is the
+                                    // actual fix.
+                                    var resp: XtreamEpgResponse? = requestJson(url, XtreamEpgResponse::class.java, xtreamLookupHttpClient)
                                     listings = resp?.epgListings
                                     if (listings.isNullOrEmpty()) {
                                         val fallbackUrl = "${creds.baseUrl}/player_api.php?username=${creds.username}" +
                                             "&password=${creds.password}&action=get_short_epg&stream_id=$sid"
-                                        resp = requestJson(fallbackUrl, XtreamEpgResponse::class.java)
+                                        resp = requestJson(fallbackUrl, XtreamEpgResponse::class.java, xtreamLookupHttpClient)
                                         listings = resp?.epgListings
                                     }
                                     if (!listings.isNullOrEmpty()) {

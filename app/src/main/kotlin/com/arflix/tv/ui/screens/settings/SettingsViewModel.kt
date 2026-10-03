@@ -2454,6 +2454,19 @@ class SettingsViewModel @Inject constructor(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) {
+                    // A cancelled load (superseded by another refresh, or the screen/app going
+                    // away mid-load) must still clear the loading flag -- otherwise nothing ever
+                    // flips it back to false and "Refresh IPTV Data" is stuck on LOADING forever,
+                    // surviving even an app restart if a later refresh never completes cleanly.
+                    // Joe, 2026-09-27: "it still says loading on tv to. ever since I added sanctum
+                    // it's been like that" -- Sanctum's raw catalog made loads slow enough that
+                    // re-pressing refresh or navigating away mid-load (which cancels the running
+                    // job) became routine, hitting this every time.
+                    _uiState.value = _uiState.value.copy(
+                        isIptvLoading = false,
+                        iptvProgressText = null,
+                        iptvProgressPercent = 0
+                    )
                     return@onFailure
                 }
                 val failMessage = if (configured) "Failed to load IPTV playlist" else "Failed to refresh IPTV"

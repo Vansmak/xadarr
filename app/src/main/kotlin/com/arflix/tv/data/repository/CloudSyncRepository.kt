@@ -124,6 +124,12 @@ class CloudSyncRepository @Inject constructor(
     // having no baseline instead of a bogus one.
     private val cloudSyncContentHashKey = stringPreferencesKey("cloud_sync_content_hash_v5")
     private val cloudSyncContentStampKey = longPreferencesKey("cloud_sync_content_stamp_v5")
+    // Server-issued monotonic version, last seen on a successful GET. Carried in every PUT so
+    // the server can reject a write from a device that hasn't actually seen the current state --
+    // a check that doesn't depend on any device's clock being correct. Replaces wall-clock
+    // `updatedAt` comparison as the source of truth for conflicts; see the version check in
+    // Episeerr's put_settings(). 0 means "never successfully pulled."
+    private val cloudSyncServerVersionKey = longPreferencesKey("cloud_sync_server_version")
     private val globalDnsProviderKey = stringPreferencesKey(OkHttpProvider.DNS_PROVIDER_PREF_KEY)
     private val customUserAgentKey = stringPreferencesKey(OkHttpProvider.USER_AGENT_PREF_KEY)
     @Volatile
@@ -151,6 +157,9 @@ class CloudSyncRepository @Inject constructor(
                 addon.manifest?.xadarr?.episeerrSync?.syncPrefix?.takeIf { it.isNotBlank() }
             } ?: "/api/integration/xadarr"
 
+    /** Thrown when the server rejects a PUT because our syncVersion is stale — see put_settings(). */
+    private class SyncVersionConflictException : Exception("Sync server rejected stale syncVersion")
+
     private suspend fun syncServerSavePayload(payload: String): Result<Unit> {
         val base = syncServerBaseUrl()
         if (base.isBlank()) return Result.failure(IllegalStateException("Sync server URL not configured"))
@@ -160,6 +169,7 @@ class CloudSyncRepository @Inject constructor(
                 val body = payload.toRequestBody("application/json".toMediaType())
                 val req = Request.Builder().url("$base$prefix/settings").put(body).build()
                 okHttpClient.newCall(req).execute().use { resp ->
+                    if (resp.code == 409) throw SyncVersionConflictException()
                     if (!resp.isSuccessful) throw IllegalStateException("Sync server PUT failed: ${resp.code}")
                 }
             }
@@ -281,6 +291,16 @@ class CloudSyncRepository @Inject constructor(
                 recordSyncBaseline(
                     JSONObject(payload).optLong("updatedAt", 0L),
                 )
+            }
+            // Record what version of server state we just saw, so our next push can prove we
+            // aren't stale without relying on any clock. Read raw off the JSON rather than
+            // whatever buildCloudSnapshotJson() would produce locally -- this must be exactly
+            // what the server just handed us, not a locally-recomputed value.
+            runCatching {
+                val serverVersion = JSONObject(payload).optLong("syncVersion", 0L)
+                if (serverVersion > 0L) {
+                    context.settingsDataStore.edit { it[cloudSyncServerVersionKey] = serverVersion }
+                }
             }
             updateLanSyncTimestamp(payload)
             true
@@ -549,8 +569,20 @@ class CloudSyncRepository @Inject constructor(
             // earlier. Date the content to the last state we synced instead, so an unedited device
             // has no claim and the first genuine edit stamps it properly.
             prevStamp <= 0L ->
-                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L }
-                    ?: System.currentTimeMillis()
+                // A device that has never once successfully pulled cloud state (no
+                // cloudSyncLastAppliedAtKey at all -- a fresh install, not just a stale one) has
+                // zero basis to claim its default/local-only content is the newest thing that
+                // exists. Falling back to now() here did the opposite of the whole point of this
+                // function: it handed a brand-new install's untouched default state the single
+                // newest timestamp of any device, so its very first push (often triggered just by
+                // entering the sync server URL) sailed past the "only push if newer" guard and
+                // overwrote real, recently-edited server state before ever pulling it down. Joe,
+                // 2026-09-27, after re-curating hiddenGroups server-side and watching a fresh
+                // mobile install clobber it again within minutes: "nop not on mobile I bet ist
+                // clobbering episeer now to". 0L guarantees this device loses every comparison
+                // until it has actually pulled once -- exactly the outcome a never-synced device
+                // should have.
+                (storedPrefs[cloudSyncLastAppliedAtKey] ?: 0L).takeIf { it > 0L } ?: 0L
             else -> System.currentTimeMillis()
         }
         if (contentHash != prevHash || prevStamp <= 0L) {
@@ -560,6 +592,11 @@ class CloudSyncRepository @Inject constructor(
             }
         }
         root.put("updatedAt", stamp)
+        // Carried forward from the last successful pull, not incremented here -- only the
+        // server assigns versions (see put_settings()'s version check). A device that has
+        // never pulled sends 0, which can only ever match a server that has never been
+        // written to; any real server state rejects it, forcing a pull first.
+        root.put("syncVersion", storedPrefs[cloudSyncServerVersionKey] ?: 0L)
         return root.toString()
     }
 
@@ -1157,15 +1194,30 @@ class CloudSyncRepository @Inject constructor(
             onPushCompleted?.invoke()
         } else {
             markPushFailedDirty()
-            AppLogger.recordException(
-                throwable = result.exceptionOrNull() ?: IllegalStateException("Cloud push failed"),
-                context = mapOf(
-                    "error_area" to "CloudSync",
-                    "cloud_flow" to "push_save_payload",
-                    "dirty" to isPushDirty.toString(),
-                    "payload_size" to payloadSizeBucket(payload)
+            if (result.exceptionOrNull() is SyncVersionConflictException) {
+                // The server has state we haven't seen yet -- not a transient failure, a real
+                // conflict. Fetching it now (off this lock, since pullFromCloud() takes the same
+                // cloudSyncMutex we're already holding) gets us the current syncVersion and lets
+                // the pending local change retry on the next pull, which pushes first once it
+                // has something newer to offer. Logged as a breadcrumb, not recordException --
+                // this is the mechanism working as designed, not an app error.
+                AppLogger.breadcrumb(
+                    tag = "CloudSync",
+                    message = "push_conflict_stale_version — refreshing",
+                    severity = "info"
                 )
-            )
+                repositoryScope.launch { pullFromCloud() }
+            } else {
+                AppLogger.recordException(
+                    throwable = result.exceptionOrNull() ?: IllegalStateException("Cloud push failed"),
+                    context = mapOf(
+                        "error_area" to "CloudSync",
+                        "cloud_flow" to "push_save_payload",
+                        "dirty" to isPushDirty.toString(),
+                        "payload_size" to payloadSizeBucket(payload)
+                    )
+                )
+            }
         }
         return result
     }
@@ -1268,6 +1320,16 @@ class CloudSyncRepository @Inject constructor(
                 recordSyncBaseline(
                     JSONObject(payload).optLong("updatedAt", 0L),
                 )
+            }
+            // Record what version of server state we just saw, so our next push can prove we
+            // aren't stale without relying on any clock. Read raw off the JSON rather than
+            // whatever buildCloudSnapshotJson() would produce locally -- this must be exactly
+            // what the server just handed us, not a locally-recomputed value.
+            runCatching {
+                val serverVersion = JSONObject(payload).optLong("syncVersion", 0L)
+                if (serverVersion > 0L) {
+                    context.settingsDataStore.edit { it[cloudSyncServerVersionKey] = serverVersion }
+                }
             }
             AppLogger.breadcrumb(
                 tag = "CloudSync",
