@@ -94,6 +94,9 @@ class MusicAssistantRepository @Inject constructor(
     private var socket: WebSocket? = null
     private var connectJob: Job? = null
     @Volatile private var baseUrl: String = ""
+    // Whether the most recent [request] got a 2xx — commands like play_media succeed with a null
+    // result, so the return value alone can't tell success from failure.
+    @Volatile private var lastRequestOk = false
 
     val isConfigured: Flow<Boolean> = context.settingsDataStore.data
         .map { !it[MA_URL_KEY].isNullOrBlank() && !it[MA_TOKEN_KEY].isNullOrBlank() }
@@ -328,6 +331,60 @@ class MusicAssistantRepository @Inject constructor(
         } finally {
             pending.remove(id)
         }
+    }
+
+    /**
+     * One-shot command over MA's HTTP RPC endpoint (`POST /api`), for callers that just need an
+     * answer and shouldn't hold the WebSocket open (e.g. the live guide's Music channels).
+     * Returns null when MA isn't set up or the call fails.
+     */
+    suspend fun request(name: String, args: JSONObject = JSONObject()): Any? = withContext(Dispatchers.IO) {
+        val prefs = context.settingsDataStore.data.first()
+        val url = prefs[MA_URL_KEY]?.takeIf { it.isNotBlank() }?.let(::normalizeUrl) ?: return@withContext null
+        val token = prefs[MA_TOKEN_KEY]?.takeIf { it.isNotBlank() } ?: return@withContext null
+        baseUrl = url
+        lastRequestOk = false
+        runCatching {
+            val req = Request.Builder().url("$url/api")
+                .post(JSONObject().put("command", name).put("args", args).toString().toRequestBody("application/json".toMediaType()))
+                .header("Authorization", "Bearer $token")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                lastRequestOk = resp.isSuccessful
+                if (!resp.isSuccessful || text.isBlank()) return@use null
+                val value = org.json.JSONTokener(text).nextValue()
+                if (value is JSONObject && value.has("error_code")) {
+                    lastRequestOk = false
+                    Log.w(TAG, "$name error: ${value.optString("details")}")
+                    null
+                } else value.takeUnless { it == JSONObject.NULL }
+            }
+        }.onFailure { Log.w(TAG, "$name failed: ${it.message}") }.getOrNull()
+    }
+
+    /** The library's playlists (Spotify's included), by name. Empty when MA isn't set up. */
+    suspend fun playlists(): List<MaMediaItem> {
+        val arr = request("music/playlists/library_items", JSONObject().put("limit", 500).put("order_by", "sort_name")) as? JSONArray
+        return MaParse.mediaItems(arr, this)
+    }
+
+    /** Zones that can be played to, same filtering as the Music screen's zone list. */
+    suspend fun zones(): List<MaPlayer> {
+        val arr = request("players/all") as? JSONArray ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { o -> MaParse.player(o, this) } }
+            .filter { it.visible }
+            .sortedBy { it.name.lowercase() }
+    }
+
+    /** Starts [uri] on [playerId], replacing whatever it was playing. Returns false on failure. */
+    suspend fun playOn(playerId: String, uri: String): Boolean {
+        val ok = request(
+            "player_queues/play_media",
+            JSONObject().put("queue_id", playerId).put("media", JSONArray().put(uri)).put("option", "replace"),
+        ) != null || lastRequestOk
+        if (ok) saveSelectedPlayerId(playerId)
+        return ok
     }
 
     // ── Images ───────────────────────────────────────────────────────────────

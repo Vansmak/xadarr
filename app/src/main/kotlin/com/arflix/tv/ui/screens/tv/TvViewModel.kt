@@ -71,6 +71,7 @@ object GuideSessionCache {
     @Volatile var channelsSignature: String? = null
     @Volatile var shows: List<com.arflix.tv.data.repository.ShowGuideEntry> = emptyList()
     @Volatile var movies: com.arflix.tv.data.repository.MovieGuide = com.arflix.tv.data.repository.MovieGuide()
+    @Volatile var musicPlaylists: List<com.arflix.tv.music.MaMediaItem> = emptyList()
 }
 
 @HiltViewModel
@@ -89,6 +90,7 @@ class TvViewModel @Inject constructor(
     private val remoteCommandBus: com.arflix.tv.data.repository.RemoteCommandBus,
     private val sonarrRepository: com.arflix.tv.data.repository.SonarrRepository,
     private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
+    private val musicAssistantRepository: com.arflix.tv.music.MusicAssistantRepository,
     private val homeServerRepository: com.arflix.tv.data.repository.HomeServerRepository,
 ) : ViewModel() {
 
@@ -272,6 +274,41 @@ class TvViewModel @Inject constructor(
                 _movieGuide.value = movies
                 GuideSessionCache.movies = movies
             }
+        }
+        viewModelScope.launch {
+            val playlists = runCatching { musicAssistantRepository.playlists() }.getOrDefault(emptyList())
+            if (playlists.isNotEmpty() || GuideSessionCache.musicPlaylists.isEmpty()) {
+                _musicPlaylists.value = playlists
+                GuideSessionCache.musicPlaylists = playlists
+            }
+        }
+    }
+
+    // Synthetic "Music" guide channels: one per Music Assistant playlist. Selecting one picks a
+    // Sonos zone and starts it there through MA; the TV itself never plays the audio. Empty (so
+    // the group doesn't exist) unless Music Assistant is set up.
+    private val _musicPlaylists =
+        kotlinx.coroutines.flow.MutableStateFlow(GuideSessionCache.musicPlaylists)
+    val musicPlaylists: StateFlow<List<com.arflix.tv.music.MaMediaItem>> = _musicPlaylists.asStateFlow()
+
+    private val _musicZones = kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.music.MaPlayer>>(emptyList())
+    val musicZones: StateFlow<List<com.arflix.tv.music.MaPlayer>> = _musicZones.asStateFlow()
+    private val _lastMusicZoneId = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val lastMusicZoneId: StateFlow<String?> = _lastMusicZoneId.asStateFlow()
+
+    /** Fetched each time the zone picker opens, so "playing" markers are current. */
+    fun refreshMusicZones() {
+        viewModelScope.launch {
+            _lastMusicZoneId.value = musicAssistantRepository.selectedPlayerId()
+            _musicZones.value = runCatching { musicAssistantRepository.zones() }.getOrDefault(emptyList())
+        }
+    }
+
+    fun playMusicOn(zoneId: String, uri: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { musicAssistantRepository.playOn(zoneId, uri) }.getOrDefault(false)
+            if (ok) _lastMusicZoneId.value = zoneId
+            onResult(ok)
         }
     }
 
