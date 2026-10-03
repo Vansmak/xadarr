@@ -1981,6 +1981,12 @@ fun LiveTvScreen(
                     val zone = zones.firstOrNull { it.id == action.id }
                     if (playlist != null && zone != null) {
                         viewModel.playMusicOn(zone.id, playlist.uri) { ok ->
+                            // Highlighting a music row only repoints the hero; the live channel
+                            // kept playing underneath, so its audio ran over the music (Joe,
+                            // 2026-10-03). Stop it outright rather than pause: a paused stream
+                            // is restarted by ON_RESUME's isActive check on the way back from
+                            // any other screen. Picking a real channel again starts it fresh.
+                            if (ok) playerViewModel.dismiss()
                             guideMessage = if (ok) "Playing ${playlist.name} on ${zone.name}" else "Couldn't start ${playlist.name}"
                         }
                     }
