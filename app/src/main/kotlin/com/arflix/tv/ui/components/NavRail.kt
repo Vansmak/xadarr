@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.components
 
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -289,8 +290,10 @@ fun NavRail(
             modifier = Modifier
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 40.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                // Sized for a ~540dp-tall TV screen: at 40dp top / 12dp row padding / 10+8dp
+                // group rules, Settings sat half off the bottom (Joe, 2026-10-03).
+                .padding(top = 24.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // The avatar+name row that used to sit here is gone. It was not focusable, the
             // same avatar is already in the top-right chrome of every screen, and between it and
@@ -302,7 +305,7 @@ fun NavRail(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp)
+                            .padding(vertical = 6.dp)
                             .height(1.dp)
                             .background(Color.White.copy(alpha = 0.10f))
                     )
@@ -317,7 +320,7 @@ fun NavRail(
                     if (index > 0 && label != prevLabel) {
                         Spacer(
                             modifier = Modifier
-                                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp)
+                                .padding(start = 14.dp, end = 14.dp, top = 5.dp, bottom = 4.dp)
                                 .fillMaxWidth()
                                 .height(1.dp)
                                 .background(Color.White.copy(alpha = 0.10f))
@@ -368,6 +371,7 @@ fun navRailHandleKey(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> Unit) {
     // "Live TV"/"Guide" were the TV section's old default names and are still stored verbatim in
@@ -379,14 +383,19 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
             (entry.kind == NavSectionKind.SEARCH && it == "Find")
     }?.let { if (entry.customId == "plex" && it == "Plex Discover") "Plex" else it }
     val label = storedLabel ?: entry.kind.toRailLabel().ifBlank { entry.customId.orEmpty() }
+    // Rail focus is index-driven, not real focus, so the scroll never followed it: keep the
+    // highlighted row on screen ourselves.
+    val bringIntoView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    LaunchedEffect(isFocused) { if (isFocused) runCatching { bringIntoView.bringIntoView() } }
     Row(
         modifier = Modifier
+            .bringIntoViewRequester(bringIntoView)
             .fillMaxWidth()
             .border(LiveDims.FocusBorder, if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
