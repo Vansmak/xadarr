@@ -286,6 +286,7 @@ fun LiveTvScreen(
     val showsGuideSchedule by viewModel.showsGuideSchedule.collectAsStateWithLifecycle()
     val movieGuide by viewModel.movieGuide.collectAsStateWithLifecycle()
     val musicPlaylists by viewModel.musicPlaylists.collectAsStateWithLifecycle()
+    val musicConfigured by viewModel.musicConfigured.collectAsStateWithLifecycle()
     val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
     val musicLineups by viewModel.musicLineups.collectAsStateWithLifecycle()
     MusicGuideFeeds(viewModel, musicPlaylists, guideClockMillis)
@@ -1867,7 +1868,7 @@ fun LiveTvScreen(
                     searchOpen = false
                     onNavigateToDetails(media.mediaType, media.id)
                 },
-                musicSearchAvailable = musicPlaylists.isNotEmpty(),
+                musicSearchAvailable = musicConfigured,
                 onMusicSearch = { q -> viewModel.searchMusic(q) },
                 onPickMusic = { item ->
                     searchOpen = false

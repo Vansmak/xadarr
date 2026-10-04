@@ -340,6 +340,11 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    // MA set up (URL + token), regardless of whether the playlists have loaded yet. Search used to
+    // gate on the playlists, so a search right after launch had no MUSIC row.
+    val musicConfigured: StateFlow<Boolean> = musicAssistantRepository.isConfigured
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
     suspend fun searchMusic(query: String): List<com.arflix.tv.music.MaMediaItem> =
         runCatching { musicAssistantRepository.searchMusic(query) }.getOrDefault(emptyList())
 

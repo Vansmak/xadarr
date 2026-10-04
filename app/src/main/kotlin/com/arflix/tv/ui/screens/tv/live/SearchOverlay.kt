@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -69,6 +72,7 @@ import com.arflix.tv.util.formatGenreName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
@@ -266,13 +270,56 @@ fun SearchOverlay(
             return@LaunchedEffect
         }
         musicLoading = true
-        musicResults = runCatching { onMusicSearch(debounced) }.getOrDefault(emptyList())
+        val found = runCatching { onMusicSearch(debounced) }.getOrDefault(emptyList())
+        // A superseded query (still typing) can finish after the newer one; its result -- often
+        // empty, since the callee swallows the cancellation -- must not overwrite the newer rows.
+        ensureActive()
+        musicResults = found
         musicLoading = false
     }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
     val overlayScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+    // True while focus is anywhere in the results list (set by the list's own onFocusChanged, so
+    // it can't drift from where focus really is).
     var resultsFocused by remember { mutableStateOf(false) }
+
+    // Typing keeps the list at the top. Rows arrive at different times (channels instantly, then
+    // Movies & Shows, Music, provider streams over the network), and a LazyColumn keeps its
+    // current first item in place when new rows land above it -- so the Movies & Shows / Music
+    // rows could be added *above the visible area*, never seen, and the first-result focus target
+    // (which lives in those rows) wasn't composed, so Down from the text box did nothing.
+    val sectionShape = Triple(titleRow.isNotEmpty() || mediaLoading, musicResults.isNotEmpty() || musicLoading, programResults.isNotEmpty())
+    LaunchedEffect(debounced, sectionShape) {
+        if (!resultsFocused) runCatching { listState.scrollToItem(0) }
+    }
+
+    // Text box -> results. Scroll to the top first so the first result is composed, try its
+    // FocusRequester, and if that still doesn't take (row mid-recompose), fall back to a plain
+    // D-pad move down, which lands on whatever result is nearest below the box.
+    fun goToResults() {
+        overlayScope.launch {
+            runCatching { listState.scrollToItem(0) }
+            repeat(5) { attempt ->
+                runCatching { firstResultFocus.requestFocus() }
+                delay(if (attempt < 2) 16L else 40L)
+                if (resultsFocused) return@launch
+            }
+            focusManager.moveFocus(FocusDirection.Down)
+        }
+    }
+
+    // A bare channel number with an exact match: the keyboard's Go/Search key tunes it straight
+    // away, no need to step down into the list (the Shield remote has no number buttons, so this
+    // is how to go to a channel by number there).
+    fun exactChannelForNumber(): EnrichedChannel? {
+        val q = query.trim()
+        if (q.isEmpty() || !q.all { it.isDigit() }) return null
+        val n = q.toIntOrNull() ?: return null
+        return channels.firstOrNull { it.number == n }
+    }
     // Retry, because a single attempt loses the race. This runs as soon as the overlay enters
     // composition, which can be before the FocusRequester's modifier has been attached — the
     // request then throws, runCatching swallows it, and focus silently stays on the guide
@@ -292,7 +339,6 @@ fun SearchOverlay(
     // of the overlay.
     BackHandler(enabled = true) {
         if (resultsFocused) {
-            resultsFocused = false
             overlayScope.launch {
                 repeat(4) {
                     if (runCatching { focusRequester.requestFocus() }.isSuccess) return@launch
@@ -320,7 +366,9 @@ fun SearchOverlay(
             return@LaunchedEffect
         }
         remoteLoading = true
-        remoteResults = runCatching { onRemoteSearch(debounced) }.getOrDefault(emptyList())
+        val found = runCatching { onRemoteSearch(debounced) }.getOrDefault(emptyList())
+        ensureActive()
+        remoteResults = found
         remoteLoading = false
     }
 
@@ -334,11 +382,13 @@ fun SearchOverlay(
             return@LaunchedEffect
         }
         mediaLoading = true
-        mediaResults = runCatching { onMediaSearch(debounced) }.getOrDefault(emptyList())
+        val found = runCatching { onMediaSearch(debounced) }.getOrDefault(emptyList())
+        ensureActive()
+        mediaResults = found
         mediaLoading = false
     }
 
-    LaunchedEffect(debounced, channels, nowNext) {
+    LaunchedEffect(debounced, channels, nowNext, musicSearchAvailable) {
         val q = debounced.lowercase()
         // A bare number is a channel number: just the channel list (exact number first, see
         // the 1000 score below), no program/event matches.
@@ -346,14 +396,22 @@ fun SearchOverlay(
         // Shorthand people actually type for sports ("tnf") vs. how listings spell it.
         val qTerms = expandSearchQuery(q)
         fun String.matchesQuery() = qTerms.any { this.contains(it) }
+        // With Music Assistant set up, music searches go to MA (the MUSIC row): IPTV music
+        // channels ("24/7 MUSIC VIDEOS" and the like) drop out so they don't bury it -- Joe never
+        // uses them. A channel number still finds them.
+        val pool = if (musicSearchAvailable && !isChannelNumber) {
+            channels.filterNot { it.genre == Genre.Music && !isMusicChannelId(it.id) }
+        } else {
+            channels
+        }
         if (q.isEmpty()) {
             // Show the first 60 by default — gives a preview list users can scroll.
-            results = channels.take(60).map { SearchHit(it, isOffLineup = it.source.group in offLineupGroups) }
+            results = pool.take(60).map { SearchHit(it, isOffLineup = it.source.group in offLineupGroups) }
             programResults = emptyList()
             return@LaunchedEffect
         }
         results = withContext(Dispatchers.Default) {
-            channels.asSequence()
+            pool.asSequence()
                 .map { ch ->
                     val nameLower = ch.name.lowercase()
                     val nn = nowNext[ch.id]
@@ -389,7 +447,7 @@ fun SearchOverlay(
         // A channel can now surface several programmes, and they are ordered by start time,
         // because "what is on soonest" is the useful ordering for a guide.
         programResults = if (isChannelNumber) emptyList() else withContext(Dispatchers.Default) {
-            channels.asSequence()
+            pool.asSequence()
                 .flatMap { ch ->
                     val nn = nowNext[ch.id]
                     sequenceOf(nn?.now, nn?.next, nn?.later)
@@ -474,9 +532,8 @@ fun SearchOverlay(
                         .size(20.dp)
                         .pointerInput(results, programResults) {
                             detectTapGestures(onTap = {
-                                if (results.isNotEmpty() || programResults.isNotEmpty()) {
-                                    resultsFocused = true
-                                    runCatching { firstResultFocus.requestFocus() }
+                                if (results.isNotEmpty() || programResults.isNotEmpty() || titleRow.isNotEmpty() || musicResults.isNotEmpty()) {
+                                    goToResults()
                                 }
                             })
                         },
@@ -487,7 +544,10 @@ fun SearchOverlay(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(
-                        onSearch = { runCatching { firstResultFocus.requestFocus() } },
+                        onSearch = {
+                            val exact = exactChannelForNumber()
+                            if (exact != null) onPick(exact) else goToResults()
+                        },
                     ),
                     cursorBrush = SolidColor((LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                     textStyle = TextStyle(
@@ -503,22 +563,15 @@ fun SearchOverlay(
                             // ("rams" matches NFL fixtures but no channel called Rams) left Down
                             // doing nothing at all, trapping focus in the text field with the
                             // matches sitting unreachable below it.
-                            if (ev.type == KeyEventType.KeyDown &&
-                                ev.key == Key.DirectionDown &&
-                                (titleRow.isNotEmpty() || results.isNotEmpty() || programResults.isNotEmpty())
-                            ) {
-                                resultsFocused = true
-                                overlayScope.launch {
-                                    repeat(4) {
-                                        if (runCatching { firstResultFocus.requestFocus() }.isSuccess) {
-                                            return@launch
-                                        }
-                                        delay(24L)
-                                    }
-                                }
-                                true
-                            } else {
-                                false
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            val hasResults = titleRow.isNotEmpty() || musicResults.isNotEmpty() ||
+                                results.isNotEmpty() || programResults.isNotEmpty() || remoteResults.isNotEmpty()
+                            when {
+                                ev.key == Key.DirectionDown && hasResults -> { goToResults(); true }
+                                // Remote OK / keyboard Enter on a channel number: tune it.
+                                (ev.key == Key.Enter || ev.key == Key.NumPadEnter) &&
+                                    exactChannelForNumber() != null -> { onPick(exactChannelForNumber()!!); true }
+                                else -> false
                             }
                         }
                         .onKeyEvent { ev ->
@@ -548,7 +601,11 @@ fun SearchOverlay(
                     .background(LiveColors.Divider),
             )
             LazyColumn(
-                modifier = Modifier.fillMaxWidth().height(440.dp),
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(440.dp)
+                    .onFocusChanged { resultsFocused = it.hasFocus },
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 if (debounced.length >= 2 && (titleRow.isNotEmpty() || mediaLoading)) {
@@ -570,7 +627,7 @@ fun SearchOverlay(
                                         media = media,
                                         inLibrary = key in libraryMediaKeys,
                                         onPick = { onPickMedia(media) },
-                                        onMoveUp = { resultsFocused = false; runCatching { focusRequester.requestFocus() } },
+                                        onMoveUp = { runCatching { focusRequester.requestFocus() } },
                                         modifier = if (isFirst) Modifier.focusRequester(firstResultFocus) else Modifier,
                                     )
                                 }
@@ -596,7 +653,7 @@ fun SearchOverlay(
                                     MusicCard(
                                         item = item,
                                         onPick = { onPickMusic(item) },
-                                        onMoveUp = { resultsFocused = false; runCatching { focusRequester.requestFocus() } },
+                                        onMoveUp = { runCatching { focusRequester.requestFocus() } },
                                         modifier = if (titleRow.isEmpty() && item === musicResults.first()) Modifier.focusRequester(firstResultFocus) else Modifier,
                                     )
                                 }
@@ -627,7 +684,7 @@ fun SearchOverlay(
                                 onPick = onPick,
                                 onShowInfo = { onShowInfo(event.channels.first().channel, event.program) },
                                 onMoveUp = if (isFirst) {
-                                    { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
+                                    { runCatching { focusRequester.requestFocus() } }
                                 } else {
                                     null
                                 },
@@ -666,7 +723,7 @@ fun SearchOverlay(
                             onPick = onPick,
                             onShowInfo = { onShowInfo(hit.channel, hit.matchedProgram) },
                             onMoveUp = if (isFirst) {
-                                { resultsFocused = false; runCatching { focusRequester.requestFocus() } }
+                                { runCatching { focusRequester.requestFocus() } }
                             } else {
                                 null
                             },
