@@ -134,10 +134,15 @@ fun ContextMenu(
         }
     }
 
-    LaunchedEffect(isVisible, menuHasFocus) {
-        if (isVisible && !isMobile && !menuHasFocus) {
-            kotlinx.coroutines.delay(120L)
-            runCatching { focusRequester.requestFocus() }
+    // Keep re-taking it for as long as the menu is open. One retry per focus change wasn't enough:
+    // after a pick in guide search, the closing search handed focus to the sidebar's Search row
+    // a beat later and kept it -- the room picker sat on screen while the remote drove the
+    // sidebar behind it (Joe, 2026-10-04, "Shinedown", stuck for minutes).
+    LaunchedEffect(isVisible) {
+        if (!isVisible || isMobile) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(150L)
+            if (!menuHasFocus) runCatching { focusRequester.requestFocus() }
         }
     }
 
