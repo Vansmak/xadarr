@@ -2,8 +2,6 @@
 
 package com.arflix.tv.ui.screens.discover
 
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.clickable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
