@@ -1952,47 +1952,26 @@ fun LiveTvScreen(
         // Music playlist rows (channel or cell): pick the Sonos zone to start it on.
         (libraryMenuChannel?.takeIf { isMusicChannelId(it.id) } ?: libraryCellTarget?.first?.takeIf { isMusicChannelId(it.id) })?.let { musicCh ->
             val fromCell = libraryCellTarget?.first?.id == musicCh.id
-            val playlist = musicPlaylists.musicItemFor(musicCh.id)
-            val zones by viewModel.musicZones.collectAsStateWithLifecycle()
-            val lastZoneId by viewModel.lastMusicZoneId.collectAsStateWithLifecycle()
-            LaunchedEffect(musicCh.id) { viewModel.refreshMusicZones() }
-            // Last-used zone first, so "select, select" replays where you last listened.
-            val ordered = remember(zones, lastZoneId) { zones.sortedBy { if (it.id == lastZoneId) 0 else 1 } }
-            val closeMenu = {
-                musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
-                libraryMenuChannel = null
-                libraryCellTarget = null
-                if (fromCell) focusEpg(musicCh.id) else focusChannelList(musicCh.id)
-            }
-            com.arflix.tv.ui.components.ContextMenu(
-                isVisible = true,
-                title = musicCh.name,
-                subtitle = if (zones.isEmpty()) "Looking for zones…" else "Play on",
-                actions = ordered.map { zone ->
-                    val status = when {
-                        zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
-                        zone.isPlaying -> " · playing"
-                        else -> ""
-                    }
-                    val members = if (zone.isGroupLeader) " +${zone.groupMembers.size - 1}" else ""
-                    com.arflix.tv.ui.components.ContextAction(zone.id, zone.name + members + status, Icons.Default.Speaker)
+            MusicZoneMenu(
+                viewModel = viewModel,
+                channelId = musicCh.id,
+                channelName = musicCh.name,
+                playlist = musicPlaylists.musicItemFor(musicCh.id),
+                onPlayed = { ok, message ->
+                    // Highlighting a music row only repoints the hero; the live channel
+                    // kept playing underneath, so its audio ran over the music (Joe,
+                    // 2026-10-03). Stop it outright rather than pause: a paused stream
+                    // is restarted by ON_RESUME's isActive check on the way back from
+                    // any other screen. Picking a real channel again starts it fresh.
+                    if (ok) playerViewModel.dismiss()
+                    guideMessage = message
                 },
-                onAction = { action ->
-                    val zone = zones.firstOrNull { it.id == action.id }
-                    if (playlist != null && zone != null) {
-                        viewModel.playMusicOn(zone.id, playlist.uri) { ok ->
-                            // Highlighting a music row only repoints the hero; the live channel
-                            // kept playing underneath, so its audio ran over the music (Joe,
-                            // 2026-10-03). Stop it outright rather than pause: a paused stream
-                            // is restarted by ON_RESUME's isActive check on the way back from
-                            // any other screen. Picking a real channel again starts it fresh.
-                            if (ok) playerViewModel.dismiss()
-                            guideMessage = if (ok) "Playing ${playlist.name} on ${zone.name}" else "Couldn't start ${playlist.name}"
-                        }
-                    }
-                    closeMenu()
+                onClose = {
+                    musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
+                    libraryMenuChannel = null
+                    libraryCellTarget = null
+                    if (fromCell) focusEpg(musicCh.id) else focusChannelList(musicCh.id)
                 },
-                onDismiss = closeMenu,
             )
         }
 
@@ -2069,42 +2048,21 @@ fun LiveTvScreen(
         }
 
         rulePickerShow?.let { show ->
-            Box(modifier = Modifier.fillMaxSize().zIndex(200f)) {
-                val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
-                    androidx.hilt.navigation.compose.hiltViewModel()
-                val syncServerUrl by rulePickerVm.syncServerUrl.collectAsStateWithLifecycle()
-                val episeerrUrl by rulePickerVm.episeerrUrl.collectAsStateWithLifecycle()
-                val closePicker = {
-                    rulePickerShow = null
-                    focusChannelList("$ShowsChannelIdPrefix${show.seriesId}")
-                }
+            val showChannelId = "$ShowsChannelIdPrefix${show.seriesId}"
+            GuideRulePickerOverlay(
+                show = show,
                 // Back out of the picker without choosing -> back to the channel menu.
-                val backToMenu = {
+                onBackToMenu = {
                     rulePickerShow = null
-                    libraryMenuChannel = enrichedState.value.index.byId["$ShowsChannelIdPrefix${show.seriesId}"]
-                    if (libraryMenuChannel == null) focusChannelList("$ShowsChannelIdPrefix${show.seriesId}")
-                }
-                com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
-                    pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
-                        id = show.seriesId.toString(),
-                        seriesId = show.seriesId,
-                        title = show.title,
-                        tmdbId = null,
-                        tvdbId = show.tvdbId?.toString(),
-                        poster = show.fanart,
-                    ),
-                    episeerrRepository = rulePickerVm.episeerrRepository,
-                    syncServerUrl = syncServerUrl,
-                    episeerrUrl = episeerrUrl,
-                    currentRuleName = show.rule,
-                    onAssignRule = { ruleName -> rulePickerVm.episeerrRepository.assignRuleToSeries(show.seriesId, ruleName) },
-                    onDismiss = backToMenu,
-                    onRuleAssigned = {
-                        viewModel.refreshShowsGuide(forceRefresh = true)
-                        closePicker()
-                    },
-                )
-            }
+                    libraryMenuChannel = enrichedState.value.index.byId[showChannelId]
+                    if (libraryMenuChannel == null) focusChannelList(showChannelId)
+                },
+                onRuleAssigned = {
+                    viewModel.refreshShowsGuide(forceRefresh = true)
+                    rulePickerShow = null
+                    focusChannelList(showChannelId)
+                },
+            )
         }
 
         // Loading screen (Joe, 2026-09-30: "instead of blank guide a nice hero poster like a
@@ -2308,6 +2266,80 @@ const val PinnedChannelsGroup = "Pinned"
  * that catches genuinely new provider groups leaves it alone, and it stays visible until the
  * channel is unpinned.
  */
+// Split out of LiveTvScreen: that composable is big enough that Android 11's ART verifier
+// (the Shield) rejects it outright with "register has type Conflict" -- a VerifyError at
+// launch. Keep self-contained overlays out here as their own functions.
+@Composable
+private fun MusicZoneMenu(
+    viewModel: TvViewModel,
+    channelId: String,
+    channelName: String,
+    playlist: com.arflix.tv.music.MaMediaItem?,
+    onPlayed: (ok: Boolean, message: String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val zones by viewModel.musicZones.collectAsStateWithLifecycle()
+    val lastZoneId by viewModel.lastMusicZoneId.collectAsStateWithLifecycle()
+    LaunchedEffect(channelId) { viewModel.refreshMusicZones() }
+    // Last-used zone first, so "select, select" replays where you last listened.
+    val ordered = remember(zones, lastZoneId) { zones.sortedBy { if (it.id == lastZoneId) 0 else 1 } }
+    com.arflix.tv.ui.components.ContextMenu(
+        isVisible = true,
+        title = channelName,
+        subtitle = if (zones.isEmpty()) "Looking for zones…" else "Play on",
+        actions = ordered.map { zone ->
+            val status = when {
+                zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
+                zone.isPlaying -> " · playing"
+                else -> ""
+            }
+            val members = if (zone.isGroupLeader) " +${zone.groupMembers.size - 1}" else ""
+            com.arflix.tv.ui.components.ContextAction(zone.id, zone.name + members + status, Icons.Default.Speaker)
+        },
+        onAction = { action ->
+            val zone = zones.firstOrNull { it.id == action.id }
+            if (playlist != null && zone != null) {
+                viewModel.playMusicOn(zone.id, playlist.uri) { ok ->
+                    onPlayed(ok, if (ok) "Playing ${playlist.name} on ${zone.name}" else "Couldn't start ${playlist.name}")
+                }
+            }
+            onClose()
+        },
+        onDismiss = onClose,
+    )
+}
+
+@Composable
+private fun GuideRulePickerOverlay(
+    show: com.arflix.tv.data.repository.ShowGuideEntry,
+    onBackToMenu: () -> Unit,
+    onRuleAssigned: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize().zIndex(200f)) {
+        val rulePickerVm: com.arflix.tv.ui.screens.episeerr.RulePickerViewModel =
+            androidx.hilt.navigation.compose.hiltViewModel()
+        val syncServerUrl by rulePickerVm.syncServerUrl.collectAsStateWithLifecycle()
+        val episeerrUrl by rulePickerVm.episeerrUrl.collectAsStateWithLifecycle()
+        com.arflix.tv.ui.screens.episeerr.RulePickerScreen(
+            pendingItem = com.arflix.tv.data.repository.EpiseerrPendingItem(
+                id = show.seriesId.toString(),
+                seriesId = show.seriesId,
+                title = show.title,
+                tmdbId = null,
+                tvdbId = show.tvdbId?.toString(),
+                poster = show.fanart,
+            ),
+            episeerrRepository = rulePickerVm.episeerrRepository,
+            syncServerUrl = syncServerUrl,
+            episeerrUrl = episeerrUrl,
+            currentRuleName = show.rule,
+            onAssignRule = { ruleName -> rulePickerVm.episeerrRepository.assignRuleToSeries(show.seriesId, ruleName) },
+            onDismiss = onBackToMenu,
+            onRuleAssigned = onRuleAssigned,
+        )
+    }
+}
+
 fun RawProviderStream.toIptvChannel(groupOverride: String? = null): IptvChannel = IptvChannel(
     id = id,
     name = name,
