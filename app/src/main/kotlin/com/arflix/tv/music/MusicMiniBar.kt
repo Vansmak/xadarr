@@ -41,8 +41,7 @@ import coil.compose.AsyncImage
 /**
  * Phone: what's playing on the current zone, above the bottom tabs, on every screen. Play/pause
  * and skip without opening the full Music screen; tapping the rest opens it (Joe, 2026-10-03).
- * Always shown once Music Assistant is set up -- it's also the way into Music on the phone,
- * instead of a 7th bottom tab (Joe turned down a 7th tab before).
+ * Shown only while something is playing; the Music tab is the way in otherwise.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -50,7 +49,8 @@ fun MusicMiniBar(onOpen: () -> Unit, viewModel: MusicViewModel = hiltViewModel()
     val ui by viewModel.ui.collectAsState()
     val player = ui.selectedPlayer
     val item = ui.queue?.current
-    val title = item?.name ?: player?.nowTitle
+    if (!ui.isPlaying) return
+    val title = item?.name ?: player?.nowTitle ?: return
     val artist = item?.artist ?: player?.nowArtist
     val image = item?.imageUrl ?: player?.nowImageUrl
     val colors = MaterialTheme.colorScheme
@@ -75,18 +75,18 @@ fun MusicMiniBar(onOpen: () -> Unit, viewModel: MusicViewModel = hiltViewModel()
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title ?: "Music", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (title == null) "Nothing playing${player?.name?.let { " on $it" } ?: ""}" else listOfNotNull(artist, player?.name?.let { it + if (player.isGroupLeader) " +${player.groupMembers.size - 1}" else "" })
+                listOfNotNull(artist, player?.name?.let { it + if (player.isGroupLeader) " +${player.groupMembers.size - 1}" else "" })
                     .joinToString(" · "),
                 color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        if (title != null) MiniButton(if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (ui.isPlaying) "Pause" else "Play") {
+        MiniButton(if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (ui.isPlaying) "Pause" else "Play") {
             viewModel.playPause()
         }
-        if (title != null) MiniButton(Icons.Default.SkipNext, "Next") { viewModel.next() }
+        MiniButton(Icons.Default.SkipNext, "Next") { viewModel.next() }
     }
 }
 

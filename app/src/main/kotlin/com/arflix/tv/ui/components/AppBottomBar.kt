@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.components
 
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -63,6 +64,8 @@ data class BottomBarItem(
     @StringRes val labelRes: Int,
     val icon: ImageVector,
     val route: String,
+    // Highlight the tab for any route containing this (Library covers both Shows and Movies).
+    val selectedWhen: String = route,
 )
 
 val bottomBarItems = listOf(
@@ -75,8 +78,9 @@ val bottomBarItems = listOf(
     // this) rather than doubling up with its own mobile tab too. See HomeDashboardScreen.kt.
     BottomBarItem(R.string.home, Icons.Default.Home, "dashboard"),
     BottomBarItem(R.string.guide, Icons.Default.LiveTv, "home"),
-    BottomBarItem(R.string.movies, Icons.Default.Movie, Screen.PlexLibrary.createRoute(MediaType.MOVIE)),
-    BottomBarItem(R.string.shows, Icons.Default.Tv, Screen.PlexLibrary.createRoute(MediaType.TV)),
+    // Shows and Movies share one tab: Discover's rows, with a Shows | Movies switch at the top
+    // (Joe, 2026-10-03: "just like the services do in discover"; "not plex library").
+    BottomBarItem(R.string.discover, Icons.Default.Explore, Screen.Discover.route),
     BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )
@@ -109,7 +113,7 @@ fun AppBottomBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { item ->
-                val isSelected = currentRoute?.contains(item.route, ignoreCase = true) == true
+                val isSelected = currentRoute?.contains(item.selectedWhen, ignoreCase = true) == true
                 var isFocused by remember { mutableStateOf(false) }
                 val label = stringResource(item.labelRes)
 

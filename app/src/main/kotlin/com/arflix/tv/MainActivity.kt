@@ -1290,6 +1290,7 @@ fun ArflixApp(
         }
         if (showBottomBar) {
             AppBottomBar(
+                showMusic = musicConfigured,
                 currentRoute = currentRoute,
                 onNavigate = { route ->
                     navController.navigate(route) {
