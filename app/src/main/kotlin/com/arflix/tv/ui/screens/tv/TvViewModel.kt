@@ -304,9 +304,9 @@ class TvViewModel @Inject constructor(
         }
     }
 
-    fun playMusicOn(zoneId: String, uri: String, onResult: (Boolean) -> Unit) {
+    fun playMusicOn(zoneId: String, uri: String, radio: Boolean = false, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val ok = runCatching { musicAssistantRepository.playOn(zoneId, uri) }.getOrDefault(false)
+            val ok = runCatching { musicAssistantRepository.playOn(zoneId, uri, radio) }.getOrDefault(false)
             if (ok) _lastMusicZoneId.value = zoneId
             onResult(ok)
         }

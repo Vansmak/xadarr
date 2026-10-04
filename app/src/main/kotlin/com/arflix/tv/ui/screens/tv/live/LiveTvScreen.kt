@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Add
 import androidx.activity.compose.BackHandler
@@ -2269,6 +2270,8 @@ const val PinnedChannelsGroup = "Pinned"
 // Split out of LiveTvScreen: that composable is big enough that Android 11's ART verifier
 // (the Shield) rejects it outright with "register has type Conflict" -- a VerifyError at
 // launch. Keep self-contained overlays out here as their own functions.
+private const val MusicRadioToggleId = "__music_radio__"
+
 @Composable
 private fun MusicZoneMenu(
     viewModel: TvViewModel,
@@ -2283,10 +2286,17 @@ private fun MusicZoneMenu(
     LaunchedEffect(channelId) { viewModel.refreshMusicZones() }
     // Last-used zone first, so "select, select" replays where you last listened.
     val ordered = remember(zones, lastZoneId) { zones.sortedBy { if (it.id == lastZoneId) 0 else 1 } }
+    // Radio: MA's endless mix seeded from the playlist (similar tracks, no repeats) instead of
+    // the playlist itself. Toggled by the last row; the zones stay on top.
+    var radio by remember(channelId) { mutableStateOf(false) }
     com.arflix.tv.ui.components.ContextMenu(
         isVisible = true,
         title = channelName,
-        subtitle = if (zones.isEmpty()) "Looking for zones…" else "Play on",
+        subtitle = when {
+            zones.isEmpty() -> "Looking for zones…"
+            radio -> "Start radio on"
+            else -> "Play on"
+        },
         actions = ordered.map { zone ->
             val status = when {
                 zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
@@ -2295,12 +2305,21 @@ private fun MusicZoneMenu(
             }
             val members = if (zone.isGroupLeader) " +${zone.groupMembers.size - 1}" else ""
             com.arflix.tv.ui.components.ContextAction(zone.id, zone.name + members + status, Icons.Default.Speaker)
-        },
+        } + com.arflix.tv.ui.components.ContextAction(
+            MusicRadioToggleId,
+            if (radio) "Radio: on · switch to playlist" else "Radio: off · play similar songs endlessly",
+            Icons.Default.Radio,
+        ),
         onAction = { action ->
+            if (action.id == MusicRadioToggleId) {
+                radio = !radio
+                return@ContextMenu
+            }
             val zone = zones.firstOrNull { it.id == action.id }
             if (playlist != null && zone != null) {
-                viewModel.playMusicOn(zone.id, playlist.uri) { ok ->
-                    onPlayed(ok, if (ok) "Playing ${playlist.name} on ${zone.name}" else "Couldn't start ${playlist.name}")
+                viewModel.playMusicOn(zone.id, playlist.uri, radio) { ok ->
+                    val what = if (radio) "${playlist.name} radio" else playlist.name
+                    onPlayed(ok, if (ok) "Playing $what on ${zone.name}" else "Couldn't start $what")
                 }
             }
             onClose()

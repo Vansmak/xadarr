@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
@@ -83,7 +84,7 @@ private enum class Area { TABS, CONTENT }
 private const val ROW_SEEK = 0
 private const val ROW_CONTROLS = 1
 
-private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, VOLUME_DOWN, VOLUME_UP }
+private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, RADIO, VOLUME_DOWN, VOLUME_UP }
 
 private val TAB_LABELS = mapOf(
     MusicTab.NOW_PLAYING to "Now Playing",
@@ -150,6 +151,7 @@ fun MusicScreen(
         Control.PLAY_PAUSE -> viewModel.playPause()
         Control.NEXT -> { viewModel.next(); Unit }
         Control.REPEAT -> viewModel.cycleRepeat()
+        Control.RADIO -> viewModel.startRadioFromCurrent()
         Control.VOLUME_DOWN -> viewModel.changeVolume(-3)
         Control.VOLUME_UP -> viewModel.changeVolume(3)
     }
@@ -449,6 +451,7 @@ private fun NowPlaying(
                     if (q?.repeat == "one") Icons.Default.RepeatOne else Icons.Default.Repeat, "Repeat",
                     focusedControl == Control.REPEAT, active = q != null && q.repeat != "off",
                 ) { onControl(Control.REPEAT) }
+                ControlButton(Icons.Default.Radio, "Radio from this song", focusedControl == Control.RADIO) { onControl(Control.RADIO) }
                 Spacer(Modifier.width(20.dp))
                 ControlButton(Icons.Default.VolumeDown, "Volume down", focusedControl == Control.VOLUME_DOWN) { onControl(Control.VOLUME_DOWN) }
                 ControlButton(Icons.Default.VolumeUp, "Volume up", focusedControl == Control.VOLUME_UP) { onControl(Control.VOLUME_UP) }

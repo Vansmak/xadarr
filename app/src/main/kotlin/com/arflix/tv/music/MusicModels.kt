@@ -31,6 +31,7 @@ data class MaQueueItem(
     val durationSec: Int,
     val imageUrl: String?,
     val quality: String?,
+    val uri: String? = null,
 )
 
 data class MaQueue(
@@ -101,6 +102,7 @@ internal object MaParse {
             durationSec = o.optInt("duration", media?.optInt("duration", 0) ?: 0),
             imageUrl = repo.imageUrl(o.optJSONObject("image")) ?: media?.let { itemImage(it, repo) },
             quality = o.optJSONObject("streamdetails")?.optJSONObject("audio_format")?.let(::quality),
+            uri = media?.optString("uri")?.takeIf { it.isNotBlank() },
         )
     }
 

@@ -326,6 +326,19 @@ class MusicViewModel @Inject constructor(
         _ui.update { it.copy(tab = MusicTab.NOW_PLAYING) }
     }
 
+    /** MA's "play radio of": an endless mix seeded from the playing track, replacing the queue. */
+    fun startRadioFromCurrent() {
+        val track = _ui.value.queue?.current ?: return showMessage("Nothing playing")
+        val uri = track.uri ?: return showMessage("Can't start radio from this track")
+        val playerId = _ui.value.selectedPlayerId ?: return showMessage("Pick a zone first")
+        repo.fire("player_queues/play_media", JSONObject()
+            .put("queue_id", _ui.value.queue?.id ?: playerId)
+            .put("media", JSONArray().put(uri))
+            .put("option", "replace")
+            .put("radio_mode", true))
+        showMessage("Starting ${track.name} radio")
+    }
+
     private fun showMessage(text: String) {
         messageJob?.cancel()
         _ui.update { it.copy(message = text) }

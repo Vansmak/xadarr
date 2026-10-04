@@ -377,11 +377,16 @@ class MusicAssistantRepository @Inject constructor(
             .sortedBy { it.name.lowercase() }
     }
 
-    /** Starts [uri] on [playerId], replacing whatever it was playing. Returns false on failure. */
-    suspend fun playOn(playerId: String, uri: String): Boolean {
+    /**
+     * Starts [uri] on [playerId], replacing whatever it was playing. Returns false on failure.
+     * [radio] asks MA for its endless radio seeded from [uri] (similar tracks, no repeats)
+     * instead of just the item itself.
+     */
+    suspend fun playOn(playerId: String, uri: String, radio: Boolean = false): Boolean {
         val ok = request(
             "player_queues/play_media",
-            JSONObject().put("queue_id", playerId).put("media", JSONArray().put(uri)).put("option", "replace"),
+            JSONObject().put("queue_id", playerId).put("media", JSONArray().put(uri)).put("option", "replace")
+                .put("radio_mode", radio),
         ) != null || lastRequestOk
         if (ok) saveSelectedPlayerId(playerId)
         return ok
