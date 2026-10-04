@@ -383,6 +383,17 @@ class MusicAssistantRepository @Inject constructor(
         return MaPlaylistTracks(tracks, arr.length(), total)
     }
 
+    /** Replaces a zone's queue with exactly these tracks, in order. */
+    suspend fun playTracks(playerId: String, uris: List<String>): Boolean {
+        if (uris.isEmpty()) return false
+        val ok = request(
+            "player_queues/play_media",
+            JSONObject().put("queue_id", playerId).put("media", JSONArray(uris)).put("option", "replace"),
+        ) != null || lastRequestOk
+        if (ok) saveSelectedPlayerId(playerId)
+        return ok
+    }
+
     /** Jumps a zone's queue to one of its items (a song cell from that zone's live lineup). */
     suspend fun playQueueItem(queueId: String, queueItemId: String): Boolean =
         request("player_queues/play_index", JSONObject().put("queue_id", queueId).put("index", queueItemId)) != null || lastRequestOk

@@ -352,12 +352,19 @@ class TvViewModel @Inject constructor(
         radio: Boolean = false,
         startItem: String? = null,
         queueItemId: String? = null,
+        // The songs the guide showed from the picked one on. Used when MA can't find the start
+        // song in its own copy of the playlist -- "500 Random tracks" reshuffles on every
+        // load, so start_item there failed with "No playable items found" (2026-10-03).
+        fallbackUris: List<String> = emptyList(),
         onResult: (Boolean) -> Unit,
     ) {
         viewModelScope.launch {
             val ok = runCatching {
-                if (queueItemId != null) musicAssistantRepository.playQueueItem(zoneId, queueItemId)
-                else musicAssistantRepository.playOn(zoneId, uri, radio, startItem)
+                when {
+                    queueItemId != null -> musicAssistantRepository.playQueueItem(zoneId, queueItemId)
+                    else -> musicAssistantRepository.playOn(zoneId, uri, radio, startItem) ||
+                        (startItem != null && musicAssistantRepository.playTracks(zoneId, fallbackUris))
+                }
             }.getOrDefault(false)
             if (ok) _lastMusicZoneId.value = zoneId
             onResult(ok)

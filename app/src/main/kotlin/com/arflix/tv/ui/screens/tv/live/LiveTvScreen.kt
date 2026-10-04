@@ -2315,6 +2315,17 @@ private fun MusicZoneMenu(
     var picking by remember(channelId) { mutableStateOf(false) }
     var groupLeaderId by remember(channelId) { mutableStateOf<String?>(null) }
     val leader = groupLeaderId?.let { id -> speakers.firstOrNull { it.id == id } }
+    // Ticks flip on the press; MA reports the regroup a second or two later. Reading only MA's
+    // state made a quick second press resend the same add/remove (Joe: "a couple presses").
+    var pendingGroup by remember(channelId) { mutableStateOf(mapOf<String, Boolean>()) }
+    fun reportedInGroup(sp: com.arflix.tv.music.MaPlayer, lead: com.arflix.tv.music.MaPlayer) =
+        sp.syncedTo == lead.id || sp.id in lead.groupMembers
+    LaunchedEffect(speakers) {
+        val lead = leader ?: return@LaunchedEffect
+        pendingGroup = pendingGroup.filter { (id, want) ->
+            speakers.firstOrNull { it.id == id }?.let { reportedInGroup(it, lead) != want } ?: false
+        }
+    }
 
     fun zoneLabel(zone: com.arflix.tv.music.MaPlayer): String {
         val status = when {
@@ -2334,7 +2345,7 @@ private fun MusicZoneMenu(
                 title = "Group with ${leader.name}",
                 subtitle = "Select speakers to add or remove",
                 actions = speakers.filter { it.id != leader.id }.map { sp ->
-                    val inGroup = sp.syncedTo == leader.id || sp.id in leader.groupMembers
+                    val inGroup = pendingGroup[sp.id] ?: reportedInGroup(sp, leader)
                     val elsewhere = sp.syncedTo?.takeIf { it != leader.id }?.let { other -> speakers.firstOrNull { it.id == other }?.name }
                     com.arflix.tv.ui.components.ContextAction(
                         sp.id,
@@ -2348,9 +2359,13 @@ private fun MusicZoneMenu(
                         return@ContextMenu
                     }
                     val sp = speakers.firstOrNull { it.id == action.id } ?: return@ContextMenu
-                    val join = !(sp.syncedTo == leader.id || sp.id in leader.groupMembers)
+                    val join = !(pendingGroup[sp.id] ?: reportedInGroup(sp, leader))
+                    pendingGroup = pendingGroup + (sp.id to join)
                     viewModel.setSpeakerGrouped(leader.id, sp.id, join) { ok ->
-                        if (!ok) onPlayed(false, "Couldn't ${if (join) "add" else "remove"} ${sp.name}")
+                        if (!ok) {
+                            pendingGroup = pendingGroup - sp.id
+                            onPlayed(false, "Couldn't ${if (join) "add" else "remove"} ${sp.name}")
+                        }
                     }
                 },
                 onDismiss = { groupLeaderId = null },
@@ -2401,6 +2416,8 @@ private fun MusicZoneMenu(
                                     radio = radio,
                                     startItem = songUri?.takeIf { !radio && jumpTo == null },
                                     queueItemId = jumpTo,
+                                    fallbackUris = (lineup?.tracks ?: musicTracks[playlist.uri]?.tracks.orEmpty())
+                                        .dropWhile { it != song }.mapNotNull { it.uri },
                                 ) { ok ->
                                     val what = when {
                                         radio && song != null -> "${song.name} radio"
