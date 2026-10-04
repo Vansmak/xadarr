@@ -89,7 +89,7 @@ object ContextActions {
     val viewDetails = ContextAction("view_details", "View Details", Icons.Default.Info, TextPrimary)
     val markSeasonWatched = ContextAction("mark_season_watched", "Mark Season Watched", Icons.Default.Check, Color(0xFF22C55E))
     val markSeasonUnwatched = ContextAction("mark_season_unwatched", "Mark Season Unwatched", Icons.Default.Clear, TextSecondary)
-    val searchSonarr = ContextAction("search_sonarr", "Search", Icons.Default.Search, Color(0xFFEF5350))
+    val searchSonarr = ContextAction("search_sonarr", "Find & Download", Icons.Default.Search, Color(0xFFEF5350))
     val deleteEpisodeFile = ContextAction("delete_episode_file", "Delete Episode", Icons.Default.Close, Color(0xFFDC2626))
 }
 

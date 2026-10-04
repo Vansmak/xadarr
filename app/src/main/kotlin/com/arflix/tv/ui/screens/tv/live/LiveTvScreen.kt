@@ -2061,10 +2061,10 @@ fun LiveTvScreen(
                         "search_sonarr" -> when {
                             showEntry?.tvdbId != null && se != null ->
                                 viewModel.searchShowEpisode(showEntry.tvdbId, se.first, se.second) { ok ->
-                                    guideMessage = if (ok) "Searching for ${showEntry.title} S${se.first}E${se.second}" else "Search failed"
+                                    guideMessage = if (ok) "Looking for a download of ${showEntry.title} S${se.first}E${se.second}" else "Couldn't start the download search"
                                 }
                             premiere != null -> viewModel.searchMovie(premiere.radarrId) { ok ->
-                                guideMessage = if (ok) "Searching for ${premiere.title}" else "Search failed"
+                                guideMessage = if (ok) "Looking for a download of ${premiere.title}" else "Couldn't start the download search"
                             }
                         }
                         "info" -> showEntry?.let { openShowDetails(it) }
