@@ -411,11 +411,21 @@ class MusicAssistantRepository @Inject constructor(
     }
 
     /** Zones that can be played to, same filtering as the Music screen's zone list. */
-    suspend fun zones(): List<MaPlayer> {
+    suspend fun zones(): List<MaPlayer> = speakers().filter { it.visible }
+
+    /** Every available Sonos speaker, grouped ones included (zones() hides those under their leader). */
+    suspend fun speakers(): List<MaPlayer> {
         val arr = request("players/all") as? JSONArray ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { o -> MaParse.player(o, this) } }
-            .filter { it.visible }
+            .filter { it.provider == "sonos" && it.name.isNotBlank() }
             .sortedBy { it.name.lowercase() }
+    }
+
+    /** Adds [memberId] to [leaderId]'s group, or takes it out. */
+    suspend fun setGrouped(leaderId: String, memberId: String, grouped: Boolean): Boolean {
+        val args = JSONObject().put("target_player", leaderId)
+            .put(if (grouped) "player_ids_to_add" else "player_ids_to_remove", JSONArray().put(memberId))
+        return request("players/cmd/set_members", args) != null || lastRequestOk
     }
 
     /**

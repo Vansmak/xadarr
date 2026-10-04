@@ -301,7 +301,23 @@ class TvViewModel @Inject constructor(
     fun refreshMusicZones() {
         viewModelScope.launch {
             _lastMusicZoneId.value = musicAssistantRepository.selectedPlayerId()
-            _musicZones.value = runCatching { musicAssistantRepository.zones() }.getOrDefault(emptyList())
+            val speakers = runCatching { musicAssistantRepository.speakers() }.getOrDefault(emptyList())
+            _musicSpeakers.value = speakers
+            _musicZones.value = speakers.filter { it.visible }
+        }
+    }
+
+    // Every Sonos speaker, grouped ones included, for the guide's speaker-grouping menu.
+    private val _musicSpeakers = kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.music.MaPlayer>>(emptyList())
+    val musicSpeakers: StateFlow<List<com.arflix.tv.music.MaPlayer>> = _musicSpeakers.asStateFlow()
+
+    fun setSpeakerGrouped(leaderId: String, memberId: String, grouped: Boolean, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { musicAssistantRepository.setGrouped(leaderId, memberId, grouped) }.getOrDefault(false)
+            onResult(ok)
+            // Sonos takes a moment to regroup before MA reports it.
+            delay(1_500)
+            refreshMusicZones()
         }
     }
 

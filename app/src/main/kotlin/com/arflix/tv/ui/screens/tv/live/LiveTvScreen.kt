@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.runtime.key
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Add
@@ -2275,6 +2277,9 @@ const val PinnedChannelsGroup = "Pinned"
 // launch. Keep self-contained overlays out here as their own functions.
 private const val MusicRadioToggleId = "__music_radio__"
 
+private const val MusicGroupId = "__music_group__"
+private const val MusicDoneId = "__music_done__"
+
 @Composable
 private fun MusicZoneMenu(
     viewModel: TvViewModel,
@@ -2285,6 +2290,7 @@ private fun MusicZoneMenu(
     onClose: () -> Unit,
 ) {
     val zones by viewModel.musicZones.collectAsStateWithLifecycle()
+    val speakers by viewModel.musicSpeakers.collectAsStateWithLifecycle()
     val lastZoneId by viewModel.lastMusicZoneId.collectAsStateWithLifecycle()
     LaunchedEffect(channelId) { viewModel.refreshMusicZones() }
     // Last-used zone first, so "select, select" replays where you last listened.
@@ -2292,43 +2298,97 @@ private fun MusicZoneMenu(
     // Radio: MA's endless mix seeded from the playlist (similar tracks, no repeats) instead of
     // the playlist itself. Toggled by the last row; the zones stay on top.
     var radio by remember(channelId) { mutableStateOf(false) }
-    com.arflix.tv.ui.components.ContextMenu(
-        isVisible = true,
-        title = channelName,
-        subtitle = when {
-            zones.isEmpty() -> "Looking for zones…"
-            radio -> "Start radio on"
-            else -> "Play on"
-        },
-        actions = ordered.map { zone ->
-            val status = when {
-                zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
-                zone.isPlaying -> " · playing"
-                else -> ""
-            }
-            val members = if (zone.isGroupLeader) " +${zone.groupMembers.size - 1}" else ""
-            com.arflix.tv.ui.components.ContextAction(zone.id, zone.name + members + status, Icons.Default.Speaker)
-        } + com.arflix.tv.ui.components.ContextAction(
-            MusicRadioToggleId,
-            if (radio) "Radio: on · switch to playlist" else "Radio: off · play similar songs endlessly",
-            Icons.Default.Radio,
-        ),
-        onAction = { action ->
-            if (action.id == MusicRadioToggleId) {
-                radio = !radio
-                return@ContextMenu
-            }
-            val zone = zones.firstOrNull { it.id == action.id }
-            if (playlist != null && zone != null) {
-                viewModel.playMusicOn(zone.id, playlist.uri, radio) { ok ->
-                    val what = if (radio) "${playlist.name} radio" else playlist.name
-                    onPlayed(ok, if (ok) "Playing $what on ${zone.name}" else "Couldn't start $what")
-                }
-            }
-            onClose()
-        },
-        onDismiss = onClose,
-    )
+    // Speaker grouping: "Group speakers…" -> pick the speaker to group around -> tick the
+    // speakers that join it. Back steps out one level at a time.
+    var picking by remember(channelId) { mutableStateOf(false) }
+    var groupLeaderId by remember(channelId) { mutableStateOf<String?>(null) }
+    val leader = groupLeaderId?.let { id -> speakers.firstOrNull { it.id == id } }
+
+    fun zoneLabel(zone: com.arflix.tv.music.MaPlayer): String {
+        val status = when {
+            zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
+            zone.isPlaying -> " · playing"
+            else -> ""
+        }
+        val members = if (zone.isGroupLeader) " +${zone.groupMembers.size - 1}" else ""
+        return zone.name + members + status
+    }
+
+    // Fresh focus (top row) on each step.
+    key(picking, groupLeaderId) {
+        when {
+            leader != null -> com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = "Group with ${leader.name}",
+                subtitle = "Select speakers to add or remove",
+                actions = speakers.filter { it.id != leader.id }.map { sp ->
+                    val inGroup = sp.syncedTo == leader.id || sp.id in leader.groupMembers
+                    val elsewhere = sp.syncedTo?.takeIf { it != leader.id }?.let { other -> speakers.firstOrNull { it.id == other }?.name }
+                    com.arflix.tv.ui.components.ContextAction(
+                        sp.id,
+                        (if (inGroup) "✓  " else "     ") + sp.name + (elsewhere?.let { " · with $it" } ?: ""),
+                        Icons.Default.Speaker,
+                    )
+                } + com.arflix.tv.ui.components.ContextAction(MusicDoneId, "Done", Icons.Default.Check),
+                onAction = { action ->
+                    if (action.id == MusicDoneId) {
+                        groupLeaderId = null
+                        return@ContextMenu
+                    }
+                    val sp = speakers.firstOrNull { it.id == action.id } ?: return@ContextMenu
+                    val join = !(sp.syncedTo == leader.id || sp.id in leader.groupMembers)
+                    viewModel.setSpeakerGrouped(leader.id, sp.id, join) { ok ->
+                        if (!ok) onPlayed(false, "Couldn't ${if (join) "add" else "remove"} ${sp.name}")
+                    }
+                },
+                onDismiss = { groupLeaderId = null },
+            )
+            picking -> com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = "Group speakers",
+                subtitle = "Group around which speaker?",
+                actions = ordered.map { com.arflix.tv.ui.components.ContextAction(it.id, zoneLabel(it), Icons.Default.Speaker) },
+                onAction = { action ->
+                    picking = false
+                    groupLeaderId = action.id
+                },
+                onDismiss = { picking = false },
+            )
+            else -> com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = channelName,
+                subtitle = when {
+                    zones.isEmpty() -> "Looking for zones…"
+                    radio -> "Start radio on"
+                    else -> "Play on"
+                },
+                actions = ordered.map { com.arflix.tv.ui.components.ContextAction(it.id, zoneLabel(it), Icons.Default.Speaker) } +
+                    com.arflix.tv.ui.components.ContextAction(MusicGroupId, "Group speakers…", Icons.Default.Speaker) +
+                    com.arflix.tv.ui.components.ContextAction(
+                        MusicRadioToggleId,
+                        if (radio) "Radio: on · switch to playlist" else "Radio: off · play similar songs endlessly",
+                        Icons.Default.Radio,
+                    ),
+                onAction = { action ->
+                    when (action.id) {
+                        MusicRadioToggleId -> radio = !radio
+                        MusicGroupId -> picking = true
+                        else -> {
+                            val zone = zones.firstOrNull { it.id == action.id }
+                            if (playlist != null && zone != null) {
+                                viewModel.playMusicOn(zone.id, playlist.uri, radio) { ok ->
+                                    val what = if (radio) "${playlist.name} radio" else playlist.name
+                                    onPlayed(ok, if (ok) "Playing $what on ${zoneLabel(zone).substringBefore(" · ")}" else "Couldn't start $what")
+                                }
+                            }
+                            onClose()
+                        }
+                    }
+                },
+                onDismiss = onClose,
+            )
+        }
+    }
 }
 
 @Composable

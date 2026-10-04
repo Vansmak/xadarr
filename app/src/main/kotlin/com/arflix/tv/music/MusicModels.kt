@@ -16,6 +16,9 @@ data class MaPlayer(
     val nowTitle: String?,
     val nowArtist: String?,
     val nowImageUrl: String?,
+    val provider: String = "",
+    /** The leader this speaker is grouped under, or null when it plays on its own. */
+    val syncedTo: String? = null,
 ) {
     val isPlaying get() = state == "playing"
     val isGroupLeader get() = groupMembers.size > 1
@@ -92,13 +95,18 @@ internal object MaParse {
             activeSource = o.optString("active_source").takeIf { it.isNotBlank() && it != "null" },
             // Members of a synced group are controlled through their leader, so they're hidden
             // from the zone list (they'd just mirror it); same for disabled/hidden players.
-            visible = o.optBoolean("available", true) &&
+            // Sonos only (Joe, 2026-10-03: "all I want is sonos") -- MA also lists TVs, phones
+            // and other universal players that aren't speakers.
+            visible = o.optString("provider") == "sonos" &&
+                o.optBoolean("available", true) &&
                 o.optBoolean("enabled", true) &&
                 !o.optBoolean("hide_in_ui", false) &&
                 syncedTo == null,
             nowTitle = media?.optString("title")?.takeIf { it.isNotBlank() },
             nowArtist = media?.optString("artist")?.takeIf { it.isNotBlank() },
             nowImageUrl = repo.absoluteUrl(media?.optString("image_url")?.takeIf { it.isNotBlank() && it != "null" }),
+            provider = o.optString("provider"),
+            syncedTo = syncedTo,
         )
     }
 
