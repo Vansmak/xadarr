@@ -264,6 +264,20 @@ class LiveTvPlayerViewModel @Inject constructor(
         if (_state.value.isActive) player.play()
     }
 
+    /**
+     * Picture only, no sound. Used while music plays on this TV's Sonos: any TV audio makes the
+     * soundbar switch to its TV input and the music stops (Joe, 2026-10-04, Family Room). Disabling
+     * the audio track sends no audio at all, which a 0 volume wouldn't guarantee with passthrough.
+     */
+    fun setAudioMuted(muted: Boolean) {
+        if (audioMuted == muted) return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, muted)
+            .build()
+    }
+
+    val audioMuted: Boolean get() = C.TRACK_TYPE_AUDIO in player.trackSelectionParameters.disabledTrackTypes
+
     /** Stop playback and clear state (e.g. before a VOD or camera player opens). */
     fun dismiss() {
         errorRetryJob?.cancel()

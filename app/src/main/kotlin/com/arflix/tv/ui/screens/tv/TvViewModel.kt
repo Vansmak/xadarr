@@ -93,6 +93,7 @@ class TvViewModel @Inject constructor(
     private val radarrRepository: com.arflix.tv.data.repository.RadarrRepository,
     private val musicAssistantRepository: com.arflix.tv.music.MusicAssistantRepository,
     private val homeServerRepository: com.arflix.tv.data.repository.HomeServerRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -352,6 +353,18 @@ class TvViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { musicAssistantRepository.playingLineups() }.getOrNull()?.let { _musicLineups.value = it }
         }
+    }
+
+    // The Sonos this TV plays through, learned from the zone that reports "TV audio" while this
+    // device plays live TV. Device-local on purpose (plain SharedPreferences, never the synced
+    // blob): every TV sits in a different room.
+    private val musicRoomPrefs = appContext.getSharedPreferences("music_room", android.content.Context.MODE_PRIVATE)
+    private val _musicRoomZoneId = kotlinx.coroutines.flow.MutableStateFlow(musicRoomPrefs.getString("zone_id", null))
+    val musicRoomZoneId: StateFlow<String?> = _musicRoomZoneId.asStateFlow()
+    fun setMusicRoomZone(zoneId: String) {
+        if (_musicRoomZoneId.value == zoneId) return
+        _musicRoomZoneId.value = zoneId
+        musicRoomPrefs.edit().putString("zone_id", zoneId).apply()
     }
 
     /** Guide Now Playing controls: one MA command, then re-read the queues so the row follows. */

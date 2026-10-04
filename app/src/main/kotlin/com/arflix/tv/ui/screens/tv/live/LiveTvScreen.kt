@@ -672,6 +672,42 @@ fun LiveTvScreen(
     // Short confirmation drawn inside the guide. Android Toasts don't render on Joe's
     // Shield/onn boxes (see project_remote_mode memory), so they'd be invisible there.
     var guideMessage by remember { mutableStateOf<String?>(null) }
+
+    // TV with the music still on (Joe, 2026-10-04: "have a TV on while still playing music").
+    // Music on this TV's own Sonos + a TV channel with sound = the soundbar flips to its TV input
+    // and the music stops. So while music plays on this room's speaker, live TV is picture-only;
+    // pausing/stopping the music (or moving it to another room) brings the TV sound back.
+    val musicSpeakersAll by viewModel.musicSpeakers.collectAsStateWithLifecycle()
+    val musicRoomZoneId by viewModel.musicRoomZoneId.collectAsStateWithLifecycle()
+    val miniPlayerState by playerViewModel.state.collectAsStateWithLifecycle()
+    // Learn the room: the one speaker on TV audio while this device plays TV with sound.
+    LaunchedEffect(musicSpeakersAll, miniPlayerState.isActive) {
+        if (!miniPlayerState.isActive || playerViewModel.audioMuted) return@LaunchedEffect
+        val onTv = musicSpeakersAll.filter { it.isTvAudio && it.syncedTo == null }
+        if (onTv.size == 1) viewModel.setMusicRoomZone(onTv.first().id)
+    }
+    val roomSpeaker = musicSpeakersAll.firstOrNull { it.id == musicRoomZoneId }
+    val musicInRoom = musicRoomZoneId != null && roomSpeaker?.isTvAudio != true && musicLineups.any { lineup ->
+        !lineup.paused && (lineup.queueId == musicRoomZoneId || roomSpeaker?.syncedTo == lineup.queueId)
+    }
+    var lastMusicInRoom by remember { mutableStateOf(false) }
+    // Keyed on the lineups too: musicStartedLocally() mutes up front, and if the music went to
+    // another room the next refresh has to undo it even though musicInRoom never changed.
+    LaunchedEffect(musicInRoom, musicLineups) {
+        val changed = musicInRoom != lastMusicInRoom
+        lastMusicInRoom = musicInRoom
+        if (playerViewModel.audioMuted == musicInRoom) return@LaunchedEffect
+        playerViewModel.setAudioMuted(musicInRoom)
+        if (changed && miniPlayerState.isActive) {
+            guideMessage = if (musicInRoom) "TV sound off while music plays on ${roomSpeaker?.name ?: "this room's speaker"}"
+            else "TV sound back on"
+        }
+    }
+    // A pick from the Music row/search started: mute right away rather than at the next queue
+    // refresh, so the TV can't pull the soundbar back. Room not learned yet -> stop TV as before.
+    fun musicStartedLocally() {
+        if (musicRoomZoneId == null) playerViewModel.dismiss() else playerViewModel.setAudioMuted(true)
+    }
     LaunchedEffect(guideMessage) {
         if (guideMessage != null) {
             delay(2500L)
@@ -2039,7 +2075,7 @@ fun LiveTvScreen(
                     // 2026-10-03). Stop it outright rather than pause: a paused stream
                     // is restarted by ON_RESUME's isActive check on the way back from
                     // any other screen. Picking a real channel again starts it fresh.
-                    if (ok) playerViewModel.dismiss()
+                    if (ok) musicStartedLocally()
                     guideMessage = message
                 },
                 onClose = {
@@ -2059,7 +2095,7 @@ fun LiveTvScreen(
                 playlist = item,
                 cellProgram = null,
                 onPlayed = { ok, message ->
-                    if (ok) playerViewModel.dismiss()
+                    if (ok) musicStartedLocally()
                     guideMessage = message
                 },
                 onClose = {
@@ -2753,7 +2789,11 @@ fun musicGridZoom(channels: List<EnrichedChannel>): Float =
 private fun MusicGuideFeeds(viewModel: TvViewModel, playlists: List<com.arflix.tv.music.MaMediaItem>, clockMillis: Long) {
     if (playlists.isEmpty()) return
     LaunchedEffect(playlists) { viewModel.loadMusicTracks(playlists) }
-    LaunchedEffect(clockMillis) { viewModel.refreshMusicLineups() }
+    LaunchedEffect(clockMillis) {
+        viewModel.refreshMusicLineups()
+        // Speakers too: which one is this TV's (TV audio) and whether music holds it.
+        viewModel.refreshMusicZones()
+    }
 }
 
 fun List<com.arflix.tv.music.MaMediaItem>.musicItemFor(channelId: String?): com.arflix.tv.music.MaMediaItem? =
