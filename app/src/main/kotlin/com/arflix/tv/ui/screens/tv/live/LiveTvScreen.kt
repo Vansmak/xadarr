@@ -1211,10 +1211,27 @@ fun LiveTvScreen(
         searchOpen = true
     }
 
+    // Focus guard: if nothing in the guide holds focus (a focused cell got recomposed away when
+    // the music rows refreshed), D-pad input went nowhere until Back (Joe, 2026-10-03: "sticky
+    // ... unresponsive unless I hit back"). Put it back where the guide thinks it is.
+    var guideHasFocus by remember { mutableStateOf(true) }
+    val guideView = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(guideHasFocus, isFullScreen, searchOpen) {
+        if (guideHasFocus || isFullScreen || searchOpen || isTouchDevice) return@LaunchedEffect
+        delay(500)
+        // A focusable Popup/Dialog (sidebar group menu, remote pairing) owns another window.
+        if (!guideView.hasWindowFocus()) return@LaunchedEffect
+        val id = focusedChannelId ?: playingChannelId
+        if (focusZone == LiveTvFocusZone.EPG && id != null) focusEpg(id)
+        else if (focusZone == LiveTvFocusZone.CATEGORY_LIST) runCatching { sidebarFocus.requestFocus() }
+        else focusChannelList(id)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(LiveColors.Bg)
+            .onFocusChanged { guideHasFocus = it.hasFocus }
             .then(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
@@ -1501,7 +1518,9 @@ fun LiveTvScreen(
                         onMoveRight = {
                             val remembered = rememberedChannelByCategory[selectedCategoryId]
                                 ?.takeIf { id -> filteredChannels.any { it.id == id } }
-                            val target = remembered
+                            // Music: land on whatever a zone is playing (Joe, 2026-10-03).
+                            val target = playingMusicChannelId(filteredChannels, musicPlaylists, musicLineups)
+                                ?: remembered
                                 ?: focusedChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
                                 ?: playingChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
                                 ?: filteredChannels.firstOrNull()?.id
@@ -2619,6 +2638,16 @@ fun musicArtFor(
         }
     }
     return tracks[playlist.uri]?.tracks?.firstOrNull()?.imageUrl ?: playlist.imageUrl
+}
+
+/** The Music channel a zone is playing right now, if it's among [channels]. */
+fun playingMusicChannelId(
+    channels: List<EnrichedChannel>,
+    playlists: List<com.arflix.tv.music.MaMediaItem>,
+    lineups: List<com.arflix.tv.music.MaLineup>,
+): String? = lineups.firstNotNullOfOrNull { lineup ->
+    val playlist = playlists.firstOrNull { it.uri == lineup.sourceUri } ?: return@firstNotNullOfOrNull null
+    musicChannelId(playlist).takeIf { id -> channels.any { it.id == id } }
 }
 
 /** The Music group gets a zoomed-in time scale so songs read as cells, not slivers. */
