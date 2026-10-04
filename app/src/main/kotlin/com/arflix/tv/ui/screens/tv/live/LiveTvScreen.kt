@@ -1965,6 +1965,7 @@ fun LiveTvScreen(
                 channelId = musicCh.id,
                 channelName = musicCh.name,
                 playlist = musicPlaylists.musicItemFor(musicCh.id),
+                cellProgram = if (fromCell) libraryCellTarget?.second else null,
                 onPlayed = { ok, message ->
                     // Highlighting a music row only repoints the hero; the live channel
                     // kept playing underneath, so its audio ran over the music (Joe,
@@ -2288,10 +2289,19 @@ private fun MusicZoneMenu(
     channelId: String,
     channelName: String,
     playlist: com.arflix.tv.music.MaMediaItem?,
+    cellProgram: IptvProgram?,
     onPlayed: (ok: Boolean, message: String) -> Unit,
     onClose: () -> Unit,
 ) {
     val zones by viewModel.musicZones.collectAsStateWithLifecycle()
+    val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
+    val musicLineups by viewModel.musicLineups.collectAsStateWithLifecycle()
+    // A song cell: play from that song (Joe, 2026-10-03: "go to any song in the grid and play
+    // it"). Null for the channel row or the playlist filler cell -> the whole playlist.
+    val songPick = remember(playlist, cellProgram) {
+        musicSongFor(playlist, cellProgram, musicTracks, musicLineups)
+    }
+    val song = songPick?.first
     val speakers by viewModel.musicSpeakers.collectAsStateWithLifecycle()
     val lastZoneId by viewModel.lastMusicZoneId.collectAsStateWithLifecycle()
     LaunchedEffect(channelId) { viewModel.refreshMusicZones() }
@@ -2358,10 +2368,12 @@ private fun MusicZoneMenu(
             )
             else -> com.arflix.tv.ui.components.ContextMenu(
                 isVisible = true,
-                title = channelName,
+                title = song?.let { s -> listOfNotNull(s.name, s.artist).joinToString(" · ") } ?: channelName,
                 subtitle = when {
                     zones.isEmpty() -> "Looking for zones…"
+                    radio && song != null -> "Start radio from this song on"
                     radio -> "Start radio on"
+                    song != null -> "Play from this song on"
                     else -> "Play on"
                 },
                 actions = ordered.map { com.arflix.tv.ui.components.ContextAction(it.id, zoneLabel(it), Icons.Default.Speaker) } +
@@ -2378,8 +2390,24 @@ private fun MusicZoneMenu(
                         else -> {
                             val zone = zones.firstOrNull { it.id == action.id }
                             if (playlist != null && zone != null) {
-                                viewModel.playMusicOn(zone.id, playlist.uri, radio) { ok ->
-                                    val what = if (radio) "${playlist.name} radio" else playlist.name
+                                val lineup = songPick?.second
+                                val songUri = song?.uri
+                                // Same zone the song's queue is on: jump within it. Radio: seed
+                                // from the song. Otherwise: the playlist, starting at the song.
+                                val jumpTo = song?.queueItemId?.takeIf { !radio && lineup?.queueId == zone.id }
+                                viewModel.playMusicOn(
+                                    zoneId = zone.id,
+                                    uri = if (radio && songUri != null) songUri else playlist.uri,
+                                    radio = radio,
+                                    startItem = songUri?.takeIf { !radio && jumpTo == null },
+                                    queueItemId = jumpTo,
+                                ) { ok ->
+                                    val what = when {
+                                        radio && song != null -> "${song.name} radio"
+                                        radio -> "${playlist.name} radio"
+                                        song != null -> song.name
+                                        else -> playlist.name
+                                    }
                                     onPlayed(ok, if (ok) "Playing $what on ${zoneLabel(zone).substringBefore(" · ")}" else "Couldn't start $what")
                                 }
                             }
@@ -2529,6 +2557,20 @@ fun List<com.arflix.tv.music.MaMediaItem>.toMusicNowNext(
         }
         musicChannelId(playlist) to nowNext
     }
+}
+
+/** The song behind a Music grid cell, and the live lineup it came from (if any). */
+private fun musicSongFor(
+    playlist: com.arflix.tv.music.MaMediaItem?,
+    program: IptvProgram?,
+    tracks: Map<String, com.arflix.tv.music.MaPlaylistTracks>,
+    lineups: List<com.arflix.tv.music.MaLineup>,
+): Pair<com.arflix.tv.music.MaTrack, com.arflix.tv.music.MaLineup?>? {
+    if (playlist == null || program == null) return null
+    fun title(t: com.arflix.tv.music.MaTrack) = listOfNotNull(t.name, t.artist).joinToString(" · ")
+    val lineup = lineups.lineupFor(playlist.uri)
+    lineup?.tracks?.firstOrNull { title(it) == program.title }?.let { return it to lineup }
+    return tracks[playlist.uri]?.tracks?.firstOrNull { title(it) == program.title }?.let { it to null }
 }
 
 /** "418 songs · 26 hr 10 min" */

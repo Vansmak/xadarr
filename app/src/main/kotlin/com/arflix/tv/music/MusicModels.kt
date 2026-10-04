@@ -67,6 +67,9 @@ data class MaTrack(
     val album: String?,
     val durationSec: Int,
     val imageUrl: String?,
+    val uri: String? = null,
+    /** Set for songs from a zone's live queue: the item to jump to there. */
+    val queueItemId: String? = null,
 )
 
 /** A playlist's opening songs plus its full size, for the guide row. */
@@ -77,6 +80,7 @@ data class MaPlaylistTracks(val tracks: List<MaTrack>, val count: Int, val total
  * [currentStartMillis] is when the current song started, on this device's clock.
  */
 data class MaLineup(
+    val queueId: String,
     val zoneName: String,
     val sourceUri: String?,
     val tracks: List<MaTrack>,
@@ -178,6 +182,7 @@ internal object MaParse {
             album = o.optJSONObject("album")?.optString("name")?.takeIf { it.isNotBlank() },
             durationSec = o.optInt("duration", 0),
             imageUrl = fallbackImage ?: itemImage(o, repo),
+            uri = o.optString("uri").takeIf { it.isNotBlank() },
         )
 
     private fun artists(o: JSONObject): String? {

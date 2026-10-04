@@ -346,9 +346,19 @@ class TvViewModel @Inject constructor(
         }
     }
 
-    fun playMusicOn(zoneId: String, uri: String, radio: Boolean = false, onResult: (Boolean) -> Unit) {
+    fun playMusicOn(
+        zoneId: String,
+        uri: String,
+        radio: Boolean = false,
+        startItem: String? = null,
+        queueItemId: String? = null,
+        onResult: (Boolean) -> Unit,
+    ) {
         viewModelScope.launch {
-            val ok = runCatching { musicAssistantRepository.playOn(zoneId, uri, radio) }.getOrDefault(false)
+            val ok = runCatching {
+                if (queueItemId != null) musicAssistantRepository.playQueueItem(zoneId, queueItemId)
+                else musicAssistantRepository.playOn(zoneId, uri, radio, startItem)
+            }.getOrDefault(false)
             if (ok) _lastMusicZoneId.value = zoneId
             onResult(ok)
             if (ok) { delay(2_000); refreshMusicLineups() }

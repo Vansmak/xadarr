@@ -383,6 +383,10 @@ class MusicAssistantRepository @Inject constructor(
         return MaPlaylistTracks(tracks, arr.length(), total)
     }
 
+    /** Jumps a zone's queue to one of its items (a song cell from that zone's live lineup). */
+    suspend fun playQueueItem(queueId: String, queueItemId: String): Boolean =
+        request("player_queues/play_index", JSONObject().put("queue_id", queueId).put("index", queueItemId)) != null || lastRequestOk
+
     /** Every zone that's playing, with its queue from the current song on. */
     suspend fun playingLineups(limit: Int = 40): List<MaLineup> {
         val queues = request("player_queues/all") as? JSONArray ?: return emptyList()
@@ -399,11 +403,15 @@ class MusicAssistantRepository @Inject constructor(
                     val image = imageUrl(item.optJSONObject("image"))
                     val track = item.optJSONObject("media_item")?.let { MaParse.track(it, this, item.optString("name"), image) }
                         ?: MaTrack(item.optString("name"), null, null, 0, image)
-                    if (track.durationSec <= 0) track.copy(durationSec = item.optInt("duration", 0)) else track
+                    track.copy(
+                        durationSec = track.durationSec.takeIf { it > 0 } ?: item.optInt("duration", 0),
+                        queueItemId = item.optString("queue_item_id").takeIf { it.isNotBlank() },
+                    )
                 }
                 // Anchored on this device's clock, not MA's timestamp: the hosts' clocks drift.
                 val elapsedMs = (q.optDouble("elapsed_time", 0.0) * 1000).toLong()
                 MaLineup(
+                    queueId = queueId,
                     zoneName = q.optString("display_name"),
                     sourceUri = q.optJSONArray("sources")?.optJSONObject(0)?.optString("uri")?.takeIf { it.isNotBlank() },
                     tracks = tracks,
@@ -435,12 +443,12 @@ class MusicAssistantRepository @Inject constructor(
      * [radio] asks MA for its endless radio seeded from [uri] (similar tracks, no repeats)
      * instead of just the item itself.
      */
-    suspend fun playOn(playerId: String, uri: String, radio: Boolean = false): Boolean {
-        val ok = request(
-            "player_queues/play_media",
-            JSONObject().put("queue_id", playerId).put("media", JSONArray().put(uri)).put("option", "replace")
-                .put("radio_mode", radio),
-        ) != null || lastRequestOk
+    suspend fun playOn(playerId: String, uri: String, radio: Boolean = false, startItem: String? = null): Boolean {
+        val args = JSONObject().put("queue_id", playerId).put("media", JSONArray().put(uri)).put("option", "replace")
+            .put("radio_mode", radio)
+        // Start a playlist partway in, at this track, and carry on from there.
+        if (startItem != null) args.put("start_item", startItem)
+        val ok = request("player_queues/play_media", args) != null || lastRequestOk
         if (ok) saveSelectedPlayerId(playerId)
         return ok
     }
