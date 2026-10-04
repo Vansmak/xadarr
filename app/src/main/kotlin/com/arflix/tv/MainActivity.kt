@@ -1273,6 +1273,21 @@ fun ArflixApp(
                 activeAppNotification?.let { AppNotificationToast(it) }
             }
         }
+        val musicConfigured by remember {
+            context.settingsDataStore.data.map {
+                !it[com.arflix.tv.music.MA_URL_KEY].isNullOrBlank() && !it[com.arflix.tv.music.MA_TOKEN_KEY].isNullOrBlank()
+            }
+        }.collectAsState(initial = false)
+        if (showBottomBar && musicConfigured && currentRoute != "music") {
+            com.arflix.tv.music.MusicMiniBar(
+                onOpen = {
+                    navController.navigate("music") {
+                        popUpTo("home") { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
         if (showBottomBar) {
             AppBottomBar(
                 currentRoute = currentRoute,

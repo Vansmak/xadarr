@@ -1,5 +1,7 @@
 package com.arflix.tv.music
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -249,9 +251,14 @@ fun MusicScreen(
                 }
             }
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
+        // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
+        val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+        Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
             // ── Header: tabs + the zone being controlled ──
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = if (narrow) Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 MusicTab.entries.forEach { tab ->
                     val selected = ui.tab == tab
                     val focused = area == Area.TABS && selected
@@ -268,7 +275,7 @@ fun MusicScreen(
                             fontSize = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                if (!narrow) Spacer(Modifier.weight(1f)) else Spacer(Modifier.width(8.dp))
                 ui.selectedPlayer?.let { p ->
                     Icon(Icons.Default.Speaker, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -277,7 +284,7 @@ fun MusicScreen(
                 Spacer(Modifier.width(12.dp))
                 ConnectionDot(ui.connection)
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(if (narrow) 12.dp else 24.dp))
 
             Box(Modifier.fillMaxSize()) {
                 when {
@@ -398,6 +405,11 @@ private fun NowPlaying(
     val artist = item?.artist ?: player?.nowArtist
     val image = item?.imageUrl ?: player?.nowImageUrl
 
+    if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600) {
+        NowPlayingNarrow(ui, elapsed, title, artist, image, onControl)
+        return
+    }
+
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.fillMaxHeight(0.92f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
@@ -457,6 +469,69 @@ private fun NowPlaying(
                 ControlButton(Icons.Default.VolumeUp, "Volume up", focusedControl == Control.VOLUME_UP) { onControl(Control.VOLUME_UP) }
             }
         }
+    }
+}
+
+/** Phone layout: cover on top, then title, chips, progress and two rows of controls. */
+@Composable
+private fun NowPlayingNarrow(
+    ui: MusicUiState,
+    elapsed: Double,
+    title: String?,
+    artist: String?,
+    image: String?,
+    onControl: (Control) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val player = ui.selectedPlayer
+    val item = ui.queue?.current
+    val q = ui.queue
+    Column(
+        Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.fillMaxWidth(0.82f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (image != null) {
+                AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(72.dp))
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(title ?: "Nothing playing", color = colors.onSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        artist?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, color = colors.onSurface.copy(alpha = 0.85f), fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            player?.let { Chip(it.name + if (it.isGroupLeader) " +${it.groupMembers.size - 1}" else "") }
+            item?.quality?.let { Spacer(Modifier.width(8.dp)); Chip(it, highlight = true) }
+            player?.effectiveVolume?.let { Spacer(Modifier.width(8.dp)); Chip("Vol $it") }
+        }
+        Spacer(Modifier.height(18.dp))
+        SeekBar(elapsed = elapsed, duration = item?.durationSec ?: 0, focused = false)
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ControlButton(Icons.Default.Shuffle, "Shuffle", false, active = q?.shuffle == true) { onControl(Control.SHUFFLE) }
+            ControlButton(Icons.Default.SkipPrevious, "Previous", false) { onControl(Control.PREVIOUS) }
+            ControlButton(if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (ui.isPlaying) "Pause" else "Play",
+                false, large = true) { onControl(Control.PLAY_PAUSE) }
+            ControlButton(Icons.Default.SkipNext, "Next", false) { onControl(Control.NEXT) }
+            ControlButton(if (q?.repeat == "one") Icons.Default.RepeatOne else Icons.Default.Repeat, "Repeat", false,
+                active = q != null && q.repeat != "off") { onControl(Control.REPEAT) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ControlButton(Icons.Default.VolumeDown, "Volume down", false) { onControl(Control.VOLUME_DOWN) }
+            ControlButton(Icons.Default.Radio, "Radio from this song", false) { onControl(Control.RADIO) }
+            ControlButton(Icons.Default.VolumeUp, "Volume up", false) { onControl(Control.VOLUME_UP) }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 

@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.components
 
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,8 +86,12 @@ val bottomBarItems = listOf(
 fun AppBottomBar(
     currentRoute: String?,
     onNavigate: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Only when Music Assistant is set up (hidden integrations stay hidden otherwise).
+    showMusic: Boolean = false,
 ) {
+    val items = if (!showMusic) bottomBarItems else
+        bottomBarItems.dropLast(1) + BottomBarItem(R.string.music, Icons.Default.MusicNote, "music") + bottomBarItems.last()
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -103,7 +108,7 @@ fun AppBottomBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            bottomBarItems.forEach { item ->
+            items.forEach { item ->
                 val isSelected = currentRoute?.contains(item.route, ignoreCase = true) == true
                 var isFocused by remember { mutableStateOf(false) }
                 val label = stringResource(item.labelRes)
