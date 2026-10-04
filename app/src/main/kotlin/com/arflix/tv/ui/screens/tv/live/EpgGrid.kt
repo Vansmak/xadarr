@@ -213,6 +213,8 @@ fun EpgGrid(
     // delayed requestFocus() could land after a newer one and yank focus back a row, which
     // read as the channel list "sticking" during a fast up/down (Joe, 2026-09-15).
     val focusMoveJobHolder = remember { arrayOfNulls<Job>(1) }
+    // Bumped whenever any program cell gains focus; requestProgramFocus() checks it.
+    val cellFocusSeq = remember { intArrayOf(0) }
     fun requestProgramFocus(rowIdx: Int, targetIdx: Int): Boolean {
         val channel = channels.getOrNull(rowIdx) ?: return false
         val requesters = programFocusRequesters[channel.id].orEmpty()
@@ -220,7 +222,20 @@ fun EpgGrid(
         val safeTargetIdx = targetIdx.coerceIn(0, requesters.lastIndex)
         scope.launch {
             channelListState.scrollToItem(rowIdx)
-            runCatching { requesters[safeTargetIdx].requestFocus() }
+            // Verify it took, and retry if not. Right after a popup menu closes, Compose
+            // re-homes focus from the removed menu onto the grid itself in the same frame, and
+            // a one-shot requestFocus() here silently lost that race: focus sat on a node with
+            // no D-pad handling and the guide froze until Back (Joe, 2026-10-03, reproduced on
+            // the Shield). Stops as soon as any cell gains focus, so it can't yank the user back
+            // if they've already moved on.
+            val start = cellFocusSeq[0]
+            repeat(8) {
+                val target = programFocusRequesters[channel.id]?.getOrNull(safeTargetIdx) ?: return@launch
+                runCatching { target.requestFocus() }
+                withFrameNanos { }
+                if (cellFocusSeq[0] != start) return@launch
+                delay(30L)
+            }
         }
         return true
     }
@@ -665,6 +680,7 @@ fun EpgGrid(
                                         }
                                     },
                                     onFocused = {
+                                        cellFocusSeq[0]++
                                         if (focusMode == EpgGridFocusMode.Epg) {
                                             onChannelFocused(ch)
                                         }
