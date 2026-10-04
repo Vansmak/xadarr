@@ -827,6 +827,10 @@ fun buildCategoryIndex(channels: List<EnrichedChannel>): LiveCategoryIndex {
     channels.forEach { channel ->
         byId[channel.id] = channel
         add(playlistGroupCategoryId(channel.source.group), channel)
+        // Shows / Movies / Music are their own groups only. In "all" they sorted to the top of a
+        // 9,500-channel list, and the Music rows there ran on the normal time scale (the song zoom
+        // needs a music-only list) -- tiny unreadable slivers (Joe, 2026-10-04).
+        if (isLibraryChannelGroup(channel.source.group)) return@forEach
         if (channel.isAdult) {
             add("adult", channel)
             return@forEach

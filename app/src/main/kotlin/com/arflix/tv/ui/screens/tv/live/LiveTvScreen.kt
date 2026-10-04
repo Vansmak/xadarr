@@ -648,8 +648,12 @@ fun LiveTvScreen(
     var musicMenuClosedAt by remember { mutableLongStateOf(0L) }
     // A song/artist/album/playlist picked in search: the same room picker plays it.
     var musicSearchPick by remember { mutableStateOf<com.arflix.tv.music.MaMediaItem?>(null) }
+    // Same for the Shows/Movies menus: Close on key-down, then the release re-selected the row and
+    // the movie menu came straight back -- it looked stuck on screen, even over fullscreen video
+    // (Joe, 2026-10-04, "Heart of the Beast" over RedZone).
+    @Suppress("UNUSED_PARAMETER")
     fun musicMenuJustClosed(channelId: String) =
-        isMusicChannelId(channelId) && android.os.SystemClock.uptimeMillis() - musicMenuClosedAt < 700
+        android.os.SystemClock.uptimeMillis() - musicMenuClosedAt < 700
     // Selecting an episode/movie cell on a library row: Play / Mark Watched / Search.
     var libraryCellTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     // Rule picker opened from a show's channel menu.
@@ -659,6 +663,7 @@ fun LiveTvScreen(
     // torn down while Details is on top. Armed on ON_RESUME so it can't fire before navigating.
     var reopenMenuAfterDetails by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingMenuReopen by remember { mutableStateOf<String?>(null) }
+    var pendingMenuReopenAt by remember { mutableLongStateOf(0L) }
     // Short confirmation drawn inside the guide. Android Toasts don't render on Joe's
     // Shield/onn boxes (see project_remote_mode memory), so they'd be invisible there.
     var guideMessage by remember { mutableStateOf<String?>(null) }
@@ -922,6 +927,7 @@ fun LiveTvScreen(
         // that's the explicit "I want to actually watch this" signal.
         focusedChannelId = channel.id
         rememberedChannelByCategory[selectedCategoryId] = channel.id
+        reopenMenuAfterDetails = null
         // Shows/Movies channels have no stream. Highlighting one already shows it in the hero
         // (previewLibraryChannel); selecting it opens its menu (Episodes & Info / Change Rule).
         // Episode/movie actions live on the cells -- see libraryCellTarget.
@@ -1011,6 +1017,7 @@ fun LiveTvScreen(
                 Lifecycle.Event.ON_RESUME -> {
                     reopenMenuAfterDetails?.let {
                         pendingMenuReopen = it
+                        pendingMenuReopenAt = android.os.SystemClock.uptimeMillis()
                         reopenMenuAfterDetails = null
                     }
                     guideClockMillis = System.currentTimeMillis()
@@ -1942,6 +1949,7 @@ fun LiveTvScreen(
             // close, which strands the guide with no focused node. Always reclaim the row.
             val closeMenu = {
                 libraryMenuChannel = null
+                musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
                 focusChannelList(menuCh.id)
             }
             com.arflix.tv.ui.components.ContextMenu(
@@ -1979,6 +1987,13 @@ fun LiveTvScreen(
 
         LaunchedEffect(pendingMenuReopen, enrichedState.value.index) {
             val id = pendingMenuReopen ?: return@LaunchedEffect
+            // Only straight back from Details (selecting any channel also cancels it). It used to wait for the
+            // channel to show up in the index and then fire whenever -- a movie's menu popped up
+            // over the Music rows long after (Joe, 2026-10-04 photo, "Heart of the Beast").
+            if (android.os.SystemClock.uptimeMillis() - pendingMenuReopenAt > 4_000L) {
+                pendingMenuReopen = null
+                return@LaunchedEffect
+            }
             val ch = enrichedState.value.index.byId[id] ?: return@LaunchedEffect
             pendingMenuReopen = null
             previewLibraryChannel(ch)
@@ -2025,6 +2040,7 @@ fun LiveTvScreen(
                 },
                 onClose = {
                     musicSearchPick = null
+                    musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
                     focusChannelList()
                 },
             )
@@ -2037,6 +2053,7 @@ fun LiveTvScreen(
             val se = parseShowEpisodeTitle(cellProgram.title)
             val closeMenu = {
                 libraryCellTarget = null
+                musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
                 focusEpg(cellChannel.id)
             }
             // Which episode this cell is, and whether it's on disk.
