@@ -188,9 +188,12 @@ fun ContextMenu(
                     },
                 contentAlignment = Alignment.TopCenter
             ) {
+                // Fit the screen: TVs are only ~540dp tall, and a 110dp top offset plus a long
+                // list ran the card off the bottom (Joe, 2026-10-03, screenshots).
+                val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
                 Column(
                     modifier = Modifier
-                        .padding(top = 110.dp)
+                        .padding(top = if (screenHeight < 700) 48.dp else 110.dp)
                         .width(360.dp)
                         .background(BackgroundElevated, RoundedCornerShape(18.dp))
                         .padding(20.dp),
@@ -200,7 +203,9 @@ fun ContextMenu(
                     Text(
                         text = title,
                         style = ArflixTypography.sectionTitle,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     
                     // Subtitle
@@ -240,7 +245,7 @@ fun ContextMenu(
                     androidx.compose.foundation.lazy.LazyColumn(
                         state = actionsListState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 340.dp),
+                        modifier = Modifier.heightIn(max = (screenHeight - (if (screenHeight < 700) 48 else 110) - 190).coerceIn(160, 340).dp),
                     ) {
                         items(tvActions.size) { index ->
                             ContextMenuItem(

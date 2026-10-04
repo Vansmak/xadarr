@@ -109,8 +109,8 @@ internal object MaParse {
                 o.optBoolean("enabled", true) &&
                 !o.optBoolean("hide_in_ui", false) &&
                 syncedTo == null,
-            nowTitle = media?.optString("title")?.takeIf { it.isNotBlank() },
-            nowArtist = media?.optString("artist")?.takeIf { it.isNotBlank() },
+            nowTitle = media?.optString("title")?.takeIf { it.isNotBlank() && it != "null" },
+            nowArtist = media?.optString("artist")?.takeIf { it.isNotBlank() && it != "null" },
             nowImageUrl = repo.absoluteUrl(media?.optString("image_url")?.takeIf { it.isNotBlank() && it != "null" }),
             provider = o.optString("provider"),
             syncedTo = syncedTo,
