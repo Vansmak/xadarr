@@ -159,6 +159,11 @@ class MusicAssistantRepository @Inject constructor(
         _state.value = ConnectionState.NOT_CONFIGURED
     }
 
+    /** The room every Music surface controls; picking one anywhere moves the others too. */
+    val selectedPlayerIdFlow: Flow<String?> = context.settingsDataStore.data
+        .map { it[MA_SELECTED_PLAYER_KEY]?.takeIf { id -> id.isNotBlank() } }
+        .distinctUntilChanged()
+
     suspend fun selectedPlayerId(): String? =
         context.settingsDataStore.data.first()[MA_SELECTED_PLAYER_KEY]?.takeIf { it.isNotBlank() }
 

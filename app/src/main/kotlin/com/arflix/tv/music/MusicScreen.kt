@@ -116,6 +116,7 @@ fun MusicScreen(
     var controlIndex by remember { mutableIntStateOf(Control.PLAY_PAUSE.ordinal) }
     var listIndex by remember { mutableIntStateOf(0) }
     var showSearch by remember { mutableStateOf(false) }
+    var showRoomPicker by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
 
@@ -180,7 +181,15 @@ fun MusicScreen(
         }
     }
 
-    BackHandler(enabled = !showSearch) { handleBack() }
+    BackHandler(enabled = !showSearch && !showRoomPicker) { handleBack() }
+    if (showRoomPicker) {
+        RoomPickerDialog(
+            players = ui.players,
+            selectedId = ui.selectedPlayerId,
+            onPick = { id -> viewModel.selectPlayer(id); viewModel.setTab(MusicTab.NOW_PLAYING); showRoomPicker = false },
+            onDismiss = { showRoomPicker = false },
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -254,6 +263,25 @@ fun MusicScreen(
         // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
+            // Phones: the room being controlled sits on its own row above the tabs and is
+            // tappable -- it was the last item of a sideways-scrolling row, easy to never see,
+            // and the Zones tab alone wasn't an obvious way to switch (Joe, 2026-10-03).
+            if (narrow) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(20.dp)).clickable { showRoomPicker = true }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Speaker, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(ui.selectedPlayer?.let { p -> p.name + if (p.isGroupLeader) " +${p.groupMembers.size - 1}" else "" } ?: "Pick a room",
+                        color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("  ▾", color = colors.onSurfaceVariant, fontSize = 18.sp)
+                    Spacer(Modifier.width(12.dp))
+                    ConnectionDot(ui.connection)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             // ── Header: tabs + the zone being controlled ──
             Row(
                 modifier = if (narrow) Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier,
@@ -275,14 +303,16 @@ fun MusicScreen(
                             fontSize = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
-                if (!narrow) Spacer(Modifier.weight(1f)) else Spacer(Modifier.width(8.dp))
-                ui.selectedPlayer?.let { p ->
-                    Icon(Icons.Default.Speaker, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(p.name, color = colors.onSurface, fontSize = 16.sp)
+                if (!narrow) {
+                    Spacer(Modifier.weight(1f))
+                    ui.selectedPlayer?.let { p ->
+                        Icon(Icons.Default.Speaker, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(p.name, color = colors.onSurface, fontSize = 16.sp)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    ConnectionDot(ui.connection)
                 }
-                Spacer(Modifier.width(12.dp))
-                ConnectionDot(ui.connection)
             }
             Spacer(Modifier.height(if (narrow) 12.dp else 24.dp))
 
@@ -320,6 +350,7 @@ fun MusicScreen(
                                 MediaRow(
                                     title = p.name + if (p.isGroupLeader) "  +${p.groupMembers.size - 1}" else "",
                                     subtitle = when {
+                                        p.isTvAudio -> "TV audio"
                                         p.nowTitle != null -> listOfNotNull(if (p.isPlaying) "Playing" else "Paused", p.nowTitle, p.nowArtist).joinToString(" · ")
                                         else -> "Idle"
                                     },
@@ -747,4 +778,40 @@ private fun formatTime(seconds: Double): String {
     val m = (s % 3600) / 60
     val sec = s % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/** Phone: pick the room to control. TV-audio rooms are labelled so, not as music. */
+@Composable
+private fun RoomPickerDialog(players: List<MaPlayer>, selectedId: String?, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(vertical = 12.dp),
+        ) {
+            Text("Rooms", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+            players.forEach { p ->
+                val status = when {
+                    p.isTvAudio -> "TV audio"
+                    p.isPlaying && p.nowTitle != null -> listOfNotNull("Playing", p.nowTitle, p.nowArtist).joinToString(" · ")
+                    p.nowTitle != null -> "Paused · ${p.nowTitle}"
+                    else -> "Idle"
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable { onPick(p.id) }
+                        .background(if (p.id == selectedId) colors.primary.copy(alpha = 0.15f) else Color.Transparent)
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Speaker, contentDescription = null, tint = if (p.id == selectedId) colors.primary else colors.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.name + if (p.isGroupLeader) " +${p.groupMembers.size - 1}" else "", color = colors.onSurface, fontSize = 16.sp)
+                        Text(status, color = colors.onSurfaceVariant, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
 }

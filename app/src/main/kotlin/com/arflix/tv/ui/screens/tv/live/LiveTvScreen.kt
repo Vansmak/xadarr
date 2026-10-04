@@ -2374,6 +2374,7 @@ private fun MusicZoneMenu(
 
     fun zoneLabel(zone: com.arflix.tv.music.MaPlayer): String {
         val status = when {
+            zone.isTvAudio -> " · TV audio"
             zone.isPlaying && zone.nowTitle != null -> " · playing ${zone.nowTitle}"
             zone.isPlaying -> " · playing"
             else -> ""

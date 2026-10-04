@@ -20,6 +20,8 @@ data class MaPlayer(
     /** The leader this speaker is grouped under, or null when it plays on its own. */
     val syncedTo: String? = null,
 ) {
+    /** Playing the TV's sound (Sonos home-theater input) or a line-in, not music. */
+    val isTvAudio get() = activeSource == "tv" || activeSource?.startsWith("line") == true || nowTitle == "TV Audio"
     val isPlaying get() = state == "playing"
     val isGroupLeader get() = groupMembers.size > 1
     /** The volume to show/adjust: the group's when this player leads a group. */

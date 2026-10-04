@@ -66,6 +66,12 @@ class MusicViewModel @Inject constructor(
         viewModelScope.launch {
             repo.events.collect { handleEvent(it) }
         }
+        // Another Music surface (the phone's mini bar vs. the Music screen) picked a room.
+        viewModelScope.launch {
+            repo.selectedPlayerIdFlow.collect { id ->
+                if (id != null && id != _ui.value.selectedPlayerId && _ui.value.players.any { it.id == id }) selectPlayer(id)
+            }
+        }
         // If the socket was already up (another screen holds it), load straight away.
         if (repo.state.value == ConnectionState.CONNECTED) viewModelScope.launch { loadAll() }
     }
@@ -83,7 +89,7 @@ class MusicViewModel @Inject constructor(
         val visible = parsed.filter { it.visible }.sortedBy { it.name.lowercase() }
         val saved = repo.selectedPlayerId()
         val selected = visible.firstOrNull { it.id == saved }?.id
-            ?: visible.firstOrNull { it.isPlaying }?.id
+            ?: visible.firstOrNull { it.isPlaying && !it.isTvAudio }?.id
             ?: visible.firstOrNull()?.id
         _ui.update { it.copy(players = visible, selectedPlayerId = selected) }
         selected?.let { loadQueue(it) }

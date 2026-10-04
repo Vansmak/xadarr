@@ -49,7 +49,8 @@ fun MusicMiniBar(onOpen: () -> Unit, viewModel: MusicViewModel = hiltViewModel()
     val ui by viewModel.ui.collectAsState()
     val player = ui.selectedPlayer
     val item = ui.queue?.current
-    if (!ui.isPlaying) return
+    // Music only: a soundbar playing the TV isn't something to control from here.
+    if (!ui.isPlaying || player?.isTvAudio == true) return
     val title = item?.name ?: player?.nowTitle ?: return
     val artist = item?.artist ?: player?.nowArtist
     val image = item?.imageUrl ?: player?.nowImageUrl
