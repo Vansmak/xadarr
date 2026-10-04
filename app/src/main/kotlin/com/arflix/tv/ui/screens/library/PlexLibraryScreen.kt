@@ -451,6 +451,7 @@ fun PlexLibraryScreen(
                         val minGridHeight = (cellWidth * 1.05f).coerceIn(140.dp, 220.dp)
                         val heroHeight = if (isTouchDevice) 110.dp else 160.dp
                         Column(modifier = Modifier.fillMaxSize()) {
+                            if (isTouchDevice) LibraryTypeSwitch(mediaType, onNavigateToShows, onNavigateToMovies)
                             PlexHeroBanner(item = heroItem, isTouchDevice = isTouchDevice, heroHeight = heroHeight)
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(colCount),
@@ -619,6 +620,33 @@ private fun PlexPosterCard(
                     color = LiveColors.Accent,
                     style = LiveType.Badge,
                     maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** Phone: Shows | Movies at the top left of the one Library tab, like Discover's TV/Movies switch. */
+@Composable
+private fun LibraryTypeSwitch(mediaType: MediaType, onShows: () -> Unit, onMovies: () -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(MediaType.TV to "Shows", MediaType.MOVIE to "Movies").forEach { (type, label) ->
+            val selected = type == mediaType
+            Box(
+                modifier = Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                    .background(if (selected) LiveColors.Accent else LiveColors.Panel)
+                    .clickable(enabled = !selected) { if (type == MediaType.TV) onShows() else onMovies() }
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    label,
+                    color = if (selected) LiveColors.Bg else LiveColors.Fg,
+                    fontSize = 15.sp,
+                    fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
                 )
             }
         }

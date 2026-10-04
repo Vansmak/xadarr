@@ -1,6 +1,6 @@
 package com.arflix.tv.ui.components
 
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,9 +78,9 @@ val bottomBarItems = listOf(
     // this) rather than doubling up with its own mobile tab too. See HomeDashboardScreen.kt.
     BottomBarItem(R.string.home, Icons.Default.Home, "dashboard"),
     BottomBarItem(R.string.guide, Icons.Default.LiveTv, "home"),
-    // Shows and Movies share one tab: Discover's rows, with a Shows | Movies switch at the top
-    // (Joe, 2026-10-03: "just like the services do in discover"; "not plex library").
-    BottomBarItem(R.string.discover, Icons.Default.Explore, Screen.Discover.route),
+    // Shows and Movies share one Library tab: Shows by default, Shows | Movies buttons at the
+    // top left, like Discover's TV/Movies switch on a service (Joe, 2026-10-03).
+    BottomBarItem(R.string.library_tab, Icons.Default.VideoLibrary, Screen.PlexLibrary.createRoute(MediaType.TV), selectedWhen = "plex_library"),
     BottomBarItem(R.string.cameras, Icons.Default.Videocam, "cameras"),
     BottomBarItem(R.string.settings, Icons.Default.Settings, "settings")
 )

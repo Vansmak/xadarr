@@ -107,15 +107,6 @@ fun DiscoverScreen(
     // of doing nothing, as it did before (see navRailPreviewKey below).
     var focusedItemIndexInRow by remember { mutableIntStateOf(0) }
     var rulePickerItem by remember { mutableStateOf<com.arflix.tv.data.model.MediaItem?>(null) }
-    // Phone: Shows | Movies switch at the top filters every row (the services/collection tiles
-    // row stays as is). Shows first -- Joe's a TV-show person.
-    var typeFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(MediaType.TV) }
-    val shownCategories = remember(uiState.categories, typeFilter, isTouchDevice) {
-        if (!isTouchDevice) uiState.categories else uiState.categories.mapNotNull { c ->
-            if (c.id.startsWith("collection_row_")) c
-            else c.items.filter { it.mediaType == typeFilter }.takeIf { it.isNotEmpty() }?.let { c.copy(items = it) }
-        }
-    }
     val lazyColumnState = rememberLazyListState()
 
     LaunchedEffect(Unit) { runCatching { rootFocusRequester.requestFocus() } }
@@ -210,28 +201,7 @@ fun DiscoverScreen(
                         .focusGroup(),
                     contentPadding = PaddingValues(top = 8.dp, bottom = 200.dp),
                 ) {
-                    if (isTouchDevice) {
-                        item(key = "type-switch") {
-                            androidx.compose.foundation.layout.Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                            ) {
-                                listOf(MediaType.TV to "Shows", MediaType.MOVIE to "Movies").forEach { (type, label) ->
-                                    val selected = type == typeFilter
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
-                                            .background(if (selected) Color.White else Color.White.copy(alpha = 0.12f))
-                                            .clickable { typeFilter = type }
-                                            .padding(horizontal = 18.dp, vertical = 8.dp),
-                                    ) {
-                                        Text(label, color = if (selected) Color.Black else Color.White, fontSize = 15.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    itemsIndexed(shownCategories, key = { _, c -> c.id }) { rowIdx, category ->
+                    itemsIndexed(uiState.categories, key = { _, c -> c.id }) { rowIdx, category ->
                         val isWatchlistRow = category.id == "my_watchlist"
                         val isCollectionRow = category.id.startsWith("collection_row_")
                         Column(
