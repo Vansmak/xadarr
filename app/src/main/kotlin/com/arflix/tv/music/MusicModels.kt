@@ -57,6 +57,26 @@ data class MaMediaItem(
     val isFolder get() = browsePath != null && mediaType == "folder"
 }
 
+/** One song in a guide lineup (a playlist's tracks, or a zone's live queue). */
+data class MaTrack(
+    val name: String,
+    val artist: String?,
+    val album: String?,
+    val durationSec: Int,
+    val imageUrl: String?,
+)
+
+/**
+ * What a zone is playing right now, for the guide: the queue from the current song on.
+ * [currentStartMillis] is when the current song started, on this device's clock.
+ */
+data class MaLineup(
+    val zoneName: String,
+    val sourceUri: String?,
+    val tracks: List<MaTrack>,
+    val currentStartMillis: Long,
+)
+
 internal object MaParse {
 
     fun player(o: JSONObject, repo: MusicAssistantRepository): MaPlayer {
@@ -138,6 +158,16 @@ internal object MaParse {
         }
         return o.optJSONObject("album")?.let { itemImage(it, repo) }
     }
+
+    /** A track media item, as returned by playlist_tracks or a queue item's `media_item`. */
+    fun track(o: JSONObject, repo: MusicAssistantRepository, fallbackName: String? = null, fallbackImage: String? = null): MaTrack =
+        MaTrack(
+            name = o.optString("name").takeIf { it.isNotBlank() } ?: fallbackName.orEmpty(),
+            artist = artists(o),
+            album = o.optJSONObject("album")?.optString("name")?.takeIf { it.isNotBlank() },
+            durationSec = o.optInt("duration", 0),
+            imageUrl = fallbackImage ?: itemImage(o, repo),
+        )
 
     private fun artists(o: JSONObject): String? {
         val arr = o.optJSONArray("artists") ?: return null

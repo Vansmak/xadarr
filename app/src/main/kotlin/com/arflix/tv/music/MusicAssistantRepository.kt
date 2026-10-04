@@ -369,6 +369,47 @@ class MusicAssistantRepository @Inject constructor(
         return MaParse.mediaItems(arr, this)
     }
 
+    /** The first [limit] tracks of a playlist, in playlist order. */
+    suspend fun playlistTracks(uri: String, limit: Int = 40): List<MaTrack> {
+        // MA uris are "<provider>://playlist/<item_id>".
+        val provider = uri.substringBefore("://", "").ifBlank { return emptyList() }
+        val itemId = uri.substringAfterLast("/").ifBlank { return emptyList() }
+        val arr = request(
+            "music/playlists/playlist_tracks",
+            JSONObject().put("item_id", itemId).put("provider_instance_id_or_domain", provider),
+        ) as? JSONArray ?: return emptyList()
+        return (0 until minOf(arr.length(), limit)).mapNotNull { i -> arr.optJSONObject(i)?.let { MaParse.track(it, this) } }
+    }
+
+    /** Every zone that's playing, with its queue from the current song on. */
+    suspend fun playingLineups(limit: Int = 40): List<MaLineup> {
+        val queues = request("player_queues/all") as? JSONArray ?: return emptyList()
+        return (0 until queues.length()).mapNotNull { queues.optJSONObject(it) }
+            .filter { it.optString("state") == "playing" }
+            .mapNotNull { q ->
+                val queueId = q.optString("queue_id").ifBlank { return@mapNotNull null }
+                val items = request(
+                    "player_queues/items",
+                    JSONObject().put("queue_id", queueId).put("limit", limit).put("offset", q.optInt("current_index", 0)),
+                ) as? JSONArray ?: return@mapNotNull null
+                val tracks = (0 until items.length()).mapNotNull { i ->
+                    val item = items.optJSONObject(i) ?: return@mapNotNull null
+                    val image = imageUrl(item.optJSONObject("image"))
+                    val track = item.optJSONObject("media_item")?.let { MaParse.track(it, this, item.optString("name"), image) }
+                        ?: MaTrack(item.optString("name"), null, null, 0, image)
+                    if (track.durationSec <= 0) track.copy(durationSec = item.optInt("duration", 0)) else track
+                }
+                // Anchored on this device's clock, not MA's timestamp: the hosts' clocks drift.
+                val elapsedMs = (q.optDouble("elapsed_time", 0.0) * 1000).toLong()
+                MaLineup(
+                    zoneName = q.optString("display_name"),
+                    sourceUri = q.optJSONArray("sources")?.optJSONObject(0)?.optString("uri")?.takeIf { it.isNotBlank() },
+                    tracks = tracks,
+                    currentStartMillis = System.currentTimeMillis() - elapsedMs,
+                )
+            }
+    }
+
     /** Zones that can be played to, same filtering as the Music screen's zone list. */
     suspend fun zones(): List<MaPlayer> {
         val arr = request("players/all") as? JSONArray ?: return emptyList()

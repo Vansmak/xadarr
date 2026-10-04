@@ -158,7 +158,22 @@ private fun VideoCard(
                         )
                     ),
             )
-            if (artUrl != null) {
+            if (artUrl != null && isMusicChannelId(channel?.id)) {
+                // Song covers are square: a dimmed fill of the cover behind it whole.
+                coil.compose.AsyncImage(
+                    model = artUrl,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    alpha = 0.3f,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                coil.compose.AsyncImage(
+                    model = artUrl,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (artUrl != null) {
                 coil.compose.AsyncImage(
                     model = artUrl,
                     contentDescription = null,

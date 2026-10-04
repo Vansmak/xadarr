@@ -72,6 +72,7 @@ object GuideSessionCache {
     @Volatile var shows: List<com.arflix.tv.data.repository.ShowGuideEntry> = emptyList()
     @Volatile var movies: com.arflix.tv.data.repository.MovieGuide = com.arflix.tv.data.repository.MovieGuide()
     @Volatile var musicPlaylists: List<com.arflix.tv.music.MaMediaItem> = emptyList()
+    @Volatile var musicTracks: Map<String, List<com.arflix.tv.music.MaTrack>> = emptyMap()
 }
 
 @HiltViewModel
@@ -304,11 +305,37 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    // Music rows' lineups in the guide grid: each playlist's own tracks (fetched once a
+    // session, one playlist at a time), and the live queue of every zone that's playing.
+    private val _musicTracks = kotlinx.coroutines.flow.MutableStateFlow(GuideSessionCache.musicTracks)
+    val musicTracks: StateFlow<Map<String, List<com.arflix.tv.music.MaTrack>>> = _musicTracks.asStateFlow()
+    private val _musicLineups = kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.music.MaLineup>>(emptyList())
+    val musicLineups: StateFlow<List<com.arflix.tv.music.MaLineup>> = _musicLineups.asStateFlow()
+    private var musicTracksJob: kotlinx.coroutines.Job? = null
+
+    fun loadMusicTracks(playlists: List<com.arflix.tv.music.MaMediaItem>) {
+        if (musicTracksJob?.isActive == true) return
+        musicTracksJob = viewModelScope.launch {
+            playlists.filter { it.uri !in _musicTracks.value }.forEach { p ->
+                val tracks = runCatching { musicAssistantRepository.playlistTracks(p.uri) }.getOrNull() ?: return@forEach
+                _musicTracks.value = _musicTracks.value + (p.uri to tracks)
+                GuideSessionCache.musicTracks = _musicTracks.value
+            }
+        }
+    }
+
+    fun refreshMusicLineups() {
+        viewModelScope.launch {
+            runCatching { musicAssistantRepository.playingLineups() }.getOrNull()?.let { _musicLineups.value = it }
+        }
+    }
+
     fun playMusicOn(zoneId: String, uri: String, radio: Boolean = false, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { musicAssistantRepository.playOn(zoneId, uri, radio) }.getOrDefault(false)
             if (ok) _lastMusicZoneId.value = zoneId
             onResult(ok)
+            if (ok) { delay(2_000); refreshMusicLineups() }
         }
     }
 
