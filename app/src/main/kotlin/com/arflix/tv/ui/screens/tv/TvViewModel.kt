@@ -72,7 +72,7 @@ object GuideSessionCache {
     @Volatile var shows: List<com.arflix.tv.data.repository.ShowGuideEntry> = emptyList()
     @Volatile var movies: com.arflix.tv.data.repository.MovieGuide = com.arflix.tv.data.repository.MovieGuide()
     @Volatile var musicPlaylists: List<com.arflix.tv.music.MaMediaItem> = emptyList()
-    @Volatile var musicTracks: Map<String, List<com.arflix.tv.music.MaTrack>> = emptyMap()
+    @Volatile var musicTracks: Map<String, com.arflix.tv.music.MaPlaylistTracks> = emptyMap()
 }
 
 @HiltViewModel
@@ -324,7 +324,7 @@ class TvViewModel @Inject constructor(
     // Music rows' lineups in the guide grid: each playlist's own tracks (fetched once a
     // session, one playlist at a time), and the live queue of every zone that's playing.
     private val _musicTracks = kotlinx.coroutines.flow.MutableStateFlow(GuideSessionCache.musicTracks)
-    val musicTracks: StateFlow<Map<String, List<com.arflix.tv.music.MaTrack>>> = _musicTracks.asStateFlow()
+    val musicTracks: StateFlow<Map<String, com.arflix.tv.music.MaPlaylistTracks>> = _musicTracks.asStateFlow()
     private val _musicLineups = kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.music.MaLineup>>(emptyList())
     val musicLineups: StateFlow<List<com.arflix.tv.music.MaLineup>> = _musicLineups.asStateFlow()
     private var musicTracksJob: kotlinx.coroutines.Job? = null

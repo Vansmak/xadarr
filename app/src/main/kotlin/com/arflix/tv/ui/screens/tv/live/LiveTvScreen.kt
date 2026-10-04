@@ -2476,13 +2476,14 @@ fun List<com.arflix.tv.music.MaMediaItem>.toMusicChannels(): List<IptvChannel> =
 // playlist shows its own tracks as if started now (Joe, 2026-10-03).
 fun List<com.arflix.tv.music.MaMediaItem>.toMusicNowNext(
     clockMillis: Long,
-    tracks: Map<String, List<com.arflix.tv.music.MaTrack>>,
+    tracks: Map<String, com.arflix.tv.music.MaPlaylistTracks>,
     lineups: List<com.arflix.tv.music.MaLineup>,
 ): Map<String, IptvNowNext> {
     val hour = 60 * 60 * 1000L
     return associate { playlist ->
         val lineup = lineups.lineupFor(playlist.uri)
-        val songs = lineup?.tracks ?: tracks[playlist.uri].orEmpty()
+        val stats = tracks[playlist.uri]
+        val songs = lineup?.tracks ?: stats?.tracks.orEmpty()
         val nowNext = if (songs.isEmpty()) {
             IptvNowNext(now = IptvProgram(
                 title = playlist.subtitle?.takeIf { s -> s.isNotBlank() }?.let { s -> "Playlist · $s" } ?: "Playlist",
@@ -2507,16 +2508,36 @@ fun List<com.arflix.tv.music.MaMediaItem>.toMusicNowNext(
             }
             val nowIdx = programs.indexOfFirst { it.isLive(clockMillis) }.takeIf { it >= 0 }
                 ?: programs.indexOfFirst { it.startUtcMillis > clockMillis }.coerceAtLeast(0)
+            // Fill the grid before the first song with the playlist itself rather than the
+            // generic "Not yet released" gap (Joe, 2026-10-03: "playlist length").
+            programs.firstOrNull()?.let { first ->
+                programs.add(0, IptvProgram(
+                    title = musicPlaylistSummary(stats) ?: playlist.name,
+                    description = footer,
+                    startUtcMillis = first.startUtcMillis - 12 * hour,
+                    endUtcMillis = first.startUtcMillis,
+                ))
+            }
+            val idx = nowIdx + if (programs.size > 1) 1 else 0
             IptvNowNext(
-                now = programs.getOrNull(nowIdx),
-                next = programs.getOrNull(nowIdx + 1),
-                later = programs.getOrNull(nowIdx + 2),
-                upcoming = programs.drop(nowIdx + 3),
-                recent = programs.take(nowIdx),
+                now = programs.getOrNull(idx),
+                next = programs.getOrNull(idx + 1),
+                later = programs.getOrNull(idx + 2),
+                upcoming = programs.drop(idx + 3),
+                recent = programs.take(idx),
             )
         }
         musicChannelId(playlist) to nowNext
     }
+}
+
+/** "418 songs · 26 hr 10 min" */
+private fun musicPlaylistSummary(stats: com.arflix.tv.music.MaPlaylistTracks?): String? {
+    stats ?: return null
+    val h = stats.totalSec / 3600
+    val m = (stats.totalSec % 3600) / 60
+    val length = if (h > 0) "$h hr $m min" else "$m min"
+    return "${stats.count} songs · $length"
 }
 
 private fun List<com.arflix.tv.music.MaLineup>.lineupFor(uri: String) =
@@ -2525,7 +2546,7 @@ private fun List<com.arflix.tv.music.MaLineup>.lineupFor(uri: String) =
 /** Cover for the hero: the song playing now on that playlist, else its first song, else the playlist's own art. */
 fun musicArtFor(
     playlist: com.arflix.tv.music.MaMediaItem?,
-    tracks: Map<String, List<com.arflix.tv.music.MaTrack>>,
+    tracks: Map<String, com.arflix.tv.music.MaPlaylistTracks>,
     lineups: List<com.arflix.tv.music.MaLineup>,
     clockMillis: Long,
 ): String? {
@@ -2538,7 +2559,7 @@ fun musicArtFor(
             start = end
         }
     }
-    return tracks[playlist.uri]?.firstOrNull()?.imageUrl ?: playlist.imageUrl
+    return tracks[playlist.uri]?.tracks?.firstOrNull()?.imageUrl ?: playlist.imageUrl
 }
 
 /** The Music group gets a zoomed-in time scale so songs read as cells, not slivers. */

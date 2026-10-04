@@ -56,6 +56,7 @@ import com.arflix.tv.data.model.IptvProgram
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -379,6 +380,20 @@ fun EpgGrid(
             delay(50L)
         }
         keepChannelFocus(idx)
+    }
+
+    // Zoom change (switching into or out of the Music group): the scroll offset is in pixels, so
+    // it now points at a different time. Re-anchor to "now" once the new width is laid out.
+    var lastPxPerMin by remember { mutableStateOf(pxPerMin) }
+    LaunchedEffect(pxPerMin) {
+        if (pxPerMin == lastPxPerMin) return@LaunchedEffect
+        lastPxPerMin = pxPerMin
+        with(density) {
+            val nowOffsetMin = ((System.currentTimeMillis() - windowStartMillis) / 60_000f)
+            val targetPx = ((nowOffsetMin * pxPerMin).dp.toPx() - 30.dp.toPx()).toInt().coerceAtLeast(0)
+            withTimeoutOrNull(2_000L) { snapshotFlow { hScroll.maxValue }.first { it >= targetPx } }
+            hScroll.scrollTo(targetPx)
+        }
     }
 
     LaunchedEffect(windowStartMillis) {

@@ -69,6 +69,9 @@ data class MaTrack(
     val imageUrl: String?,
 )
 
+/** A playlist's opening songs plus its full size, for the guide row. */
+data class MaPlaylistTracks(val tracks: List<MaTrack>, val count: Int, val totalSec: Long)
+
 /**
  * What a zone is playing right now, for the guide: the queue from the current song on.
  * [currentStartMillis] is when the current song started, on this device's clock.

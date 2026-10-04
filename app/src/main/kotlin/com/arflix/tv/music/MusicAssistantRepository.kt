@@ -369,16 +369,18 @@ class MusicAssistantRepository @Inject constructor(
         return MaParse.mediaItems(arr, this)
     }
 
-    /** The first [limit] tracks of a playlist, in playlist order. */
-    suspend fun playlistTracks(uri: String, limit: Int = 40): List<MaTrack> {
+    /** The first [limit] tracks of a playlist, in playlist order, plus its song count and length. */
+    suspend fun playlistTracks(uri: String, limit: Int = 40): MaPlaylistTracks? {
         // MA uris are "<provider>://playlist/<item_id>".
-        val provider = uri.substringBefore("://", "").ifBlank { return emptyList() }
-        val itemId = uri.substringAfterLast("/").ifBlank { return emptyList() }
+        val provider = uri.substringBefore("://", "").ifBlank { return null }
+        val itemId = uri.substringAfterLast("/").ifBlank { return null }
         val arr = request(
             "music/playlists/playlist_tracks",
             JSONObject().put("item_id", itemId).put("provider_instance_id_or_domain", provider),
-        ) as? JSONArray ?: return emptyList()
-        return (0 until minOf(arr.length(), limit)).mapNotNull { i -> arr.optJSONObject(i)?.let { MaParse.track(it, this) } }
+        ) as? JSONArray ?: return null
+        val total = (0 until arr.length()).sumOf { arr.optJSONObject(it)?.optLong("duration", 0L) ?: 0L }
+        val tracks = (0 until minOf(arr.length(), limit)).mapNotNull { i -> arr.optJSONObject(i)?.let { MaParse.track(it, this) } }
+        return MaPlaylistTracks(tracks, arr.length(), total)
     }
 
     /** Every zone that's playing, with its queue from the current song on. */

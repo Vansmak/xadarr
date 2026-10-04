@@ -225,13 +225,26 @@ fun ContextMenu(
                     
                     Spacer(modifier = Modifier.height(12.dp))
                     
-                    // Actions
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    // Actions. Scrolls with focus: a long list (every Sonos zone, say) used to
+                    // run off the bottom of the screen with focus moving onto hidden rows
+                    // (Joe, 2026-10-03).
+                    val actionsListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    LaunchedEffect(focusedIndex) {
+                        val visible = actionsListState.layoutInfo.visibleItemsInfo
+                        val first = visible.firstOrNull()?.index ?: 0
+                        val last = visible.lastOrNull()?.let { if (it.offset + it.size > actionsListState.layoutInfo.viewportEndOffset) it.index - 1 else it.index } ?: 0
+                        if (focusedIndex < first || focusedIndex > last) {
+                            actionsListState.animateScrollToItem((focusedIndex - (last - first)).coerceAtLeast(0).takeIf { focusedIndex > last } ?: focusedIndex)
+                        }
+                    }
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        state = actionsListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 340.dp),
                     ) {
-                        tvActions.forEachIndexed { index, action ->
+                        items(tvActions.size) { index ->
                             ContextMenuItem(
-                                action = action,
+                                action = tvActions[index],
                                 isFocused = index == focusedIndex
                             )
                         }
