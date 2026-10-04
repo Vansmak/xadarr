@@ -104,15 +104,19 @@ fun EpgGrid(
     onEnterEpg: (EnrichedChannel) -> Unit = {},
     onExitEpg: (EnrichedChannel?) -> Unit = {},
     emptyMessage: String = "Loading channels…",
+    // Time-scale multiplier. The Music group zooms in so 3-4 minute songs are readable cells
+    // instead of slivers (Joe, 2026-10-03), with 5-minute ruler labels to match.
+    zoom: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val pxPerMin = if (compact) 96f / 30f else LiveDims.EpgPxPerMinute.toFloat()
+    val pxPerMin = (if (compact) 96f / 30f else LiveDims.EpgPxPerMinute.toFloat()) * zoom
+    val slotMinutes = if (zoom >= 3f) 5 else 30
     val selectedChannelFocusRequester = remember { FocusRequester() }
     val firstChannelFocusRequester = remember { FocusRequester() }
     val headerHeight = if (compact) 32.dp else LiveDims.EpgHeaderHeight
     val channelColumnWidth = if (compact) 164.dp else LiveDims.EpgChannelColWidth
-    val halfHourWidth = (pxPerMin * 30f).dp
+    val halfHourWidth = (pxPerMin * slotMinutes).dp
     val rowHeight = if (compact) 52.dp else LiveDims.EpgRowHeight
     val channelFocusRequesters = remember { mutableStateMapOf<String, FocusRequester>() }
     val programFocusRequesters = remember { mutableStateMapOf<String, List<FocusRequester>>() }
@@ -176,10 +180,10 @@ fun EpgGrid(
     val windowEndMillis = remember(todayStartMillis) {
         todayStartMillis + EpgWindowMinutes * 60L * 1000L
     }
-    val slotCount = remember(windowStartMillis, windowEndMillis) {
-        (((windowEndMillis - windowStartMillis) / 60_000L) / 30L).toInt().coerceAtLeast(1)
+    val slotCount = remember(windowStartMillis, windowEndMillis, slotMinutes) {
+        (((windowEndMillis - windowStartMillis) / 60_000L) / slotMinutes).toInt().coerceAtLeast(1)
     }
-    val slots = remember(windowStartMillis, slotCount) { buildHalfHourSlots(windowStartMillis, slotCount) }
+    val slots = remember(windowStartMillis, slotCount, slotMinutes) { buildHalfHourSlots(windowStartMillis, slotCount, slotMinutes) }
 
     // Shared horizontal scroll state — always use System.currentTimeMillis() here, not
     // clockTickMillis, because clockTickMillis can be stale after device sleep.
@@ -777,8 +781,8 @@ private fun ProgramsRow(
         }
         if (placements.isNotEmpty()) {
             placements.forEachIndexed { placementIndex, placement ->
-                val offset = (placement.startMin * pxPerMin).dp
-                val width = (placement.durationMin * pxPerMin).dp
+                val offset = (if (placement.isPlaceholder) placement.startMin.toFloat() else placement.startMinExact(windowStartMillis)).let { (it * pxPerMin).dp }
+                val width = (placement.durationMinExact(windowStartMillis, windowEndMillis) * pxPerMin).dp
                 val isCatchupSupported = placement.isCatchupSupported(channel, nowMillis)
                 val focusableIndex = focusablePlacementIndices.indexOf(placementIndex)
                 val isFocusable = focusableIndex >= 0
@@ -867,12 +871,12 @@ private fun NowLine(
 
 private data class TimeSlot(val millis: Long, val label: String, val isNow: Boolean)
 
-private fun buildHalfHourSlots(startMillis: Long, count: Int): List<TimeSlot> {
+private fun buildHalfHourSlots(startMillis: Long, count: Int, slotMinutes: Int = 30): List<TimeSlot> {
     val out = ArrayList<TimeSlot>(count)
     val now = System.currentTimeMillis()
     for (i in 0 until count) {
-        val t = startMillis + i * 30L * 60_000L
-        val isNow = now in t..(t + 30L * 60_000L - 1)
+        val t = startMillis + i * slotMinutes * 60_000L
+        val isNow = now in t..(t + slotMinutes * 60_000L - 1)
         out += TimeSlot(t, formatClock(t), isNow)
     }
     return out
@@ -923,6 +927,14 @@ private data class ProgramPlacement(
     val isPlaceholder: Boolean = false,
 ) {
     val endMin: Int get() = startMin + durationMin
+    // Exact position for drawing. The whole-minute fields above drive focus; drawing from them
+    // left gaps and overlaps between back-to-back songs, visible once the Music zoom is on.
+    fun startMinExact(windowStartMillis: Long): Float =
+        (maxOf(program.startUtcMillis, windowStartMillis) - windowStartMillis) / 60_000f
+    fun durationMinExact(windowStartMillis: Long, windowEndMillis: Long): Float =
+        if (isPlaceholder) durationMin.toFloat()
+        else ((minOf(program.endUtcMillis, windowEndMillis) - maxOf(program.startUtcMillis, windowStartMillis)) / 60_000f)
+            .coerceAtLeast(durationMin.toFloat().coerceAtMost(1f))
 }
 
 private data class ProgramFocusTarget(val startMin: Int, val endMin: Int) {

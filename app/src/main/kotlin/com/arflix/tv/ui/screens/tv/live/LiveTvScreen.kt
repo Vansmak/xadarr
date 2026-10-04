@@ -1329,6 +1329,7 @@ fun LiveTvScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     EpgGrid(
+                        zoom = musicGridZoom(filteredChannels),
                         focusSuspended = searchOpen,
                         channels = filteredChannels,
                         clockTickMillis = guideClockMillis,
@@ -1401,6 +1402,7 @@ fun LiveTvScreen(
                         },
                     )
                     EpgGrid(
+                        zoom = musicGridZoom(filteredChannels),
                         focusSuspended = searchOpen,
                             channels = filteredChannels,
                             clockTickMillis = guideClockMillis,
@@ -2538,6 +2540,10 @@ fun musicArtFor(
     }
     return tracks[playlist.uri]?.firstOrNull()?.imageUrl ?: playlist.imageUrl
 }
+
+/** The Music group gets a zoomed-in time scale so songs read as cells, not slivers. */
+fun musicGridZoom(channels: List<EnrichedChannel>): Float =
+    if (channels.isNotEmpty() && channels.all { isMusicChannelId(it.id) }) 8f else 1f
 
 /** Fetches playlist lineups once, and re-reads the playing zones' queues on every guide tick. */
 @Composable
