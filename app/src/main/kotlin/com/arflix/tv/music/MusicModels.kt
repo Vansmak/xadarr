@@ -87,6 +87,8 @@ data class MaLineup(
     val sourceUri: String?,
     val tracks: List<MaTrack>,
     val currentStartMillis: Long,
+    /** Paused zones still get their Now Playing row, so Play is one press away. */
+    val paused: Boolean = false,
 )
 
 internal object MaParse {

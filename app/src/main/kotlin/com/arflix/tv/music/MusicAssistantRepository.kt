@@ -403,11 +403,18 @@ class MusicAssistantRepository @Inject constructor(
     suspend fun playQueueItem(queueId: String, queueItemId: String): Boolean =
         request("player_queues/play_index", JSONObject().put("queue_id", queueId).put("index", queueItemId)) != null || lastRequestOk
 
-    /** Every zone that's playing, with its queue from the current song on. */
+    /** One-shot HTTP command for guide controls (play/pause, next, volume, transfer). */
+    suspend fun send(name: String, args: JSONObject): Boolean = request(name, args) != null || lastRequestOk
+
+    /** Moves a queue -- songs and position -- to another zone; the source zone stops. */
+    suspend fun transferQueue(sourceQueueId: String, targetQueueId: String): Boolean =
+        send("player_queues/transfer", JSONObject().put("source_queue_id", sourceQueueId).put("target_queue_id", targetQueueId))
+
+    /** Every zone that's playing or paused, with its queue from the current song on. */
     suspend fun playingLineups(limit: Int = 40): List<MaLineup> {
         val queues = request("player_queues/all") as? JSONArray ?: return emptyList()
         return (0 until queues.length()).mapNotNull { queues.optJSONObject(it) }
-            .filter { it.optString("state") == "playing" }
+            .filter { it.optString("state") == "playing" || it.optString("state") == "paused" }
             .mapNotNull { q ->
                 val queueId = q.optString("queue_id").ifBlank { return@mapNotNull null }
                 val items = request(
@@ -432,6 +439,7 @@ class MusicAssistantRepository @Inject constructor(
                     sourceUri = q.optJSONArray("sources")?.optJSONObject(0)?.optString("uri")?.takeIf { it.isNotBlank() },
                     tracks = tracks,
                     currentStartMillis = System.currentTimeMillis() - elapsedMs,
+                    paused = q.optString("state") == "paused",
                 )
             }
     }

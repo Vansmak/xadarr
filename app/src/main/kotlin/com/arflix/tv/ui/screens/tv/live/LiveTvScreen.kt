@@ -290,6 +290,11 @@ fun LiveTvScreen(
     val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
     val musicLineups by viewModel.musicLineups.collectAsStateWithLifecycle()
     MusicGuideFeeds(viewModel, musicPlaylists, guideClockMillis)
+    // Now Playing rows first, then the playlists. Rebuilt only when the set of playing zones
+    // changes, so song changes don't re-enrich the whole guide.
+    val nowPlayingKey = musicLineups.filter { it.tracks.isNotEmpty() }.map { it.queueId to it.zoneName }.sortedBy { it.first }
+    val nowPlayingItems = remember(nowPlayingKey) { musicLineups.toNowPlayingItems() }
+    val musicGuideItems = remember(nowPlayingItems, musicPlaylists) { nowPlayingItems + musicPlaylists }
     val dispatcharrCatalogAvailable by viewModel.dispatcharrCatalogAvailable.collectAsStateWithLifecycle()
     val remoteTarget by viewModel.remoteTarget.collectAsStateWithLifecycle()
     // Collected at screen level, not just inside the panel: the Remote pill's highlight depends on
@@ -335,7 +340,7 @@ fun LiveTvScreen(
         "pinned=${pinnedProviderChannels.size}:${pinnedProviderChannels.joinToString(",") { it.id }}:" +
         "shows=${showsGuideSchedule.size}:" +
         "movies=${movieGuide.movies.size}/${movieGuide.premiering.size}:" +
-        "music=${musicPlaylists.size}:" +
+        "music=${musicPlaylists.size}:np=${nowPlayingItems.joinToString(",") { it.uri }}:" +
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
         // Returning to the guide: the new TvViewModel hasn't re-read the playlist yet, but the
@@ -349,7 +354,7 @@ fun LiveTvScreen(
             pinnedProviderChannels.map { it.toIptvChannel(PinnedChannelsGroup) } +
             showsGuideSchedule.map { it.toIptvChannel() } +
             movieGuide.toIptvChannels() +
-            musicPlaylists.toMusicChannels() +
+            musicGuideItems.toMusicChannels() +
             listOfNotNull(ephemeralSearchPick)
         if (snapshot.isEmpty()) {
             enrichedState.value = EnrichedChannels.Empty
@@ -526,13 +531,13 @@ fun LiveTvScreen(
     // pinnedProviderChannels/ephemeralSearchPick are merged into the channel list above, just
     // for the nowNext map instead, since IptvSnapshot keeps the two decoupled (channels vs.
     // nowNext keyed separately by id).
-    val effectiveSnapshotNowNext = remember(state.snapshot.nowNext, showsGuideSchedule, movieGuide, musicPlaylists, musicTracks, musicLineups, guideClockMillis) {
-        if (showsGuideSchedule.isEmpty() && movieGuide.movies.isEmpty() && movieGuide.premiering.isEmpty() && musicPlaylists.isEmpty()) {
+    val effectiveSnapshotNowNext = remember(state.snapshot.nowNext, showsGuideSchedule, movieGuide, musicGuideItems, musicTracks, musicLineups, guideClockMillis) {
+        if (showsGuideSchedule.isEmpty() && movieGuide.movies.isEmpty() && movieGuide.premiering.isEmpty() && musicGuideItems.isEmpty()) {
             state.snapshot.nowNext
         } else {
             state.snapshot.nowNext + showsGuideSchedule.associate {
                 "$ShowsChannelIdPrefix${it.seriesId}" to it.toIptvNowNext(guideClockMillis)
-            } + movieGuide.toIptvNowNext(guideClockMillis) + musicPlaylists.toMusicNowNext(guideClockMillis, musicTracks, musicLineups)
+            } + movieGuide.toIptvNowNext(guideClockMillis) + musicGuideItems.toMusicNowNext(guideClockMillis, musicTracks, musicLineups)
         }
     }
     val currentNowNext = remember(playingChannelId, playingCatchupProgram, effectiveSnapshotNowNext) {
@@ -888,7 +893,7 @@ fun LiveTvScreen(
     // Backdrop for the preview box when a library row is highlighted.
     fun libraryArtFor(channel: EnrichedChannel?): String? =
         showEntryFor(channel?.id)?.fanart ?: libraryMovieFor(channel?.id)?.fanart ?: premiereFor(channel?.id)?.fanart
-            ?: musicArtFor(musicPlaylists.musicItemFor(channel?.id), musicTracks, musicLineups, guideClockMillis)
+            ?: musicArtFor(musicGuideItems.musicItemFor(channel?.id), musicTracks, musicLineups, guideClockMillis)
 
     // Highlighting a Shows/Movies row swaps the top preview + info to that title (Joe,
     // 2026-09-30) -- no stream behind it, so this just points the hero at it. The live channel
@@ -1529,7 +1534,7 @@ fun LiveTvScreen(
                             val remembered = rememberedChannelByCategory[selectedCategoryId]
                                 ?.takeIf { id -> filteredChannels.any { it.id == id } }
                             // Music: land on whatever a zone is playing (Joe, 2026-10-03).
-                            val target = playingMusicChannelId(filteredChannels, musicPlaylists, musicLineups)
+                            val target = playingMusicChannelId(filteredChannels, musicGuideItems, musicLineups)
                                 ?: remembered
                                 ?: focusedChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
                                 ?: playingChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
@@ -2003,11 +2008,30 @@ fun LiveTvScreen(
         // Music playlist rows (channel or cell): pick the Sonos zone to start it on.
         (libraryMenuChannel?.takeIf { isMusicChannelId(it.id) } ?: libraryCellTarget?.first?.takeIf { isMusicChannelId(it.id) })?.let { musicCh ->
             val fromCell = libraryCellTarget?.first?.id == musicCh.id
+            val musicItem = musicGuideItems.musicItemFor(musicCh.id)
+            val closeMusicMenu = {
+                musicMenuClosedAt = android.os.SystemClock.uptimeMillis()
+                libraryMenuChannel = null
+                libraryCellTarget = null
+                if (fromCell) focusEpg(musicCh.id) else focusChannelList(musicCh.id)
+            }
+            if (musicItem != null && isMusicQueueUri(musicItem.uri)) {
+                // A Now Playing row: player controls for that room, no need for the Music screen.
+                MusicNowPlayingMenu(
+                    viewModel = viewModel,
+                    queueId = musicQueueIdOf(musicItem.uri),
+                    lineup = musicLineupFor(musicLineups, musicItem.uri),
+                    cellProgram = if (fromCell) libraryCellTarget?.second else null,
+                    onMessage = { guideMessage = it },
+                    onClose = closeMusicMenu,
+                )
+                return@let
+            }
             MusicZoneMenu(
                 viewModel = viewModel,
                 channelId = musicCh.id,
                 channelName = musicCh.name,
-                playlist = musicPlaylists.musicItemFor(musicCh.id),
+                playlist = musicItem,
                 cellProgram = if (fromCell) libraryCellTarget?.second else null,
                 onPlayed = { ok, message ->
                     // Highlighting a music row only repoints the hero; the live channel
@@ -2601,7 +2625,7 @@ fun List<com.arflix.tv.music.MaMediaItem>.toMusicNowNext(
                 endUtcMillis = clockMillis + 3 * hour,
             ))
         } else {
-            val footer = lineup?.let { "Playing on ${it.zoneName}" } ?: "Select to play on a Sonos zone"
+            val footer = lineup?.let { (if (it.paused) "Paused on " else "Playing on ") + it.zoneName } ?: "Select to play on a Sonos zone"
             var start = lineup?.currentStartMillis ?: clockMillis
             val programs = ArrayList<IptvProgram>(songs.size)
             for (song in songs) {
@@ -2664,7 +2688,31 @@ private fun musicPlaylistSummary(stats: com.arflix.tv.music.MaPlaylistTracks?): 
 }
 
 private fun List<com.arflix.tv.music.MaLineup>.lineupFor(uri: String) =
-    firstOrNull { it.sourceUri == uri && it.tracks.isNotEmpty() }
+    if (isMusicQueueUri(uri)) firstOrNull { it.queueId == uri.removePrefix(MusicQueueUriPrefix) && it.tracks.isNotEmpty() }
+    else firstOrNull { it.sourceUri == uri && it.tracks.isNotEmpty() }
+
+/**
+ * "Now Playing · <room>" rows: one per zone that's playing or paused, whatever started it. A song,
+ * album or artist picked in search isn't a playlist, so it had no row in the guide (Joe,
+ * 2026-10-04: "why not always have the top channel be current queue"). They lead the Music group,
+ * and selecting one opens player controls (MusicNowPlayingMenu).
+ */
+private const val MusicQueueUriPrefix = "maqueue://"
+fun isMusicQueueUri(uri: String?): Boolean = uri?.startsWith(MusicQueueUriPrefix) == true
+fun musicQueueIdOf(uri: String): String = uri.removePrefix(MusicQueueUriPrefix)
+fun musicLineupFor(lineups: List<com.arflix.tv.music.MaLineup>, uri: String) = lineups.lineupFor(uri)
+
+fun List<com.arflix.tv.music.MaLineup>.toNowPlayingItems(): List<com.arflix.tv.music.MaMediaItem> =
+    filter { it.tracks.isNotEmpty() }.sortedBy { it.zoneName.lowercase() }.map { lineup ->
+        com.arflix.tv.music.MaMediaItem(
+            uri = MusicQueueUriPrefix + lineup.queueId,
+            name = "Now Playing · ${lineup.zoneName}",
+            subtitle = null,
+            mediaType = "queue",
+            imageUrl = lineup.tracks.first().imageUrl,
+            browsePath = null,
+        )
+    }
 
 /** Cover for the hero: the song playing now on that playlist, else its first song, else the playlist's own art. */
 fun musicArtFor(
@@ -2691,7 +2739,8 @@ fun playingMusicChannelId(
     playlists: List<com.arflix.tv.music.MaMediaItem>,
     lineups: List<com.arflix.tv.music.MaLineup>,
 ): String? = lineups.firstNotNullOfOrNull { lineup ->
-    val playlist = playlists.firstOrNull { it.uri == lineup.sourceUri } ?: return@firstNotNullOfOrNull null
+    val playlist = playlists.firstOrNull { it.uri == MusicQueueUriPrefix + lineup.queueId }
+        ?: playlists.firstOrNull { it.uri == lineup.sourceUri } ?: return@firstNotNullOfOrNull null
     musicChannelId(playlist).takeIf { id -> channels.any { it.id == id } }
 }
 

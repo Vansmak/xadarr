@@ -354,6 +354,27 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    /** Guide Now Playing controls: one MA command, then re-read the queues so the row follows. */
+    fun musicControl(command: String, args: org.json.JSONObject, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val ok = runCatching { musicAssistantRepository.send(command, args) }.getOrDefault(false)
+            onResult(ok)
+            delay(700)
+            refreshMusicLineups()
+            refreshMusicZones()
+        }
+    }
+
+    fun transferMusicQueue(sourceQueueId: String, targetZoneId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { musicAssistantRepository.transferQueue(sourceQueueId, targetZoneId) }.getOrDefault(false)
+            if (ok) _lastMusicZoneId.value = targetZoneId
+            onResult(ok)
+            delay(1_500)
+            refreshMusicLineups()
+        }
+    }
+
     fun playMusicOn(
         zoneId: String,
         uri: String,
