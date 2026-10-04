@@ -431,6 +431,16 @@ class MusicAssistantRepository @Inject constructor(
             }
     }
 
+    /** Songs, artists, albums and playlists matching [query], across every MA provider (Spotify included). */
+    suspend fun searchMusic(query: String, limit: Int = 5): List<MaMediaItem> {
+        val res = request(
+            "music/search",
+            JSONObject().put("search_query", query).put("limit", limit)
+                .put("media_types", JSONArray(listOf("track", "artist", "album", "playlist"))),
+        ) as? JSONObject ?: return emptyList()
+        return listOf("tracks", "artists", "albums", "playlists").flatMap { MaParse.mediaItems(res.optJSONArray(it), this) }
+    }
+
     /** Zones that can be played to, same filtering as the Music screen's zone list. */
     suspend fun zones(): List<MaPlayer> = speakers().filter { it.visible }
 

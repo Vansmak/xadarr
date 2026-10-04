@@ -645,6 +645,8 @@ fun LiveTvScreen(
     // picker hands focus back to the row, and the release of that same press "selected" the row
     // again and reopened the picker. Re-opening within this window of a close is ignored.
     var musicMenuClosedAt by remember { mutableLongStateOf(0L) }
+    // A song/artist/album/playlist picked in search: the same room picker plays it.
+    var musicSearchPick by remember { mutableStateOf<com.arflix.tv.music.MaMediaItem?>(null) }
     fun musicMenuJustClosed(channelId: String) =
         isMusicChannelId(channelId) && android.os.SystemClock.uptimeMillis() - musicMenuClosedAt < 700
     // Selecting an episode/movie cell on a library row: Play / Mark Watched / Search.
@@ -1865,6 +1867,12 @@ fun LiveTvScreen(
                     searchOpen = false
                     onNavigateToDetails(media.mediaType, media.id)
                 },
+                musicSearchAvailable = musicPlaylists.isNotEmpty(),
+                onMusicSearch = { q -> viewModel.searchMusic(q) },
+                onPickMusic = { item ->
+                    searchOpen = false
+                    musicSearchPick = item
+                },
                 favoriteIds = favSet,
                 libraryItems = remember(showsGuideSchedule, movieGuide) {
                     showsGuideSchedule.mapNotNull { show ->
@@ -1999,6 +2007,24 @@ fun LiveTvScreen(
                     libraryMenuChannel = null
                     libraryCellTarget = null
                     if (fromCell) focusEpg(musicCh.id) else focusChannelList(musicCh.id)
+                },
+            )
+        }
+
+        musicSearchPick?.let { item ->
+            MusicZoneMenu(
+                viewModel = viewModel,
+                channelId = "search:${item.uri}",
+                channelName = item.name,
+                playlist = item,
+                cellProgram = null,
+                onPlayed = { ok, message ->
+                    if (ok) playerViewModel.dismiss()
+                    guideMessage = message
+                },
+                onClose = {
+                    musicSearchPick = null
+                    focusChannelList()
                 },
             )
         }

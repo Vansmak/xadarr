@@ -211,6 +211,10 @@ fun SearchOverlay(
     pinnedStreamIds: Set<String> = emptySet(),
     onTogglePin: (RawProviderStream) -> Unit = {},
     onMediaSearch: suspend (String) -> List<MediaItem> = { emptyList() },
+    // Music Assistant: songs, artists, albums, playlists (Spotify included). Off when MA isn't set up.
+    musicSearchAvailable: Boolean = false,
+    onMusicSearch: suspend (String) -> List<com.arflix.tv.music.MaMediaItem> = { emptyList() },
+    onPickMusic: (com.arflix.tv.music.MaMediaItem) -> Unit = {},
     onPickMedia: (MediaItem) -> Unit = {},
     // Favorite channel ids (ranking boost) and "movie:<tmdb>"/"tv:<tmdb>" keys already in the
     // library (Movies & Shows rows say "In library" instead of offering to add).
@@ -253,6 +257,18 @@ fun SearchOverlay(
     // Events whose other channels are shown (Right on the row expands, Left collapses).
     var expandedEvents by remember { mutableStateOf<Set<String>>(emptySet()) }
     var mediaLoading by remember { mutableStateOf(false) }
+    var musicResults by remember { mutableStateOf<List<com.arflix.tv.music.MaMediaItem>>(emptyList()) }
+    var musicLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(debounced, musicSearchAvailable) {
+        if (!musicSearchAvailable || debounced.length < 2 || debounced.all { it.isDigit() }) {
+            musicResults = emptyList()
+            musicLoading = false
+            return@LaunchedEffect
+        }
+        musicLoading = true
+        musicResults = runCatching { onMusicSearch(debounced) }.getOrDefault(emptyList())
+        musicLoading = false
+    }
     val focusRequester = remember { FocusRequester() }
     val firstResultFocus = remember { FocusRequester() }
     val overlayScope = rememberCoroutineScope()
@@ -562,6 +578,32 @@ fun SearchOverlay(
                         }
                     }
                 }
+                // Music sits near the top as one row of covers, so it's visible without scrolling
+                // past every live-TV hit for the same name.
+                if (musicSearchAvailable && debounced.length >= 2 && (musicResults.isNotEmpty() || musicLoading)) {
+                    item(key = "music") {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = if (musicLoading && musicResults.isEmpty()) "SEARCHING MUSIC…" else "MUSIC",
+                                style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                            )
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
+                                items(musicResults, key = { "music:${it.uri}" }) { item ->
+                                    MusicCard(
+                                        item = item,
+                                        onPick = { onPickMusic(item) },
+                                        onMoveUp = { resultsFocused = false; runCatching { focusRequester.requestFocus() } },
+                                        modifier = if (titleRow.isEmpty() && item === musicResults.first()) Modifier.focusRequester(firstResultFocus) else Modifier,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (programResults.isNotEmpty()) {
                     item(key = "program-header") {
                         Text(
@@ -571,7 +613,7 @@ fun SearchOverlay(
                         )
                     }
                     items(programResults, key = { "event:${it.key}" }) { event ->
-                        val isFirst = titleRow.isEmpty() && event === programResults.first()
+                        val isFirst = titleRow.isEmpty() && musicResults.isEmpty() && event === programResults.first()
                         val expanded = event.key in expandedEvents
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             SearchResultRow(
@@ -617,7 +659,7 @@ fun SearchOverlay(
                         }
                     }
                     items(results, key = { it.channel.id }) { hit ->
-                        val isFirst = titleRow.isEmpty() && programResults.isEmpty() && hit.channel.id == results.first().channel.id
+                        val isFirst = titleRow.isEmpty() && musicResults.isEmpty() && programResults.isEmpty() && hit.channel.id == results.first().channel.id
                         SearchResultRow(
                             hit = hit,
                             langLabel = detectLanguage(hit.channel, hit.matchedProgram),
@@ -655,6 +697,77 @@ fun SearchOverlay(
                 }
             }
         }
+    }
+}
+
+/** A Music Assistant hit as a cover card: name, and what it is ("Song · Artist"). Select picks a room. */
+@Composable
+private fun MusicCard(
+    item: com.arflix.tv.music.MaMediaItem,
+    onPick: () -> Unit,
+    onMoveUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val kind = when (item.mediaType) {
+        "track" -> "Song"
+        "artist" -> "Artist"
+        "album" -> "Album"
+        "playlist" -> "Playlist"
+        else -> item.mediaType.replaceFirstChar { it.uppercase() }
+    }
+    Column(
+        modifier = modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) LiveColors.Panel else Color.Transparent)
+            .border(
+                width = if (focused) 3.dp else 0.dp,
+                color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .onFocusChanged { focused = it.hasFocus }
+            .focusable()
+            .onKeyEvent { ev ->
+                when {
+                    ev.type != KeyEventType.KeyDown -> false
+                    ev.key == Key.DirectionCenter || ev.key == Key.Enter -> { onPick(); true }
+                    ev.key == Key.DirectionUp -> { onMoveUp(); true }
+                    else -> false
+                }
+            }
+            .pointerInput(item.uri) { detectTapGestures(onTap = { onPick() }) }
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(128.dp)
+                .clip(if (item.mediaType == "artist") RoundedCornerShape(64.dp) else RoundedCornerShape(6.dp))
+                .background(LiveColors.PanelDeep),
+        ) {
+            if (item.imageUrl != null) {
+                AsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Text(
+            text = item.name,
+            style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 13.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = listOfNotNull(kind, item.subtitle?.takeIf { item.mediaType != "artist" }).joinToString(" · "),
+            style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

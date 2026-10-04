@@ -340,6 +340,9 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    suspend fun searchMusic(query: String): List<com.arflix.tv.music.MaMediaItem> =
+        runCatching { musicAssistantRepository.searchMusic(query) }.getOrDefault(emptyList())
+
     fun refreshMusicLineups() {
         viewModelScope.launch {
             runCatching { musicAssistantRepository.playingLineups() }.getOrNull()?.let { _musicLineups.value = it }
