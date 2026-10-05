@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,18 +45,34 @@ import com.arflix.tv.music.MusicAssistantRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Music Assistant server + login. Plain text fields, so the remote's D-pad and a touch keyboard both work. */
+/**
+ * Sign in by borrowing Xadarr's synced Music Assistant login (one press on a TV), or with the
+ * MA username/password. Plain text fields, so the remote's D-pad and a touch keyboard both work.
+ */
 @Composable
 fun SignInScreen(repo: MusicAssistantRepository) {
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var syncUrl by remember { mutableStateOf(DEFAULT_SYNC_URL) }
     var url by remember { mutableStateOf(MA_DEFAULT_URL) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val userFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(150); runCatching { userFocus.requestFocus() } }
+    val xadarrFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(150); runCatching { xadarrFocus.requestFocus() } }
+
+    fun signInWithXadarr() {
+        if (busy) return
+        busy = true
+        error = null
+        scope.launch {
+            error = importMusicAssistantFromXadarr(context, syncUrl)
+            if (error == null) repo.reconnectNow()
+            busy = false
+        }
+    }
 
     fun signIn() {
         if (busy) return
@@ -83,7 +100,22 @@ fun SignInScreen(repo: MusicAssistantRepository) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Xadarr Music", color = colors.onSurface, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-            Text("Sign in to Music Assistant", color = colors.onSurfaceVariant, fontSize = 15.sp)
+            Text("Use the Music Assistant login Xadarr already has", color = colors.onSurfaceVariant, fontSize = 15.sp)
+            OutlinedTextField(
+                value = syncUrl, onValueChange = { syncUrl = it }, singleLine = true,
+                label = { androidx.compose.material3.Text("Xadarr sync server") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { signInWithXadarr() }),
+                modifier = Modifier.fillMaxWidth(), colors = fieldColors,
+            )
+            Button(
+                onClick = { signInWithXadarr() },
+                enabled = !busy && syncUrl.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.primary),
+                modifier = Modifier.fillMaxWidth().focusRequester(xadarrFocus),
+            ) { androidx.compose.material3.Text(if (busy) "Signing in…" else "Sign in with Xadarr") }
+            Spacer(Modifier.height(8.dp))
+            Text("Or sign in to Music Assistant directly", color = colors.onSurfaceVariant, fontSize = 15.sp)
             OutlinedTextField(
                 value = url, onValueChange = { url = it }, singleLine = true,
                 label = { androidx.compose.material3.Text("Server") },
@@ -94,7 +126,7 @@ fun SignInScreen(repo: MusicAssistantRepository) {
                 value = username, onValueChange = { username = it }, singleLine = true,
                 label = { androidx.compose.material3.Text("Username") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth().focusRequester(userFocus), colors = fieldColors,
+                modifier = Modifier.fillMaxWidth(), colors = fieldColors,
             )
             OutlinedTextField(
                 value = password, onValueChange = { password = it }, singleLine = true,
