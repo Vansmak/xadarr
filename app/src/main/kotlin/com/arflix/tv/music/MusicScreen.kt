@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
@@ -387,11 +389,22 @@ fun MusicScreen(
                                     item(key = "error") { Text(err, color = colors.onSurfaceVariant, fontSize = 15.sp, modifier = Modifier.padding(16.dp)) }
                                 }
                                 itemsIndexed(ui.browse.items, key = { i, it -> "${it.uri}|${it.browsePath}|$i" }) { i, item ->
+                                    item.section?.let { title ->
+                                        Text(title, color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 6.dp))
+                                    }
                                     MediaRow(
                                         title = item.name,
                                         subtitle = item.subtitle ?: item.mediaType.replaceFirstChar { it.uppercase() },
                                         imageUrl = item.imageUrl,
-                                        fallbackIcon = if (item.isFolder) Icons.Default.Folder else Icons.Default.Album,
+                                        fallbackIcon = when {
+                                            item.isFolder -> Icons.Default.Folder
+                                            item.uri.endsWith("radio") -> Icons.Default.Radio
+                                            item.uri.contains("seeall/") -> Icons.Default.ChevronRight
+                                            item.isAction -> Icons.Default.Shuffle
+                                            item.mediaType == "playlist" -> Icons.Default.QueueMusic
+                                            else -> Icons.Default.Album
+                                        },
                                         focused = area == Area.CONTENT && listIndex == i + 1,
                                         onClick = { listIndex = i + 1; area = Area.CONTENT; activateListItem(i + 1) },
                                     )

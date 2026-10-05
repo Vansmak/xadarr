@@ -76,9 +76,15 @@ data class MaMediaItem(
     val imageUrl: String?,
     /** Set for browse folders: the path to pass back to `music/browse`. */
     val browsePath: String?,
+    /** Library home: the section this row starts or belongs to; the list draws a header when it changes. */
+    val section: String? = null,
 ) {
     val isFolder get() = browsePath != null && mediaType == "folder"
+    /** A Library-home shortcut (Fresh mix, See all...) rather than something MA can play by uri. */
+    val isAction get() = uri.startsWith(MA_ACTION_PREFIX)
 }
+
+const val MA_ACTION_PREFIX = "xmusic://"
 
 /** One song in a guide lineup (a playlist's tracks, or a zone's live queue). */
 data class MaTrack(

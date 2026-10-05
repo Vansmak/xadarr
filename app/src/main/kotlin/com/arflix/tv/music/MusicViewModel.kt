@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.arflix.tv.music.MusicAssistantRepository.ConnectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,8 @@ data class BrowseState(
     val title: String = "Library",
     /** Stack of browse paths; empty = the Library home (playlists + recently played). */
     val pathStack: List<String> = emptyList(),
+    /** A home section's "See all" list; Back returns to the home. */
+    val sectionList: Boolean = false,
     val query: String = "",
     val items: List<MaMediaItem> = emptyList(),
     val loading: Boolean = false,
@@ -250,23 +253,73 @@ class MusicViewModel @Inject constructor(
 
     // ── Browse & search ──────────────────────────────────────────────────────
 
+    // The Library home, in sections instead of one long list (Joe, 2026-10-05: "I just want to
+    // play and not always hear the same shit"). Each section shows a few rows plus "See all";
+    // the full lists are kept here for that.
+    private var homeItems: List<MaMediaItem> = emptyList()
+    private val sectionLists = mutableMapOf<String, List<MaMediaItem>>()
+
     fun loadLibraryHome() {
+        if (homeItems.isNotEmpty()) {
+            _ui.update { it.copy(browse = BrowseState(items = homeItems)) }
+            return
+        }
         _ui.update { it.copy(browse = BrowseState(loading = true)) }
         viewModelScope.launch {
-            val playlists = runCatching {
-                repo.command("music/playlists/library_items", JSONObject().put("limit", 100).put("order_by", "sort_name")) as? JSONArray
-            }.getOrNull()
-            val recent = runCatching {
-                repo.command("music/recently_played_items", JSONObject().put("limit", 20)) as? JSONArray
-            }.getOrNull()
-            val items = MaParse.mediaItems(recent, repo).map { it.copy(subtitle = it.subtitle ?: "Recently played") } +
-                MaParse.mediaItems(playlists, repo).map { it.copy(subtitle = it.subtitle ?: "Playlist") } +
-                // Entry into the full provider tree (Spotify, radio, library folders...).
-                MaMediaItem(uri = "", name = "Browse all sources", subtitle = "Spotify, radio, library folders",
-                    mediaType = "folder", imageUrl = null, browsePath = "root")
+            suspend fun list(command: String, args: JSONObject) =
+                runCatching { repo.command(command, args) as? JSONArray }.getOrNull()
+            val recentJob = async { list("music/recently_played_items", JSONObject().put("limit", 24)) }
+            val playlistsJob = async { list("music/playlists/library_items", JSONObject().put("limit", 300).put("order_by", "sort_name")) }
+            val albumsJob = async { list("music/albums/library_items", JSONObject().put("limit", 24).put("order_by", "random")) }
+            val recent = recentJob.await()
+            val playlistsArr = playlistsJob.await()
+            val albums = albumsJob.await()
+
+            // Split playlists: the ones you made (editable), Spotify's and MA's own mixes, and
+            // ones you follow from other people.
+            val yours = mutableListOf<MaMediaItem>()
+            val madeForYou = mutableListOf<MaMediaItem>()
+            val following = mutableListOf<MaMediaItem>()
+            for (i in 0 until (playlistsArr?.length() ?: 0)) {
+                val o = playlistsArr?.optJSONObject(i) ?: continue
+                val item = MaParse.mediaItem(o, repo) ?: continue
+                val owner = o.optString("owner")
+                when {
+                    o.optBoolean("is_editable") -> yours += item.copy(subtitle = "Playlist")
+                    owner == "Spotify" || owner == "Music Assistant" || o.optBoolean("is_dynamic") -> madeForYou += item.copy(subtitle = owner.ifBlank { "Mix" })
+                    else -> following += item.copy(subtitle = owner.ifBlank { "Playlist" })
+                }
+            }
+
+            fun action(id: String, name: String, subtitle: String, section: String? = null) =
+                MaMediaItem(uri = MA_ACTION_PREFIX + id, name = name, subtitle = subtitle, mediaType = "action",
+                    imageUrl = null, browsePath = null, section = section)
+
+            val items = mutableListOf<MaMediaItem>()
+            fun section(key: String, title: String, all: List<MaMediaItem>, show: Int) {
+                if (all.isEmpty()) return
+                sectionLists[key] = all
+                items += all.take(show).mapIndexed { i, it -> if (i == 0) it.copy(section = title) else it }
+                if (all.size > show) items += action("seeall/$key", "See all ${all.size}", title)
+            }
+
+            items += action("fresh", "Fresh mix", "Songs you rarely hear, shuffled", section = "Start something")
+            items += action("shuffle", "Shuffle everything", "Your whole library, in random order")
+            items += action("radio", "Surprise radio", "Endless radio from a random artist in your library")
+            items += action("new", "Newly added", "The latest songs in your library")
+            section("recent", "Recently played", MaParse.mediaItems(recent, repo), 5)
+            section("yours", "Your playlists", yours, 6)
+            section("foryou", "Made for you", madeForYou, 6)
+            section("albums", "Albums to try", MaParse.mediaItems(albums, repo), 5)
+            section("following", "Following", following, 4)
+            // Entry into the full provider tree (Spotify, radio, library folders...).
+            items += MaMediaItem(uri = "", name = "Browse all sources", subtitle = "Spotify, radio, library folders",
+                mediaType = "folder", imageUrl = null, browsePath = "root", section = "More")
+
+            if (playlistsArr != null) homeItems = items
             _ui.update {
                 it.copy(browse = BrowseState(items = items,
-                    error = if (items.size <= 1 && playlists == null) "Couldn't load the library" else null))
+                    error = if (playlistsArr == null && recent == null) "Couldn't load the library" else null))
             }
         }
     }
@@ -280,7 +333,7 @@ class MusicViewModel @Inject constructor(
     /** Returns false when already at the Library home (so Back can leave the tab). */
     fun browseBack(): Boolean {
         val b = _ui.value.browse
-        if (b.query.isNotBlank()) { loadLibraryHome(); return true }
+        if (b.query.isNotBlank() || b.sectionList) { loadLibraryHome(); return true }
         if (b.pathStack.isEmpty()) return false
         val stack = b.pathStack.dropLast(1)
         if (stack.isEmpty()) loadLibraryHome() else browse(stack, "Browse")
@@ -327,6 +380,12 @@ class MusicViewModel @Inject constructor(
     /** Plays a browse/search pick on the selected zone, replacing what's playing. */
     fun play(item: MaMediaItem) {
         if (item.isFolder || item.uri.isBlank()) { openFolder(item); return }
+        if (item.uri.startsWith(MA_ACTION_PREFIX + "seeall/")) {
+            val key = item.uri.substringAfterLast('/')
+            _ui.update { it.copy(browse = BrowseState(title = item.subtitle ?: "Library", sectionList = true,
+                items = sectionLists[key].orEmpty().map { i -> i.copy(section = null) })) }
+            return
+        }
         val player = _ui.value.selectedPlayer ?: return showMessage("Pick a zone first")
         val clash = _ui.value.players.roomClashFor(player)
         if (clash.playing.isNotEmpty()) {
@@ -351,12 +410,40 @@ class MusicViewModel @Inject constructor(
         showMessage("Playing ${item.name} on ${joined?.let { "${it.name} + ${player.name}" } ?: player.name}")
         _ui.update { it.copy(tab = MusicTab.NOW_PLAYING) }
         viewModelScope.launch {
+            val (media, radio) = resolveMedia(item) ?: return@launch showMessage("Couldn't start ${item.name}")
             val target = runCatching { repo.clearWayFor(player.id, stopFirst, joinLeaderId) }.getOrDefault(player.id)
             repo.fire("player_queues/play_media", JSONObject()
                 .put("queue_id", if (target == player.id) _ui.value.queue?.id ?: player.id else target)
-                .put("media", JSONArray().put(item.uri))
-                .put("option", "replace"))
+                .put("media", media)
+                .put("option", "replace")
+                .put("radio_mode", radio))
             if (target != player.id) selectPlayer(target)
+        }
+    }
+
+    /** What to hand MA for [item]: its own uri, or for a home shortcut, a freshly drawn set of songs. */
+    private suspend fun resolveMedia(item: MaMediaItem): Pair<JSONArray, Boolean>? {
+        if (!item.isAction) return JSONArray().put(item.uri) to false
+        suspend fun tracks(orderBy: String, limit: Int): JSONArray? {
+            val arr = runCatching {
+                repo.command("music/tracks/library_items", JSONObject().put("limit", limit).put("order_by", orderBy)) as? JSONArray
+            }.getOrNull() ?: return null
+            val uris = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("uri")?.takeIf { u -> u.isNotBlank() } }
+            return uris.takeIf { it.isNotEmpty() }?.let { JSONArray(it) }
+        }
+        return when (item.uri.removePrefix(MA_ACTION_PREFIX)) {
+            // MA's random_play_count: random, weighted toward songs played least.
+            "fresh" -> tracks("random_play_count", 80)?.let { it to false }
+            "shuffle" -> tracks("random", 150)?.let { it to false }
+            "new" -> tracks("timestamp_added_desc", 60)?.let { it to false }
+            "radio" -> {
+                val artist = runCatching {
+                    (repo.command("music/artists/library_items", JSONObject().put("limit", 1).put("order_by", "random")) as? JSONArray)?.optJSONObject(0)
+                }.getOrNull() ?: return null
+                showMessage("Surprise radio: ${artist.optString("name")}")
+                JSONArray().put(artist.optString("uri")) to true
+            }
+            else -> null
         }
     }
 
