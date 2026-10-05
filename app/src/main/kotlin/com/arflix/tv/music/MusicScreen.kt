@@ -328,7 +328,8 @@ fun MusicScreen(
             }
     ) {
         val coverUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl
-        BlurredCoverBackground(coverUrl, scrim = 0.78f)
+        // Lighter than first shipped (0.78): Joe found it too subtle behind Now Playing.
+        BlurredCoverBackground(coverUrl, scrim = 0.62f)
         // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
@@ -506,6 +507,10 @@ fun MusicScreen(
                     artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
                     room = ui.selectedPlayer?.name,
                     imageUrl = coverUrl,
+                    next = ui.queue?.current?.let { cur ->
+                        val i = ui.queueItems.indexOfFirst { it.id == cur.id }
+                        ui.queueItems.getOrNull(if (i >= 0) i + 1 else (ui.queue?.currentIndex ?: -2) + 1)
+                    },
                     sleepingSoon = awakeIdleMs > MUSIC_AWAKE_CHECK_MS,
                 )
             }

@@ -96,7 +96,14 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
  * long enough to burn in. The Music screen wakes it on any key or tap.
  */
 @Composable
-fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: String?, sleepingSoon: Boolean = false) {
+fun MusicAmbient(
+    title: String?,
+    artist: String?,
+    room: String?,
+    imageUrl: String?,
+    next: MaQueueItem? = null,
+    sleepingSoon: Boolean = false,
+) {
     val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         BlurredCoverBackground(imageUrl, scrim = 0.6f)
@@ -104,7 +111,7 @@ fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: Strin
             val narrow = maxWidth < 600.dp
             val cover = if (narrow) 160.dp else 220.dp
             val cardW = if (narrow) maxWidth * 0.85f else minOf(680.dp, maxWidth * 0.7f)
-            val cardH = if (narrow) cover + 110.dp else cover
+            val cardH = if (narrow) cover + 140.dp else cover
             var spot by remember { mutableStateOf(Random.nextFloat() to Random.nextFloat()) }
             LaunchedEffect(Unit) {
                 while (true) {
@@ -137,6 +144,12 @@ fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: Strin
                     room?.let {
                         Spacer(Modifier.height(6.dp))
                         Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, maxLines = 1)
+                    }
+                    next?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
+                            color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 16.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (sleepingSoon) {
                         Spacer(Modifier.height(10.dp))

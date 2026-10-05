@@ -1289,15 +1289,8 @@ fun LiveTvScreen(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) userPressedKey = true
-                        // Music on this room's Sonos: volume keys drive it, not the (muted) TV.
-                        if (musicInRoom && (event.key == Key.VolumeUp || event.key == Key.VolumeDown)) {
-                            if (event.type == KeyEventType.KeyDown) {
-                                viewModel.nudgeRoomVolume(musicRoomZoneId!!, if (event.key == Key.VolumeUp) 2 else -2) { room, level ->
-                                    guideMessage = "$room · Volume $level"
-                                }
-                            }
-                            return@onPreviewKeyEvent true
-                        }
+                        // Music on this room's Sonos: volume keys drive it (logic in the VM, kept out of here -- see RoomVolumeToast).
+                        if (viewModel.roomVolumeKey(event.key, event.type == KeyEventType.KeyDown)) return@onPreviewKeyEvent true
                         // Number buttons (remotes/phone remote apps that have them): TiVo-style
                         // direct tune -- digits collect in channelDigits, tuned after a pause.
                         if (!searchOpen && event.type == KeyEventType.KeyDown) {
@@ -2339,6 +2332,7 @@ fun LiveTvScreen(
             }
         }
 
+        RoomVolumeToast(viewModel)
         guideMessage?.let { msg ->
             Box(
                 modifier = Modifier.fillMaxSize().zIndex(300f).padding(bottom = 48.dp),

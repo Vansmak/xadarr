@@ -386,10 +386,34 @@ class TvViewModel @Inject constructor(
     // Remote volume keys while music plays on this room's speaker. Over CEC they only moved the
     // TV's own volume, which the Sonos ignores while it plays MA's music (Joe, 2026-10-05).
     // Tracks the level locally so held-down repeats step from the last press, not MA's last report.
+    // Remote volume keys in the guide. Kept here (and the toast in RoomVolumeToast) rather than
+    // inline in LiveTvScreen(): that composable is at the size where the Shield's Android 11
+    // verifier rejects it (VerifyError crash on launch, 2026-10-03).
+    private val _roomVolumeMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val roomVolumeMessage: StateFlow<String?> = _roomVolumeMessage.asStateFlow()
+    fun clearRoomVolumeMessage() { _roomVolumeMessage.value = null }
+
+    /** Same test as the guide's TV-mute: music (not paused) on this TV's room speaker or its group. */
+    private fun musicPlaysInRoom(): String? {
+        val roomId = _musicRoomZoneId.value ?: return null
+        val room = _musicSpeakers.value.firstOrNull { it.id == roomId }
+        if (room?.isTvAudio == true) return null
+        return roomId.takeIf { _musicLineups.value.any { !it.paused && (it.queueId == roomId || room?.syncedTo == it.queueId) } }
+    }
+
+    /** Volume up/down while music plays in this room: drive the room's Sonos. True = consumed. */
+    fun roomVolumeKey(key: androidx.compose.ui.input.key.Key, keyDown: Boolean): Boolean {
+        val up = key == androidx.compose.ui.input.key.Key.VolumeUp
+        if (!up && key != androidx.compose.ui.input.key.Key.VolumeDown) return false
+        val roomId = musicPlaysInRoom() ?: return false
+        if (keyDown) nudgeRoomVolume(roomId, if (up) 2 else -2) { room, level -> _roomVolumeMessage.value = "$room · Volume $level" }
+        return true
+    }
+
     // After a few quiet seconds MA's own report wins again (the Sonos app may have changed it).
     private var roomVolume: Pair<String, Int>? = null
     private var roomVolumeAt = 0L
-    fun nudgeRoomVolume(zoneId: String, delta: Int, onLevel: (String, Int) -> Unit) {
+    private fun nudgeRoomVolume(zoneId: String, delta: Int, onLevel: (String, Int) -> Unit) {
         val speaker = _musicSpeakers.value.firstOrNull { it.id == zoneId } ?: return
         val recent = android.os.SystemClock.elapsedRealtime() - roomVolumeAt < 4_000
         val from = roomVolume?.takeIf { recent && it.first == zoneId }?.second ?: speaker.volume ?: return
