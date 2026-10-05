@@ -72,6 +72,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -134,6 +135,22 @@ fun MusicScreen(
     var nowTick by remember { mutableLongStateOf(0L) }
     LaunchedEffect(ui.isPlaying) {
         while (ui.isPlaying) { nowTick++; delay(500) }
+    }
+
+    // Screensaver (MusicAmbient): idle a couple of minutes with music playing. Any key or tap
+    // wakes it, and that first press only wakes -- it doesn't also act on the screen.
+    var lastInputAt by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
+    var ambient by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5_000)
+            ambient = ui.isPlaying && !showSearch && ui.busyPrompt == null &&
+                android.os.SystemClock.uptimeMillis() - lastInputAt > MUSIC_AMBIENT_AFTER_MS
+        }
+    }
+    fun wake() {
+        lastInputAt = android.os.SystemClock.uptimeMillis()
+        ambient = false
     }
 
     LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
@@ -207,6 +224,14 @@ fun MusicScreen(
             .background(colors.background)
             .focusRequester(rootFocus)
             .focusable()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        if (!ambient) lastInputAt = android.os.SystemClock.uptimeMillis()
+                    }
+                }
+            }
             .onPreviewKeyEvent { evt ->
                 if (showSearch) return@onPreviewKeyEvent false
                 // The phone's side buttons / the remote's volume keys drive the room's speaker,
@@ -215,6 +240,11 @@ fun MusicScreen(
                     if (evt.type == KeyEventType.KeyDown) viewModel.changeVolume(if (evt.key == Key.VolumeUp) 2 else -2, announce = true)
                     return@onPreviewKeyEvent true
                 }
+                if (ambient) {
+                    if (evt.type == KeyEventType.KeyDown) wake()
+                    return@onPreviewKeyEvent true
+                }
+                lastInputAt = android.os.SystemClock.uptimeMillis()
                 // Consume both halves of Back here so the system BackHandler (kept for touch
                 // gestures) doesn't fire a second time on key-up.
                 if (evt.key == Key.Back || evt.key == Key.Escape) {
@@ -284,6 +314,8 @@ fun MusicScreen(
                 }
             }
     ) {
+        val coverUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl
+        BlurredCoverBackground(coverUrl, scrim = 0.78f)
         // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
@@ -446,6 +478,22 @@ fun MusicScreen(
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) { Text(msg, color = colors.onSurface, fontSize = 15.sp) }
                 }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = ambient,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(1_200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(300)),
+        ) {
+            Box(Modifier.fillMaxSize().clickable(indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { wake() }) {
+                MusicAmbient(
+                    title = ui.queue?.current?.name ?: ui.selectedPlayer?.nowTitle,
+                    artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
+                    room = ui.selectedPlayer?.name,
+                    imageUrl = coverUrl,
+                )
             }
         }
 
