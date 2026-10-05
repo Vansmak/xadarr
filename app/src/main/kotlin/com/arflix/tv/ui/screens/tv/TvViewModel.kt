@@ -355,6 +355,22 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    // After a play/transfer, re-read the queues every second until [zoneId] reports playing
+    // with songs. Spotify through MA often takes 5-10s to start, and a single read at 2s left
+    // the Now Playing row missing until the next 30s guide tick (2026-10-05).
+    private var musicLineupWatchJob: kotlinx.coroutines.Job? = null
+    private fun watchMusicLineupsFor(zoneId: String) {
+        musicLineupWatchJob?.cancel()
+        musicLineupWatchJob = viewModelScope.launch {
+            repeat(20) {
+                delay(1_000)
+                val lineups = runCatching { musicAssistantRepository.playingLineups() }.getOrNull() ?: return@repeat
+                _musicLineups.value = lineups
+                if (lineups.any { it.queueId == zoneId && !it.paused && it.tracks.isNotEmpty() }) return@launch
+            }
+        }
+    }
+
     // The Sonos this TV plays through, learned from the zone that reports "TV audio" while this
     // device plays live TV. Device-local on purpose (plain SharedPreferences, never the synced
     // blob): every TV sits in a different room.
@@ -383,8 +399,7 @@ class TvViewModel @Inject constructor(
             val ok = runCatching { musicAssistantRepository.transferQueue(sourceQueueId, targetZoneId) }.getOrDefault(false)
             if (ok) _lastMusicZoneId.value = targetZoneId
             onResult(ok)
-            delay(1_500)
-            refreshMusicLineups()
+            watchMusicLineupsFor(targetZoneId)
         }
     }
 
@@ -398,19 +413,24 @@ class TvViewModel @Inject constructor(
         // song in its own copy of the playlist -- "500 Random tracks" reshuffles on every
         // load, so start_item there failed with "No playable items found" (2026-10-03).
         fallbackUris: List<String> = emptyList(),
+        // Rooms holding MA's one Spotify stream: stop them first, or join this room to one.
+        stopFirst: List<String> = emptyList(),
+        joinLeaderId: String? = null,
         onResult: (Boolean) -> Unit,
     ) {
         viewModelScope.launch {
+            val target = runCatching { musicAssistantRepository.clearWayFor(zoneId, stopFirst, joinLeaderId) }.getOrDefault(zoneId)
             val ok = runCatching {
                 when {
-                    queueItemId != null -> musicAssistantRepository.playQueueItem(zoneId, queueItemId)
-                    else -> musicAssistantRepository.playOn(zoneId, uri, radio, startItem) ||
-                        (startItem != null && musicAssistantRepository.playTracks(zoneId, fallbackUris))
+                    queueItemId != null -> musicAssistantRepository.playQueueItem(target, queueItemId)
+                    else -> musicAssistantRepository.playOn(target, uri, radio, startItem) ||
+                        (startItem != null && musicAssistantRepository.playTracks(target, fallbackUris))
                 }
             }.getOrDefault(false)
-            if (ok) _lastMusicZoneId.value = zoneId
+            if (ok) _lastMusicZoneId.value = target
             onResult(ok)
-            if (ok) { delay(2_000); refreshMusicLineups() }
+            if (ok) watchMusicLineupsFor(target)
+            if (joinLeaderId != null) refreshMusicZones()
         }
     }
 

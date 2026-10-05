@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -407,6 +409,10 @@ fun MusicScreen(
                     ) { Text(msg, color = colors.onSurface, fontSize = 15.sp) }
                 }
             }
+        }
+
+        ui.busyPrompt?.let { prompt ->
+            BusyRoomDialog(prompt, onAnswer = { viewModel.resolveBusyPrompt(it) })
         }
 
         if (showSearch) {
@@ -778,6 +784,51 @@ private fun formatTime(seconds: Double): String {
     val m = (s % 3600) / 60
     val sec = s % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/**
+ * Another room has MA's one Spotify stream. Play here (stops it), play in both rooms (joins
+ * its group), or cancel. Plain focusable rows so it works on a remote and on touch.
+ */
+@Composable
+private fun BusyRoomDialog(prompt: MusicBusyPrompt, onAnswer: (Boolean?) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val rooms = prompt.playing.joinToString(", ") { it.name }
+    val first = prompt.playing.first()
+    val options = listOfNotNull(
+        false to "Play on ${prompt.target.name} instead · stops $rooms",
+        (true to "Play in both rooms · ${prompt.target.name} joins ${first.name}").takeIf { prompt.playing.size == 1 },
+        null to "Cancel",
+    )
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(100); runCatching { firstFocus.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = { onAnswer(null) }) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(vertical = 12.dp),
+        ) {
+            Text("Music is playing in $rooms", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+            Text(listOfNotNull(first.nowTitle?.let { "\"$it\"" }, "Spotify plays in one room at a time").joinToString(" · "),
+                color = colors.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp))
+            options.forEachIndexed { i, (answer, label) ->
+                var focused by remember { mutableStateOf(false) }
+                Row(
+                    Modifier.fillMaxWidth()
+                        .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
+                        .onFocusChanged { focused = it.isFocused }
+                        .background(if (focused) colors.primary.copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { onAnswer(answer) }
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(if (answer == null) Icons.Default.Close else Icons.Default.Speaker, contentDescription = null,
+                        tint = if (focused) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text(label, color = colors.onSurface, fontSize = 16.sp)
+                }
+            }
+        }
+    }
 }
 
 /** Phone: pick the room to control. TV-audio rooms are labelled so, not as music. */

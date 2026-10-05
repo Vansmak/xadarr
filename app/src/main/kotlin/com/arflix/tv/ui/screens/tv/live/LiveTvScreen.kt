@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import com.arflix.tv.music.roomClashFor
 import androidx.compose.runtime.key
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Remove
@@ -2405,6 +2407,8 @@ private const val MusicRadioToggleId = "__music_radio__"
 
 private const val MusicGroupId = "__music_group__"
 private const val MusicDoneId = "__music_done__"
+private const val MusicBusyHereId = "__music_busy_here__"
+private const val MusicBusyBothId = "__music_busy_both__"
 
 @Composable
 private fun MusicZoneMenu(
@@ -2441,6 +2445,8 @@ private fun MusicZoneMenu(
     // Ticks flip on the press; MA reports the regroup a second or two later. Reading only MA's
     // state made a quick second press resend the same add/remove (Joe: "a couple presses").
     var pendingGroup by remember(channelId) { mutableStateOf(mapOf<String, Boolean>()) }
+    // Another room already has MA's one Spotify stream: ask before stopping it (see roomClashFor).
+    var busyPick by remember(channelId) { mutableStateOf<Pair<com.arflix.tv.music.MaPlayer, List<com.arflix.tv.music.MaPlayer>>?>(null) }
     fun reportedInGroup(sp: com.arflix.tv.music.MaPlayer, lead: com.arflix.tv.music.MaPlayer) =
         sp.syncedTo == lead.id || sp.id in lead.groupMembers
     LaunchedEffect(speakers) {
@@ -2461,9 +2467,67 @@ private fun MusicZoneMenu(
         return zone.name + members + status
     }
 
+    fun startPlay(zone: com.arflix.tv.music.MaPlayer, stopFirst: List<String>, joinLeaderId: String?) {
+        if (playlist == null) return
+        val lineup = songPick?.second
+        val songUri = song?.uri
+        // Same zone the song's queue is on: jump within it. Radio: seed from the song.
+        // Otherwise: the playlist, starting at the song.
+        val jumpTo = song?.queueItemId?.takeIf { !radio && lineup?.queueId == zone.id }
+        val joined = joinLeaderId?.let { id -> zones.firstOrNull { it.id == id } }
+        viewModel.playMusicOn(
+            zoneId = zone.id,
+            uri = if (radio && songUri != null) songUri else playlist.uri,
+            radio = radio,
+            startItem = songUri?.takeIf { !radio && jumpTo == null },
+            queueItemId = jumpTo,
+            fallbackUris = (lineup?.tracks ?: musicTracks[playlist.uri]?.tracks.orEmpty())
+                .dropWhile { it != song }.mapNotNull { it.uri },
+            stopFirst = stopFirst,
+            joinLeaderId = joinLeaderId,
+        ) { ok ->
+            val what = when {
+                radio && song != null -> "${song.name} radio"
+                radio -> "${playlist.name} radio"
+                song != null -> song.name
+                else -> playlist.name
+            }
+            val where = joined?.let { "${it.name} + ${zone.name}" } ?: zone.name
+            onPlayed(ok, if (ok) "Playing $what on $where" else "Couldn't start $what")
+        }
+    }
+
     // Fresh focus (top row) on each step.
-    key(picking, groupLeaderId) {
+    key(picking, groupLeaderId, busyPick) {
+        val busy = busyPick
         when {
+            busy != null -> {
+                val (zone, playing) = busy
+                val first = playing.first()
+                val roomNames = playing.joinToString(", ") { it.name }
+                com.arflix.tv.ui.components.ContextMenu(
+                    isVisible = true,
+                    title = "Music is playing in $roomNames",
+                    subtitle = listOfNotNull(first.nowTitle?.let { "\"$it\"" }, "Spotify plays in one room at a time").joinToString(" · "),
+                    actions = listOfNotNull(
+                        com.arflix.tv.ui.components.ContextAction(MusicBusyHereId, "Play on ${zone.name} instead · stops $roomNames", Icons.Default.Speaker),
+                        // Grouping only makes sense around a single playing room.
+                        com.arflix.tv.ui.components.ContextAction(MusicBusyBothId, "Play in both rooms · ${zone.name} joins ${first.name}", Icons.Default.Speaker)
+                            .takeIf { playing.size == 1 },
+                        com.arflix.tv.ui.components.ContextAction(MusicDoneId, "Cancel", Icons.Default.Close),
+                    ),
+                    onAction = { action ->
+                        val paused = zones.roomClashFor(zone).paused.map { it.id }
+                        when (action.id) {
+                            MusicBusyHereId -> startPlay(zone, playing.map { it.id } + paused, null)
+                            MusicBusyBothId -> startPlay(zone, paused, first.id)
+                        }
+                        busyPick = null
+                        onClose()
+                    },
+                    onDismiss = { busyPick = null },
+                )
+            }
             leader != null -> com.arflix.tv.ui.components.ContextMenu(
                 isVisible = true,
                 title = "Group with ${leader.name}",
@@ -2529,28 +2593,12 @@ private fun MusicZoneMenu(
                         else -> {
                             val zone = zones.firstOrNull { it.id == action.id }
                             if (playlist != null && zone != null) {
-                                val lineup = songPick?.second
-                                val songUri = song?.uri
-                                // Same zone the song's queue is on: jump within it. Radio: seed
-                                // from the song. Otherwise: the playlist, starting at the song.
-                                val jumpTo = song?.queueItemId?.takeIf { !radio && lineup?.queueId == zone.id }
-                                viewModel.playMusicOn(
-                                    zoneId = zone.id,
-                                    uri = if (radio && songUri != null) songUri else playlist.uri,
-                                    radio = radio,
-                                    startItem = songUri?.takeIf { !radio && jumpTo == null },
-                                    queueItemId = jumpTo,
-                                    fallbackUris = (lineup?.tracks ?: musicTracks[playlist.uri]?.tracks.orEmpty())
-                                        .dropWhile { it != song }.mapNotNull { it.uri },
-                                ) { ok ->
-                                    val what = when {
-                                        radio && song != null -> "${song.name} radio"
-                                        radio -> "${playlist.name} radio"
-                                        song != null -> song.name
-                                        else -> playlist.name
-                                    }
-                                    onPlayed(ok, if (ok) "Playing $what on ${zoneLabel(zone).substringBefore(" · ")}" else "Couldn't start $what")
+                                val clash = zones.roomClashFor(zone)
+                                if (clash.playing.isNotEmpty()) {
+                                    busyPick = zone to clash.playing
+                                    return@ContextMenu
                                 }
+                                startPlay(zone, clash.paused.map { it.id }, null)
                             }
                             onClose()
                         }

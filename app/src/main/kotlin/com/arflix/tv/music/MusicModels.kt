@@ -26,6 +26,24 @@ data class MaPlayer(
     val isGroupLeader get() = groupMembers.size > 1
     /** The volume to show/adjust: the group's when this player leads a group. */
     val effectiveVolume get() = (if (isGroupLeader) groupVolume else null) ?: volume
+    /** Playing (or paused on) its own MA queue -- not the TV, a line-in or the Spotify app. */
+    val playsMaQueue get() = activeSource == id && !isTvAudio
+}
+
+/**
+ * Other rooms holding MA's one Spotify stream. MA streams Spotify to a single room at a time;
+ * starting a second room waited 15s and failed ("limit of 1 concurrent source streams",
+ * Office vs Gym, 2026-10-05). [playing] rooms are someone's music -- ask before stopping.
+ * [paused] rooms interrupt no one, so they're stopped without asking.
+ */
+data class MaRoomClash(val playing: List<MaPlayer>, val paused: List<MaPlayer>)
+
+fun List<MaPlayer>.roomClashFor(target: MaPlayer): MaRoomClash {
+    val others = filter {
+        it.id != target.id && it.playsMaQueue && it.syncedTo == null &&
+            target.syncedTo != it.id && target.id !in it.groupMembers
+    }
+    return MaRoomClash(others.filter { it.isPlaying }, others.filter { it.state == "paused" })
 }
 
 data class MaQueueItem(

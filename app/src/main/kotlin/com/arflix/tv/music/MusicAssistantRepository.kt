@@ -406,6 +406,22 @@ class MusicAssistantRepository @Inject constructor(
     /** One-shot HTTP command for guide controls (play/pause, next, volume, transfer). */
     suspend fun send(name: String, args: JSONObject): Boolean = request(name, args) != null || lastRequestOk
 
+    /**
+     * Frees MA's Spotify stream before playing on [targetId] (see [roomClashFor]): stops
+     * [stopIds], or groups [targetId] under [joinLeaderId] so both rooms share one stream.
+     * Returns the queue to play on -- the leader when grouping.
+     */
+    suspend fun clearWayFor(targetId: String, stopIds: List<String>, joinLeaderId: String?): String {
+        stopIds.forEach { send("player_queues/stop", JSONObject().put("queue_id", it)) }
+        if (joinLeaderId != null) {
+            setGrouped(joinLeaderId, targetId, true)
+            // Sonos takes a moment to regroup before the leader's queue covers the new room.
+            kotlinx.coroutines.delay(1_500)
+            return joinLeaderId
+        }
+        return targetId
+    }
+
     /** Moves a queue -- songs and position -- to another zone; the source zone stops. */
     suspend fun transferQueue(sourceQueueId: String, targetQueueId: String): Boolean =
         send("player_queues/transfer", JSONObject().put("source_queue_id", sourceQueueId).put("target_queue_id", targetQueueId))

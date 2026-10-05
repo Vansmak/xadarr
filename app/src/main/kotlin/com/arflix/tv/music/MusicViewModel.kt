@@ -28,6 +28,8 @@ data class BrowseState(
     val error: String? = null,
 )
 
+data class MusicBusyPrompt(val item: MaMediaItem, val target: MaPlayer, val playing: List<MaPlayer>)
+
 data class MusicUiState(
     val connection: ConnectionState = ConnectionState.CONNECTING,
     val players: List<MaPlayer> = emptyList(),
@@ -40,6 +42,8 @@ data class MusicUiState(
     val tab: MusicTab = MusicTab.NOW_PLAYING,
     val browse: BrowseState = BrowseState(),
     val message: String? = null,
+    /** A pick waiting on "another room has the Spotify stream" (see [roomClashFor]). */
+    val busyPrompt: MusicBusyPrompt? = null,
 ) {
     val selectedPlayer: MaPlayer? get() = players.firstOrNull { it.id == selectedPlayerId }
     val isPlaying: Boolean get() = (queue?.state ?: selectedPlayer?.state) == "playing"
@@ -323,13 +327,37 @@ class MusicViewModel @Inject constructor(
     /** Plays a browse/search pick on the selected zone, replacing what's playing. */
     fun play(item: MaMediaItem) {
         if (item.isFolder || item.uri.isBlank()) { openFolder(item); return }
-        val playerId = _ui.value.selectedPlayerId ?: return showMessage("Pick a zone first")
-        repo.fire("player_queues/play_media", JSONObject()
-            .put("queue_id", _ui.value.queue?.id ?: playerId)
-            .put("media", JSONArray().put(item.uri))
-            .put("option", "replace"))
-        showMessage("Playing ${item.name} on ${_ui.value.selectedPlayer?.name ?: "zone"}")
+        val player = _ui.value.selectedPlayer ?: return showMessage("Pick a zone first")
+        val clash = _ui.value.players.roomClashFor(player)
+        if (clash.playing.isNotEmpty()) {
+            _ui.update { it.copy(busyPrompt = MusicBusyPrompt(item, player, clash.playing)) }
+            return
+        }
+        startPlay(item, player, clash.paused.map { it.id }, null)
+    }
+
+    /** The busy-room prompt's answer: [joinBusyRoom] groups into it, else the busy rooms stop. */
+    fun resolveBusyPrompt(joinBusyRoom: Boolean?) {
+        val prompt = _ui.value.busyPrompt ?: return
+        _ui.update { it.copy(busyPrompt = null) }
+        if (joinBusyRoom == null) return
+        val paused = _ui.value.players.roomClashFor(prompt.target).paused.map { it.id }
+        if (joinBusyRoom) startPlay(prompt.item, prompt.target, paused, prompt.playing.first().id)
+        else startPlay(prompt.item, prompt.target, prompt.playing.map { it.id } + paused, null)
+    }
+
+    private fun startPlay(item: MaMediaItem, player: MaPlayer, stopFirst: List<String>, joinLeaderId: String?) {
+        val joined = joinLeaderId?.let { id -> _ui.value.players.firstOrNull { it.id == id } }
+        showMessage("Playing ${item.name} on ${joined?.let { "${it.name} + ${player.name}" } ?: player.name}")
         _ui.update { it.copy(tab = MusicTab.NOW_PLAYING) }
+        viewModelScope.launch {
+            val target = runCatching { repo.clearWayFor(player.id, stopFirst, joinLeaderId) }.getOrDefault(player.id)
+            repo.fire("player_queues/play_media", JSONObject()
+                .put("queue_id", if (target == player.id) _ui.value.queue?.id ?: player.id else target)
+                .put("media", JSONArray().put(item.uri))
+                .put("option", "replace"))
+            if (target != player.id) selectPlayer(target)
+        }
     }
 
     /** MA's "play radio of": an endless mix seeded from the playing track, replacing the queue. */
