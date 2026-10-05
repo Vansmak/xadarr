@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV launcher banner (320x180): a music note on Midnight navy; the launcher shows the label. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp" android:height="180dp" android:viewportWidth="320" android:viewportHeight="180">
+    <path android:fillColor="#FF0B1220" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#FF4F7FB0"
+        android:pathData="M168,36v66c-4,-2.6 -8.8,-4 -14,-4c-12.4,0 -22,8.2 -22,18s9.6,18 22,18s22,-8.2 22,-18V60h20V36H168z" />
+</vector>

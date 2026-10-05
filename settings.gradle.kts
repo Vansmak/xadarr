@@ -20,3 +20,4 @@ dependencyResolutionManagement {
 rootProject.name = "Xadarr"
 include(":app")
 include(":benchmark")
+include(":musicapp")

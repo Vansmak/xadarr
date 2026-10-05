@@ -33,6 +33,8 @@ Joe is the sole developer. He works from a couch using an Android TV remote.
 adb connect 192.168.254.159:5555
 ```
 
+**Xadarr Music** (`:musicapp`, package `com.xadarr.music`) — standalone Music Assistant remote for TVs/phones not running full Xadarr. Compiles the app module's `com/arflix/tv/music/` package directly (keep that package free of other Xadarr dependencies), plus its own sign-in screen. Build: `./gradlew :musicapp:assembleDebug` → copy to `/mnt/usbshare/xadarr-music.apk`.
+
 **After every successful build, always copy the APK to `/mnt/usbshare/`:**
 ```bash
 cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk /mnt/usbshare/xadarr-latest.apk
