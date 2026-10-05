@@ -35,10 +35,12 @@ adb connect 192.168.254.159:5555
 
 **Xadarr Music** (`:musicapp`, package `com.xadarr.music`) — standalone Music Assistant remote for TVs/phones not running full Xadarr. Compiles the app module's `com/arflix/tv/music/` package directly (keep that package free of other Xadarr dependencies), plus its own sign-in screen. Build: `./gradlew :musicapp:assembleDebug` → copy to `/mnt/usbshare/xadarr-music.apk`.
 
-**After every successful build, always copy the APK to `/mnt/usbshare/`:**
+**The APK Joe installs is the staging build** (R8-optimised, not debuggable, ~35 MB vs ~63 MB; same signing key, installs over debug keeping data). Joe confirmed it runs well 2026-10-05; debug builds run Compose noticeably slower, which matters on the Onn TVs. Use debug only for quick fix-and-try rounds mid-session (staging takes ~10 min to build), then finish with staging:
 ```bash
-cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk /mnt/usbshare/xadarr-latest.apk
+./gradlew :app:assembleSideloadStaging
+cp app/build/outputs/apk/sideload/staging/app-sideload-staging.apk /mnt/usbshare/xadarr-latest.apk
 ```
+If a feature works in debug but crashes or does nothing in staging, suspect R8 stripping (add a keep rule in `app/proguard-rules.pro`).
 
 ## What We've Added (beyond upstream fork)
 
