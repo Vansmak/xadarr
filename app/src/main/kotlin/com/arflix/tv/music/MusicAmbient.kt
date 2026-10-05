@@ -46,6 +46,23 @@ import kotlin.random.Random
 /** Idle time on the Music screen, while music plays, before the screensaver takes over. */
 const val MUSIC_AMBIENT_AFTER_MS = 120_000L
 
+// Music keeps the screen awake while it plays, so the screensaver (not the TV's sleep timer)
+// takes over. After an hour untouched, one quiet "turns off soon" line; no press within a
+// minute and the TV may sleep as usual -- the music carries on on the Sonos (Joe, 2026-10-05:
+// "a keep awake every so often ... but not too naggy").
+const val MUSIC_AWAKE_CHECK_MS = 60 * 60_000L
+const val MUSIC_AWAKE_GRACE_MS = 60_000L
+
+/** Holds the screen on while [enabled]; released when it flips off or the screen leaves. */
+@Composable
+fun KeepScreenOn(enabled: Boolean) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(view, enabled) {
+        view.keepScreenOn = enabled
+        onDispose { view.keepScreenOn = false }
+    }
+}
+
 /**
  * The current cover, blurred and darkened, filling the screen behind the Music screen.
  * Blurred by decoding it tiny (24px) and stretching it, which looks the same on every Android
@@ -79,7 +96,7 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
  * long enough to burn in. The Music screen wakes it on any key or tap.
  */
 @Composable
-fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: String?) {
+fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: String?, sleepingSoon: Boolean = false) {
     val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         BlurredCoverBackground(imageUrl, scrim = 0.6f)
@@ -120,6 +137,11 @@ fun MusicAmbient(title: String?, artist: String?, room: String?, imageUrl: Strin
                     room?.let {
                         Spacer(Modifier.height(6.dp))
                         Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, maxLines = 1)
+                    }
+                    if (sleepingSoon) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Screen turns off soon · press any button to keep it on",
+                            color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
                     }
                 }
             }

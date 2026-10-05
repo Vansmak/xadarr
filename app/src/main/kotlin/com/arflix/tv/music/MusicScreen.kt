@@ -141,15 +141,24 @@ fun MusicScreen(
     // wakes it, and that first press only wakes -- it doesn't also act on the screen.
     var lastInputAt by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
     var ambient by remember { mutableStateOf(false) }
+    var idleMs by remember { mutableLongStateOf(0L) }
+    // Volume keys count as "someone's here" for keep-awake, without waking the screensaver.
+    var lastVolumeAt by remember { mutableLongStateOf(0L) }
+    var awakeIdleMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(5_000)
-            ambient = ui.isPlaying && !showSearch && ui.busyPrompt == null &&
-                android.os.SystemClock.uptimeMillis() - lastInputAt > MUSIC_AMBIENT_AFTER_MS
+            val now = android.os.SystemClock.uptimeMillis()
+            idleMs = now - lastInputAt
+            awakeIdleMs = now - maxOf(lastInputAt, lastVolumeAt)
+            ambient = ui.isPlaying && !showSearch && ui.busyPrompt == null && idleMs > MUSIC_AMBIENT_AFTER_MS
         }
     }
+    KeepScreenOn(ui.isPlaying && awakeIdleMs < MUSIC_AWAKE_CHECK_MS + MUSIC_AWAKE_GRACE_MS)
     fun wake() {
         lastInputAt = android.os.SystemClock.uptimeMillis()
+        idleMs = 0L
+        awakeIdleMs = 0L
         ambient = false
     }
 
@@ -237,7 +246,11 @@ fun MusicScreen(
                 // The phone's side buttons / the remote's volume keys drive the room's speaker,
                 // not this device: Music never plays audio here (Joe, 2026-10-05).
                 if (evt.key == Key.VolumeUp || evt.key == Key.VolumeDown) {
-                    if (evt.type == KeyEventType.KeyDown) viewModel.changeVolume(if (evt.key == Key.VolumeUp) 2 else -2, announce = true)
+                    if (evt.type == KeyEventType.KeyDown) {
+                        viewModel.changeVolume(if (evt.key == Key.VolumeUp) 2 else -2, announce = true)
+                        lastVolumeAt = android.os.SystemClock.uptimeMillis()
+                        awakeIdleMs = 0L
+                    }
                     return@onPreviewKeyEvent true
                 }
                 if (ambient) {
@@ -493,6 +506,7 @@ fun MusicScreen(
                     artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
                     room = ui.selectedPlayer?.name,
                     imageUrl = coverUrl,
+                    sleepingSoon = awakeIdleMs > MUSIC_AWAKE_CHECK_MS,
                 )
             }
         }
