@@ -383,6 +383,30 @@ class TvViewModel @Inject constructor(
         musicRoomPrefs.edit().putString("zone_id", zoneId).apply()
     }
 
+    // Remote volume keys while music plays on this room's speaker. Over CEC they only moved the
+    // TV's own volume, which the Sonos ignores while it plays MA's music (Joe, 2026-10-05).
+    // Tracks the level locally so held-down repeats step from the last press, not MA's last report.
+    // After a few quiet seconds MA's own report wins again (the Sonos app may have changed it).
+    private var roomVolume: Pair<String, Int>? = null
+    private var roomVolumeAt = 0L
+    fun nudgeRoomVolume(zoneId: String, delta: Int, onLevel: (String, Int) -> Unit) {
+        val speaker = _musicSpeakers.value.firstOrNull { it.id == zoneId } ?: return
+        val recent = android.os.SystemClock.elapsedRealtime() - roomVolumeAt < 4_000
+        val from = roomVolume?.takeIf { recent && it.first == zoneId }?.second ?: speaker.volume ?: return
+        val level = (from + delta).coerceIn(0, 100)
+        roomVolume = zoneId to level
+        roomVolumeAt = android.os.SystemClock.elapsedRealtime()
+        onLevel(speaker.name, level)
+        viewModelScope.launch {
+            runCatching {
+                musicAssistantRepository.send("players/cmd/volume_set", org.json.JSONObject().put("player_id", zoneId).put("volume_level", level))
+            }
+        }
+        volumeRefreshJob?.cancel()
+        volumeRefreshJob = viewModelScope.launch { delay(4_500); refreshMusicZones() }
+    }
+    private var volumeRefreshJob: kotlinx.coroutines.Job? = null
+
     /** Guide Now Playing controls: one MA command, then re-read the queues so the row follows. */
     fun musicControl(command: String, args: org.json.JSONObject, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
