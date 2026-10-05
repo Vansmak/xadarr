@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -89,6 +90,11 @@ private enum class Area { TABS, CONTENT }
 // Now Playing has two focusable rows: the seek bar (0) and the transport controls (1).
 private const val ROW_SEEK = 0
 private const val ROW_CONTROLS = 1
+// Volume gets its own row under the transport controls: at the end of the controls row it ran
+// off the right edge on TVs (Joe, 2026-10-05). Left/Right on it turn the room down/up.
+private const val ROW_VOLUME = 2
+/** The transport controls the remote moves across; volume lives on [ROW_VOLUME]. */
+private val TRANSPORT = Control.entries.filter { it != Control.VOLUME_DOWN && it != Control.VOLUME_UP }
 
 private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, RADIO, VOLUME_DOWN, VOLUME_UP }
 
@@ -117,7 +123,7 @@ fun MusicScreen(
 
     var area by remember { mutableStateOf(Area.CONTENT) }
     var npRow by remember { mutableIntStateOf(ROW_CONTROLS) }
-    var controlIndex by remember { mutableIntStateOf(Control.PLAY_PAUSE.ordinal) }
+    var controlIndex by remember { mutableIntStateOf(TRANSPORT.indexOf(Control.PLAY_PAUSE)) }
     var listIndex by remember { mutableIntStateOf(0) }
     var showSearch by remember { mutableStateOf(false) }
     var showRoomPicker by remember { mutableStateOf(false) }
@@ -232,8 +238,9 @@ fun MusicScreen(
                                 viewModel.setTab(tabs[next])
                             }
                             ui.tab == MusicTab.NOW_PLAYING && npRow == ROW_SEEK -> viewModel.seekBy(10 * d)
+                            ui.tab == MusicTab.NOW_PLAYING && npRow == ROW_VOLUME -> viewModel.changeVolume(2 * d)
                             ui.tab == MusicTab.NOW_PLAYING ->
-                                controlIndex = (controlIndex + d).coerceIn(0, Control.entries.size - 1)
+                                controlIndex = (controlIndex + d).coerceIn(0, TRANSPORT.size - 1)
                             else -> Unit
                         }
                         true
@@ -241,8 +248,11 @@ fun MusicScreen(
                     Key.DirectionUp -> {
                         when {
                             area == Area.TABS -> Unit
-                            ui.tab == MusicTab.NOW_PLAYING ->
-                                if (npRow == ROW_CONTROLS) npRow = ROW_SEEK else area = Area.TABS
+                            ui.tab == MusicTab.NOW_PLAYING -> when (npRow) {
+                                ROW_VOLUME -> npRow = ROW_CONTROLS
+                                ROW_CONTROLS -> npRow = ROW_SEEK
+                                else -> area = Area.TABS
+                            }
                             listIndex > 0 -> listIndex--
                             else -> area = Area.TABS
                         }
@@ -251,7 +261,7 @@ fun MusicScreen(
                     Key.DirectionDown -> {
                         when {
                             area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
-                            ui.tab == MusicTab.NOW_PLAYING -> npRow = ROW_CONTROLS
+                            ui.tab == MusicTab.NOW_PLAYING -> npRow = if (npRow == ROW_SEEK) ROW_CONTROLS else ROW_VOLUME
                             listIndex < listSize - 1 -> listIndex++
                             else -> Unit
                         }
@@ -261,7 +271,11 @@ fun MusicScreen(
                         when {
                             area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
                             ui.tab == MusicTab.NOW_PLAYING ->
-                                if (npRow == ROW_SEEK) viewModel.playPause() else activateControl(Control.entries[controlIndex])
+                                when (npRow) {
+                                    ROW_CONTROLS -> activateControl(TRANSPORT[controlIndex])
+                                    ROW_VOLUME -> Unit
+                                    else -> viewModel.playPause()
+                                }
                             else -> activateListItem(listIndex)
                         }
                         true
@@ -335,8 +349,13 @@ fun MusicScreen(
                             ui = ui,
                             elapsed = remember(nowTick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
                             seekFocused = area == Area.CONTENT && npRow == ROW_SEEK,
-                            focusedControl = if (area == Area.CONTENT && npRow == ROW_CONTROLS) Control.entries[controlIndex] else null,
-                            onControl = { c -> controlIndex = c.ordinal; npRow = ROW_CONTROLS; area = Area.CONTENT; activateControl(c) },
+                            focusedControl = if (area == Area.CONTENT && npRow == ROW_CONTROLS) TRANSPORT[controlIndex] else null,
+                            volumeFocused = area == Area.CONTENT && npRow == ROW_VOLUME,
+                            onControl = { c ->
+                                TRANSPORT.indexOf(c).takeIf { it >= 0 }?.let { controlIndex = it; npRow = ROW_CONTROLS }
+                                area = Area.CONTENT
+                                activateControl(c)
+                            },
                         )
                         MusicTab.QUEUE -> if (ui.queueItems.isEmpty()) {
                             EmptyState("The queue is empty", "Pick something in Library to start playing on ${ui.selectedPlayer?.name ?: "this zone"}.")
@@ -452,6 +471,7 @@ private fun NowPlaying(
     elapsed: Double,
     seekFocused: Boolean,
     focusedControl: Control?,
+    volumeFocused: Boolean,
     onControl: (Control) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -468,7 +488,7 @@ private fun NowPlaying(
 
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.fillMaxHeight(0.92f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
+            Modifier.fillMaxHeight(0.8f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
             if (image != null) {
@@ -498,7 +518,6 @@ private fun NowPlaying(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 player?.let { Chip(it.name + if (it.isGroupLeader) " +${it.groupMembers.size - 1}" else "") }
                 item?.quality?.let { Spacer(Modifier.width(8.dp)); Chip(it, highlight = true) }
-                player?.effectiveVolume?.let { Spacer(Modifier.width(8.dp)); Chip("Vol $it") }
             }
 
             Spacer(Modifier.height(28.dp))
@@ -520,10 +539,9 @@ private fun NowPlaying(
                     focusedControl == Control.REPEAT, active = q != null && q.repeat != "off",
                 ) { onControl(Control.REPEAT) }
                 ControlButton(Icons.Default.Radio, "Radio from this song", focusedControl == Control.RADIO) { onControl(Control.RADIO) }
-                Spacer(Modifier.width(20.dp))
-                ControlButton(Icons.Default.VolumeDown, "Volume down", focusedControl == Control.VOLUME_DOWN) { onControl(Control.VOLUME_DOWN) }
-                ControlButton(Icons.Default.VolumeUp, "Volume up", focusedControl == Control.VOLUME_UP) { onControl(Control.VOLUME_UP) }
             }
+            Spacer(Modifier.height(18.dp))
+            VolumeBar(player, focused = volumeFocused, onControl = onControl, modifier = Modifier.widthIn(max = 460.dp))
         }
     }
 }
@@ -567,7 +585,6 @@ private fun NowPlayingNarrow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             player?.let { Chip(it.name + if (it.isGroupLeader) " +${it.groupMembers.size - 1}" else "") }
             item?.quality?.let { Spacer(Modifier.width(8.dp)); Chip(it, highlight = true) }
-            player?.effectiveVolume?.let { Spacer(Modifier.width(8.dp)); Chip("Vol $it") }
         }
         Spacer(Modifier.height(18.dp))
         SeekBar(elapsed = elapsed, duration = item?.durationSec ?: 0, focused = false)
@@ -581,13 +598,39 @@ private fun NowPlayingNarrow(
             ControlButton(if (q?.repeat == "one") Icons.Default.RepeatOne else Icons.Default.Repeat, "Repeat", false,
                 active = q != null && q.repeat != "off") { onControl(Control.REPEAT) }
         }
+        Spacer(Modifier.height(12.dp))
+        VolumeBar(player, focused = false, onControl = onControl, modifier = Modifier.fillMaxWidth(0.9f))
         Spacer(Modifier.height(8.dp))
+        ControlButton(Icons.Default.Radio, "Radio from this song", false) { onControl(Control.RADIO) }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** The room's volume: − / level bar / +. On the remote, Left/Right turn it while the row is focused. */
+@Composable
+private fun VolumeBar(player: MaPlayer?, focused: Boolean, onControl: (Control) -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val accent = colors.primary
+    val level = player?.effectiveVolume
+    Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ControlButton(Icons.Default.VolumeDown, "Volume down", false) { onControl(Control.VOLUME_DOWN) }
-            ControlButton(Icons.Default.Radio, "Radio from this song", false) { onControl(Control.RADIO) }
+            Box(
+                Modifier.weight(1f).height(if (focused) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp))
+                    .background(colors.onSurface.copy(alpha = 0.18f))
+                    .border(if (focused) 2.dp else 0.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(5.dp))
+            ) {
+                Box(Modifier.fillMaxWidth(((level ?: 0) / 100f).coerceIn(0f, 1f)).fillMaxHeight().background(accent))
+            }
+            Spacer(Modifier.width(12.dp))
             ControlButton(Icons.Default.VolumeUp, "Volume up", false) { onControl(Control.VOLUME_UP) }
         }
-        Spacer(Modifier.height(24.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Text(listOfNotNull(player?.name, level?.let { "Volume $it" }).joinToString(" · "),
+                color = colors.onSurfaceVariant, fontSize = 14.sp)
+            Spacer(Modifier.weight(1f))
+            if (focused) Text("◀ ▶ volume", color = accent, fontSize = 13.sp)
+        }
     }
 }
 
