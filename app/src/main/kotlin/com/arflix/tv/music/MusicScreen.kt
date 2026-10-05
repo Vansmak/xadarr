@@ -203,6 +203,12 @@ fun MusicScreen(
             .focusable()
             .onPreviewKeyEvent { evt ->
                 if (showSearch) return@onPreviewKeyEvent false
+                // The phone's side buttons / the remote's volume keys drive the room's speaker,
+                // not this device: Music never plays audio here (Joe, 2026-10-05).
+                if (evt.key == Key.VolumeUp || evt.key == Key.VolumeDown) {
+                    if (evt.type == KeyEventType.KeyDown) viewModel.changeVolume(if (evt.key == Key.VolumeUp) 2 else -2, announce = true)
+                    return@onPreviewKeyEvent true
+                }
                 // Consume both halves of Back here so the system BackHandler (kept for touch
                 // gestures) doesn't fire a second time on key-up.
                 if (evt.key == Key.Back || evt.key == Key.Escape) {

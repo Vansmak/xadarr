@@ -225,9 +225,11 @@ class MusicViewModel @Inject constructor(
         repo.fire("player_queues/repeat", JSONObject().put("queue_id", q.id).put("repeat_mode", next))
     }
 
-    fun changeVolume(delta: Int) {
+    /** [announce]: say the new level (hardware volume keys, where nothing on screen shows it). */
+    fun changeVolume(delta: Int, announce: Boolean = false) {
         val p = _ui.value.selectedPlayer ?: return
         val target = ((p.effectiveVolume ?: 0) + delta).coerceIn(0, 100)
+        if (announce) showMessage("${p.name} · Volume $target")
         _ui.update { s ->
             s.copy(players = s.players.map {
                 if (it.id != p.id) it else if (it.isGroupLeader) it.copy(groupVolume = target) else it.copy(volume = target)
