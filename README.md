@@ -251,33 +251,37 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 
 ## Screenshots
 
-### Home and navigation
+Android TV, version 2.14. The guide is the home screen: live TV, your shows, your movies and your music all sit on one channel grid.
 
-| Home screen | Discover tab |
-|-------------|--------------|
-| ![Home](screenshots/Screenshot_20260606-191615.png) | ![Discover](screenshots/Screenshot_20260606-191702.png) |
+### Shows and movies in the guide
 
-| Cameras row (Frigate) | Details page |
-|-----------------------|--------------|
-| ![Cameras](screenshots/Screenshot_20260606-191636.png) | ![Details](screenshots/details_v190.png) |
+| Every show is a channel | Episode menu |
+|-------------------------|--------------|
+| ![Shows in the guide](screenshots/guide_shows.jpg) | ![Episode menu](screenshots/guide_episode_menu.jpg) |
 
-### Live TV
+| Not downloaded yet: Find & Download | Movies as channels |
+|-------------------------------------|--------------------|
+| ![Find and download](screenshots/guide_episode_download.jpg) | ![Movies in the guide](screenshots/guide_movies.jpg) |
 
-| EPG guide overlay | Category sidebar |
-|-------------------|------------------|
-| ![EPG](screenshots/Screenshot_20260606-191737.png) | ![Sidebar](screenshots/Screenshot_20260606-191751.png) |
+| Movie menu | Search across every channel |
+|------------|-----------------------------|
+| ![Movie menu](screenshots/guide_movie_menu.jpg) | ![Guide search](screenshots/guide_search.jpg) |
 
-| Mini-player (PiP) | Long-press context menu |
-|-------------------|-------------------------|
-| ![Mini-player](screenshots/Screenshot_20260606-191806.png) | ![Context menu](screenshots/Screenshot_20260606-192048.png) |
+### Music (Music Assistant)
 
-### Settings
+| Playlists as channels, songs as programs | Play from any song |
+|------------------------------------------|--------------------|
+| ![Music in the guide](screenshots/guide_music.jpg) | ![Song menu](screenshots/guide_music_song.jpg) |
 
-| Webhook configuration | Catalogue management |
-|-----------------------|----------------------|
-| ![Webhooks](screenshots/Screenshot_20260606-191855.png) | ![Catalogues](screenshots/Screenshot_20260606-191925.png) |
+| Pick a room | Group speakers |
+|-------------|----------------|
+| ![Room picker](screenshots/guide_music_rooms.jpg) | ![Grouping](screenshots/guide_music_grouping.jpg) |
 
-### Web UI (xadarr-server)
+| Now Playing | Queue |
+|-------------|-------|
+| ![Now Playing](screenshots/music_now_playing.jpg) | ![Queue](screenshots/music_queue.jpg) |
+
+### Web UI (xadarr-server, older screenshots)
 
 | Home | Discover |
 |------|----------|
@@ -287,7 +291,7 @@ Build variants: `sideload` (APK with self-update), `play` (Play Store, self-upda
 |--------|----------|
 | ![Web search](screenshots/home%20Xadarr-search.png) | ![Web settings](screenshots/home%20Xadarr-settings.png) |
 
-### Mobile
+### Mobile (older screenshots)
 
 | Mobile home | Mobile details |
 |-------------|----------------|
