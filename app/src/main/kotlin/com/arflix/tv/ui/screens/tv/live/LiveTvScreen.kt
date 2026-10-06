@@ -2005,6 +2005,7 @@ fun LiveTvScreen(
                 if (showEntry != null) {
                     add(com.arflix.tv.ui.components.ContextAction("rule", "Change Rule", Icons.Default.Tune))
                 }
+                if (showEntry != null) add(com.arflix.tv.ui.components.ContextAction("caught_up", "Mark all watched", Icons.Default.Check))
             }
             // Popups take real focus to receive D-pad input and nothing hands it back when they
             // close, which strands the guide with no focused node. Always reclaim the row.
@@ -2032,6 +2033,10 @@ fun LiveTvScreen(
                                     onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
                                 }
                             }
+                            closeMenu()
+                        }
+                        "caught_up" -> {
+                            showEntry?.let { viewModel.markShowCaughtUp(it, null) { m -> guideMessage = m } }
                             closeMenu()
                         }
                         "rule" -> {
@@ -2161,6 +2166,7 @@ fun LiveTvScreen(
                 // Nothing to do on this cell (future episode, or one already watched): offer the
                 // show's page instead of an empty menu.
                 if (isEmpty() && showEntry != null) add(com.arflix.tv.ui.components.ContextAction("info", "Episodes & Info", Icons.Default.Info))
+                if (showEntry != null && se != null) add(com.arflix.tv.ui.components.ContextAction("caught_up", "Mark watched through here", Icons.Default.Check))
             }
             com.arflix.tv.ui.components.ContextMenu(
                 isVisible = true,
@@ -2193,6 +2199,7 @@ fun LiveTvScreen(
                             }
                         }
                         "info" -> showEntry?.let { openShowDetails(it) }
+                        "caught_up" -> if (showEntry != null && se != null) viewModel.markShowCaughtUp(showEntry, se) { m -> guideMessage = m }
                     }
                     closeMenu()
                 },

@@ -746,6 +746,26 @@ class HomeServerRepository @Inject constructor(
         tmdbId: Int?,
         tvdbId: Int?,
         episodes: Set<Pair<Int, Int>>,
+    ): Int = markPlexEpisodesWatchedWhere(title, tmdbId, tvdbId) { it in episodes }
+
+    /**
+     * "Caught up": every episode Plex has for the show, up to and including [through]
+     * (season to episode), or all of them when null. Specials (season 0) are left alone.
+     */
+    suspend fun markPlexEpisodesWatchedThrough(
+        title: String,
+        tmdbId: Int?,
+        tvdbId: Int?,
+        through: Pair<Int, Int>?,
+    ): Int = markPlexEpisodesWatchedWhere(title, tmdbId, tvdbId) { (s, e) ->
+        s > 0 && (through == null || s < through.first || (s == through.first && e <= through.second))
+    }
+
+    private suspend fun markPlexEpisodesWatchedWhere(
+        title: String,
+        tmdbId: Int?,
+        tvdbId: Int?,
+        include: (Pair<Int, Int>) -> Boolean,
     ): Int = withContext(Dispatchers.IO) {
         val connection = currentConnections()
             .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext -1
@@ -763,7 +783,7 @@ class HomeServerRepository @Inject constructor(
             response.array("MediaContainer", "Metadata").forEach { element ->
                 val item = element.asJsonObjectOrNull() ?: return@forEach
                 val key = (item.int("parentIndex") ?: return@forEach) to (item.int("index") ?: return@forEach)
-                if (key !in episodes || (item.int("viewCount") ?: 0) >= 1) return@forEach
+                if (!include(key) || (item.int("viewCount") ?: 0) >= 1) return@forEach
                 val ratingKey = item.string("ratingKey").ifBlank { return@forEach }
                 scrobblePlex(connection, ratingKey, true)
                 marked++

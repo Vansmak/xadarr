@@ -560,6 +560,33 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Mark a show caught up in Plex: through [through] (season to episode, inclusive), or the
+     * whole series when null (Joe, 2026-10-05: "a way to mark series caught up"). Reports a
+     * line for the guide's message bar, then reloads the guide so the row moves on.
+     */
+    fun markShowCaughtUp(
+        entry: com.arflix.tv.data.repository.ShowGuideEntry,
+        through: Pair<Int, Int>?,
+        onMessage: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val tmdbId = entry.tvdbId?.let { resolveShowTmdbRef(it)?.second }
+            val marked = runCatching {
+                homeServerRepository.markPlexEpisodesWatchedThrough(entry.title, tmdbId, entry.tvdbId, through)
+            }.getOrDefault(-1)
+            val where = through?.let { (s, e) -> " through S${s}E$e" }.orEmpty()
+            onMessage(
+                when {
+                    marked < 0 -> "Couldn't find ${entry.title} in Plex"
+                    marked == 0 -> "${entry.title}$where was already watched"
+                    else -> "Marked ${entry.title}$where watched ($marked episodes)"
+                }
+            )
+            refreshShowsGuide(forceRefresh = true)
+        }
+    }
+
     fun markMovieWatched(movie: com.arflix.tv.data.repository.LibraryMovie) {
         viewModelScope.launch {
             runCatching { homeServerRepository.setPlexMovieWatched(movie.tmdbId, movie.title, movie.year, watched = true) }
