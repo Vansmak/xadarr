@@ -45,6 +45,8 @@ data class MusicUiState(
     val tab: MusicTab = MusicTab.NOW_PLAYING,
     val browse: BrowseState = BrowseState(),
     val message: String? = null,
+    /** False until the first players/all reply; "No zones found" waits for it. */
+    val playersLoaded: Boolean = false,
     /** A pick waiting on "another room has the Spotify stream" (see [roomClashFor]). */
     val busyPrompt: MusicBusyPrompt? = null,
 ) {
@@ -98,7 +100,7 @@ class MusicViewModel @Inject constructor(
         val selected = visible.firstOrNull { it.id == saved }?.id
             ?: visible.firstOrNull { it.isPlaying && !it.isTvAudio }?.id
             ?: visible.firstOrNull()?.id
-        _ui.update { it.copy(players = visible, selectedPlayerId = selected) }
+        _ui.update { it.copy(players = visible, selectedPlayerId = selected, playersLoaded = true) }
         selected?.let { loadQueue(it) }
         if (_ui.value.browse.items.isEmpty()) loadLibraryHome()
     }

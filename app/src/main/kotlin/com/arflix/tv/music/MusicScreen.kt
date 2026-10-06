@@ -389,6 +389,11 @@ fun MusicScreen(
             Box(Modifier.fillMaxSize()) {
                 when {
                     ui.connection != ConnectionState.CONNECTED && ui.players.isEmpty() -> ConnectionEmptyState(ui.connection)
+                    // Connected but the first room list hasn't arrived: it said "No zones found"
+                    // for a few seconds on every open (office TV, 2026-10-05).
+                    ui.players.isEmpty() && !ui.playersLoaded -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = accent)
+                    }
                     ui.players.isEmpty() -> EmptyState("No zones found", "Music Assistant didn't report any players.")
                     else -> when (ui.tab) {
                         MusicTab.NOW_PLAYING -> NowPlaying(
