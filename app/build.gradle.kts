@@ -411,12 +411,13 @@ val validateReleaseSupabaseSecrets = tasks.register("validateReleaseSupabaseSecr
     }
 }
 
+// Staging is exempt: the GitHub release is built as staging (2026-10-05) and CI only has the
+// placeholder Supabase values -- the same ones every earlier (debug-built) release shipped with.
+// Sync moved off Supabase long ago, so nothing a release depends on needs the real values.
 tasks.configureEach {
     if (name in setOf(
             "prePlayReleaseBuild",
-            "preSideloadReleaseBuild",
-            "prePlayStagingBuild",
-            "preSideloadStagingBuild"
+            "preSideloadReleaseBuild"
         )
     ) {
         dependsOn(validateReleaseSupabaseSecrets)
