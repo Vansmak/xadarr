@@ -75,10 +75,19 @@ fun ProgramInfoPopup(
     val canWatch = isLive || catchupEligible
 
     val focusRequester = remember { FocusRequester() }
+    // Keep taking focus for as long as the popup is up, like ContextMenu. Retrying only for the
+    // first ~150ms lost to the guide's own focus restore landing later: the popup sat on top
+    // with "Watch Live" unhighlighted while the remote drove the guide behind it (Joe,
+    // 2026-10-05, Family Room, photo).
+    var popupHasFocus by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         repeat(6) { attempt ->
             delay(if (attempt == 0) 32L else 24L)
-            if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { focusRequester.requestFocus() }.isSuccess) return@repeat
+        }
+        while (true) {
+            delay(150L)
+            if (!popupHasFocus) runCatching { focusRequester.requestFocus() }
         }
     }
 
@@ -91,6 +100,7 @@ fun ProgramInfoPopup(
             // request: focus stayed on the grid behind and even Back couldn't reach this popup.
             // The popup itself takes focus in that case.
             .then(if (!canWatch && !isFuture) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { popupHasFocus = it.hasFocus }
             .focusable()
             .onPreviewKeyEvent { ev ->
                 // Must swallow every KeyDown here, not just Back/Escape. Direction
