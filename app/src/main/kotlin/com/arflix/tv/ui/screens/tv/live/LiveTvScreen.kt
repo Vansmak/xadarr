@@ -739,6 +739,15 @@ fun LiveTvScreen(
     LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
         if (alignedOnEntry) return@LaunchedEffect
         val id = playingChannelId ?: return@LaunchedEffect
+        // Back from a show/movie started from its own row: stay on that row in Shows/Movies
+        // rather than jumping to the last real channel's group (Joe, 2026-10-05: "after watching
+        // a show it returns to guide and shows all F1").
+        if (isLibraryChannelId(id) && filteredChannels.any { it.id == id }) {
+            alignedOnEntry = true
+            focusedChannelId = id
+            focusSelectedChannelSignal += 1
+            return@LaunchedEffect
+        }
         if (isLibraryChannelId(id)) {
             // The remembered "playing" channel is a Shows/Movies row the user had highlighted
             // (no stream -- the preview sat black on its art while the guide showed Favorites,
