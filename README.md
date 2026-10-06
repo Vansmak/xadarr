@@ -277,9 +277,19 @@ Android TV, version 2.14. The guide is the home screen: live TV, your shows, you
 |-------------|----------------|
 | ![Room picker](screenshots/guide_music_rooms.jpg) | ![Grouping](screenshots/guide_music_grouping.jpg) |
 
-| Now Playing | Queue |
-|-------------|-------|
+| Now Playing: blurred cover, room volume | Queue |
+|-----------------------------------------|-------|
 | ![Now Playing](screenshots/music_now_playing.jpg) | ![Queue](screenshots/music_queue.jpg) |
+
+| Library: shortcuts for variety | Library: playlists by section |
+|--------------------------------|-------------------------------|
+| ![Music library](screenshots/music_library.jpg) | ![Music library playlists](screenshots/music_library_playlists.jpg) |
+
+| Screensaver: drifts so nothing burns into OLED screens |
+|--------------------------------------------------------|
+| ![Music screensaver](screenshots/music_screensaver.jpg) |
+
+The Music screen is also its own small app, **Xadarr Music** (`xadarr-music.apk` on each release), for TVs and phones that don't run full Xadarr.
 
 ### Web UI (xadarr-server, older screenshots)
 
