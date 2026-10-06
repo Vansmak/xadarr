@@ -166,7 +166,7 @@ class TraktRepository @Inject constructor(
      * Check if current profile is authenticated with Trakt
      */
     val isAuthenticated: Flow<Boolean> = context.traktDataStore.data.map { prefs ->
-        prefs[accessTokenKey()] != null
+        TRAKT_ENABLED && prefs[accessTokenKey()] != null
     }
 
     /**
@@ -303,6 +303,7 @@ class TraktRepository @Inject constructor(
     }
 
     suspend fun refreshTokenIfNeeded(): String? {
+        if (!TRAKT_ENABLED) return null
         ensureProfileCacheScope()
         val prefs = context.traktDataStore.data.first()
         val accessToken = prefs[accessTokenKey()] ?: return null
@@ -580,7 +581,7 @@ class TraktRepository @Inject constructor(
     private suspend fun hasStoredTraktTokenForCurrentProfile(): Boolean {
         ensureProfileCacheScope()
         val prefs = context.traktDataStore.data.first()
-        return !prefs[accessTokenKey()].isNullOrBlank()
+        return TRAKT_ENABLED && !prefs[accessTokenKey()].isNullOrBlank()
     }
 
     // ========== Watched History ==========

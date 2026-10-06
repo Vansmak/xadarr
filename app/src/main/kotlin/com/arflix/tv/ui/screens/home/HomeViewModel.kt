@@ -5422,18 +5422,34 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    // Plex is where watched lives; Trakt is off (TRAKT_ENABLED). Home's mark/unmark mirrors here.
+    private fun plexMark(item: MediaItem, watched: Boolean, season: Int? = null, episode: Int? = null) {
+        viewModelScope.launch {
+            runCatching {
+                if (season != null && episode != null) {
+                    homeServerRepository.setPlexEpisodeWatched(
+                        imdbId = null, title = item.title, season = season, episode = episode,
+                        tmdbId = item.id, tvdbId = null, watched = watched,
+                    )
+                } else {
+                    homeServerRepository.setPlexMovieWatched(item.id, item.title, item.year.take(4).toIntOrNull(), watched)
+                }
+            }
+        }
+    }
+
     fun toggleWatched(item: MediaItem) {
         viewModelScope.launch {
             try {
                 if (item.mediaType == MediaType.MOVIE) {
                     if (item.isWatched) {
-                        traktRepository.markMovieUnwatched(item.id)
+                        traktRepository.markMovieUnwatched(item.id); plexMark(item, false)
                         _uiState.value = _uiState.value.copy(
                             toastMessage = "Marked as unwatched",
                             toastType = ToastType.SUCCESS
                         )
                     } else {
-                        traktRepository.markMovieWatched(item.id)
+                        traktRepository.markMovieWatched(item.id); plexMark(item, true)
                         _uiState.value = _uiState.value.copy(
                             toastMessage = "Marked as watched",
                             toastType = ToastType.SUCCESS
@@ -5460,7 +5476,7 @@ class HomeViewModel @Inject constructor(
                         )
 
                         // Sync to backend after UI update (these may be slow for non-Trakt/non-Cloud profiles)
-                        traktRepository.markEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber)
+                        traktRepository.markEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber); plexMark(item, true, nextEp.seasonNumber, nextEp.episodeNumber)
                         watchHistoryRepository.removeFromHistory(item.id, nextEp.seasonNumber, nextEp.episodeNumber)
 
                         // Save the NEXT episode to CW (local + cloud) so it appears on all devices
@@ -5530,7 +5546,7 @@ class HomeViewModel @Inject constructor(
             try {
                 if (item.mediaType == MediaType.MOVIE) {
                     if (!item.isWatched) {
-                        traktRepository.markMovieWatched(item.id)
+                        traktRepository.markMovieWatched(item.id); plexMark(item, true)
                         _uiState.value = _uiState.value.copy(
                             toastMessage = "Marked as watched",
                             toastType = ToastType.SUCCESS
@@ -5563,7 +5579,7 @@ class HomeViewModel @Inject constructor(
 
                         // Sync to backend after UI update (these may be slow for non-Trakt/non-Cloud profiles)
                         try {
-                            traktRepository.markEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber)
+                            traktRepository.markEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber); plexMark(item, true, nextEp.seasonNumber, nextEp.episodeNumber)
                         } catch (_: Exception) {}
                         try {
                             watchHistoryRepository.removeFromHistory(item.id, nextEp.seasonNumber, nextEp.episodeNumber)

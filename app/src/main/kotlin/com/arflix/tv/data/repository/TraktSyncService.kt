@@ -1919,6 +1919,7 @@ class TraktSyncService @Inject constructor(
     }
 
     private suspend fun refreshTokenIfNeeded(force: Boolean): String? {
+        if (!TRAKT_ENABLED) return null
         val prefs = context.traktDataStore.data.first()
         val accessToken = prefs[accessTokenKey()] ?: return null
         val refreshToken = prefs[refreshTokenKey()]

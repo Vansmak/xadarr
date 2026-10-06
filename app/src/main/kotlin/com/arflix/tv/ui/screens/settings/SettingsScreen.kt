@@ -472,7 +472,7 @@ fun SettingsScreen(
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
             "stremio" -> stremioAddons.size + 11 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Neolink + HA url/token + Smart Home link + Music Assistant url/login/open + optional blacklist path
-            "accounts" -> 9
+            "accounts" -> 6
             else -> 0
         }
     }
@@ -1136,26 +1136,17 @@ fun SettingsScreen(
                                         "accounts" -> {
                                             when (contentFocusIndex) {
                                                 0 -> {
-                                                    if (uiState.isTraktAuthenticated) {
-                                                        viewModel.disconnectTrakt()
-                                                    } else if (uiState.isTraktPolling) {
-                                                        viewModel.cancelTraktAuth()
-                                                    } else {
-                                                        viewModel.startTraktAuth()
-                                                    }
-                                                }
-                                                1 -> {
                                                     viewModel.forceCloudSyncNow()
                                                 }
-                                                2 -> {
+                                                1 -> {
                                                     if (uiState.updateStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall) {
                                                         viewModel.installAppUpdateOrRequestPermission()
                                                     } else {
                                                         viewModel.checkForAppUpdates(force = true, showNoUpdateFeedback = true)
                                                     }
                                                 }
-                                                3 -> showSyncServerUrlDialog = true
-                                                4 -> {
+                                                2 -> showSyncServerUrlDialog = true
+                                                3 -> {
                                                     if (uiState.driveAccountName != null) {
                                                         viewModel.disconnectDrive()
                                                     } else when {
@@ -1166,11 +1157,9 @@ fun SettingsScreen(
                                                         else -> showDriveAccountPickerDialog = true
                                                     }
                                                 }
-                                                5 -> showEpiseerrUrlDialog = true
-                                                6 -> viewModel.clearMediaCache()
-                                                7 -> showTmdbApiKeyDialog = true
-                                                8 -> showTraktClientIdDialog = true
-                                                9 -> showTraktClientSecretDialog = true
+                                                4 -> showEpiseerrUrlDialog = true
+                                                5 -> viewModel.clearMediaCache()
+                                                6 -> showTmdbApiKeyDialog = true
                                             }
                                         }
                                         else -> Unit
@@ -3920,13 +3909,6 @@ private fun MobileSettingsMainPage(
                     onClick = { viewModel.forceCloudSyncNow() }
                 )
                 MobileSettingsRow(
-                    icon = Icons.Default.Movie,
-                    title = stringResource(R.string.trakt_account),
-                    value = if (uiState.isTraktAuthenticated) "Disconnect" else "Connect",
-                    isFocused = false,
-                    onClick = { if (uiState.isTraktAuthenticated) viewModel.disconnectTrakt() else viewModel.startTraktAuth() }
-                )
-                MobileSettingsRow(
                     icon = Icons.Default.Cloud,
                     title = "Sync Server",
                     subtitle = "Xadarr setup server for settings sync",
@@ -3949,22 +3931,6 @@ private fun MobileSettingsMainPage(
                     value = if (uiState.tmdbApiKey.isBlank()) "Not set" else "Set",
                     isFocused = false,
                     onClick = onShowTmdbApiKeyDialog
-                )
-                MobileSettingsRow(
-                    icon = Icons.Default.VpnKey,
-                    title = "Trakt Client ID",
-                    subtitle = "Can also be set via the xadarr-server web UI",
-                    value = if (uiState.traktClientId.isBlank()) "Not set" else "Set",
-                    isFocused = false,
-                    onClick = onShowTraktClientIdDialog
-                )
-                MobileSettingsRow(
-                    icon = Icons.Default.VpnKey,
-                    title = "Trakt Client Secret",
-                    subtitle = "Can also be set via the xadarr-server web UI",
-                    value = if (uiState.traktClientSecret.isBlank()) "Not set" else "Set",
-                    isFocused = false,
-                    onClick = onShowTraktClientSecretDialog
                 )
                 MobileSettingsRow(
                     icon = Icons.Default.SystemUpdate,
@@ -5082,7 +5048,7 @@ private fun tvSettingsSectionDescription(section: String): String {
         "home_server" -> "Connect personal media servers and use their libraries as sources."
         "catalogs" -> "Rows on the Discover screen: show/hide, order, rename, and add Trakt or MDBList lists. Apps opens Manage Apps."
         "stremio" -> "Manage third-party addon sources."
-        "accounts" -> "Cloud sync, Trakt, app updates and account controls."
+        "accounts" -> "Cloud sync, app updates and account controls."
         else -> "Configure Xadarr for this profile."
     }
 }
@@ -5127,7 +5093,7 @@ private fun tvSettingsSectionPills(
             if (uiState.webhookEnabled) "Webhook on" else "Webhook off"
         )
         "accounts" -> listOf(
-            if (uiState.isTraktAuthenticated) "Trakt connected" else "Trakt off"
+            if (uiState.driveAccountName != null) "Drive connected" else "Drive off"
         )
         else -> emptyList()
     }
@@ -5187,7 +5153,6 @@ private fun tvSettingsPanelFacts(
             "Webhook" to if (uiState.webhookEnabled) "On" else "Off"
         )
         "accounts" -> listOf(
-            "Trakt" to if (uiState.isTraktAuthenticated) "Connected" else "Disconnected",
             "Drive" to if (uiState.driveAccountName != null) "Connected" else "Off"
         )
         else -> emptyList()
@@ -5245,14 +5210,14 @@ private fun tvSettingsFocusedHelp(section: String, focusedIndex: Int): TvSetting
             else -> TvSettingsHelp("Plugins & Extensions", "Manage addons and configure the progress webhook.")
         }
         "accounts" -> when (focusedIndex) {
-            0 -> TvSettingsHelp("Trakt", "Connect or disconnect Trakt watch history and lists.")
-            1 -> TvSettingsHelp("Force sync", "Push/pull the latest synced profile data with the sync server.")
-            2 -> TvSettingsHelp("App updates", "Check for sideload app updates or install a downloaded update.")
-            3 -> TvSettingsHelp("Sync Server URL", "Base URL of your Xadarr sync server for settings backup and restore.")
-            4 -> TvSettingsHelp("Google Drive Sync", "Back up and restore settings across devices via Google Drive app data.")
-            5 -> TvSettingsHelp("Episeerr URL", "Direct URL to your Episeerr instance for the rule picker web UI.")
-            6 -> TvSettingsHelp("Clear cache", "Wipe cached artwork and category data so everything reloads fresh.")
-            else -> TvSettingsHelp("Account data", "Cloud sync, Trakt, updates and account controls.")
+            0 -> TvSettingsHelp("Force sync", "Push/pull the latest synced profile data with the sync server.")
+            1 -> TvSettingsHelp("App updates", "Check for sideload app updates or install a downloaded update.")
+            2 -> TvSettingsHelp("Sync Server URL", "Base URL of your Xadarr sync server for settings backup and restore.")
+            3 -> TvSettingsHelp("Google Drive Sync", "Back up and restore settings across devices via Google Drive app data.")
+            4 -> TvSettingsHelp("Episeerr URL", "Direct URL to your Episeerr instance for the rule picker web UI.")
+            5 -> TvSettingsHelp("Clear cache", "Wipe cached artwork and category data so everything reloads fresh.")
+            6 -> TvSettingsHelp("TMDB API key", "Your own TMDB key, if you don't want the built-in one.")
+            else -> TvSettingsHelp("Account data", "Cloud sync, updates and account controls.")
         }
         else -> TvSettingsHelp("Setting", "Use OK to change this option.")
     }
@@ -9193,23 +9158,7 @@ private fun AccountsSettings(
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // Trakt.tv
-        AccountRow(
-            name = "Trakt.tv",
-            description = "Sync watch history, progress, and watchlist",
-            isConnected = isTraktAuthenticated,
-            isWorking = isTraktAuthStarting || isTraktPolling,
-            authCode = traktCode,
-            authUrl = traktUrl,
-            isFocused = focusedIndex == 0,
-            onConnect = { if (isTraktPolling) onCancelTrakt() else onConnectTrakt() },
-            onDisconnect = onDisconnectTrakt,
-            modifier = Modifier.settingsFocusSlot(0),
-            expirationText = null  // Don't show expiration - Trakt tokens auto-refresh
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+        // Trakt removed (Joe, 2026-10-05: "nuke trakt"); see TRAKT_ENABLED.
         SettingsActionRow(
             title = stringResource(R.string.force_cloud_sync),
             description = if (isForceCloudSyncing) {
@@ -9218,9 +9167,9 @@ private fun AccountsSettings(
                 "Push local state to sync server, then pull latest"
             },
             actionLabel = if (isForceCloudSyncing) "SYNCING" else "SYNC",
-            isFocused = focusedIndex == 1,
+            isFocused = focusedIndex == 0,
             onClick = { if (!isForceCloudSyncing) onForceCloudSync() },
-            modifier = Modifier.settingsFocusSlot(1)
+            modifier = Modifier.settingsFocusSlot(0)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9242,11 +9191,11 @@ private fun AccountsSettings(
                 updateStatus is com.arflix.tv.updater.UpdateStatus.UpdateAvailable -> "UPDATE"
                 else -> "CHECK"
             },
-            isFocused = focusedIndex == 2,
+            isFocused = focusedIndex == 1,
             onClick = {
                 if (updateStatus is com.arflix.tv.updater.UpdateStatus.ReadyToInstall) onInstallUpdate() else onCheckUpdates()
             },
-            modifier = Modifier.settingsFocusSlot(2)
+            modifier = Modifier.settingsFocusSlot(1)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9256,9 +9205,9 @@ private fun AccountsSettings(
             title = "Sync Server URL",
             subtitle = "Xadarr setup server — enter after installing to sync all settings",
             value = if (syncServerUrl.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 3,
+            isFocused = focusedIndex == 2,
             onClick = onSyncServerUrlClick,
-            modifier = Modifier.settingsFocusSlot(3)
+            modifier = Modifier.settingsFocusSlot(2)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9268,9 +9217,9 @@ private fun AccountsSettings(
             title = "Google Drive Sync",
             subtitle = "Backup and restore settings across devices using your Google account",
             value = if (driveAccountName != null) driveAccountName else "Not connected",
-            isFocused = focusedIndex == 4,
+            isFocused = focusedIndex == 3,
             onClick = onDriveClick,
-            modifier = Modifier.settingsFocusSlot(4)
+            modifier = Modifier.settingsFocusSlot(3)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9280,9 +9229,9 @@ private fun AccountsSettings(
             title = "Episeerr URL",
             subtitle = "Direct URL to your Episeerr instance for rule management",
             value = if (episeerrUrl.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 5,
+            isFocused = focusedIndex == 4,
             onClick = onEpiseerrUrlClick,
-            modifier = Modifier.settingsFocusSlot(5)
+            modifier = Modifier.settingsFocusSlot(4)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9291,9 +9240,9 @@ private fun AccountsSettings(
             title = "Clear image cache",
             description = "Wipe cached posters, backdrops and category data so everything reloads fresh",
             actionLabel = "CLEAR",
-            isFocused = focusedIndex == 6,
+            isFocused = focusedIndex == 5,
             onClick = onClearCache,
-            modifier = Modifier.settingsFocusSlot(6)
+            modifier = Modifier.settingsFocusSlot(5)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -9303,34 +9252,11 @@ private fun AccountsSettings(
             title = "TMDB API Key",
             subtitle = "Can also be set via the xadarr-server web UI",
             value = if (tmdbApiKey.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 7,
+            isFocused = focusedIndex == 6,
             onClick = onTmdbApiKeyClick,
-            modifier = Modifier.settingsFocusSlot(7)
+            modifier = Modifier.settingsFocusSlot(6)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        SettingsRow(
-            icon = Icons.Default.VpnKey,
-            title = "Trakt Client ID",
-            subtitle = "Can also be set via the xadarr-server web UI",
-            value = if (traktClientId.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 8,
-            onClick = onTraktClientIdClick,
-            modifier = Modifier.settingsFocusSlot(8)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        SettingsRow(
-            icon = Icons.Default.VpnKey,
-            title = "Trakt Client Secret",
-            subtitle = "Can also be set via the xadarr-server web UI",
-            value = if (traktClientSecret.isBlank()) "Not set" else "Set",
-            isFocused = focusedIndex == 9,
-            onClick = onTraktClientSecretClick,
-            modifier = Modifier.settingsFocusSlot(9)
-        )
 
     }
 }

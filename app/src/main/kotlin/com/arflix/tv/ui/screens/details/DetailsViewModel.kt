@@ -1052,6 +1052,25 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
+    // Plex is where watched lives (the guide and Continue Watching read it); Trakt is off
+    // (TRAKT_ENABLED). Every mark/unmark on this screen mirrors here.
+    private suspend fun plexEpisodes(season: Int, episodes: List<Int>, watched: Boolean) {
+        val title = _uiState.value.item?.title ?: return
+        episodes.forEach { ep ->
+            runCatching {
+                homeServerRepository.setPlexEpisodeWatched(
+                    imdbId = _uiState.value.imdbId, title = title, season = season, episode = ep,
+                    tmdbId = currentMediaId, tvdbId = _uiState.value.tvdbId, watched = watched,
+                )
+            }
+        }
+    }
+
+    private suspend fun plexMovie(watched: Boolean) {
+        val item = _uiState.value.item ?: return
+        runCatching { homeServerRepository.setPlexMovieWatched(currentMediaId, item.title, item.year.take(4).toIntOrNull(), watched) }
+    }
+
     fun toggleWatched(episodeIndex: Int? = null) {
         val currentItem = _uiState.value.item ?: return
 
@@ -1064,6 +1083,7 @@ class DetailsViewModel @Inject constructor(
                     } else {
                         traktRepository.markMovieUnwatched(currentMediaId)
                     }
+                    plexMovie(newWatched)
                     _uiState.value = _uiState.value.copy(
                         item = currentItem.copy(isWatched = newWatched),
                         toastMessage = if (newWatched) "Marked as watched" else "Marked as unwatched",
@@ -1991,6 +2011,7 @@ class DetailsViewModel @Inject constructor(
     fun markEpisodeWatched(season: Int, episode: Int, watched: Boolean) {
         viewModelScope.launch {
             try {
+                plexEpisodes(season, listOf(episode), watched)
                 if (watched) {
                     traktRepository.markEpisodeWatched(currentMediaId, season, episode)
                     // Also remove from Supabase watch_history (removes from Continue Watching)
@@ -2092,10 +2113,11 @@ class DetailsViewModel @Inject constructor(
                 // each making its own Supabase + Trakt network call — taking ~5-12s for a full season.
                 val episodeNumbers = seasonEpisodes.map { it.episodeNumber }
 
-                // 1. Single batch Trakt API call (all episodes in one request)
+                // 1. Local watched memory (Trakt itself is off), then Plex -- what the guide reads.
                 runCatching {
                     traktRepository.markSeasonWatched(currentMediaId, season, episodeNumbers)
                 }
+                launch { plexEpisodes(season, episodeNumbers, true) }
 
                 // 2. Remove from watch history FIRST (synchronous), before Supabase writes.
                 //    This avoids a race condition where removeFromHistory deletes the
@@ -2220,6 +2242,7 @@ class DetailsViewModel @Inject constructor(
                 // BATCH: Single Trakt API call to remove all episodes, then concurrent Supabase writes
                 val episodeNumbers = seasonEpisodes.map { it.episodeNumber }
 
+                launch { plexEpisodes(season, episodeNumbers, false) }
                 // 1. Single batch Trakt API call to remove from history
                 val batchTraktRemoved = runCatching {
                     traktRepository.removeSeasonFromHistory(currentMediaId, season, episodeNumbers)
