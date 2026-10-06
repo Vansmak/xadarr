@@ -243,6 +243,66 @@ class TvViewModel @Inject constructor(
     val showsGuideSchedule: StateFlow<List<com.arflix.tv.data.repository.ShowGuideEntry>> =
         _showsGuideSchedule.asStateFlow()
 
+    // Download progress for each show's not-yet-downloaded next episode, from the same Episeerr
+    // series-status endpoint the Details screen's episode badges use (Joe, 2026-10-05: "it
+    // should show the progress", and "don't reinvent this"). Merged over the cached schedule:
+    // the schedule is cached for minutes server-side, progress moves by the second.
+    private var showsBase: List<com.arflix.tv.data.repository.ShowGuideEntry> = GuideSessionCache.shows
+    private var nextDownloads: Map<Int, Float> = emptyMap()   // seriesId -> 0-100
+    private val refreshedForDone = mutableSetOf<String>()
+    private var showDownloadPollJob: kotlinx.coroutines.Job? = null
+
+    private fun publishShows() {
+        _showsGuideSchedule.value = showsBase.map { e ->
+            val n = e.next
+            val p = nextDownloads[e.seriesId]
+            if (n == null || n.downloaded || p == null) e else e.copy(next = n.copy(downloadProgress = p))
+        }
+    }
+
+    /** Every 15s re-checks what's downloading; once a minute (every 4th pass) checks every aired, missing next episode. */
+    private fun ensureShowDownloadPoll() {
+        if (showDownloadPollJob?.isActive == true) return
+        showDownloadPollJob = viewModelScope.launch {
+            var pass = 0
+            while (true) {
+                val now = System.currentTimeMillis()
+                val candidates = showsBase.filter { e ->
+                    val n = e.next ?: return@filter false
+                    if (n.downloaded || e.tvdbId == null) return@filter false
+                    // Only released episodes can be downloading.
+                    val aired = com.arflix.tv.ui.screens.tv.live.parseShowAirDate(n.airDate)?.toEpochMilli() ?: return@filter false
+                    aired <= now && (pass % 4 == 0 || e.seriesId in nextDownloads)
+                }
+                val found = nextDownloads.toMutableMap().apply { keys.retainAll(showsBase.map { it.seriesId }.toSet()) }
+                var finished = false
+                for (e in candidates) {
+                    val n = e.next ?: continue
+                    val info = runCatching { sonarrRepository.getEpisodeStatuses(e.tvdbId.toString(), n.season) }
+                        .getOrNull()?.get(n.episode)
+                    when (info?.status) {
+                        com.arflix.tv.data.repository.SonarrEpisodeStatus.QUEUED -> found[e.seriesId] = info.downloadProgress
+                        com.arflix.tv.data.repository.SonarrEpisodeStatus.AVAILABLE -> {
+                            found.remove(e.seriesId)
+                            // Once per episode: the schedule may lag a moment behind series-status.
+                            if (refreshedForDone.add("${e.seriesId}:${n.season}:${n.episode}")) finished = true
+                        }
+                        null -> Unit
+                        else -> found.remove(e.seriesId)
+                    }
+                }
+                if (found != nextDownloads) {
+                    nextDownloads = found
+                    publishShows()
+                }
+                // Finished downloading: reload so the cell becomes the episode title.
+                if (finished) refreshShowsGuide(forceRefresh = true)
+                pass++
+                kotlinx.coroutines.delay(15_000)
+            }
+        }
+    }
+
     // Selecting a synthetic Shows-channel row/program navigates to Details instead of trying to
     // play a raw stream URL (there isn't one) -- Details already has the real, tested episode
     // resolution + VOD playback path (resolveAvailablePlayTarget et al.), so this reuses it
@@ -263,8 +323,10 @@ class TvViewModel @Inject constructor(
                 .getOrDefault(emptyList())
             // A failed fetch keeps what we had rather than blanking the Shows rows.
             if (shows.isNotEmpty() || GuideSessionCache.shows.isEmpty()) {
-                _showsGuideSchedule.value = shows
+                showsBase = shows
                 GuideSessionCache.shows = shows
+                publishShows()
+                ensureShowDownloadPoll()
             }
         }
         viewModelScope.launch {

@@ -2131,7 +2131,8 @@ fun LiveTvScreen(
             val isNowEp = showEntry != null && se != null && showEntry.now?.season == se.first && showEntry.now.episode == se.second
             val nextEp = showEntry?.next?.takeIf { se != null && it.season == se.first && it.episode == se.second }
             val epDownloaded = isNowEp || nextEp?.downloaded == true
-            val epAired = nextEp != null && runCatching { java.time.Instant.parse(nextEp.airDate).toEpochMilli() <= System.currentTimeMillis() }.getOrDefault(true)
+            // Find & Download only for a released episode that isn't already downloading.
+            val epAired = nextEp != null && nextEp.downloadProgress == null && (parseShowAirDate(nextEp.airDate)?.let { it.toEpochMilli() <= System.currentTimeMillis() } ?: false)
             val actions = buildList {
                 when {
                     showEntry != null && se != null -> {
@@ -2888,7 +2889,7 @@ fun com.arflix.tv.data.repository.MovieGuide.toIptvNowNext(clockMillis: Long): M
     premiering.forEach { p ->
         val date = runCatching { java.time.LocalDate.parse(p.releaseDate) }.getOrNull()
         val label = when {
-            date == null -> "Not downloaded"
+            date == null -> "Not released yet"
             date.isAfter(java.time.LocalDate.now()) -> "Premieres ${date.format(java.time.format.DateTimeFormatter.ofPattern("M/d"))}"
             else -> "Released ${date.format(java.time.format.DateTimeFormatter.ofPattern("M/d"))} · Not downloaded"
         }
@@ -2914,6 +2915,15 @@ private fun episodeProgramTitle(showTitle: String, season: Int, episode: Int, su
 }
 
 private val ShowEpisodeTitleRegex = Regex("""^S(\d+)E(\d+)""")
+
+/**
+ * Sonarr's airDateUtc ("2026-10-09T01:00:00Z"), or its plain airDate ("2026-10-09", the
+ * server's fallback) read as local midnight -- that form used to fail to parse and land as
+ * "Not downloaded". Null when there's no date at all (TBA).
+ */
+fun parseShowAirDate(raw: String): java.time.Instant? =
+    runCatching { java.time.Instant.parse(raw) }.getOrNull()
+        ?: runCatching { java.time.LocalDate.parse(raw).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant() }.getOrNull()
 
 /** Inverse of [episodeProgramTitle]'s "S{season}E{episode} · ..." prefix. */
 private fun parseShowEpisodeTitle(title: String): Pair<Int, Int>? =
@@ -2957,13 +2967,17 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
         // selecting it searches Sonarr.
         val suffix = if (n.downloaded) {
             n.title.ifBlank { null }
+        } else if (n.downloadProgress != null) {
+            if (n.downloadProgress > 0f) "Downloading ${n.downloadProgress.toInt()}%" else "Downloading"
         } else {
-            val aired = runCatching { java.time.Instant.parse(n.airDate) }.getOrNull()
+            // Not released yet is its own state, not "Not downloaded" (Joe, 2026-10-05): no air
+            // date means Sonarr has it as TBA.
+            val aired = parseShowAirDate(n.airDate)
             val date = aired?.let {
                 java.time.format.DateTimeFormatter.ofPattern("M/d").withZone(java.time.ZoneId.systemDefault()).format(it)
             }
             when {
-                aired == null -> "Not downloaded"
+                aired == null -> "Not released yet"
                 aired.toEpochMilli() > clockMillis -> "Airs $date"
                 else -> "Not downloaded"
             }
@@ -2973,6 +2987,7 @@ fun com.arflix.tv.data.repository.ShowGuideEntry.toIptvNowNext(clockMillis: Long
             description = n.overview.ifBlank { null },
             startUtcMillis = clockMillis + hour,
             endUtcMillis = clockMillis + 2 * hour,
+            downloadProgress = n.downloadProgress?.takeIf { !n.downloaded }?.let { (it / 100f).coerceIn(0f, 1f) },
         )
     }
     return IptvNowNext(now = nowProgram, next = nextProgram)

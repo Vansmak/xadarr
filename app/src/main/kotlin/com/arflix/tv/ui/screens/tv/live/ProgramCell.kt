@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -139,6 +140,15 @@ fun ProgramCell(
             )
             .clip(RoundedCornerShape(LiveDims.CellRadius))
             .background(bg)
+            // Downloading (Shows guide): the cell fills left to right like a progress bar.
+            .then(
+                program.downloadProgress?.let { p ->
+                    val fill = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.32f)
+                    Modifier.drawBehind {
+                        drawRect(fill, size = androidx.compose.ui.geometry.Size(size.width * p, size.height))
+                    }
+                } ?: Modifier
+            )
             .alpha(contentAlpha)
             .then(if (focusable) Modifier.focusable() else Modifier)
             .then(

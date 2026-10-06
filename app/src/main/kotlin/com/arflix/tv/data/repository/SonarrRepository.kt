@@ -59,6 +59,8 @@ data class ShowGuideNextEpisode(
     val downloaded: Boolean,
     val airDate: String,   // ISO 8601, only meaningful when downloaded == false
     val overview: String = "",
+    /** 0-100 while Sonarr is downloading it (series-status "queued"), else null. */
+    val downloadProgress: Float? = null,
 )
 
 // One row for Xadarr's synthetic "Shows" live-guide channel (Episeerr's
