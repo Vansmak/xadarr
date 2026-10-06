@@ -816,6 +816,13 @@ fun LiveTvScreen(
         }
     }
 
+    // "Last channel" is always a real channel. A Shows/Movies/Music row only previews in the
+    // hero (no stream), so remembering it sent Right-from-fullscreen to a series info bar
+    // instead of the channel you were watching (Joe, 2026-10-05, "East of Eden").
+    fun notePreviousChannel() {
+        if (!isLibraryChannelId(playingChannelId)) previousChannelId = playingChannelId
+    }
+
     // Prev/next zapping across the full enriched list (not the filtered
     // category) per user spec. Wraps around.
     fun zap(delta: Int) {
@@ -825,7 +832,7 @@ fun LiveTvScreen(
         val start = if (currentIdx >= 0) currentIdx else 0
         val size = all.size
         val nextIdx = ((start + delta) % size + size) % size
-        previousChannelId = playingChannelId
+        notePreviousChannel()
         playingChannelId = all[nextIdx].id
         focusedChannelId = all[nextIdx].id
         rememberedChannelByCategory[selectedCategoryId] = all[nextIdx].id
@@ -833,8 +840,8 @@ fun LiveTvScreen(
     }
 
     fun returnToPreviousChannel() {
-        val prev = previousChannelId?.takeIf { id -> enrichedState.value.all.any { it.id == id } } ?: return
-        previousChannelId = playingChannelId
+        val prev = previousChannelId?.takeIf { id -> !isLibraryChannelId(id) && enrichedState.value.all.any { it.id == id } } ?: return
+        notePreviousChannel()
         playingChannelId = prev
         focusedChannelId = prev
         rememberedChannelByCategory[selectedCategoryId] = prev
@@ -983,7 +990,7 @@ fun LiveTvScreen(
             isFullScreen = true
             hudPokeSignal++
         } else {
-            previousChannelId = playingChannelId
+            notePreviousChannel()
             playingChannelId = channel.id
             playingCatchupProgram = null
         }
@@ -1015,7 +1022,7 @@ fun LiveTvScreen(
                     val id = command.localChannelId
                     focusedChannelId = id
                     rememberedChannelByCategory[selectedCategoryId] = id
-                    if (id != playingChannelId) previousChannelId = playingChannelId
+                    if (id != playingChannelId) notePreviousChannel()
                     playingChannelId = id
                     playingCatchupProgram = null
                     isFullScreen = true
@@ -1864,7 +1871,7 @@ fun LiveTvScreen(
 
         fun tuneFromSearch(channel: EnrichedChannel) {
             if (remoteTuneOrHandled(channel)) { searchOpen = false; return }
-            previousChannelId = playingChannelId
+            notePreviousChannel()
             // A raw provider-search pick not already resolvable (i.e. not pinned) isn't
             // in the tree yet, so bestCategoryIdForChannel would look it up against a
             // tree that doesn't know it exists — queue it into the enrichment merge
@@ -2305,7 +2312,7 @@ fun LiveTvScreen(
             val number = channelDigits.toIntOrNull()
             val target = number?.let { n -> enrichedState.value.all.firstOrNull { it.number == n && !isLibraryChannelGroup(it.source.group) } }
             if (target != null) {
-                previousChannelId = playingChannelId
+                notePreviousChannel()
                 playingChannelId = target.id
                 playingCatchupProgram = null
                 focusedChannelId = target.id
