@@ -94,6 +94,7 @@ class TvViewModel @Inject constructor(
     private val musicAssistantRepository: com.arflix.tv.music.MusicAssistantRepository,
     private val homeServerRepository: com.arflix.tv.data.repository.HomeServerRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
+    private val plexWatchedMigration: com.arflix.tv.data.repository.PlexWatchedMigration,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -582,6 +583,10 @@ class TvViewModel @Inject constructor(
 
     init {
         refreshShowsGuide()
+        // One-time: watched marks made while Trakt was the target, copied into Plex.
+        viewModelScope.launch {
+            if (runCatching { plexWatchedMigration.runOnce() }.getOrDefault(false)) refreshShowsGuide(forceRefresh = true)
+        }
     }
 
     // Observed rather than sampled once at construction: the flag is written while the Settings

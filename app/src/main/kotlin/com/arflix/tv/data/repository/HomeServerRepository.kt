@@ -736,6 +736,42 @@ class HomeServerRepository @Inject constructor(
         }.getOrDefault(emptySet())
     }
 
+    /**
+     * Marks [episodes] (season to episode) watched in Plex, skipping ones Plex already has as
+     * watched. One series lookup and one episode listing for the whole set. Returns how many
+     * were newly marked, or -1 if the show isn't in Plex.
+     */
+    suspend fun markPlexEpisodesWatched(
+        title: String,
+        tmdbId: Int?,
+        tvdbId: Int?,
+        episodes: Set<Pair<Int, Int>>,
+    ): Int = withContext(Dispatchers.IO) {
+        val connection = currentConnections()
+            .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext -1
+        runCatching {
+            val series = findBestSeries(connection, null, title, null, tmdbId, tvdbId) ?: return@runCatching -1
+            val response = getJson(
+                buildUrl(
+                    connection.serverUrl,
+                    "/library/metadata/${series.id}/allLeaves",
+                    mapOf("X-Plex-Token" to connection.accessToken)
+                ),
+                connection
+            )
+            var marked = 0
+            response.array("MediaContainer", "Metadata").forEach { element ->
+                val item = element.asJsonObjectOrNull() ?: return@forEach
+                val key = (item.int("parentIndex") ?: return@forEach) to (item.int("index") ?: return@forEach)
+                if (key !in episodes || (item.int("viewCount") ?: 0) >= 1) return@forEach
+                val ratingKey = item.string("ratingKey").ifBlank { return@forEach }
+                scrobblePlex(connection, ratingKey, true)
+                marked++
+            }
+            marked
+        }.getOrDefault(-1)
+    }
+
     suspend fun setPlexEpisodeWatched(
         imdbId: String?,
         title: String,
