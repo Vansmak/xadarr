@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.14] - 2026-10-05
+
+### Added
+- **Music Assistant remote** — control Music Assistant (Sonos rooms) from Xadarr: Now Playing, queue, rooms, library and search, speaker grouping and radio mode. On phones, a mini player sits above the tabs.
+- **Music in the guide** — a Music group with one channel per playlist, songs shown as programs on a zoomed-in time scale, play from any song, and a "Now Playing" row per room with player controls. Music results also appear in guide search.
+- **Music library home** — sections instead of one long list: Start something (Fresh mix, weighted to songs you rarely hear; Shuffle everything; Surprise radio; Newly added), Recently played, Your playlists, Made for you, Albums to try, Following.
+- **Music screen look** — the album cover, blurred, behind the screen; a screensaver after two idle minutes that drifts the cover, song and next track around so nothing burns into OLED screens; the screen stays on while music plays, with one quiet check after an hour untouched.
+- **Volume** — a volume row on Now Playing; the remote's and phone's volume keys control the room's speaker on the Music screen, and in the guide while music plays in this TV's room.
+- **One Spotify room at a time** — starting music while another room already plays Spotify asks first: play here instead, play in both rooms, or cancel.
+- **Xadarr Music** — a separate, standalone Music Assistant remote app for TVs and phones that don't run full Xadarr (attached to this release as `xadarr-music.apk`). Sign in with Music Assistant directly, or with one press using the login Xadarr already has.
+- **Library channels in the guide** — Shows, Watch Now and Premiering channels built from your own library, with backdrop art and long-press menus.
+- **Go to channel by number** — the remote's number pad, or a number in guide search.
+- **TV Apps screen** — media apps and your Manage Apps picks, with an All apps tile.
+
+### Changed
+- **Guide search** — one row per event on its best channel, real games first, sports shorthand, a Movies & Shows poster row, and Back after a pick reopens the same search.
+- **Find becomes Discover** — no search box; "Plex Discover" is now just Plex. Catalogs settings are now "Discover rows".
+- **Phone tabs** — Home, Guide, Library (Shows | Movies), Music, Cameras, Settings.
+- **The guide resumes the last channel you watched** and opens on its group.
+- **Live TV goes picture-only while music plays on this room's speaker**, so the soundbar doesn't switch away from the music.
+- **Release builds are the optimised build** — about half the size, and smoother on lower-powered boxes.
+- **Focus Border Color** (Auto = theme accent) now applies everywhere, including the guide and poster cards.
+
+### Fixed
+- **Crash on launch on Android 11 (NVIDIA Shield)** after the guide grew too large for its code verifier.
+- **Settings sync** — a version guard so an out-of-date device can't overwrite newer settings.
+- **Plex** — the in-app player now scrobbles to Plex/Tautulli; the "Play via Plex" toggle is respected for single-source titles; "not available" on first play.
+- **"Next episode" stuck on the one just watched**, and Details now agrees with the guide on what's next.
+- **Guide channel list** — sticking or racing ahead on fast up/down, focus trapped at the end of short lists, blank now-playing titles for long channel names, and the now-line cutting through program titles.
+- **Refresh Playlist/EPG** now actually reloads the channel list.
+- **Menus** — no longer freeze, reopen themselves, leak key presses behind them, or run off the TV screen.
+- **Back now exits the player** once playback has ended.
+
 ## [2.11] - 2026-07-28
 
 ### Fixed

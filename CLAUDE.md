@@ -400,6 +400,8 @@ Episeerr services table has `enabled BOOLEAN DEFAULT 1`. `get_service()` filters
 
 ## Current Version
 
+**v2.14** (2026-10-05) — Music Assistant remote + Music in the guide, standalone Xadarr Music app, library channels in the guide, search/Discover rework, staging-built releases. Full list in CHANGELOG.md; the v2.10 notes below are kept for history.
+
 **v2.10** — Live TV/Watchlist render-bug fixes, Trakt watchlist reliability, All Shows recency sort.
 
 Changes since v2.9:

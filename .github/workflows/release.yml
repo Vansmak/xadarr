@@ -62,23 +62,29 @@ jobs:
           keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
 
-      - name: Build APK
+      # The staging build (R8-optimised, not debuggable): about half the size of debug and
+      # noticeably smoother on the Onn boxes, and the build Joe installs (2026-10-05).
+      - name: Build APKs
         if: steps.check.outputs.skip == 'false'
-        run: ./gradlew :app:assembleSideloadDebug --no-daemon
+        run: ./gradlew :app:assembleSideloadStaging :musicapp:assembleRelease --no-daemon
 
-      - name: Locate and rename APK
+      - name: Locate and rename APKs
         if: steps.check.outputs.skip == 'false'
         id: apk
         run: |
-          SRC=$(find app/build/outputs/apk/sideload/debug -name "*.apk" | head -1)
-          DEST="app/build/outputs/apk/sideload/debug/xadarr-${{ steps.ver.outputs.name }}.apk"
+          SRC=$(find app/build/outputs/apk/sideload/staging -name "*.apk" | head -1)
+          DEST="app/build/outputs/apk/sideload/staging/xadarr-${{ steps.ver.outputs.name }}.apk"
           mv "$SRC" "$DEST"
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          MSRC=$(find musicapp/build/outputs/apk/release -name "*.apk" | head -1)
+          MDEST="musicapp/build/outputs/apk/release/xadarr-music.apk"
+          mv "$MSRC" "$MDEST"
+          echo "music=$MDEST" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog notes
         if: steps.check.outputs.skip == 'false'
         run: |
-          awk "/\[${{ steps.ver.outputs.name }}\]/{found=1; next} found && /^\[/{exit} found" \
+          awk "/\[${{ steps.ver.outputs.name }}\]/{found=1; next} found && /^## \[/{exit} found" \
             CHANGELOG.md > release_notes.md
 
       - name: Create release
@@ -87,6 +93,6 @@ jobs:
           gh release create "${{ steps.ver.outputs.tag }}" \
             --title "Xadarr ${{ steps.ver.outputs.name }}" \
             --notes-file release_notes.md \
-            "${{ steps.apk.outputs.path }}"
+            "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.music }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
