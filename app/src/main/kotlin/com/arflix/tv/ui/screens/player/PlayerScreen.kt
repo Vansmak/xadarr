@@ -2273,6 +2273,16 @@ fun PlayerScreen(
                 controlsVisible = showControls,
                 onSkip = {
                     val end = activeSkip?.endMs ?: return@SkipIntroButton
+                    // Skip Ending leaves the player (Joe, 2026-10-06: "that should return to
+                    // shows"). Seek to the very end first so the exit save records it as watched.
+                    if (activeSkip.type in setOf("ed", "mixed-ed", "outro")) {
+                        val duration = exoPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET }
+                        exoPlayer.pause()
+                        exoPlayer.seekTo(duration ?: (end + 500L).coerceAtLeast(0L))
+                        viewModel.dismissSkipInterval()
+                        onBack()
+                        return@SkipIntroButton
+                    }
                     exoPlayer.seekTo((end + 500L).coerceAtLeast(0L))
                     viewModel.dismissSkipInterval()
                 },
