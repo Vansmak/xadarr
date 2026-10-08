@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.SpeakerGroup
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
@@ -101,6 +103,21 @@ private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, RADIO,
 
 private val TAB_LABELS = mapOf(
     MusicTab.NOW_PLAYING to "Now Playing",
+    MusicTab.QUEUE to "Queue",
+    MusicTab.ZONES to "Zones",
+    MusicTab.BROWSE to "Library",
+)
+
+// Phones: four equal tabs with an icon over a short label -- the text-only row ran off the
+// right edge and Library was half hidden behind a sideways scroll (Joe, 2026-10-08).
+private val TAB_ICONS = mapOf(
+    MusicTab.NOW_PLAYING to Icons.Default.MusicNote,
+    MusicTab.QUEUE to Icons.Default.QueueMusic,
+    MusicTab.ZONES to Icons.Default.SpeakerGroup,
+    MusicTab.BROWSE to Icons.Default.LibraryMusic,
+)
+private val TAB_SHORT_LABELS = mapOf(
+    MusicTab.NOW_PLAYING to "Playing",
     MusicTab.QUEUE to "Queue",
     MusicTab.ZONES to "Zones",
     MusicTab.BROWSE to "Library",
@@ -354,12 +371,31 @@ fun MusicScreen(
             }
             // ── Header: tabs + the zone being controlled ──
             Row(
-                modifier = if (narrow) Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier,
+                modifier = if (narrow) Modifier.fillMaxWidth() else Modifier,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MusicTab.entries.forEach { tab ->
                     val selected = ui.tab == tab
                     val focused = area == Area.TABS && selected
+                    if (narrow) {
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .padding(horizontal = 3.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (selected) accent.copy(alpha = 0.18f) else Color.Transparent)
+                                .clickable { viewModel.setTab(tab); area = Area.CONTENT }
+                                .padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            val tint = if (selected) colors.onSurface else colors.onSurfaceVariant
+                            Icon(TAB_ICONS.getValue(tab), contentDescription = null, tint = if (selected) accent else tint, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.height(2.dp))
+                            Text(TAB_SHORT_LABELS.getValue(tab), color = tint, fontSize = 12.sp, maxLines = 1,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                        return@forEach
+                    }
                     Box(
                         Modifier
                             .padding(end = 10.dp)
