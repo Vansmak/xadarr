@@ -157,6 +157,18 @@ private object LiveTvResumeMemory {
     }
 }
 
+/** First of [candidates] (other than [current]) whose channel list contains [channel]. */
+private fun categoryShowingChannel(
+    channel: EnrichedChannel,
+    enriched: EnrichedChannels,
+    current: String,
+    favorites: List<String>,
+    recents: Collection<String>,
+    candidates: List<String>,
+): String? = candidates.distinct().firstOrNull { cat ->
+    cat != current && enriched.index.channelsFor(cat, favorites, recents).any { it.id == channel.id }
+}
+
 private fun chooseStartupChannelId(
     filteredChannels: List<EnrichedChannel>,
     explicitInitialChannelId: String?,
@@ -453,7 +465,13 @@ fun LiveTvScreen(
         // 2026-09-27, after a full data-clear + reinstall still showed unfiltered "all": "it's doing
         // same".
         val builtIn = selectedCategoryId == "all" || selectedCategoryId == "fav" || selectedCategoryId == "recent"
-        if (!builtIn && enrichedState.value.tree.byId(selectedCategoryId) == null) {
+        // Only judge against the full tree. Coming back from the player, enrichedState can be
+        // Empty (the session cache is cleared by every playlist/EPG refresh) or the quick first
+        // pass, and the Shows group "didn't exist" for a moment -- this then threw the guide
+        // into All, landing on CH 100 instead of the show just watched (Joe, 2026-10-07).
+        val current = enrichedState.value
+        if (current === EnrichedChannels.Empty || current.all.size < state.snapshot.channels.size) return@LaunchedEffect
+        if (!builtIn && current.tree.byId(selectedCategoryId) == null) {
             selectedCategoryId = "all"
         }
     }
@@ -481,6 +499,11 @@ fun LiveTvScreen(
     // Category switches are served from prebuilt buckets. Favorites and
     // recents remain ordered dynamic lists, but they are simple id lookups.
     val filteredChannelsState = remember { mutableStateOf<List<EnrichedChannel>>(emptyList()) }
+    // Which category filteredChannelsState currently holds. It is computed off the main thread, so
+    // on re-entry (fresh composition) and right after a category switch the list is empty or still
+    // the previous category's. Anything that "fixes up" focus or category from the list must wait
+    // until this matches selectedCategoryId, or it acts on a list that isn't the real one.
+    var filteredForCategory by remember { mutableStateOf<String?>(null) }
     val recentsFilterKey = if (selectedCategoryId == "recent") recents.value else Unit
     LaunchedEffect(enrichedState.value.index, selectedCategoryId, favSet, recentsFilterKey, favoriteSortMode) {
         val result = withContext(Dispatchers.Default) {
@@ -492,6 +515,7 @@ fun LiveTvScreen(
             )
         }
         filteredChannelsState.value = result
+        filteredForCategory = selectedCategoryId
     }
 
     // Kick EPG prefetch for favorites as soon as IDs are known — before channel
@@ -507,6 +531,7 @@ fun LiveTvScreen(
         )
     }
     val filteredChannels = filteredChannelsState.value
+    val filteredReady = enrichedState.value !== EnrichedChannels.Empty && filteredForCategory == selectedCategoryId
     // Fall back to "all" only when preferences have loaded and the user genuinely
     // has zero favorites — not just because the async filter hasn't run yet.
     LaunchedEffect(state.iptvPreferencesLoaded, state.snapshot.favoriteChannels.size) {
@@ -587,7 +612,7 @@ fun LiveTvScreen(
     // Pick the startup channel only after saved IPTV preferences/session have
     // loaded. Favorites win over a stale recent channel, then we fall back to
     // the persisted recent channel, then the first filtered entry.
-    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded) {
+    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded, filteredReady) {
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
         if (entersBlock) {
@@ -622,7 +647,10 @@ fun LiveTvScreen(
                 selectedCategoryId = resume?.second ?: "all"
             }
         }
-        if (focusedChannelId == null || filteredChannels.none { it.id == focusedChannelId }) {
+        // Only once the list is the real one for this category: on return from the player the
+        // list is briefly empty/stale, and this used to overwrite the remembered row with the
+        // first channel (CH 100) -- which the grid then faithfully scrolled to.
+        if (filteredReady && (focusedChannelId == null || filteredChannels.none { it.id == focusedChannelId })) {
             focusedChannelId = playingChannelId?.takeIf { id -> filteredChannels.any { it.id == id } }
                 ?: filteredChannels.firstOrNull()?.id
         }
@@ -718,6 +746,7 @@ fun LiveTvScreen(
     }
     var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
+    val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     // Entering Now Playing with a channel already playing (back from another screen -- the player
     // keeps running) used to leave the guide on its default Favorites list, highlighting nothing
     // you were watching (Joe, 2026-09-30). Show the playing channel's group -- or Recent, where it
@@ -736,51 +765,73 @@ fun LiveTvScreen(
     var reopenSearchQuery by remember { mutableStateOf<String?>(null) }
     // Channel number being typed on a remote's number pad ("" when idle).
     var channelDigits by remember { mutableStateOf("") }
-    LaunchedEffect(playingChannelId, enrichedState.value.index, filteredChannels) {
+    // The Shows/Movies row a show or movie was started from (or whose Details were opened).
+    // Saveable: this screen's composition is torn down while the player is on top, and on return
+    // the guide goes back to that row in its own group with the row focused -- not to the last
+    // live channel's group, and not to the top of All (Joe, 2026-10-05 and again 2026-10-07:
+    // "back from Ted Lasso lands on CH 100 F1 TV").
+    var returnFromLibraryId by rememberSaveable { mutableStateOf<String?>(null) }
+    val enteredFromLibraryReturn = remember { returnFromLibraryId != null }
+    fun markLibraryReturn(channelId: String? = null) {
+        returnFromLibraryId = channelId?.takeIf { isLibraryChannelId(it) }
+            ?: focusedChannelId?.takeIf { isLibraryChannelId(it) }
+            ?: playingChannelId?.takeIf { isLibraryChannelId(it) }
+    }
+    // Runs once per entry, and only on real data. Every earlier version of this ran on the first
+    // frame, when filteredChannels is still empty (it's built off the main thread) and the
+    // enriched index can be Empty or the quick first pass -- so it took the "not in this
+    // category" branches against a list that wasn't real, latched alignedOnEntry, and never
+    // looked again.
+    LaunchedEffect(playingChannelId, enrichedState.value, filteredChannels, filteredForCategory, selectedCategoryId) {
         if (alignedOnEntry) return@LaunchedEffect
-        val id = playingChannelId ?: return@LaunchedEffect
-        // Back from a show/movie started from its own row: stay on that row in Shows/Movies
-        // rather than jumping to the last real channel's group (Joe, 2026-10-05: "after watching
-        // a show it returns to guide and shows all F1").
-        if (isLibraryChannelId(id) && filteredChannels.any { it.id == id }) {
-            alignedOnEntry = true
-            focusedChannelId = id
-            focusSelectedChannelSignal += 1
-            return@LaunchedEffect
-        }
-        if (isLibraryChannelId(id)) {
+        if (!filteredReady) return@LaunchedEffect
+        val enriched = enrichedState.value
+        val index = enriched.index
+        val returnId = returnFromLibraryId?.takeIf { index.byId[it] != null }
+        val id = returnId ?: playingChannelId ?: return@LaunchedEffect
+        if (returnId == null && isLibraryChannelId(id) && filteredChannels.none { it.id == id }) {
             // The remembered "playing" channel is a Shows/Movies row the user had highlighted
             // (no stream -- the preview sat black on its art while the guide showed Favorites,
             // Joe 2026-10-01). Go back to the last real channel instead.
             val real = LiveTvResumeMemory.current()?.first
                 ?: state.tvSession.lastChannelId.takeIf { it.isNotBlank() && !isLibraryChannelId(it) }
-            if (real != null && enrichedState.value.index.byId[real] != null) {
+            if (real != null && index.byId[real] != null) {
                 playingChannelId = real // re-runs this effect for the real channel
             } else {
                 alignedOnEntry = true
             }
             return@LaunchedEffect
         }
-        if (enrichedState.value.index.byId[id] == null) return@LaunchedEffect // not loaded yet
+        val channel = index.byId[id] ?: return@LaunchedEffect // not loaded yet
         if (filteredChannels.none { it.id == id }) {
-            val remembered = LiveTvResumeMemory.categoryId
-                ?.takeIf { LiveTvResumeMemory.channelId == id && it != selectedCategoryId }
-            when {
-                remembered != null -> selectedCategoryId = remembered
-                selectedCategoryId != "recent" -> selectedCategoryId = "recent"
-                else -> alignedOnEntry = true // nowhere better to show it
+            // Wait for the full enrichment before deciding the channel isn't in this category.
+            if (enriched.all.size < state.snapshot.channels.size) return@LaunchedEffect
+            // Pick the group to show in one step, checked against the index, so this can't
+            // bounce between categories: the group it was played from, its own group, Recent, All.
+            val remembered = LiveTvResumeMemory.categoryId?.takeIf { LiveTvResumeMemory.channelId == id }
+            val target = categoryShowingChannel(
+                channel, enriched, selectedCategoryId, state.snapshot.favoriteChannels, recents.value,
+                listOfNotNull(remembered, bestCategoryIdForChannel(channel, enriched.tree), "recent", "all"),
+            )
+            if (target != null) {
+                selectedCategoryId = target // re-runs once filteredChannels is that group's list
+            } else {
+                alignedOnEntry = true // nowhere better to show it
+                returnFromLibraryId = null
             }
-            return@LaunchedEffect // re-runs once filteredChannels reflects the new category
+            return@LaunchedEffect
         }
         alignedOnEntry = true
+        returnFromLibraryId = null
         focusedChannelId = id
+        rememberedChannelByCategory[selectedCategoryId] = id
+        focusZone = LiveTvFocusZone.CHANNEL_LIST
         focusSelectedChannelSignal += 1
     }
     var focusEpgSignal by remember { mutableIntStateOf(0) }
     var focusSearchCategorySignal by remember { mutableIntStateOf(1) }
     var focusCategorySignal by remember { mutableIntStateOf(0) }
     var focusActiveCategorySignal by remember { mutableIntStateOf(0) }
-    val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     // Full-screen playback mode — pressing OK on an EPG row expands the
     // mini-player to cover the whole screen. Back collapses back to the grid.
     var isFullScreen by rememberSaveable { mutableStateOf(initialStreamUrl != null) }
@@ -906,7 +957,23 @@ fun LiveTvScreen(
 
     fun exitFullScreenPlayback() {
         isFullScreen = false
-        focusChannelList(playingChannelId ?: focusedChannelId)
+        // Zapping in fullscreen walks the whole lineup, and a number-pad tune can land anywhere,
+        // so the channel playing now may not be in the group the guide is showing. Focusing it
+        // there silently did nothing (the grid can't find the row) and the fallback put the
+        // highlight on the group's first channel. Show its group instead. Only when the list is
+        // current for this category (long-press Down has just switched it to Recent).
+        val id = playingChannelId
+        val index = enrichedState.value.index
+        val channel = id?.let { index.byId[it] }
+        if (channel != null && filteredForCategory == selectedCategoryId &&
+            filteredChannelsState.value.none { it.id == id }
+        ) {
+            categoryShowingChannel(
+                channel, enrichedState.value, selectedCategoryId, state.snapshot.favoriteChannels, recents.value,
+                listOf(bestCategoryIdForChannel(channel, enrichedState.value.tree), "all"),
+            )?.let { selectedCategoryId = it }
+        }
+        focusChannelList(id ?: focusedChannelId)
     }
 
     // Remote Mode — when a target is set, channel selection dispatches to that device
@@ -961,6 +1028,7 @@ fun LiveTvScreen(
 
     fun playLibraryEpisode(entry: com.arflix.tv.data.repository.ShowGuideEntry, season: Int, episode: Int) {
         val tvdbId = entry.tvdbId ?: return
+        markLibraryReturn("$ShowsChannelIdPrefix${entry.seriesId}")
         fsScope.launch {
             viewModel.resolveShowTmdbRef(tvdbId)?.let { (mediaType, tmdbId) ->
                 onNavigateToPlayer(mediaType, tmdbId, season, episode, null, null, null, null, null, false)
@@ -971,6 +1039,7 @@ fun LiveTvScreen(
     fun openShowDetails(entry: com.arflix.tv.data.repository.ShowGuideEntry) {
         val tvdbId = entry.tvdbId ?: return
         reopenMenuAfterDetails = "$ShowsChannelIdPrefix${entry.seriesId}"
+        markLibraryReturn("$ShowsChannelIdPrefix${entry.seriesId}")
         fsScope.launch {
             viewModel.resolveShowTmdbRef(tvdbId)?.let { (type, tmdbId) -> onNavigateToDetails(type, tmdbId) }
         }
@@ -1219,14 +1288,21 @@ fun LiveTvScreen(
             }
             // Let the guide settle on the playing channel's group, then open with the group
             // list showing and that group highlighted (Joe, 2026-09-30: start like "screen 2").
-            repeat(20) {
-                if (alignedOnEntry || userPressedKey) return@repeat
+            // Up to 3s: alignment now waits for the real channel list, and the full enrichment of
+            // a ~9.5k channel playlist can take longer than the old 1s on the onn boxes.
+            // Keeps the old fixed 1s minimum so the row-focus retries from the alignment finish
+            // before the sidebar takes focus.
+            var waited = 0
+            while (!userPressedKey && (waited < 20 || (!alignedOnEntry && waited < 60))) {
                 delay(50L)
+                waited++
             }
             delay(80L)
             if (!userPressedKey) {
                 focusSelectedChannelSignal += 1
-                openSidebar()
+                // Back from a show/movie: stay on its row, focused, so the next episode is one
+                // press away -- don't pull focus into the group list.
+                if (!enteredFromLibraryReturn) openSidebar()
             }
         }
     }
@@ -2026,10 +2102,12 @@ fun LiveTvScreen(
                                 showEntry != null -> openShowDetails(showEntry)
                                 movie != null -> {
                                     reopenMenuAfterDetails = menuCh.id
+                                    markLibraryReturn(menuCh.id)
                                     onNavigateToDetails(MediaType.MOVIE, movie.tmdbId)
                                 }
                                 premiere != null -> {
                                     reopenMenuAfterDetails = menuCh.id
+                                    markLibraryReturn(menuCh.id)
                                     onNavigateToDetails(MediaType.MOVIE, premiere.tmdbId)
                                 }
                             }
@@ -2177,7 +2255,10 @@ fun LiveTvScreen(
                     when (action.id) {
                         "play" -> when {
                             showEntry != null && se != null -> playLibraryEpisode(showEntry, se.first, se.second)
-                            movie != null -> onNavigateToPlayer(MediaType.MOVIE, movie.tmdbId, null, null, null, null, null, null, null, false)
+                            movie != null -> {
+                                markLibraryReturn(cellChannel.id)
+                                onNavigateToPlayer(MediaType.MOVIE, movie.tmdbId, null, null, null, null, null, null, null, false)
+                            }
                         }
                         "mark_watched" -> when {
                             showEntry != null && se != null -> {
