@@ -148,6 +148,8 @@ data class IptvCloudProfileState(
      * it and keep working off [favoriteChannels] alone.
      */
     val favoriteChannelNames: Map<String, String> = emptyMap(),
+    /** When the favourite channels last changed by a user edit (0 = unknown / older build). */
+    val favoritesUpdatedAt: Long = 0L,
     val hiddenGroups: List<String> = emptyList(),
     val groupOrder: List<String> = emptyList(),
     val playlists: List<IptvPlaylistEntry> = emptyList(),
@@ -1124,12 +1126,12 @@ class IptvRepository @Inject constructor(
         reconcileFavoritesWithLineup("after cloud restore")
     }
 
-    /** True when the user toggled a favourite on this device since favourites were last restored. */
-    suspend fun favoritesEditedSinceLastRestore(profileId: String): Boolean {
+    /** (editedAt, syncedAt) favourite bookkeeping for [FavoritesSyncPolicy]. */
+    suspend fun favoritesSyncStamps(profileId: String): Pair<Long, Long> {
         val prefs = context.settingsDataStore.data.first()
         val edited = prefs[profileManager.profileLongKeyFor(profileId, "iptv_favorites_edited_at")] ?: 0L
         val synced = prefs[profileManager.profileLongKeyFor(profileId, "iptv_favorites_synced_at")] ?: 0L
-        return edited > synced
+        return edited to synced
     }
 
     /**
@@ -2275,6 +2277,10 @@ class IptvRepository @Inject constructor(
             favoriteChannelNames = decodeFavoriteChannelNames(
                 prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
             ),
+            favoritesUpdatedAt = maxOf(
+                prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_edited_at")] ?: 0L,
+                prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_server_updated_at")] ?: 0L,
+            ),
             hiddenGroups = if (hiddenRaw.isNotBlank()) {
                 runCatching {
                     val type = TypeToken.getParameterized(List::class.java, String::class.java).type
@@ -2312,33 +2318,44 @@ class IptvRepository @Inject constructor(
                 epgUrls = epgUrls
             )
         }.filter { it.m3uUrl.isNotBlank() }.take(3)
+        var favoritesRestoreSkipped = false
         context.settingsDataStore.edit { prefs ->
             if (normalizedM3u.isNotBlank()) prefs[m3uUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedM3u)
             if (normalizedEpg.isNotBlank()) prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
-            prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
-            // Marks "favourites now equal the server's": until the user toggles one on this device,
-            // pushes carry the server's favourite set, never this device's copy of it.
-            prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_synced_at")] =
-                System.currentTimeMillis()
-            // Merge rather than outright replace: a device on an older build syncs favourites with
-            // no names attached, and dropping the names we already hold would strand exactly the
-            // favourites this is meant to rescue. But the merged result must still be pruned to only
-            // the ids in *this* incoming favourite list — otherwise an id->name entry can survive
-            // indefinitely across every sync even after the favourite it belonged to is gone or has
-            // been reanchored elsewhere. Confirmed live 2026-09-13 during a string of same-day
-            // renumbering events: the Red Zone favourite was reanchored onto an id that actually
-            // belonged to an unrelated channel (BET FHD), i.e. pruneStaleFavoriteChannels's name-based
-            // recovery matched against a stale/incorrect remembered name for some id — this merge
-            // never garbage-collecting old entries is the mechanism that lets a wrong id->name pair
-            // sit around indefinitely to be read back later, whatever exactly produced it in this
-            // instance.
-            if (state.favoriteChannelNames.isNotEmpty()) {
-                val merged = (decodeFavoriteChannelNames(
-                    prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
-                ) + state.favoriteChannelNames)
-                    .filterKeys { it in state.favoriteChannels }
-                prefs[favoriteChannelNamesKeyFor(safeProfileId)] = gson.toJson(merged)
+            val editedAt = prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_edited_at")] ?: 0L
+            val syncedAt = prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_synced_at")] ?: 0L
+            if (FavoritesSyncPolicy.shouldApplyIncoming(state.favoritesUpdatedAt, editedAt, syncedAt)) {
+                prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
+                // Marks "favourites now equal the server's": until the user toggles one on this device,
+                // pushes carry the server's favourite set, never this device's copy of it.
+                prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_synced_at")] =
+                    System.currentTimeMillis()
+                // Merge rather than outright replace: a device on an older build syncs favourites with
+                // no names attached, and dropping the names we already hold would strand exactly the
+                // favourites this is meant to rescue. But the merged result must still be pruned to only
+                // the ids in *this* incoming favourite list — otherwise an id->name entry can survive
+                // indefinitely across every sync even after the favourite it belonged to is gone or has
+                // been reanchored elsewhere. Confirmed live 2026-09-13 during a string of same-day
+                // renumbering events: the Red Zone favourite was reanchored onto an id that actually
+                // belonged to an unrelated channel (BET FHD), i.e. pruneStaleFavoriteChannels's name-based
+                // recovery matched against a stale/incorrect remembered name for some id — this merge
+                // never garbage-collecting old entries is the mechanism that lets a wrong id->name pair
+                // sit around indefinitely to be read back later, whatever exactly produced it in this
+                // instance.
+                if (state.favoriteChannelNames.isNotEmpty()) {
+                    val merged = (decodeFavoriteChannelNames(
+                        prefs[favoriteChannelNamesKeyFor(safeProfileId)].orEmpty(),
+                    ) + state.favoriteChannelNames)
+                        .filterKeys { it in state.favoriteChannels }
+                    prefs[favoriteChannelNamesKeyFor(safeProfileId)] = gson.toJson(merged)
+                }
+                prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_server_updated_at")] =
+                    state.favoritesUpdatedAt
+            } else {
+                // A newer favourite edit made on this device hasn't reached the server yet:
+                // keep it; the next push sends it (FavoritesSyncPolicy.forPush).
+                favoritesRestoreSkipped = true
             }
             if (state.hiddenGroups.isNotEmpty()) {
                 prefs[hiddenGroupsKeyFor(safeProfileId)] = gson.toJson(state.hiddenGroups.distinct())
@@ -2360,6 +2377,9 @@ class IptvRepository @Inject constructor(
             } else {
                 prefs.remove(tvSessionKeyFor(safeProfileId))
             }
+        }
+        if (favoritesRestoreSkipped) {
+            Log.i(SYNC_LOG_TAG, "restore: kept local favourites for $safeProfileId (local edit newer than incoming ${state.favoritesUpdatedAt})")
         }
         if (profileManager.getProfileIdSync() == safeProfileId) {
             invalidateCache()

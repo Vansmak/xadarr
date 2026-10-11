@@ -109,6 +109,13 @@ All data lives in `/data/` inside the container (mount a host path or named volu
 | `GET` | `/api/integration/xadarr/settings` | Pull full settings blob |
 | `PUT` | `/api/integration/xadarr/settings` | Push full settings blob |
 
+**Sync contract — newer wins, never older.** Every Xadarr sync server must follow it (the app enforces the same rule on its side and never relies on the server to protect data):
+- `PUT /settings` with an `updatedAt` older than the stored blob's is rejected with `409` (the app then pulls). An equal `updatedAt` is accepted — an unchanged device re-sends the stamp it pulled.
+- Favourite channels carry their own per-profile `iptvByProfile.<id>.favoritesUpdatedAt`. A PUT whose favourites stamp is older than the stored one keeps the stored `favoriteChannels` / `favoriteChannelNames` while the rest of the write is accepted, so an unrelated change on a device can't drag a stale favourite list along.
+- Favourite channel ids are a cache of where each `favoriteChannelNames` entry sits in the lineup; the name is the identity.
+- Log every accepted and rejected write with the caller's IP and favourite count.
+- A manual edit of the stored blob must bump `updatedAt` (and `favoritesUpdatedAt` when favourites change), or the next device push legitimately wins.
+
 ### Media
 | Method | Path | Description |
 |--------|------|-------------|

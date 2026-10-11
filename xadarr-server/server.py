@@ -680,12 +680,62 @@ def sync_get_settings():
     return jsonify(blob)
 
 
+def _as_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _fav_count(blob: dict) -> int:
+    try:
+        pid = blob.get("activeProfileId") or "default"
+        return len(((blob.get("iptvByProfile") or {}).get(pid) or {}).get("favoriteChannels") or [])
+    except Exception:
+        return -1
+
+
 @app.route("/api/integration/xadarr/settings", methods=["PUT"])
 def sync_put_settings():
     data = request.get_json(force=True) or {}
+    caller = request.remote_addr
     # Preserve homeServerConnectionJson for each profile if the incoming blob omits or nulls it.
     # This prevents a device that lost its Keystore from wiping credentials for all clients.
     existing = _load_json(SETTINGS_FILE, {})
+    # Xadarr sync contract: newer wins, never older. The app enforces this itself
+    # (CloudSyncRepository / FavoritesSyncPolicy); every sync server enforces it too.
+    #  1. A payload whose `updatedAt` is older than the stored one is rejected with 409
+    #     (the app then pulls). Equal is accepted: an unchanged device re-sends the stamp
+    #     it last pulled.
+    #  2. Favourite channels have their own per-profile `favoritesUpdatedAt`; an older one
+    #     keeps the stored favourites while the rest of the write is accepted.
+    existing_updated_at = _as_int(existing.get("updatedAt"))
+    incoming_updated_at = _as_int(data.get("updatedAt"))
+    if existing and incoming_updated_at < existing_updated_at:
+        print(f"[sync] REJECT PUT from {caller}: older updatedAt {incoming_updated_at} < stored "
+              f"{existing_updated_at} (favourites incoming={_fav_count(data)} stored={_fav_count(existing)})",
+              flush=True)
+        return jsonify({
+            "status": "conflict",
+            "reason": "older updatedAt - pull the current settings and retry",
+            "serverUpdatedAt": existing_updated_at,
+        }), 409
+    kept_favourites_for = []
+    for pid, existing_iptv in (existing.get("iptvByProfile") or {}).items():
+        incoming_iptv = (data.get("iptvByProfile") or {}).get(pid)
+        if not isinstance(existing_iptv, dict) or not isinstance(incoming_iptv, dict):
+            continue
+        if _as_int(incoming_iptv.get("favoritesUpdatedAt")) < _as_int(existing_iptv.get("favoritesUpdatedAt")):
+            for key in ("favoriteChannels", "favoriteChannelNames", "favoritesUpdatedAt"):
+                if key in existing_iptv:
+                    incoming_iptv[key] = existing_iptv.get(key)
+            kept_favourites_for.append(pid)
+    if kept_favourites_for:
+        active_pid = data.get("activeProfileId") or "default"
+        if active_pid in kept_favourites_for:
+            data["iptvFavoriteChannels"] = ((data.get("iptvByProfile") or {}).get(active_pid) or {}).get("favoriteChannels")
+        print(f"[sync] PUT from {caller} carried older favourites for {','.join(kept_favourites_for)} "
+              f"- kept stored favourites", flush=True)
     existing_profiles = existing.get("profileSettingsById") or {}
     incoming_profiles = data.get("profileSettingsById") or {}
     for pid, existing_ps in existing_profiles.items():
@@ -748,6 +798,7 @@ def sync_put_settings():
         for pid, layout in existing_home_layout.items():
             incoming_home_layout.setdefault(pid, layout)
     _save_json(SETTINGS_FILE, data)
+    print(f"[sync] saved PUT from {caller}: updatedAt {incoming_updated_at}, favourites={_fav_count(data)}", flush=True)
     return jsonify({"ok": True})
 
 

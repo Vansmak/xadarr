@@ -991,21 +991,32 @@ class CloudSyncRepository @Inject constructor(
                             favoriteChannelNames = serverFavNames,
                         )
                 }
-                // Favourite channels are only ever pushed from a device where the user actually
-                // toggled one since the last restore. Otherwise this device's copy is at best equal
-                // to the server's and at worst a stale pre-renumbering copy — and the whole-snapshot
-                // push (triggered by something unrelated like opening the guide, which saves the TV
-                // session) used to send it with a brand-new timestamp, overwriting the server's
-                // correct favourites. Seen 2026-10-10 17:27:50: the SHIELD pushed 4 stale ids over a
-                // just-corrected server set one second after the guide opened. The server's set is
-                // sent back instead, with ids re-anchored by name if this device has a fresh lineup.
-                if (serverIptv != null && serverIptv.has("favoriteChannels") &&
-                    !iptvRepository.favoritesEditedSinceLastRestore(profile.id)
-                ) {
-                    val (ids, names) = iptvRepository.resolveFavoritesForPush(
-                        profile.id, serverFavChannels, serverFavNames,
+                // Favourite channels have their own timestamp and are only ever pushed from a
+                // device holding a local favourite edit NEWER than the server's; otherwise the
+                // server's set is sent back unchanged (FavoritesSyncPolicy.forPush). Before this,
+                // the whole-snapshot push (triggered by something unrelated like opening the
+                // guide, which saves the TV session) carried this device's favourites with a
+                // brand-new timestamp: 2026-10-10 17:27:50 the SHIELD pushed 4 stale ids over a
+                // just-corrected server set one second after the guide opened.
+                if (serverIptv != null && serverIptv.has("favoriteChannels")) {
+                    val (editedAt, syncedAt) = iptvRepository.favoritesSyncStamps(profile.id)
+                    val chosen = FavoritesSyncPolicy.forPush(
+                        local = FavoritesSyncPolicy.Favs(
+                            state.favoriteChannels, state.favoriteChannelNames, state.favoritesUpdatedAt,
+                        ),
+                        localEditedAt = editedAt,
+                        localSyncedAt = syncedAt,
+                        server = FavoritesSyncPolicy.Favs(
+                            serverFavChannels, serverFavNames, serverIptv.optLong("favoritesUpdatedAt", 0L),
+                        ),
                     )
-                    state = state.copy(favoriteChannels = ids, favoriteChannelNames = names)
+                    // Server's set: ids re-anchored by name only if this device has a fresh lineup.
+                    val (ids, names) = iptvRepository.resolveFavoritesForPush(profile.id, chosen.ids, chosen.names)
+                    state = state.copy(
+                        favoriteChannels = ids,
+                        favoriteChannelNames = names,
+                        favoritesUpdatedAt = chosen.updatedAt,
+                    )
                 }
                 put(profile.id, state)
             }
@@ -1269,6 +1280,9 @@ class CloudSyncRepository @Inject constructor(
      * Returns [RestoreResult] indicating what happened.
      */
     suspend fun pullFromCloud(): RestoreResult = cloudSyncMutex.withLock {
+        // Set when a local change is still unsent after the pre-push (network failure etc.):
+        // the restore below must then not replace it with anything older (newer wins, never older).
+        var unsentLocalStamp = 0L
         if (hasPendingLocalChanges()) {
             AppLogger.breadcrumb(
                 tag = "CloudSync",
@@ -1276,6 +1290,9 @@ class CloudSyncRepository @Inject constructor(
                 severity = "info"
             )
             val pushResult = pushToCloudLocked()
+            if (pushResult.isFailure && pushResult.exceptionOrNull() !is SyncVersionConflictException) {
+                unsentLocalStamp = context.settingsDataStore.data.first()[cloudSyncContentStampKey] ?: 0L
+            }
             // Log push failure but continue the pull regardless — the pull restores home server
             // connections and other critical state from the blob even when the push fails.
             // Aborting the pull on push failure means a transient send error permanently prevents
@@ -1304,6 +1321,12 @@ class CloudSyncRepository @Inject constructor(
             }
             val payload = payloadResult.getOrNull().orEmpty()
             if (payload.isNotBlank()) {
+                val serverUpdatedAt = runCatching { JSONObject(payload).optLong("updatedAt", 0L) }.getOrDefault(0L)
+                if (unsentLocalStamp > 0L && serverUpdatedAt < unsentLocalStamp) {
+                    android.util.Log.i("XadarrSync",
+                        "restore: skipped, unsent local change is newer (local=$unsentLocalStamp server=$serverUpdatedAt)")
+                    return@withLock RestoreResult.FAILED
+                }
                 return@withLock applyPayloadLocked(payload)
             }
             AppLogger.breadcrumb(tag = "CloudSync", message = "pull_server_no_backup", severity = "info")

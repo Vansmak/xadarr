@@ -218,3 +218,40 @@ object FavoriteChannelResolver {
         return resolveName(lineup, rememberedName, originalId = id)
     }
 }
+
+/**
+ * Favourites carry their own timestamp, independent of the whole-settings `updatedAt`, so an
+ * unrelated change on a device (opening the guide saves the TV session) can never drag that
+ * device's stale copy of the favourites along with it. Rule: newer wins, never older.
+ *
+ * Local bookkeeping per profile: `editedAt` = last time the user toggled a favourite on this
+ * device; `syncedAt` = last time favourites were taken from the server. A local edit is
+ * "pending" while editedAt > syncedAt.
+ */
+object FavoritesSyncPolicy {
+
+    data class Favs(
+        val ids: List<String>,
+        val names: Map<String, String>,
+        val updatedAt: Long,
+    )
+
+    private fun hasPendingLocalEdit(localEditedAt: Long, localSyncedAt: Long) =
+        localEditedAt > 0L && localEditedAt > localSyncedAt
+
+    /**
+     * The favourites a push should send. A device only sends its own list when it holds a local
+     * edit that is newer than what the server has; in every other case it sends the server's
+     * list back unchanged, so a push can never replace server favourites with older ones.
+     */
+    fun forPush(local: Favs, localEditedAt: Long, localSyncedAt: Long, server: Favs?): Favs = when {
+        server == null -> local.copy(updatedAt = maxOf(local.updatedAt, localEditedAt))
+        hasPendingLocalEdit(localEditedAt, localSyncedAt) && localEditedAt > server.updatedAt ->
+            local.copy(updatedAt = localEditedAt)
+        else -> server
+    }
+
+    /** Whether a restore may replace local favourites: never over a newer, unpushed local edit. */
+    fun shouldApplyIncoming(incomingUpdatedAt: Long, localEditedAt: Long, localSyncedAt: Long): Boolean =
+        !(hasPendingLocalEdit(localEditedAt, localSyncedAt) && localEditedAt > incomingUpdatedAt)
+}
