@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.15] - 2026-10-10
+
+### Fixed
+- **Favourite channels survive renumbering, for real** — favourites (and the last-watched channel) are now tracked by channel name; the stored number is only a cache, re-checked against the lineup on every playlist load and after every sync restore. The Favourites row can no longer show a different channel that inherited a favourite's old number (Newsmax showing as NewsNation, ESPN as ESPN Deportes, FOX News as FOX Weather, Dodgers as SportsGrid).
+- **A TV can't push stale favourites over the server any more** — a device only sends its own favourite list when you changed a favourite on it; otherwise it sends back the server's set, so opening the guide on a box with an old copy no longer overwrites everyone's favourites.
+
+### Also in this release
+- Guide: back from playback lands on the channel/show you were watching, not CH 100; back from a show or movie returns to its own row.
+- Guide: mark a show caught up ("Mark watched through here" / "Mark all watched").
+- Player: Skip Ending exits back to the guide and counts the episode watched.
+- Trakt off: marking watched goes to Plex; one-time copy of Xadarr's watched marks into Plex.
+- Shows guide: downloading episodes show progress; music and phone tab fixes.
+
 ## [2.14] - 2026-10-05
 
 ### Added

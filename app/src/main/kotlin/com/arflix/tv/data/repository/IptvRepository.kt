@@ -76,6 +76,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.xml.parsers.SAXParserFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import android.util.Log
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -152,10 +156,15 @@ data class IptvCloudProfileState(
 
 data class IptvTvSessionState(
     val lastChannelId: String = "",
+    /** Name of [lastChannelId] when saved — the id is only a cache; see FavoriteChannelResolver. */
+    val lastChannelName: String = "",
     val lastGroupName: String = "",
     val lastFocusedZone: String = "GUIDE",
     val lastOpenedAt: Long = 0L
 )
+
+/** Logcat tag shared with CloudSyncRepository so favourite/sync events read as one story. */
+private const val SYNC_LOG_TAG = "XadarrSync"
 
 @Singleton
 class IptvRepository @Inject constructor(
@@ -173,6 +182,20 @@ class IptvRepository @Inject constructor(
 
     @Volatile
     private var cachedChannels: List<IptvChannel> = emptyList()
+
+    /** The lineup favourites are resolved against; see [reconcileFavoritesWithLineup]. */
+    private data class LineupInfo(
+        val lineup: FavoriteChannelResolver.Lineup,
+        val fromNetwork: Boolean,
+        val profileId: String,
+    )
+    // Deliberately NOT cleared by invalidateCache(): after a cloud restore the lineup hasn't
+    // changed, and it's exactly what the restored ids must be checked against.
+    private val lineupState = MutableStateFlow<LineupInfo?>(null)
+    private val favoritesReconcileMutex = Mutex()
+    private val favoritesRepairScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var lastFavoritesRepairFetchAt: Long = 0L
     @Volatile
     private var cachedGroupedChannels: Map<String, List<IptvChannel>> = emptyMap()
     @Volatile var cachedStalkerApi: com.arflix.tv.data.api.StalkerApi? = null
@@ -342,9 +365,21 @@ class IptvRepository @Inject constructor(
             decodeFavoriteGroups(prefs)
         }
 
+    /**
+     * Favourite ids safe to DISPLAY: every id is checked by name against the current lineup, so a
+     * favourite can never show whatever channel inherited its old number. Stored ids that are
+     * stale are mapped to where the remembered name lives now; unresolvable ones are hidden.
+     */
     fun observeFavoriteChannels(): Flow<List<String>> =
-        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
-            decodeFavoriteChannels(prefs)
+        combine(profileManager.activeProfileId, context.settingsDataStore.data, lineupState) { profileId, prefs, info ->
+            val stored = decodeFavoriteChannels(prefs)
+            if (info == null || info.lineup.isEmpty() || stored.isEmpty() || info.profileId != profileId) {
+                stored
+            } else {
+                FavoriteChannelResolver.resolve(
+                    stored, decodeFavoriteChannelNames(prefs), info.lineup, dropUnresolved = false,
+                ).visible
+            }
         }
 
     fun observeFavoriteSortMode(): Flow<String> =
@@ -375,8 +410,17 @@ class IptvRepository @Inject constructor(
         }
 
     fun observeTvSessionState(): Flow<IptvTvSessionState> =
-        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
-            decodeTvSessionState(prefs)
+        combine(profileManager.activeProfileId, context.settingsDataStore.data, lineupState) { profileId, prefs, info ->
+            val session = decodeTvSessionState(prefs)
+            if (info == null || info.profileId != profileId || session.lastChannelName.isBlank()) {
+                session
+            } else {
+                val resolved = FavoriteChannelResolver.resolveSingle(
+                    session.lastChannelId, session.lastChannelName, info.lineup,
+                )
+                if (resolved == session.lastChannelId) session
+                else session.copy(lastChannelId = resolved.orEmpty())
+            }
         }
 
     suspend fun saveTvSessionState(state: IptvTvSessionState) {
@@ -989,121 +1033,188 @@ class IptvRepository @Inject constructor(
     }
 
     /**
-     * Re-anchors favourites whose id no longer resolves, and drops the ones that can't be saved.
+     * Brings the stored favourite ids (and the last-watched channel) in line with the current
+     * lineup, using the remembered channel NAME as the source of truth.
      *
-     * A channel id is only as stable as whatever the playlist keys it on. Dispatcharr's M3U
-     * publishes the *channel number* as the tvg-id by default, so ids look like `epg:209` and a
-     * renumbering silently repoints every favourite at whichever channel inherited that number —
-     * favouriting SportsNet LA and later finding BTN Overflow in the row, having touched nothing.
-     * Numbers move whenever the lineup is reorganised, so this is not a rare event.
+     * Runs on EVERY lineup publish (cached or network) and after every cloud restore. The
+     * previous prune ran only after a network playlist fetch inside loadSnapshot, which in
+     * practice almost never happened (the TV page serves the disk-cached playlist, even when
+     * stale, and startup prefetch / restores never called it), and cloud restores re-applied
+     * stale ids straight over whatever it had fixed. See [FavoriteChannelResolver].
      *
-     * The remembered name is the anchor that survives it: a favourite that no longer resolves is
-     * matched back to the live channel of the same name and rewritten to its current id. Only when
-     * the name matches nothing either is the favourite genuinely gone and dropped.
-     *
-     * Marks the profile dirty only when something actually changed, so this never spams the sync
-     * layer on every playlist load.
+     * - Re-anchoring is allowed against any lineup (it only moves an id to where the remembered
+     *   name lives in that lineup, which is by definition correct for that lineup).
+     * - Dropping is only allowed against a network-fresh lineup.
+     * - The repair is pushed to the sync server only when the lineup is network-fresh, so a box
+     *   sitting on an old cache can never ping-pong ids with an up-to-date one. When a cached
+     *   lineup reveals stale ids, a fresh fetch is kicked off to confirm and push.
      */
-    private suspend fun pruneStaleFavoriteChannels(liveChannels: List<IptvChannel>) {
-        // Name of whichever live channel currently holds each id — not just whether the id
-        // exists. A renumbering doesn't just retire old ids, it *reassigns* them: id "epg:270"
-        // used to be Red Zone and now belongs to Pac-12 Insider, so "id in liveIds" is true for
-        // the wrong channel and this favourite would never even reach the name check below.
-        // Only an id whose live channel's name still matches what was remembered is trustworthy.
-        val liveNameById = HashMap<String, String>(liveChannels.size)
-        // Two tiers, exact checked before loose. favoriteNameKey() strips quality suffixes
-        // (HD/UHD/4K/...) so a favourite reanchors across a genuine quality upgrade (e.g. "NFL
-        // Network SD" -> "NFL Network FHD" after a stream change) — but that same stripping
-        // collapses "ESPN HD" and "ESPN 4K UHD" to the identical key "espn", even though both
-        // are distinct channels that exist simultaneously right now. Loose-only matching picked
-        // whichever of the two happened to come first in the fetched list, silently reanchoring
-        // ESPN HD onto ESPN 4K UHD's id (confirmed live 2026-09-13). An exact (unstripped) name
-        // match is unambiguous and always preferred; loose is only the fallback for when no
-        // live channel has the exact remembered name.
-        val liveByExactName = HashMap<String, String>(liveChannels.size)
-        // First name wins, so a favourite re-anchors to the primary entry rather than a duplicate.
-        val liveByName = HashMap<String, String>(liveChannels.size)
-        liveChannels.forEach { channel ->
-            liveNameById.putIfAbsent(channel.id, channel.name)
-            val exactKey = channel.name.trim().lowercase()
-            if (exactKey.isNotEmpty()) liveByExactName.putIfAbsent(exactKey, channel.id)
-            val key = favoriteNameKey(channel.name)
-            if (key.isNotEmpty()) liveByName.putIfAbsent(key, channel.id)
-        }
-
-        var reanchored = 0
-        var removed = 0
-        context.settingsDataStore.edit { prefs ->
-            val existing = decodeFavoriteChannels(prefs)
-            if (existing.isEmpty()) return@edit
-            val names = decodeFavoriteChannelNames(prefs).toMutableMap()
-
-            val kept = mutableListOf<String>()
-            existing.forEach { id ->
-                val rememberedName = names[id]
-                val liveName = liveNameById[id]
-                // Exact, not loose: favoriteNameKey() strips quality suffixes so a genuine label
-                // bump (SD -> FHD on the same id) doesn't need a full reanchor, but that same
-                // stripping would also call "ESPN HD" and "ESPN 4K UHD" a match, incorrectly
-                // trusting an id that got reassigned to a different live channel. A benign label
-                // change just falls through to the reanchor branch below instead, which finds it
-                // fine via the loose fallback there.
-                val idStillTrustworthy = liveName != null &&
-                    (rememberedName == null || liveName.trim().lowercase() == rememberedName.trim().lowercase())
-                when {
-                    idStillTrustworthy -> kept.add(id)
-                    else -> {
-                        val recoveredId = rememberedName
-                            ?.let { name -> liveByExactName[name.trim().lowercase()] ?: liveByName[favoriteNameKey(name)] }
-                            ?.takeIf { it !in kept }
-                        if (recoveredId != null) {
-                            kept.add(recoveredId)
-                            names.remove(id)
-                            names[recoveredId] = rememberedName
-                            reanchored++
-                        } else {
-                            // Either the id is dead, or it's alive but now belongs to a different
-                            // channel and nothing else on the lineup matches the remembered name —
-                            // the favourited channel is genuinely gone either way. Keeping the id
-                            // would just silently show whatever now occupies that number.
-                            names.remove(id)
-                            removed++
-                        }
+    suspend fun reconcileFavoritesWithLineup(reason: String = "") {
+        val info = lineupState.value ?: return
+        if (info.lineup.isEmpty()) return
+        if (info.profileId != profileManager.getProfileIdSync()) return
+        var result: FavoriteChannelResolver.Resolution? = null
+        var sessionFixed = false
+        favoritesReconcileMutex.withLock {
+            context.settingsDataStore.edit { prefs ->
+                val existing = decodeFavoriteChannels(prefs)
+                val names = decodeFavoriteChannelNames(prefs)
+                if (existing.isNotEmpty()) {
+                    val r = FavoriteChannelResolver.resolve(
+                        existing, names, info.lineup, dropUnresolved = info.fromNetwork,
+                    )
+                    result = r
+                    if (r.changed || r.ids != existing) {
+                        prefs[favoriteChannelsKey()] = gson.toJson(r.ids)
+                        prefs[favoriteChannelNamesKey()] = gson.toJson(r.names)
+                    }
+                }
+                // Same bug, same fix for the last-watched channel.
+                val session = decodeTvSessionState(prefs)
+                if (session.lastChannelId.isNotBlank() && session.lastChannelName.isNotBlank()) {
+                    val resolved = FavoriteChannelResolver.resolveSingle(
+                        session.lastChannelId, session.lastChannelName, info.lineup,
+                    )
+                    if (resolved != null && resolved != session.lastChannelId) {
+                        prefs[tvSessionKey()] = gson.toJson(session.copy(lastChannelId = resolved))
+                        sessionFixed = true
+                    } else if (resolved == null && info.fromNetwork) {
+                        prefs[tvSessionKey()] = gson.toJson(session.copy(lastChannelId = "", lastChannelName = ""))
+                        sessionFixed = true
                     }
                 }
             }
-            if (reanchored > 0 || removed > 0) {
-                prefs[favoriteChannelsKey()] = gson.toJson(kept.distinct())
-                prefs[favoriteChannelNamesKey()] = gson.toJson(names.filterKeys { it in kept })
+        }
+        val r = result
+        val favChanged = r != null && r.changed
+        if (favChanged || sessionFixed) {
+            Log.i(
+                SYNC_LOG_TAG,
+                "favourites reconcile ($reason, lineup=${info.lineup.size} " +
+                    "${if (info.fromNetwork) "network" else "cache"}): re-anchored ${r?.reanchored ?: 0}, " +
+                    "dropped ${r?.dropped ?: 0}, session fixed=$sessionFixed -> ${r?.ids?.size ?: 0} favourites",
+            )
+            if (info.fromNetwork) {
+                // force: a repair is a genuine local change even if it happens while a remote
+                // restore is being applied on another coroutine (which would suppress it).
+                invalidationBus.markDirty(
+                    CloudSyncScope.IPTV,
+                    profileManager.getProfileIdSync(),
+                    "favourites: re-anchored ${r?.reanchored ?: 0}, dropped ${r?.dropped ?: 0}",
+                    force = true,
+                )
+            } else {
+                scheduleFavoritesRepairFetch()
             }
         }
-        if (reanchored > 0 || removed > 0) {
-            invalidationBus.markDirty(
-                CloudSyncScope.IPTV,
-                profileManager.getProfileIdSync(),
-                "favourites: re-anchored $reanchored, dropped $removed",
-            )
+    }
+
+    /**
+     * Called by cloud sync right after a payload was applied. A restore writes the server's ids
+     * verbatim; if another device pushed ids from before a renumbering they are wrong here, so
+     * they get resolved by name against the lineup we already know (memory, else disk cache).
+     */
+    suspend fun reconcileFavoritesAfterRestore() {
+        if (lineupState.value == null) {
+            runCatching {
+                val config = observeConfig().first()
+                readCache(config)?.channels?.takeIf { it.isNotEmpty() }?.let { publishLineupOnly(it, fromNetwork = false) }
+            }
+        }
+        reconcileFavoritesWithLineup("after cloud restore")
+    }
+
+    /** True when the user toggled a favourite on this device since favourites were last restored. */
+    suspend fun favoritesEditedSinceLastRestore(profileId: String): Boolean {
+        val prefs = context.settingsDataStore.data.first()
+        val edited = prefs[profileManager.profileLongKeyFor(profileId, "iptv_favorites_edited_at")] ?: 0L
+        val synced = prefs[profileManager.profileLongKeyFor(profileId, "iptv_favorites_synced_at")] ?: 0L
+        return edited > synced
+    }
+
+    /**
+     * Resolves a favourite set (normally the server's) for pushing back. Ids are re-anchored by
+     * name only when [profileId] is active and the lineup is network-fresh; otherwise returned
+     * unchanged. Never drops anything: membership changes only come from the user.
+     */
+    fun resolveFavoritesForPush(
+        profileId: String,
+        ids: List<String>,
+        names: Map<String, String>,
+    ): Pair<List<String>, Map<String, String>> {
+        val info = lineupState.value
+        if (info == null || !info.fromNetwork || info.profileId != profileId) return ids to names
+        val r = FavoriteChannelResolver.resolve(ids, names, info.lineup, dropUnresolved = false)
+        return r.ids to r.names
+    }
+
+    private fun publishLineupOnly(channels: List<IptvChannel>, fromNetwork: Boolean) {
+        if (channels.isEmpty()) return
+        val current = lineupState.value
+        // A cached lineup must never replace a network one from this process.
+        if (!fromNetwork && current != null && current.fromNetwork &&
+            current.profileId == profileManager.getProfileIdSync()
+        ) return
+        lineupState.value = LineupInfo(
+            lineup = FavoriteChannelResolver.Lineup(channels.map { it.id to it.name }),
+            fromNetwork = fromNetwork,
+            profileId = profileManager.getProfileIdSync(),
+        )
+    }
+
+    /** Records the lineup the UI is about to show and reconciles favourites against it. */
+    private suspend fun publishLineup(channels: List<IptvChannel>, fromNetwork: Boolean, reason: String) {
+        if (channels.isEmpty()) return
+        publishLineupOnly(channels, fromNetwork)
+        runCatching { reconcileFavoritesWithLineup(reason) }
+    }
+
+    private fun scheduleFavoritesRepairFetch() {
+        val now = System.currentTimeMillis()
+        if (now - lastFavoritesRepairFetchAt < 10 * 60_000L) return
+        lastFavoritesRepairFetchAt = now
+        favoritesRepairScope.launch {
+            runCatching {
+                val config = observeConfig().first()
+                if (!hasAnyConfiguredSource(config)) return@runCatching
+                val fresh = withTimeoutOrNull(120_000L) { fetchFreshChannelsForStartup(config) }
+                if (fresh != null) {
+                    Log.i(SYNC_LOG_TAG, "favourites: stale ids seen on cached lineup -> fetched fresh lineup (${fresh.first.size})")
+                    storeStartupChannels(config, fresh.first, fresh.second)
+                }
+            }
         }
     }
 
     suspend fun toggleFavoriteChannel(channelId: String, channelName: String = "") {
         val trimmed = channelId.trim()
         if (trimmed.isEmpty()) return
-        context.settingsDataStore.edit { prefs ->
-            val existing = decodeFavoriteChannels(prefs).toMutableList()
-            val names = decodeFavoriteChannelNames(prefs).toMutableMap()
-            if (existing.contains(trimmed)) {
-                existing.remove(trimmed)
-                names.remove(trimmed)
-            } else {
-                existing.remove(trimmed)
-                existing.add(0, trimmed)
-                // The name is what lets this favourite be recovered after a renumbering; without
-                // it the entry can only ever be pruned.
-                channelName.trim().takeIf { it.isNotEmpty() }?.let { names[trimmed] = it }
+        val info = lineupState.value?.takeIf { it.profileId == profileManager.getProfileIdSync() }
+        favoritesReconcileMutex.withLock {
+            context.settingsDataStore.edit { prefs ->
+                var existing = decodeFavoriteChannels(prefs).toMutableList()
+                var names = decodeFavoriteChannelNames(prefs).toMutableMap()
+                // Bring stored ids in line with the lineup the user is looking at first, so the
+                // id they toggle is compared against current ids, not pre-renumbering ones.
+                if (info != null && !info.lineup.isEmpty() && existing.isNotEmpty()) {
+                    val r = FavoriteChannelResolver.resolve(existing, names, info.lineup, dropUnresolved = false)
+                    existing = r.ids.toMutableList()
+                    names = r.names.toMutableMap()
+                }
+                if (existing.contains(trimmed)) {
+                    existing.remove(trimmed)
+                    names.remove(trimmed)
+                } else {
+                    existing.add(0, trimmed)
+                    // The name is what lets this favourite be recovered after a renumbering.
+                    val name = channelName.trim().ifEmpty { info?.lineup?.nameById?.get(trimmed).orEmpty().trim() }
+                    if (name.isNotEmpty()) names[trimmed] = name
+                }
+                prefs[favoriteChannelsKey()] = gson.toJson(existing)
+                prefs[favoriteChannelNamesKey()] = gson.toJson(names.filterKeys { it in existing })
+                prefs[profileManager.profileLongKeyFor(profileManager.getProfileIdSync(), "iptv_favorites_edited_at")] =
+                    System.currentTimeMillis()
             }
-            prefs[favoriteChannelsKey()] = gson.toJson(existing)
-            prefs[favoriteChannelNamesKey()] = gson.toJson(names)
         }
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "toggle favorite channel")
     }
@@ -1150,6 +1261,7 @@ class IptvRepository @Inject constructor(
                 onProgress(IptvLoadProgress("Loaded ${channels.size} channels", 80))
                 val grouped = buildGroupedChannels(channels)
                 val favGroups = observeFavoriteGroups().first()
+                publishLineup(channels, fromNetwork = true, reason = "stalker load")
                 val favChannels = observeFavoriteChannels().first()
                 val hiddenGroups = observeHiddenGroups().first()
                 val groupOrder = observeGroupOrder().first()
@@ -1219,26 +1331,11 @@ class IptvRepository @Inject constructor(
                 }
             }
 
-            // Drop favourites whose channel no longer exists.
-            //
-            // A favourite is stored as a channel id, and ids are derived from the M3U's tvg-id —
-            // which Dispatcharr fills with the channel *number* by default. Renumber a channel and
-            // its favourite becomes an orphan: it still lists in the Favourites row, but toggling
-            // the real channel writes a different id, so the UI can never remove it. Nine such
-            // entries survived force-stops, a cache clear, an app-data wipe and a reinstall,
-            // because they were healthy-looking data that simply pointed nowhere.
-            //
-            // Only prunes when a non-empty channel set actually loaded, so a failed or partial
-            // playlist fetch can't wipe the list — and only against a playlist fetched from the
-            // network, never a cached one. A cached list can be up to a day old and describe a
-            // lineup that no longer exists; measured against it, favourites for channels that are
-            // perfectly alive upstream look dead. A box running on a pre-renumbering cache did
-            // exactly that: it re-anchored what it could to the old numbers and deleted the rest,
-            // then synced that loss out to every other device. Deleting real favourites on the
-            // word of stale data is not a trade worth making, and waiting for the next real fetch
-            // costs nothing.
-            if (channels.isNotEmpty() && !usedCachedPlaylist) {
-                runCatching { pruneStaleFavoriteChannels(channels) }
+            // Resolve favourites (and the last-watched channel) by name against this lineup —
+            // cached or fresh. Dropping only ever happens against a network fetch; see
+            // reconcileFavoritesWithLineup.
+            if (channels.isNotEmpty()) {
+                publishLineup(channels, fromNetwork = !usedCachedPlaylist, reason = "playlist load")
             }
 
             // Publish channels immediately so the UI can show them while EPG loads.
@@ -1561,6 +1658,7 @@ class IptvRepository @Inject constructor(
 
                 val cached = readCache(config) ?: return@withLock
                 cachedChannels = cached.channels
+                publishLineup(cached.channels, fromNetwork = false, reason = "cache warmup")
                 cachedGroupedChannels = emptyMap()
                 cachedNowNext = ConcurrentHashMap(cached.nowNext)
                 cachedPlaylistAt = cached.loadedAtEpochMs
@@ -1594,6 +1692,7 @@ class IptvRepository @Inject constructor(
                 if (cachedChannels.isEmpty()) {
                     val cached = readCache(config) ?: return@withLock null
                     cachedChannels = cached.channels
+                    publishLineup(cached.channels, fromNetwork = false, reason = "cached snapshot")
                     cachedGroupedChannels = emptyMap()
                     cachedNowNext = ConcurrentHashMap(cached.nowNext)
                     cachedPlaylistAt = cached.loadedAtEpochMs
@@ -1861,6 +1960,7 @@ class IptvRepository @Inject constructor(
     ) {
         loadMutex.withLock {
             cachedChannels = channels
+            publishLineup(channels, fromNetwork = true, reason = "startup fetch")
             cachedGroupedChannels = buildGroupedChannels(channels)
             cachedPlaylistAt = System.currentTimeMillis()
             if (stalkerApi != null) {
@@ -2116,14 +2216,6 @@ class IptvRepository @Inject constructor(
     private fun decodeFavoriteChannelNames(prefs: Preferences): Map<String, String> =
         decodeFavoriteChannelNames(prefs[favoriteChannelNamesKey()].orEmpty())
 
-    /** Names differ across providers only in decoration ("Fox News HD", "US: Fox News"). */
-    private fun favoriteNameKey(name: String): String =
-        name.lowercase()
-            .replace(Regex("^(us[:|]|usa\\s*\\||uk[:|])\\s*"), "")
-            .replace(Regex("\\b(fhd|uhd|hd|sd|4k|raw|h265|hevc)\\b"), "")
-            .replace(Regex("[^a-z0-9]+"), "")
-            .trim()
-
     private fun decodeTvSessionState(prefs: Preferences): IptvTvSessionState =
         decodeTvSessionState(prefs[tvSessionKey()].orEmpty())
 
@@ -2134,6 +2226,8 @@ class IptvRepository @Inject constructor(
                 val lastChannelId = session.lastChannelId.trim()
                 session.copy(
                     lastChannelId = migrateLegacyChannelId(lastChannelId) ?: lastChannelId,
+                    // Gson leaves fields missing from older payloads null despite the Kotlin type.
+                    lastChannelName = (session.lastChannelName as String?).orEmpty().trim(),
                     lastGroupName = session.lastGroupName.trim(),
                     lastFocusedZone = session.lastFocusedZone.trim().ifBlank { "GUIDE" }
                 )
@@ -2223,6 +2317,10 @@ class IptvRepository @Inject constructor(
             if (normalizedEpg.isNotBlank()) prefs[epgUrlKeyFor(safeProfileId)] = encryptConfigValue(normalizedEpg)
             prefs[favoriteGroupsKeyFor(safeProfileId)] = gson.toJson(state.favoriteGroups.distinct())
             prefs[favoriteChannelsKeyFor(safeProfileId)] = gson.toJson(state.favoriteChannels.distinct())
+            // Marks "favourites now equal the server's": until the user toggles one on this device,
+            // pushes carry the server's favourite set, never this device's copy of it.
+            prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_favorites_synced_at")] =
+                System.currentTimeMillis()
             // Merge rather than outright replace: a device on an older build syncs favourites with
             // no names attached, and dropping the names we already hold would strand exactly the
             // favourites this is meant to rescue. But the merged result must still be pruned to only

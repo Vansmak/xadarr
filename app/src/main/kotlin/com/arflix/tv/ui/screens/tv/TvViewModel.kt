@@ -1528,6 +1528,10 @@ class TvViewModel @Inject constructor(
         val channelChanged = normalizedChannelId.isNotBlank() && normalizedChannelId != current.lastChannelId
         val next = current.copy(
             lastChannelId = normalizedChannelId,
+            // Remembered so the session survives a renumbering (the id is just a cache).
+            lastChannelName = _uiState.value.channelLookup[normalizedChannelId]?.name?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: if (normalizedChannelId == current.lastChannelId) current.lastChannelName else "",
             lastGroupName = normalizedGroupName,
             lastFocusedZone = normalizedFocusZone,
             lastOpenedAt = if (markOpened || channelChanged) System.currentTimeMillis() else current.lastOpenedAt

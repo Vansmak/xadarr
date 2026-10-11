@@ -303,6 +303,7 @@ class CloudSyncRepository @Inject constructor(
                 }
             }
             updateLanSyncTimestamp(payload)
+            runCatching { iptvRepository.reconcileFavoritesAfterRestore() }
             true
         }.getOrDefault(false)
     }
@@ -974,19 +975,44 @@ class CloudSyncRepository @Inject constructor(
                     if (serverM3u.isNotBlank() || serverEpg.isNotBlank())
                         state = state.copy(m3uUrl = serverM3u, epgUrl = serverEpg)
                 }
+                val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                val mapType = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
+                val serverFavChannels = serverIptv?.optJSONArray("favoriteChannels")?.toString()
+                    ?.let { runCatching { gson.fromJson<List<String>>(it, listType) }.getOrNull() }.orEmpty()
+                val serverFavNames = serverIptv?.optJSONObject("favoriteChannelNames")?.toString()
+                    ?.let { runCatching { gson.fromJson<Map<String, String>>(it, mapType) }.getOrNull() }.orEmpty()
                 if (local.favoriteGroups.isEmpty() && local.favoriteChannels.isEmpty()) {
-                    val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
                     val serverFavGroups = serverIptv?.optJSONArray("favoriteGroups")?.toString()
                         ?.let { runCatching { gson.fromJson<List<String>>(it, listType) }.getOrNull() }.orEmpty()
-                    val serverFavChannels = serverIptv?.optJSONArray("favoriteChannels")?.toString()
-                        ?.let { runCatching { gson.fromJson<List<String>>(it, listType) }.getOrNull() }.orEmpty()
                     if (serverFavGroups.isNotEmpty() || serverFavChannels.isNotEmpty())
-                        state = state.copy(favoriteGroups = serverFavGroups, favoriteChannels = serverFavChannels)
+                        state = state.copy(
+                            favoriteGroups = serverFavGroups,
+                            favoriteChannels = serverFavChannels,
+                            favoriteChannelNames = serverFavNames,
+                        )
+                }
+                // Favourite channels are only ever pushed from a device where the user actually
+                // toggled one since the last restore. Otherwise this device's copy is at best equal
+                // to the server's and at worst a stale pre-renumbering copy — and the whole-snapshot
+                // push (triggered by something unrelated like opening the guide, which saves the TV
+                // session) used to send it with a brand-new timestamp, overwriting the server's
+                // correct favourites. Seen 2026-10-10 17:27:50: the SHIELD pushed 4 stale ids over a
+                // just-corrected server set one second after the guide opened. The server's set is
+                // sent back instead, with ids re-anchored by name if this device has a fresh lineup.
+                if (serverIptv != null && serverIptv.has("favoriteChannels") &&
+                    !iptvRepository.favoritesEditedSinceLastRestore(profile.id)
+                ) {
+                    val (ids, names) = iptvRepository.resolveFavoritesForPush(
+                        profile.id, serverFavChannels, serverFavNames,
+                    )
+                    state = state.copy(favoriteChannels = ids, favoriteChannelNames = names)
                 }
                 put(profile.id, state)
             }
         }
         root.put("iptvByProfile", JSONObject(gson.toJson(iptvByProfile)))
+        val activeIptvFavourites = profileRepository.getActiveProfileId()
+            ?.let { iptvByProfile[it]?.favoriteChannels }
 
         // Watchlist per profile
         val watchlistByProfile = buildMap<String, List<LocalWatchlistItem>> {
@@ -1009,7 +1035,10 @@ class CloudSyncRepository @Inject constructor(
         root.put("iptvM3uUrl", iptvM3u)
         root.put("iptvEpgUrl", iptvEpg)
         root.put("iptvFavoriteGroups", JSONArray(gson.toJson(iptvRepository.observeFavoriteGroups().first())))
-        root.put("iptvFavoriteChannels", JSONArray(gson.toJson(iptvRepository.observeFavoriteChannels().first())))
+        root.put(
+            "iptvFavoriteChannels",
+            JSONArray(gson.toJson(activeIptvFavourites ?: iptvRepository.observeFavoriteChannels().first())),
+        )
 
         // Informational
         val isTraktLinked = traktRepository.hasTrakt()
@@ -1140,6 +1169,9 @@ class CloudSyncRepository @Inject constructor(
             val localUpdatedAt = runCatching { JSONObject(payload).optLong("updatedAt", 0L) }
                 .getOrDefault(0L)
             if (serverUpdatedAt > localUpdatedAt) {
+                android.util.Log.i("XadarrSync",
+                    "push: skipped, server newer (server=$serverUpdatedAt local=$localUpdatedAt) " +
+                        "favourites=${favouriteSummary(payload)}")
                 AppLogger.breadcrumb(
                     tag = "CloudSync",
                     message = "push_skipped_server_newer server=$serverUpdatedAt local=$localUpdatedAt",
@@ -1184,6 +1216,11 @@ class CloudSyncRepository @Inject constructor(
         // A device with genuine local changes still wins, because its dirty timestamp is newer.
         // This only blocks the case where it has nothing newer to offer.
         val result = syncServerSavePayload(sanitizeForServerSync(payload))
+        runCatching {
+            android.util.Log.i("XadarrSync",
+                "push: ${if (result.isSuccess) "OK" else "FAILED (${result.exceptionOrNull()?.javaClass?.simpleName}: ${result.exceptionOrNull()?.message})"} " +
+                    "updatedAt=${JSONObject(payload).optLong("updatedAt", 0L)} favourites=${favouriteSummary(payload)}")
+        }
         if (result.isSuccess) {
             clearLocalDirtyAfterSuccessfulPush()
             AppLogger.breadcrumb(
@@ -1297,6 +1334,19 @@ class CloudSyncRepository @Inject constructor(
         RestoreResult.NO_BACKUP
     }
 
+    /** "N [id=name, ...]" for the active profile's favourites in a payload, for logcat. */
+    private fun favouriteSummary(payload: String): String = runCatching {
+        val r = JSONObject(payload)
+        val profileId = r.optString("activeProfileId").ifBlank { "default" }
+        val p = r.optJSONObject("iptvByProfile")?.optJSONObject(profileId)
+        val ids = p?.optJSONArray("favoriteChannels")
+        val names = p?.optJSONObject("favoriteChannelNames")
+        if (ids == null) "n/a" else "${ids.length()} " + (0 until ids.length()).joinToString(", ", "[", "]") { i ->
+            val id = ids.optString(i)
+            "${id.substringAfterLast(':')}=${names?.optString(id).orEmpty()}"
+        }
+    }.getOrDefault("?")
+
     private suspend fun applyPayloadLocked(payload: String): RestoreResult =
         runCatching {
             runCatching {
@@ -1306,7 +1356,7 @@ class CloudSyncRepository @Inject constructor(
                     ?.optJSONArray("favoriteChannels")?.length() ?: -1
                 android.util.Log.i("XadarrSync",
                     "restore: applying payload updatedAt=${r.optLong("updatedAt", 0L)} " +
-                        "favourites(flat=$flat, profile.default=$prof)")
+                        "favourites(flat=$flat, profile.default=$prof) ${favouriteSummary(payload)}")
             }
             invalidationBus.suppressDuringRemoteApply { applyCloudPayload(payload) }
             runCatching {
@@ -1331,6 +1381,10 @@ class CloudSyncRepository @Inject constructor(
                     context.settingsDataStore.edit { it[cloudSyncServerVersionKey] = serverVersion }
                 }
             }
+            // The restore wrote the server's favourite ids verbatim. Resolve them by name against
+            // this device's lineup now — after the baseline is recorded, so a repair counts as a
+            // real local change and gets pushed (only when the lineup is network-fresh).
+            runCatching { iptvRepository.reconcileFavoritesAfterRestore() }
             AppLogger.breadcrumb(
                 tag = "CloudSync",
                 message = "pull_restored size=${payloadSizeBucket(payload)}",

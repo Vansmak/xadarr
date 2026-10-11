@@ -37,8 +37,12 @@ class CloudSyncInvalidationBus @Inject constructor() {
     val isApplyingRemoteState: Boolean
         get() = restoreDepth.get() > 0
 
-    fun markDirty(scope: CloudSyncScope, profileId: String? = null, reason: String = "") {
-        if (isApplyingRemoteState) return
+    /**
+     * [force] bypasses the remote-apply suppression, for genuine local changes (e.g. a favourite
+     * id repair) that merely happen to run while a restore is being applied elsewhere.
+     */
+    fun markDirty(scope: CloudSyncScope, profileId: String? = null, reason: String = "", force: Boolean = false) {
+        if (isApplyingRemoteState && !force) return
         _events.tryEmit(
             CloudSyncInvalidation(
                 scope = scope,
