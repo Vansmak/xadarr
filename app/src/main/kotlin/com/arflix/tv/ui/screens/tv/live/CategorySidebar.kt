@@ -231,20 +231,6 @@ fun CategorySidebar(
             context.packageManager.getLeanbackLaunchIntentForPackage(TIVIMATE_PACKAGE)
                 ?: context.packageManager.getLaunchIntentForPackage(TIVIMATE_PACKAGE)
         }
-        if (tiviMate != null) {
-            Spacer(Modifier.height(2.dp))
-            SearchEntry(
-                onClick = {
-                    runCatching { context.startActivity(tiviMate.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                },
-                expanded = expanded,
-                onMoveUp = null,
-                onFocusChanged = { if (it) onTopBoundaryFocusChanged(false) },
-                label = "Open TiviMate",
-                icon = Icons.Filled.OpenInNew,
-                hint = "TM",
-            )
-        }
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -326,58 +312,6 @@ fun CategorySidebar(
                             }
                         }
                     }
-                }
-            }
-            // "Filter / Refresh": a quick genre view of the guide, plus the manual refresh. Group
-            // and channel editing moved to Settings → Live TV (Joe, 2026-10-12: "for editing groups
-            // and channels I don't mind nav to settings").
-            item {
-                SidebarRow(
-                    label = genreFilter?.let { "Filter · ${it.label}" } ?: "Filter / Refresh",
-                    count = 0,
-                    icon = Icons.Filled.FilterList,
-                    active = genreFilter != null,
-                    expanded = expanded,
-                    hasChildren = true,
-                    isOpenGroup = toolsOpen,
-                    onFocused = { onTopBoundaryFocusChanged(false) },
-                    onClick = { toolsOpen = !toolsOpen },
-                    labelSize = 12.sp,
-                )
-            }
-            if (toolsOpen && expanded) {
-                items(listOf<GuideGenreFilter?>(null) + GuideGenreFilter.entries, key = { "genre:${it?.name ?: "all"}" }) { option ->
-                    SidebarRow(
-                        label = option?.label ?: "All channels",
-                        count = 0,
-                        icon = if (genreFilter == option) Icons.Filled.Check else null,
-                        active = genreFilter == option,
-                        expanded = true,
-                        indent = 16.dp,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = {
-                            onGenreFilter(option)
-                            toolsOpen = false
-                        },
-                        labelSize = 12.sp,
-                    )
-                }
-                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
-                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
-                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
-                item {
-                    SidebarRow(
-                        label = playlistRefreshResult
-                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
-                        count = 0,
-                        icon = Icons.Filled.Refresh,
-                        active = false,
-                        expanded = true,
-                        indent = 16.dp,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
-                        labelSize = 12.sp,
-                    )
                 }
             }
             if (tree.global.categories.isNotEmpty()) {
@@ -481,6 +415,75 @@ fun CategorySidebar(
                         expanded = expanded,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = { onSelect(cat.id) },
+                    )
+                }
+            }
+            // TiviMate as just another row at the end of the groups (Joe, 2026-10-12: the extra
+            // top entry took too much room -- "make open tm look just like a group").
+            if (tiviMate != null) {
+                item(key = "app:tivimate") {
+                    SidebarRow(
+                        label = "TiviMate",
+                        count = 0,
+                        icon = Icons.Filled.OpenInNew,
+                        active = false,
+                        expanded = expanded,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = {
+                            runCatching { context.startActivity(tiviMate.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        },
+                    )
+                }
+            }
+            // At the bottom (Joe, 2026-10-12). "Filter / Refresh": a quick genre view of the guide, plus the manual refresh. Group
+            // and channel editing moved to Settings → Live TV (Joe, 2026-10-12: "for editing groups
+            // and channels I don't mind nav to settings").
+            item {
+                SidebarRow(
+                    label = genreFilter?.let { "Filter · ${it.label}" } ?: "Filter / Refresh",
+                    count = 0,
+                    icon = Icons.Filled.FilterList,
+                    active = genreFilter != null,
+                    expanded = expanded,
+                    hasChildren = true,
+                    isOpenGroup = toolsOpen,
+                    onFocused = { onTopBoundaryFocusChanged(false) },
+                    onClick = { toolsOpen = !toolsOpen },
+                    labelSize = 12.sp,
+                )
+            }
+            if (toolsOpen && expanded) {
+                items(listOf<GuideGenreFilter?>(null) + GuideGenreFilter.entries, key = { "genre:${it?.name ?: "all"}" }) { option ->
+                    SidebarRow(
+                        label = option?.label ?: "All channels",
+                        count = 0,
+                        icon = if (genreFilter == option) Icons.Filled.Check else null,
+                        active = genreFilter == option,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = {
+                            onGenreFilter(option)
+                            toolsOpen = false
+                        },
+                        labelSize = 12.sp,
+                    )
+                }
+                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
+                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
+                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
+                item {
+                    SidebarRow(
+                        label = playlistRefreshResult
+                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
+                        count = 0,
+                        icon = Icons.Filled.Refresh,
+                        active = false,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
+                        labelSize = 12.sp,
                     )
                 }
             }
