@@ -12,6 +12,21 @@ enum class Genre {
     Sports, Movies, Series, News, Kids, Music, Docs, General;
 }
 
+/** The guide's quick genre view (sidebar → Filter). Other = everything not in a named genre. */
+enum class GuideGenreFilter(val label: String) {
+    Sports("Sports"), News("News"), Movies("Movies"), Kids("Kids"), Music("Music"), Docs("Docs"), Other("Other");
+
+    fun matches(genre: Genre): Boolean = when (this) {
+        Sports -> genre == Genre.Sports
+        News -> genre == Genre.News
+        Movies -> genre == Genre.Movies
+        Kids -> genre == Genre.Kids
+        Music -> genre == Genre.Music
+        Docs -> genre == Genre.Docs
+        Other -> genre == Genre.General || genre == Genre.Series
+    }
+}
+
 /** Picture quality tier derived from channel name / group. */
 enum class Quality(val label: String) {
     SD("SD"), HD("HD"), FHD("FHD"), K4("4K");

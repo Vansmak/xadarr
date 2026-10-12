@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.33] - 2026-10-12
+
+### Changed
+- **Guide sidebar: "Edit / Refresh" is now "Filter / Refresh"** — pick Sports, News, Movies, Kids, Music, Docs or Other and the guide shows only that genre in whatever list is open (DIRECTV, Favorites…), until you pick All channels. Nothing is hidden or changed; the row shows the active filter. Refresh Playlist/EPG is still there. "Edit groups" is gone from the guide — group and channel editing live in Settings → Live TV (Channel groups, Channels); long-press on a group still has its menu.
+
 ## [2.32] - 2026-10-12
 
 ### Added

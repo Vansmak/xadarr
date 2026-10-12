@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SportsSoccer
@@ -112,6 +114,10 @@ fun CategorySidebar(
     onMoveCategoryToTop: (String) -> Unit = {},
     onMoveCategoryDown: (String) -> Unit = {},
     onRefreshPlaylist: () -> Unit = {},
+    // Quick genre view (Joe, 2026-10-12: "only show sports or movies ... from the guide"):
+    // null = all. Not editing -- nothing is hidden, the guide just shows that genre.
+    genreFilter: GuideGenreFilter? = null,
+    onGenreFilter: (GuideGenreFilter?) -> Unit = {},
     isRefreshingPlaylist: Boolean = false,
     playlistRefreshResult: String? = null,
     onFocusEnter: () -> Unit = {},
@@ -322,37 +328,36 @@ fun CategorySidebar(
                     }
                 }
             }
-            // One "Edit / Refresh" row that expands in place to its two actions, right under
-            // Favorites/Recent, and no "PLAYLIST" heading -- the group list below (Shows, Movies,
-            // then IPTV groups) reads as one continuous column (Joe, 2026-09-30). Stays open
-            // while editing so "Done editing" is reachable.
+            // "Filter / Refresh": a quick genre view of the guide, plus the manual refresh. Group
+            // and channel editing moved to Settings → Live TV (Joe, 2026-10-12: "for editing groups
+            // and channels I don't mind nav to settings").
             item {
                 SidebarRow(
-                    label = "Edit / Refresh",
+                    label = genreFilter?.let { "Filter · ${it.label}" } ?: "Filter / Refresh",
                     count = 0,
-                    icon = Icons.Filled.Edit,
-                    active = false,
+                    icon = Icons.Filled.FilterList,
+                    active = genreFilter != null,
                     expanded = expanded,
                     hasChildren = true,
-                    isOpenGroup = toolsOpen || groupEditMode,
+                    isOpenGroup = toolsOpen,
                     onFocused = { onTopBoundaryFocusChanged(false) },
                     onClick = { toolsOpen = !toolsOpen },
                     labelSize = 12.sp,
                 )
             }
-            if ((toolsOpen || groupEditMode) && expanded) {
-                item {
+            if (toolsOpen && expanded) {
+                items(listOf<GuideGenreFilter?>(null) + GuideGenreFilter.entries, key = { "genre:${it?.name ?: "all"}" }) { option ->
                     SidebarRow(
-                        label = if (groupEditMode) "Done editing" else "Edit groups",
+                        label = option?.label ?: "All channels",
                         count = 0,
-                        icon = if (groupEditMode) Icons.Filled.DoneAll else Icons.Filled.Edit,
-                        active = false,
+                        icon = if (genreFilter == option) Icons.Filled.Check else null,
+                        active = genreFilter == option,
                         expanded = true,
                         indent = 16.dp,
                         onFocused = { onTopBoundaryFocusChanged(false) },
                         onClick = {
-                            groupEditMode = !groupEditMode
-                            if (!groupEditMode) toolsOpen = false
+                            onGenreFilter(option)
+                            toolsOpen = false
                         },
                         labelSize = 12.sp,
                     )

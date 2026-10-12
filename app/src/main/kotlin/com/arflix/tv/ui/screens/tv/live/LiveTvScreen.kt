@@ -141,6 +141,10 @@ internal fun digitForKey(key: Key): Char? = when (key) {
     else -> null
 }
 
+private object GuideFilterMemory {
+    var genre: GuideGenreFilter? = null
+}
+
 private object LiveTvResumeMemory {
     var channelId: String? = null
     var categoryId: String? = null
@@ -517,7 +521,9 @@ fun LiveTvScreen(
     // so they keep them; search and typing the number still reach them.
     val hiddenChannelIds by remember { viewModel.iptvRepository.observeHiddenChannels() }
         .collectAsStateWithLifecycle(initialValue = emptySet())
-    LaunchedEffect(enrichedState.value.index, selectedCategoryId, favSet, recentsFilterKey, favoriteSortMode, hiddenChannelIds) {
+    // Sidebar → Filter: show one genre across whatever list is open. Kept for the app session.
+    var genreFilter by remember { mutableStateOf(GuideFilterMemory.genre) }
+    LaunchedEffect(enrichedState.value.index, selectedCategoryId, favSet, recentsFilterKey, favoriteSortMode, hiddenChannelIds, genreFilter) {
         val result = withContext(Dispatchers.Default) {
             enrichedState.value.index.channelsFor(
                 categoryId = selectedCategoryId,
@@ -527,6 +533,10 @@ fun LiveTvScreen(
             ).let { list ->
                 if (hiddenChannelIds.isEmpty() || selectedCategoryId == "fav" || selectedCategoryId == "recent") list
                 else list.filterNot { it.id in hiddenChannelIds }
+            }.let { list ->
+                val g = genreFilter
+                // Shows/Movies/Music rows aren't TV channels; the filter leaves them alone.
+                if (g == null) list else list.filter { isLibraryChannelGroup(it.source.group) || g.matches(it.genre) }
             }
         }
         filteredChannelsState.value = result
@@ -1702,6 +1712,12 @@ fun LiveTvScreen(
                             viewModel.moveGroupDown(groupName)
                         },
                         onRefreshPlaylist = { viewModel.refreshPlaylistAndEpg() },
+                        genreFilter = genreFilter,
+                        onGenreFilter = { g ->
+                            genreFilter = g
+                            GuideFilterMemory.genre = g
+                            guideMessage = g?.let { "Showing ${it.label} only · Filter → All channels to undo" } ?: "Showing all channels"
+                        },
                         isRefreshingPlaylist = state.isRefreshingPlaylist,
                         playlistRefreshResult = state.playlistRefreshResult,
                         onFocusEnter = { focusZone = LiveTvFocusZone.CATEGORY_LIST },
