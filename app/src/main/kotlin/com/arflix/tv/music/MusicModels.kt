@@ -19,7 +19,12 @@ data class MaPlayer(
     val provider: String = "",
     /** The leader this speaker is grouped under, or null when it plays on its own. */
     val syncedTo: String? = null,
+    /** Set when this "speaker" is a phone running Xadarr (see PhoneSpeaker). */
+    val phoneClientId: String? = null,
 ) {
+    /** The phone in your hand. */
+    val isThisDevice get() = phoneClientId != null && phoneClientId == PhoneSpeaker.myClientId
+    val isSpeaker get() = provider == "sonos" || phoneClientId != null
     /** Playing the TV's sound (Sonos home-theater input) or a line-in, not music. */
     val isTvAudio get() = activeSource == "tv" || activeSource?.startsWith("line") == true || nowTitle == "TV Audio"
     val isPlaying get() = state == "playing"
@@ -124,6 +129,14 @@ internal object MaParse {
     fun player(o: JSONObject, repo: MusicAssistantRepository): MaPlayer {
         val media = o.optJSONObject("current_media")
         val syncedTo = o.optString("synced_to").takeIf { it.isNotBlank() && it != "null" }
+        // A phone running Xadarr / Xadarr Music joins as a Sendspin player (PhoneSpeaker); MA
+        // wraps it in a universal player whose Sendspin output carries our client id.
+        val protocols = o.optJSONArray("output_protocols")
+        val sendspin = (0 until (protocols?.length() ?: 0)).mapNotNull { protocols?.optJSONObject(it) }
+            .firstOrNull { it.optString("protocol_domain") == "sendspin" }
+        val phoneClientId = sendspin?.optString("output_protocol_id")
+            ?.takeIf { it.startsWith(PhoneSpeaker.CLIENT_ID_PREFIX) && sendspin.optBoolean("available", false) }
+        val isSpeaker = o.optString("provider") == "sonos" || phoneClientId != null
         return MaPlayer(
             id = o.optString("player_id"),
             name = o.optString("name").ifBlank { o.optString("display_name") }.ifBlank { o.optString("player_id") },
@@ -134,9 +147,10 @@ internal object MaParse {
             activeSource = o.optString("active_source").takeIf { it.isNotBlank() && it != "null" },
             // Members of a synced group are controlled through their leader, so they're hidden
             // from the zone list (they'd just mirror it); same for disabled/hidden players.
-            // Sonos only (Joe, 2026-10-03: "all I want is sonos") -- MA also lists TVs, phones
-            // and other universal players that aren't speakers.
-            visible = o.optString("provider") == "sonos" &&
+            // Sonos only (Joe, 2026-10-03: "all I want is sonos") -- MA also lists TVs and
+            // other universal players that aren't speakers -- plus phones running Xadarr
+            // (Joe, 2026-10-12: "besides sonos speakers I still want this device, my phone").
+            visible = isSpeaker &&
                 o.optBoolean("available", true) &&
                 o.optBoolean("enabled", true) &&
                 !o.optBoolean("hide_in_ui", false) &&
@@ -146,6 +160,7 @@ internal object MaParse {
             nowImageUrl = repo.absoluteUrl(media?.optString("image_url")?.takeIf { it.isNotBlank() && it != "null" }),
             provider = o.optString("provider"),
             syncedTo = syncedTo,
+            phoneClientId = phoneClientId,
         )
     }
 

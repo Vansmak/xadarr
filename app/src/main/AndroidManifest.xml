@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- NSD multicast required for LAN device discovery -->
@@ -235,6 +237,11 @@
                 android:resource="@xml/category_widget_info" />
         </receiver>
 
+        <!-- The phone as a Music Assistant speaker (music/PhoneSpeaker.kt); runs only while MA streams to it. -->
+        <service
+            android:name="com.arflix.tv.music.PhoneSpeakerService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 
 </manifest>

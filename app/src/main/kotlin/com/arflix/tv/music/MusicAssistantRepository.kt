@@ -483,7 +483,8 @@ class MusicAssistantRepository @Inject constructor(
     suspend fun speakers(): List<MaPlayer> {
         val arr = request("players/all") as? JSONArray ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { o -> MaParse.player(o, this) } }
-            .filter { it.provider == "sonos" && it.name.isNotBlank() }
+            .filter { it.isSpeaker && it.name.isNotBlank() }
+            .map { if (it.isThisDevice) it.copy(name = "This phone") else it }
             .sortedBy { it.name.lowercase() }
     }
 

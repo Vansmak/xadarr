@@ -107,6 +107,9 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // TV off -> its room's music stops (MusicSleepWatcher). TV boxes only.
         if (detectDeviceType(this) == DeviceType.TV) {
             musicSleepWatcher.register(this)
+        } else {
+            // Phones/tablets: this device is a Music Assistant speaker too (music/PhoneSpeaker).
+            com.arflix.tv.music.PhoneSpeaker.install(this)
         }
 
         // Initialize global DNS provider and user agent from DataStore before network calls.
