@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.17] - 2026-10-11
+
+### Fixed (phone)
+- **Hide and unhide groups on the phone** — hidden and NEW groups now have tabs at the end of the row (dimmed, NEW tagged); long-press any tab for Show group / Hide group. Hidden groups used to be left out, so a tab like DIRECTV vanished once you switched away.
+- **Search fits the phone** — the search panel was wider than a phone screen; it now fits and opens the keyboard.
+- **Go to channel from search** — type a number and a "Go to CH 206 · ESPN" row appears at the top; tap to tune.
+
 ## [2.16] - 2026-10-11
 
 ### Added
