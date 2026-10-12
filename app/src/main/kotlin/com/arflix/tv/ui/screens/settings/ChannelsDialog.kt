@@ -130,8 +130,18 @@ fun ChannelsDialog(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(visible, key = { it.id }) { ch ->
-                        ChannelRowItem(ch) { viewModel.setChannelsHidden(listOf(ch.id), hidden = !ch.hidden) }
+                    // A heading per group, the way the guide groups them.
+                    visible.groupBy { it.group }.forEach { (group, rows) ->
+                        item(key = "group:$group") {
+                            Text(
+                                "$group · ${rows.count { !it.hidden }} of ${rows.size}",
+                                color = FgDim, fontSize = 13.sp,
+                                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+                            )
+                        }
+                        items(rows, key = { "${it.group}|${it.id}" }) { ch ->
+                            ChannelRowItem(ch) { viewModel.setChannelsHidden(listOf(ch.id), hidden = !ch.hidden) }
+                        }
                     }
                 }
             }
@@ -214,7 +224,5 @@ private fun ChannelRowItem(ch: SettingsViewModel.ChannelRow, onToggle: () -> Uni
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        Text(ch.group, color = FgDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 160.dp))
     }
 }

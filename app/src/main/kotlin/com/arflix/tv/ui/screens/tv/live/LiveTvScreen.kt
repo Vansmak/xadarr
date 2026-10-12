@@ -2121,6 +2121,11 @@ fun LiveTvScreen(
             channelName = menuChannel?.name.orEmpty(),
             isFavorite = menuChannel != null && menuChannel.id in favSet,
             onToggleFavorite = { menuChannel?.let { viewModel.toggleFavoriteChannel(it.id) } },
+            // Hide it from its group right here (Joe, 2026-10-12: "change the list in guide on the
+            // fly"); not from Favorites/Recent, which never drop hidden channels anyway.
+            onHideChannel = menuChannel?.takeIf { selectedCategoryId != "fav" && selectedCategoryId != "recent" }?.let { ch ->
+                { viewModel.hideChannel(ch.id); guideMessage = "${ch.name} hidden · Settings → Live TV → Channels brings it back" }
+            },
             onDismiss = {
                 // The popup steals real focus to receive D-pad input; nothing
                 // hands it back when it closes, which left the guide with no

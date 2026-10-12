@@ -1508,6 +1508,11 @@ class TvViewModel @Inject constructor(
         }
     }
 
+    /** Guide long-press → Hide channel (Settings → Live TV → Channels brings it back). */
+    fun hideChannel(channelId: String) {
+        viewModelScope.launch { iptvRepository.setChannelsHidden(listOf(channelId), hidden = true) }
+    }
+
     fun moveGroupUp(groupName: String) {
         viewModelScope.launch {
             val current = currentVisiblePlaylistGroups()

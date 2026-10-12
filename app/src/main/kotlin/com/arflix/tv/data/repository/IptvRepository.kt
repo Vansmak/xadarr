@@ -157,6 +157,11 @@ data class IptvCloudProfileState(
      * touch" while an empty list means "none hidden" -- so un-hiding the last one syncs too.
      */
     val hiddenChannels: List<String>? = null,
+    /**
+     * When [hiddenChannels] was last edited. A sync replaying an older list must not undo a tick
+     * made since (Joe, 2026-10-12: "I select a channel but it unchecks itself").
+     */
+    val hiddenChannelsUpdatedAt: Long = 0L,
     val groupOrder: List<String> = emptyList(),
     val playlists: List<IptvPlaylistEntry> = emptyList(),
     val tvSession: IptvTvSessionState = IptvTvSessionState()
@@ -416,6 +421,7 @@ class IptvRepository @Inject constructor(
             val current = decodeStringList(prefs[hiddenChannelsKey()].orEmpty()).toMutableSet()
             if (hidden) current.addAll(ids) else current.removeAll(ids)
             prefs[hiddenChannelsKey()] = gson.toJson(current.toList())
+            prefs[profileManager.profileLongKey("iptv_hidden_channels_edited_at")] = System.currentTimeMillis()
         }
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "set channels hidden")
     }
@@ -2345,6 +2351,7 @@ class IptvRepository @Inject constructor(
                 }.getOrDefault(emptyList())
             } else emptyList(),
             hiddenChannels = hiddenChannelsRaw?.let { decodeStringList(it) },
+            hiddenChannelsUpdatedAt = prefs[profileManager.profileLongKeyFor(safeProfileId, "iptv_hidden_channels_edited_at")] ?: 0L,
             groupOrder = if (orderRaw.isNotBlank()) {
                 runCatching {
                     val type = TypeToken.getParameterized(List::class.java, String::class.java).type
@@ -2421,7 +2428,14 @@ class IptvRepository @Inject constructor(
             if (state.groupOrder.isNotEmpty()) {
                 prefs[groupOrderKeyFor(safeProfileId)] = gson.toJson(state.groupOrder.distinct())
             }
-            state.hiddenChannels?.let { prefs[hiddenChannelsKeyFor(safeProfileId)] = gson.toJson(it.distinct()) }
+            state.hiddenChannels?.let { incoming ->
+                val editedKey = profileManager.profileLongKeyFor(safeProfileId, "iptv_hidden_channels_edited_at")
+                // Only a list at least as new as this device's last edit replaces it.
+                if (state.hiddenChannelsUpdatedAt >= (prefs[editedKey] ?: 0L)) {
+                    prefs[hiddenChannelsKeyFor(safeProfileId)] = gson.toJson(incoming.distinct())
+                    prefs[editedKey] = state.hiddenChannelsUpdatedAt
+                }
+            }
             if (normalizedPlaylists.isNotEmpty()) {
                 prefs[playlistsKeyFor(safeProfileId)] = gson.toJson(normalizedPlaylists)
             }

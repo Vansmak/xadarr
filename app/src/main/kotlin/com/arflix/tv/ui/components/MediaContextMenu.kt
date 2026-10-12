@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
@@ -622,10 +623,14 @@ fun ChannelContextMenu(
     channelName: String,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Guide: hide this channel from its group (Settings → Channels brings it back). Null = no row.
+    onHideChannel: (() -> Unit)? = null,
 ) {
     val focusRequester = remember { FocusRequester() }
-    // 0 = favorite toggle, 1 = Close
+    // 0 = favorite toggle, then Hide channel when offered, then Close
+    val hideIndex = if (onHideChannel != null) 1 else -1
+    val closeIndex = if (onHideChannel != null) 2 else 1
     var focusedIndex by remember { mutableIntStateOf(0) }
     val cardBg = XadarrTheme.colors.backgroundCard
     val borderColor = XadarrTheme.colors.borderLight
@@ -673,12 +678,13 @@ fun ChannelContextMenu(
                             Key.Enter, Key.DirectionCenter -> {
                                 if (event.nativeKeyEvent.repeatCount == 0) {
                                     if (focusedIndex == 0) onToggleFavorite()
+                                    if (focusedIndex == hideIndex) onHideChannel?.invoke()
                                     onDismiss()
                                 }
                                 true
                             }
-                            Key.DirectionUp -> { focusedIndex = 0; true }
-                            Key.DirectionDown -> { focusedIndex = 1; true }
+                            Key.DirectionUp -> { focusedIndex = (focusedIndex - 1).coerceAtLeast(0); true }
+                            Key.DirectionDown -> { focusedIndex = (focusedIndex + 1).coerceAtMost(closeIndex); true }
                             Key.Back, Key.Escape, Key.DirectionLeft -> { onDismiss(); true }
                             else -> true
                         }
@@ -708,11 +714,20 @@ fun ChannelContextMenu(
                     isFocused = focusedIndex == 0,
                     onClick = { onToggleFavorite(); onDismiss() }
                 )
+                if (onHideChannel != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ContextMenuItem(
+                        icon = Icons.Default.VisibilityOff,
+                        label = "Hide channel",
+                        isFocused = focusedIndex == hideIndex,
+                        onClick = { onHideChannel(); onDismiss() }
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 ContextMenuItem(
                     icon = Icons.Default.Close,
                     label = stringResource(R.string.close),
-                    isFocused = focusedIndex == 1,
+                    isFocused = focusedIndex == closeIndex,
                     onClick = onDismiss
                 )
             }

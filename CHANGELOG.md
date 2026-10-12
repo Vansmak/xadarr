@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.32] - 2026-10-12
+
+### Added
+- **Hide a channel from the guide** — long-press a channel → Hide channel. It drops out of that group right away; Settings → Live TV → Channels brings it back.
+
+### Fixed
+- **Settings → Channels listed every channel** of every group. It now lists only the groups you show, with a heading per group in your guide order, channels by number inside each.
+- **A tick that flipped back by itself** — a settings sync replaying an older hidden-channels list undid the change you'd just made. The list now carries when it was edited, and an older copy no longer overwrites a newer one.
+
 ## [2.31] - 2026-10-12
 
 ### Added

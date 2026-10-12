@@ -2436,10 +2436,21 @@ class SettingsViewModel @Inject constructor(
     fun loadChannels() {
         viewModelScope.launch {
             val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: iptvRepository.getCachedSnapshotOrNull() ?: return@launch
-            val offGroups = (snapshot.hiddenGroups + snapshot.newGroups + snapshot.removedGroups).mapTo(HashSet()) { it.trim() }
+            // The hidden/new/removed lists live in settings, not in the cached snapshot -- reading
+            // them off the snapshot listed every channel of every group (Joe, 2026-10-12: "if I
+            // only have one group enabled, dtv, then channels ... should just be" those).
+            val offGroups = (iptvRepository.observeHiddenGroups().first() + iptvRepository.observeNewGroups().first() +
+                iptvRepository.observeRemovedGroups().first()).mapTo(HashSet()) { it.trim() }
+            // Grouped like the guide: your group order, channels by number inside each group.
+            val order = iptvRepository.observeGroupOrder().first().withIndex().associate { (i, g) -> g.trim() to i }
             _channelList.value = snapshot.channels
                 .filter { it.group.trim() !in offGroups }
-                .sortedWith(compareBy({ it.chno?.toDoubleOrNull() ?: Double.MAX_VALUE }, { it.name.lowercase() }))
+                .sortedWith(compareBy(
+                    { order[it.group.trim()] ?: Int.MAX_VALUE },
+                    { it.group.trim().lowercase() },
+                    { it.chno?.toDoubleOrNull() ?: Double.MAX_VALUE },
+                    { it.name.lowercase() },
+                ))
                 .map { ch ->
                     ChannelRow(
                         id = ch.id,
