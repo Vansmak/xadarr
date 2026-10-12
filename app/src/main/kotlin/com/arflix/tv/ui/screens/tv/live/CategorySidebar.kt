@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
@@ -217,6 +218,27 @@ fun CategorySidebar(
             icon = Icons.Filled.Dialpad,
             hint = "123",
         )
+        // One press into TiviMate for anything outside DIRECTV + favourites (Joe, 2026-10-12:
+        // instead of side menu -> Apps). Only where it's installed.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val tiviMate = remember(context) {
+            context.packageManager.getLeanbackLaunchIntentForPackage(TIVIMATE_PACKAGE)
+                ?: context.packageManager.getLaunchIntentForPackage(TIVIMATE_PACKAGE)
+        }
+        if (tiviMate != null) {
+            Spacer(Modifier.height(2.dp))
+            SearchEntry(
+                onClick = {
+                    runCatching { context.startActivity(tiviMate.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                },
+                expanded = expanded,
+                onMoveUp = null,
+                onFocusChanged = { if (it) onTopBoundaryFocusChanged(false) },
+                label = "Open TiviMate",
+                icon = Icons.Filled.OpenInNew,
+                hint = "TM",
+            )
+        }
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -519,6 +541,8 @@ fun CategorySidebar(
         }
     }
 }
+
+private const val TIVIMATE_PACKAGE = "ar.tvplayer.tv"
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

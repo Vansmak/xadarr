@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.31] - 2026-10-12
+
+### Added
+- **Open TiviMate** in the guide sidebar, under Go to channel — one press into TiviMate for anything outside your DirecTV group and favourites. Only shows on devices where TiviMate is installed.
+
 ## [2.30] - 2026-10-12
 
 ### Added
