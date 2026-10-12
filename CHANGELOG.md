@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.16] - 2026-10-11
+
+### Added
+- **Real channel numbers** — the guide shows each channel's number from the playlist (tvg-chno) instead of numbering by position, so Dispatcharr's DirecTV-numbered lineup matches: CH 206 is ESPN. Typing a number prefers a channel in a visible group when the number repeats.
+- **On-screen number pad** — for remotes without number buttons: hold OK in fullscreen, or pick "Go to channel" under Search in the guide menu. Enter digits and press Go.
+
 ## [2.15] - 2026-10-10
 
 ### Fixed
