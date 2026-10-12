@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.28] - 2026-10-12
+
+### Fixed
+- **Music group can be moved** in the guide sidebar like Shows, Movies and the playlist groups — Move up/down/to top did nothing for it. Until you move it, it sits right after Shows/Movies instead of above everything.
+- A group that wasn't in your saved order yet (new, or never moved) goes in right after the group it follows the first time anything is moved, instead of at a raw position that could put it somewhere unexpected.
+
 ## [2.27] - 2026-10-12
 
 ### Added

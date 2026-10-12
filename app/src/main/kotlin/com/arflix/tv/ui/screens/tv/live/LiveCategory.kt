@@ -730,10 +730,18 @@ private fun orderPlaylistGroups(
         .map(::playlistGroupLabel)
         .withIndex()
         .associate { (index, groupName) -> groupName to index }
-    // Library groups (Shows/Movies) default to the top until the user has placed them.
+    // Library groups (Shows/Movies) default to the top until the user has placed them. Music
+    // not placed yet sits right after Shows/Movies wherever those are, not above everything
+    // (Joe, 2026-10-12: DirecTV moved above Shows/Movies, Music stayed stuck on top).
+    val libraryAnchor = listOf(MoviesChannelGroup, ShowsChannelGroup).firstNotNullOfOrNull { orderMap[it] }
     return groups.entries.sortedWith(
         compareBy<Map.Entry<String, Pair<String, Int>>> { entry ->
-            orderMap[entry.value.first] ?: if (isLibraryChannelGroup(entry.value.first)) -1 else Int.MAX_VALUE
+            val name = entry.value.first
+            orderMap[name]?.toDouble() ?: when {
+                name == MusicChannelGroup && libraryAnchor != null -> libraryAnchor + 0.5
+                isLibraryChannelGroup(name) -> -1.0
+                else -> Double.MAX_VALUE
+            }
         }
             .thenBy { entry -> groups.keys.indexOf(entry.key) }
     )

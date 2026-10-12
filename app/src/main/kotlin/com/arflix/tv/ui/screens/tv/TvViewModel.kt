@@ -1542,6 +1542,10 @@ class TvViewModel @Inject constructor(
             com.arflix.tv.ui.screens.tv.live.MoviesChannelGroup.takeIf {
                 _movieGuide.value.movies.isNotEmpty() || _movieGuide.value.premiering.isNotEmpty()
             },
+            // Music too -- left out, its Move up/down did nothing (Joe, 2026-10-12).
+            com.arflix.tv.ui.screens.tv.live.MusicChannelGroup.takeIf {
+                _musicPlaylists.value.isNotEmpty() || _musicLineups.value.isNotEmpty()
+            },
         ).filter { it !in hidden }
         return (library + snapshot.grouped.keys
             .asSequence()

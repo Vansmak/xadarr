@@ -2199,8 +2199,12 @@ class IptvRepository @Inject constructor(
         // A group missing from the saved order goes in at its current position rather than always
         // last, so e.g. Shows/Movies (listed first by default) don't jump to the bottom the
         // first time anything is moved.
+        // Placed right after the group it follows in the current list, so Music lands after
+        // Movies wherever the user moved Movies to, not at a raw index (2026-10-12).
         current.forEachIndexed { index, group ->
-            if (group !in merged) merged.add(index.coerceAtMost(merged.size), group)
+            if (group in merged) return@forEachIndexed
+            val after = (index - 1 downTo 0).firstNotNullOfOrNull { i -> merged.indexOf(current[i]).takeIf { it >= 0 } }
+            merged.add(if (after == null) 0 else after + 1, group)
         }
         return merged
     }
