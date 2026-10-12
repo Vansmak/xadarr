@@ -314,6 +314,58 @@ fun CategorySidebar(
                     }
                 }
             }
+            // Right under Favorites/Recent, above the groups (Joe, 2026-10-12). "Filter / Refresh": a quick genre view of the guide, plus the manual refresh. Group
+            // and channel editing moved to Settings → Live TV (Joe, 2026-10-12: "for editing groups
+            // and channels I don't mind nav to settings").
+            item {
+                SidebarRow(
+                    label = genreFilter?.let { "Filter · ${it.label}" } ?: "Filter / Refresh",
+                    count = 0,
+                    icon = Icons.Filled.FilterList,
+                    active = genreFilter != null,
+                    expanded = expanded,
+                    hasChildren = true,
+                    isOpenGroup = toolsOpen,
+                    onFocused = { onTopBoundaryFocusChanged(false) },
+                    onClick = { toolsOpen = !toolsOpen },
+                    labelSize = 12.sp,
+                )
+            }
+            if (toolsOpen && expanded) {
+                items(listOf<GuideGenreFilter?>(null) + GuideGenreFilter.entries, key = { "genre:${it?.name ?: "all"}" }) { option ->
+                    SidebarRow(
+                        label = option?.label ?: "All channels",
+                        count = 0,
+                        icon = if (genreFilter == option) Icons.Filled.Check else null,
+                        active = genreFilter == option,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = {
+                            onGenreFilter(option)
+                            toolsOpen = false
+                        },
+                        labelSize = 12.sp,
+                    )
+                }
+                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
+                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
+                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
+                item {
+                    SidebarRow(
+                        label = playlistRefreshResult
+                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
+                        count = 0,
+                        icon = Icons.Filled.Refresh,
+                        active = false,
+                        expanded = true,
+                        indent = 16.dp,
+                        onFocused = { onTopBoundaryFocusChanged(false) },
+                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
+                        labelSize = 12.sp,
+                    )
+                }
+            }
             if (tree.global.categories.isNotEmpty()) {
                 items(tree.global.categories, key = { it.id }) { cat ->
                     SidebarRow(
@@ -432,58 +484,6 @@ fun CategorySidebar(
                         onClick = {
                             runCatching { context.startActivity(tiviMate.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         },
-                    )
-                }
-            }
-            // At the bottom (Joe, 2026-10-12). "Filter / Refresh": a quick genre view of the guide, plus the manual refresh. Group
-            // and channel editing moved to Settings → Live TV (Joe, 2026-10-12: "for editing groups
-            // and channels I don't mind nav to settings").
-            item {
-                SidebarRow(
-                    label = genreFilter?.let { "Filter · ${it.label}" } ?: "Filter / Refresh",
-                    count = 0,
-                    icon = Icons.Filled.FilterList,
-                    active = genreFilter != null,
-                    expanded = expanded,
-                    hasChildren = true,
-                    isOpenGroup = toolsOpen,
-                    onFocused = { onTopBoundaryFocusChanged(false) },
-                    onClick = { toolsOpen = !toolsOpen },
-                    labelSize = 12.sp,
-                )
-            }
-            if (toolsOpen && expanded) {
-                items(listOf<GuideGenreFilter?>(null) + GuideGenreFilter.entries, key = { "genre:${it?.name ?: "all"}" }) { option ->
-                    SidebarRow(
-                        label = option?.label ?: "All channels",
-                        count = 0,
-                        icon = if (genreFilter == option) Icons.Filled.Check else null,
-                        active = genreFilter == option,
-                        expanded = true,
-                        indent = 16.dp,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = {
-                            onGenreFilter(option)
-                            toolsOpen = false
-                        },
-                        labelSize = 12.sp,
-                    )
-                }
-                // Manual playlist/EPG refresh — for "my guide looks stale" without waiting for
-                // the scheduled provider sync. Same M3U + EPG tasks the scheduled sync uses;
-                // maintenance.sql still runs afterward via the existing m3u_refreshed webhook.
-                item {
-                    SidebarRow(
-                        label = playlistRefreshResult
-                            ?: if (isRefreshingPlaylist) "Refreshing…" else "Refresh Playlist/EPG",
-                        count = 0,
-                        icon = Icons.Filled.Refresh,
-                        active = false,
-                        expanded = true,
-                        indent = 16.dp,
-                        onFocused = { onTopBoundaryFocusChanged(false) },
-                        onClick = { if (!isRefreshingPlaylist) onRefreshPlaylist() },
-                        labelSize = 12.sp,
                     )
                 }
             }

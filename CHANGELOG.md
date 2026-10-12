@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 ## [2.34] - 2026-10-12
 
 ### Changed
-- **Guide sidebar tidied** — the top is just Search and Go to channel again. TiviMate is a normal row after your groups (where installed), and Filter / Refresh sits at the bottom of the list.
+- **Guide sidebar tidied** — the top is just Search and Go to channel again. TiviMate is a normal row after your groups (where installed), and Filter / Refresh sits right under Favorites/Recent, above the groups.
 
 ## [2.33] - 2026-10-12
 
