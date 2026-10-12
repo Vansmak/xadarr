@@ -842,6 +842,16 @@ fun LiveTvScreen(
             return@LaunchedEffect
         }
         val channel = index.byId[id] ?: return@LaunchedEffect // not loaded yet
+        // Filtered out by the sidebar genre filter, or hidden in Settings → Channels: no group
+        // will list it, so looking for one flipped between DIRECTV and Recent forever (Joe,
+        // 2026-10-12). Stay on the current list.
+        if (filteredChannels.none { it.id == id } &&
+            ((genreFilter?.matches(channel.genre) == false && !isLibraryChannelGroup(channel.source.group)) || id in hiddenChannelIds)
+        ) {
+            alignedOnEntry = true
+            returnFromLibraryId = null
+            return@LaunchedEffect
+        }
         if (filteredChannels.none { it.id == id }) {
             // Wait for the full enrichment before deciding the channel isn't in this category.
             if (enriched.all.size < state.snapshot.channels.size) return@LaunchedEffect
