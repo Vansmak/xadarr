@@ -67,11 +67,18 @@ fun ChannelsDialog(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { viewModel.loadChannels() }
     val channels by viewModel.channels.collectAsState()
     var filter by remember { mutableStateOf("") }
-    val visible = remember(channels, filter) {
+    // Genre buttons (Joe, 2026-10-12: "sports, news, movies in filter box?") -- quicker than
+    // typing with a remote. They combine with the text filter.
+    var genre by remember { mutableStateOf<String?>(null) }
+    val genres = remember(channels) {
+        listOf("Sports", "News", "Movies", "Kids", "Music", "Docs", "Other").filter { g -> channels.any { it.genre == g } }
+    }
+    val visible = remember(channels, filter, genre) {
         val q = filter.trim()
-        if (q.isEmpty()) channels
-        else channels.filter {
-            it.number.startsWith(q) || it.name.contains(q, ignoreCase = true) || it.group.contains(q, ignoreCase = true)
+        channels.filter { ch ->
+            (genre == null || ch.genre == genre) && (q.isEmpty() || ch.number.startsWith(q) ||
+                ch.name.contains(q, ignoreCase = true) || ch.group.contains(q, ignoreCase = true) ||
+                ch.genre.equals(q, ignoreCase = true))
         }
     }
     val firstFocus = remember { FocusRequester() }
@@ -102,6 +109,10 @@ fun ChannelsDialog(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                     Text("$shown of ${channels.size} in the guide", color = FgDim, fontSize = 14.sp)
                 }
                 ChannelFilterField(filter, { filter = it })
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { ChannelsPill(if (genre == null) "• All" else "All") { genre = null } }
+                    items(genres) { g -> ChannelsPill(if (genre == g) "• $g" else g) { genre = if (genre == g) null else g } }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ChannelsPill("Show all", Modifier.focusRequester(firstFocus)) {
                         viewModel.setChannelsHidden(visible.map { it.id }, hidden = false)

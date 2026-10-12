@@ -1,5 +1,6 @@
 package com.arflix.tv.ui.screens.settings
 
+import com.arflix.tv.ui.screens.tv.live.enrich
 import android.content.Context
 import coil.Coil
 import coil.imageLoader
@@ -2423,7 +2424,7 @@ class SettingsViewModel @Inject constructor(
 
     // Settings → Live TV → Channels: every channel in the groups you show, in channel-number order
     // (DirecTV's numbers in Joe's lineup), with a tick for whether the guide lists it.
-    data class ChannelRow(val id: String, val number: String, val name: String, val group: String, val hidden: Boolean)
+    data class ChannelRow(val id: String, val number: String, val name: String, val group: String, val hidden: Boolean, val genre: String = "Other")
 
     private val _channelList = MutableStateFlow<List<ChannelRow>>(emptyList())
     val channels: StateFlow<List<ChannelRow>> = kotlinx.coroutines.flow.combine(
@@ -2446,6 +2447,10 @@ class SettingsViewModel @Inject constructor(
                         name = ch.name,
                         group = ch.group.trim(),
                         hidden = false,
+                        genre = when (val g = ch.enrich(0).genre) {
+                            com.arflix.tv.ui.screens.tv.live.Genre.General, com.arflix.tv.ui.screens.tv.live.Genre.Series -> "Other"
+                            else -> g.name
+                        },
                     )
                 }
         }

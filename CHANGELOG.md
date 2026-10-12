@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.30] - 2026-10-12
+
+### Added
+- **Genre buttons in Settings → Channels** — All, Sports, News, Movies, Kids, Music, Docs, Other. They combine with the text filter, so Sports + Hide all, or Movies then untick the few you keep.
+
+### Changed
+- **Better genres for network names** — NFL Network, FS1, the regional sports networks, HBO, Cinemax, STARZ, SHOWTIME, TCM, MS NOW, CNBC, C-SPAN, Disney, Nick, VH1 and the like now land in Sports / Movies / News / Kids / Music / Docs instead of General. This also fixes the guide's genre colours for them.
+
 ## [2.29] - 2026-10-12
 
 ### Added

@@ -166,9 +166,43 @@ private val COUNTRY_NAMES = mapOf(
 fun countryName(code: String): String = COUNTRY_NAMES[code.uppercase()] ?: code
 
 /** Parse a genre out of any slice of text (group name, channel name, etc). */
+// Network names that don't say what they are -- most of a DirecTV-style lineup (Joe,
+// 2026-10-12: "sports, news, movies in filter box?" -- NFL Network, FS1, HBO and STARZ all came
+// out General). Checked before the generic words: "SHOWTIME" isn't a series channel and
+// "HBO Hits" isn't music.
+private val SPORTS_BRANDS = listOf(
+    "nfl", "nba", "mlb", "nhl", "fs1", "fs2", "fox sports", "golf", "tennis", "racer", "big ten",
+    "sec network", "acc network", "redzone", "red zone", "yes network", "nesn", "msg", "sny", "masn",
+    "fanduel", "outdoor channel", "pursuit", "sportsman", "cowboy channel", "bein", "willow",
+    "ocho", "pickleball", "billiard", "pokergo", "fight network", "racing", "fuel tv", "red bull",
+    "dazn", "tudn", "marquee", "altitude", "space city", "monumental", "sportsgrid", "players tv",
+)
+private val MOVIE_BRANDS = listOf(
+    "hbo", "cinemax", "starz", "encore", "showtime", "sho x", "tcm", "fx movie", "fxm", "flix",
+    "moviesphere", "shortstv", "family movie", "lmn", "hallmark", "reelz", "sundance", "ifc",
+    "epix", "mgm+", "amc",
+)
+private val NEWS_BRANDS = listOf(
+    "msnbc", "ms now", "cnbc", "bloomberg", "c-span", "cspan", "newsmax", "newsnation", "fox business",
+    "weather", "accuweather", "cheddar", "hln", "scripps", "court tv", "yahoo finance", "abc news",
+    "cbs news", "nbc news", "fox news", "bbc news", "cnni", "thegrio",
+)
+private val KIDS_BRANDS = listOf("disney", "nick", "boomerang", "baby", "pbs kids", "teennick", "universal kids")
+private val MUSIC_BRANDS = listOf("vh1", "bet", "cmt", "fuse", "revolt", "axs", "sonic", "stingray")
+private val DOCS_BRANDS = listOf("national geographic", "smithsonian", "science", "animal planet", "nat geo", "natgeo", "tlc",
+    "investigation", "travel channel", "military", "love nature", "curiosity", "american heroes",
+    "destination america", "earthx", "mythbusters")
+
 fun genreFromText(text: String): Genre {
     val t = text.lowercase()
+    fun any(brands: List<String>) = brands.any { it in t }
     return when {
+        any(NEWS_BRANDS) -> Genre.News
+        any(SPORTS_BRANDS) -> Genre.Sports
+        any(MOVIE_BRANDS) -> Genre.Movies
+        any(KIDS_BRANDS) -> Genre.Kids
+        any(MUSIC_BRANDS) -> Genre.Music
+        any(DOCS_BRANDS) -> Genre.Docs
         "sport" in t || "espn" in t || "uefa" in t -> Genre.Sports
         "movie" in t || "cinema" in t || "film" in t -> Genre.Movies
         "series" in t || "show" in t -> Genre.Series
