@@ -11,6 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,7 +56,7 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 /** Idle time on the Music screen, while music plays, before the screensaver takes over. */
-const val MUSIC_AMBIENT_AFTER_MS = 120_000L
+const val MUSIC_AMBIENT_AFTER_MS = 60_000L
 
 // Music keeps the screen awake while it plays, so the screensaver (not the TV's sleep timer)
 // takes over. After an hour untouched, one quiet "turns off soon" line; no press within a
@@ -91,80 +103,198 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
 }
 
 /**
- * Screensaver for OLED TVs: after a couple of idle minutes with music playing, just the cover
- * and song over a dim blurred backdrop, gliding to a new spot every 20s so nothing stays put
- * long enough to burn in. The Music screen wakes it on any key or tap.
+ * Music screensaver (Joe, 2026-10-12; look after a r/homeassistant now-playing display):
+ * a coverflow -- this song's cover flat and large, the previous and next covers angled behind it
+ * with a faint reflection -- over a blurred, darkened wash of the cover, with clock and room on
+ * top, the song in big type, a thin progress bar, and "Up next". When the song has synced
+ * lyrics, the cover side switches to them 30s in and flips back and forth (45s lyrics, 15s
+ * covers). The whole layout drifts a few dp every 30s so nothing sits still long enough to burn
+ * into an OLED. The Music screen wakes it on any key or tap.
  */
 @Composable
 fun MusicAmbient(
+    current: MaQueueItem?,
+    previous: MaQueueItem?,
+    next: MaQueueItem?,
     title: String?,
     artist: String?,
     room: String?,
     imageUrl: String?,
-    next: MaQueueItem? = null,
+    elapsedSec: Double,
+    lyrics: MusicLyrics?,
     sleepingSoon: Boolean = false,
 ) {
-    val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        BlurredCoverBackground(imageUrl, scrim = 0.6f)
+        BlurredCoverBackground(imageUrl, scrim = 0.68f)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
-            val cover = if (narrow) 160.dp else 220.dp
-            val cardW = if (narrow) maxWidth * 0.85f else minOf(680.dp, maxWidth * 0.7f)
-            val cardH = if (narrow) cover + 140.dp else cover
-            var spot by remember { mutableStateOf(Random.nextFloat() to Random.nextFloat()) }
+            var drift by remember { mutableStateOf(0f to 0f) }
             LaunchedEffect(Unit) {
                 while (true) {
-                    delay(20_000)
-                    spot = Random.nextFloat() to Random.nextFloat()
+                    delay(30_000)
+                    drift = (Random.nextFloat() * 2 - 1) to (Random.nextFloat() * 2 - 1)
                 }
             }
-            val x by animateDpAsState((maxWidth - cardW).coerceAtLeast(0.dp) * spot.first, tween(6_000), label = "ambient-x")
-            val y by animateDpAsState((maxHeight - cardH).coerceAtLeast(0.dp) * spot.second, tween(6_000), label = "ambient-y")
-            val art: @Composable () -> Unit = {
-                Box(
-                    Modifier.size(cover).clip(RoundedCornerShape(14.dp)).background(colors.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (imageUrl != null) {
-                        AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            val dx by animateDpAsState(20.dp * drift.first, tween(8_000), label = "drift-x")
+            val dy by animateDpAsState(14.dp * drift.second, tween(8_000), label = "drift-y")
+
+            // Cover vs lyrics: covers for the first 30s of a song, then lyrics 45s / covers 15s.
+            val showLyrics = lyrics?.synced == true && elapsedSec >= 30 && ((elapsedSec - 30) % 60) < 45
+            val clock by produceState(initialValue = "") {
+                val fmt = android.text.format.DateFormat.getTimeFormat(context)
+                while (true) {
+                    value = fmt.format(java.util.Date())
+                    delay(15_000)
+                }
+            }
+            val coverSize = if (narrow) minOf(maxWidth * 0.62f, 260.dp) else minOf(maxHeight * 0.5f, 380.dp)
+            val positionMs = (elapsedSec * 1000).toLong()
+
+            val visual: @Composable (Modifier) -> Unit = { mod ->
+                Crossfade(targetState = showLyrics, animationSpec = tween(900), label = "ambient-view", modifier = mod) { lyricsOn ->
+                    if (lyricsOn && lyrics != null) {
+                        LyricsView(lyrics = lyrics, loaded = true, positionMs = positionMs, big = true,
+                            align = if (narrow) TextAlign.Center else TextAlign.Start)
                     } else {
-                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(64.dp))
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CoverFlow(previous?.imageUrl, imageUrl, next?.imageUrl, coverSize)
+                        }
                     }
                 }
             }
-            val words: @Composable () -> Unit = {
-                Column {
-                    Text(title ?: "Music", color = Color.White.copy(alpha = 0.88f), fontSize = if (narrow) 22.sp else 30.sp,
-                        fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val words: @Composable (TextAlign) -> Unit = { align ->
+                val horizontal = if (align == TextAlign.Center) Alignment.CenterHorizontally else Alignment.Start
+                Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
+                    Text(title ?: "Music", color = Color.White, fontSize = if (narrow) 28.sp else 44.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align,
+                        lineHeight = if (narrow) 32.sp else 50.sp)
                     artist?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(it, color = Color.White.copy(alpha = 0.7f), fontSize = if (narrow) 16.sp else 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    room?.let {
                         Spacer(Modifier.height(6.dp))
-                        Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, maxLines = 1)
+                        Text(it, color = Color.White.copy(alpha = 0.82f), fontSize = if (narrow) 18.sp else 26.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                     }
-                    next?.let {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
-                            color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 16.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val albumLine = listOfNotNull(current?.album, current?.year?.toString()).joinToString(" · ")
+                    if (albumLine.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(albumLine, color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 15.sp else 19.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                     }
-                    if (sleepingSoon) {
-                        Spacer(Modifier.height(10.dp))
-                        Text("Screen turns off soon · press any button to keep it on",
-                            color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                    val duration = current?.durationSec ?: 0
+                    if (duration > 0) {
+                        Spacer(Modifier.height(if (narrow) 16.dp else 24.dp))
+                        AmbientProgress(elapsedSec, duration)
                     }
                 }
             }
-            Box(Modifier.offset(x, y).width(cardW)) {
+
+            Column(
+                Modifier.fillMaxSize().offset(dx, dy)
+                    .padding(horizontal = if (narrow) 20.dp else 56.dp, vertical = if (narrow) 20.dp else 32.dp),
+            ) {
+                // Top line: clock · room
+                Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
+                    color = Color.White.copy(alpha = 0.7f), fontSize = if (narrow) 15.sp else 20.sp, maxLines = 1)
                 if (narrow) {
-                    Column { art(); Spacer(Modifier.height(14.dp)); words() }
+                    visual(Modifier.fillMaxWidth().weight(1f))
+                    words(TextAlign.Center)
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) { art(); Spacer(Modifier.width(28.dp)); words() }
+                    Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        visual(Modifier.weight(1.1f).fillMaxHeight())
+                        Spacer(Modifier.width(48.dp))
+                        Box(Modifier.weight(1f)) { words(TextAlign.Start) }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                next?.let {
+                    Text("Up next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
+                        color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 18.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
+                }
+                if (sleepingSoon) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Screen turns off soon · press any button to keep it on",
+                        color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp,
+                        textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AmbientProgress(elapsedSec: Double, durationSec: Int) {
+    val frac = (elapsedSec / durationSec).toFloat().coerceIn(0f, 1f)
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.2f))) {
+            Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.85f)))
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Text(clockTime(elapsedSec), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+            Spacer(Modifier.weight(1f))
+            Text(clockTime(durationSec.toDouble()), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+        }
+    }
+}
+
+private fun clockTime(seconds: Double): String {
+    val s = seconds.toLong().coerceAtLeast(0)
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}
+
+/** Previous and next covers angled behind the current one, each with a faint reflection. */
+@Composable
+private fun CoverFlow(previousUrl: String?, currentUrl: String?, nextUrl: String?, size: Dp) {
+    Box(contentAlignment = Alignment.TopCenter) {
+        listOf(-1 to previousUrl, 1 to nextUrl).forEach { (side, url) ->
+            if (url != null) {
+                Box(
+                    Modifier.graphicsLayer {
+                        translationX = side * size.toPx() * 0.62f
+                        translationY = size.toPx() * 0.08f
+                        rotationY = -side * 48f
+                        scaleX = 0.78f
+                        scaleY = 0.78f
+                        alpha = 0.55f
+                        cameraDistance = 14f * density
+                    }
+                ) { ReflectedCover(url, size) }
+            }
+        }
+        ReflectedCover(currentUrl, size)
+    }
+}
+
+@Composable
+private fun ReflectedCover(url: String?, size: Dp) {
+    val colors = MaterialTheme.colorScheme
+    val cover: @Composable (Modifier) -> Unit = { mod ->
+        Box(mod.size(size).clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant), contentAlignment = Alignment.Center) {
+            if (url != null) {
+                AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(size / 3))
+            }
+        }
+    }
+    Column {
+        cover(Modifier)
+        Spacer(Modifier.height(4.dp))
+        // Reflection: the bottom of the cover, flipped, fading out.
+        Box(
+            Modifier.size(size, size * 0.28f).clipToBounds()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.32f), Color.Transparent)),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+        ) {
+            cover(Modifier.wrapContentHeight(Alignment.Top, unbounded = true).graphicsLayer { scaleY = -1f })
         }
     }
 }

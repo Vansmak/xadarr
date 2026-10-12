@@ -1483,6 +1483,9 @@ fun LiveTvScreen(
                         onFullscreenClick = openFullScreenPlayer,
                         compact = true,
                         artUrl = libraryArtFor(playingChannel),
+                        lyricsSlot = if (isMusicChannelId(playingChannel?.id)) { fallback ->
+                            GuideLyricsStrip(currentMusicSong(playingChannel?.id, musicGuideItems, musicLineups, System.currentTimeMillis()), fallback)
+                        } else null,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     TouchCategoryRail(
@@ -1567,6 +1570,9 @@ fun LiveTvScreen(
                         onFullscreenClick = openFullScreenPlayer,
                         compact = compactTouchLayout,
                         artUrl = libraryArtFor(playingChannel),
+                        lyricsSlot = if (isMusicChannelId(playingChannel?.id)) { fallback ->
+                            GuideLyricsStrip(currentMusicSong(playingChannel?.id, musicGuideItems, musicLineups, System.currentTimeMillis()), fallback)
+                        } else null,
                         modifier = Modifier.fillMaxWidth().onGloballyPositioned { coords ->
                             miniPlayerHeightPx = coords.size.height
                         },

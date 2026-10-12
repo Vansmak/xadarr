@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.SpeakerGroup
 import androidx.compose.material.icons.filled.Close
@@ -97,6 +98,9 @@ private const val ROW_CONTROLS = 1
 // off the right edge on TVs (Joe, 2026-10-05). Left/Right on it turn the room down/up.
 private const val ROW_VOLUME = 2
 /** The transport controls the remote moves across; volume lives on [ROW_VOLUME]. */
+/** After the D-pad moves on the Lyrics tab, how long before the view follows the song again. */
+private const val LYRICS_MANUAL_HOLD_MS = 6_000L
+
 private val TRANSPORT = Control.entries.filter { it != Control.VOLUME_DOWN && it != Control.VOLUME_UP }
 
 private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, RADIO, VOLUME_DOWN, VOLUME_UP }
@@ -104,6 +108,7 @@ private enum class Control { SHUFFLE, PREVIOUS, PLAY_PAUSE, NEXT, REPEAT, RADIO,
 private val TAB_LABELS = mapOf(
     MusicTab.NOW_PLAYING to "Now Playing",
     MusicTab.QUEUE to "Queue",
+    MusicTab.LYRICS to "Lyrics",
     MusicTab.ZONES to "Zones",
     MusicTab.BROWSE to "Library",
 )
@@ -113,12 +118,14 @@ private val TAB_LABELS = mapOf(
 private val TAB_ICONS = mapOf(
     MusicTab.NOW_PLAYING to Icons.Default.MusicNote,
     MusicTab.QUEUE to Icons.Default.QueueMusic,
+    MusicTab.LYRICS to Icons.Default.Lyrics,
     MusicTab.ZONES to Icons.Default.SpeakerGroup,
     MusicTab.BROWSE to Icons.Default.LibraryMusic,
 )
 private val TAB_SHORT_LABELS = mapOf(
     MusicTab.NOW_PLAYING to "Playing",
     MusicTab.QUEUE to "Queue",
+    MusicTab.LYRICS to "Lyrics",
     MusicTab.ZONES to "Zones",
     MusicTab.BROWSE to "Library",
 )
@@ -182,8 +189,16 @@ fun MusicScreen(
     LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
     LaunchedEffect(showSearch) { if (!showSearch) runCatching { rootFocus.requestFocus() } }
     LaunchedEffect(ui.tab) { listIndex = 0 }
+    // Lyrics tab: the view follows the song until the D-pad moves, then stays on the remote's
+    // line until it's left alone for a few seconds (or OK seeks there).
+    var lyricsManualAt by remember { mutableLongStateOf(0L) }
+    val lyricsFollowing = android.os.SystemClock.uptimeMillis() - lyricsManualAt > LYRICS_MANUAL_HOLD_MS || nowTick < 0
+    fun lyricsPositionMs() = (viewModel.currentElapsed() * 1000).toLong()
+    LaunchedEffect(ui.tab, ui.lyricsKey) {
+        if (ui.tab == MusicTab.LYRICS) { lyricsManualAt = 0L; listIndex = ui.lyrics?.currentIndex(lyricsPositionMs())?.coerceAtLeast(0) ?: 0 }
+    }
     LaunchedEffect(listIndex, ui.tab) {
-        if (ui.tab != MusicTab.NOW_PLAYING && listIndex >= 0) runCatching { listState.animateScrollToItem(listIndex) }
+        if (ui.tab != MusicTab.NOW_PLAYING && ui.tab != MusicTab.LYRICS && listIndex >= 0) runCatching { listState.animateScrollToItem(listIndex) }
     }
     // Open the queue at the playing track.
     LaunchedEffect(ui.tab, ui.queueItems.size) {
@@ -197,6 +212,7 @@ fun MusicScreen(
     val listSize = when (ui.tab) {
         MusicTab.NOW_PLAYING -> 0
         MusicTab.QUEUE -> ui.queueItems.size
+        MusicTab.LYRICS -> ui.lyrics?.lines?.size ?: 0
         MusicTab.ZONES -> ui.players.size
         MusicTab.BROWSE -> ui.browse.items.size + 1 // +1 = the Search row at the top
     }
@@ -221,6 +237,10 @@ fun MusicScreen(
             }
             MusicTab.BROWSE -> if (index == 0) showSearch = true else ui.browse.items.getOrNull(index - 1)?.let { item ->
                 if (item.isFolder) viewModel.openFolder(item) else viewModel.play(item)
+            }
+            MusicTab.LYRICS -> ui.lyrics?.lines?.getOrNull(index)?.timeMs?.let { ms ->
+                viewModel.seekTo(ms / 1000.0)
+                lyricsManualAt = 0L
             }
             MusicTab.NOW_PLAYING -> Unit
         }
@@ -313,6 +333,11 @@ fun MusicScreen(
                                 ROW_CONTROLS -> npRow = ROW_SEEK
                                 else -> area = Area.TABS
                             }
+                            ui.tab == MusicTab.LYRICS && listIndex > 0 -> {
+                                if (lyricsFollowing) listIndex = ui.lyrics?.currentIndex(lyricsPositionMs())?.coerceAtLeast(0) ?: listIndex
+                                listIndex = (listIndex - 1).coerceAtLeast(0)
+                                lyricsManualAt = android.os.SystemClock.uptimeMillis()
+                            }
                             listIndex > 0 -> listIndex--
                             else -> area = Area.TABS
                         }
@@ -322,6 +347,11 @@ fun MusicScreen(
                         when {
                             area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
                             ui.tab == MusicTab.NOW_PLAYING -> npRow = if (npRow == ROW_SEEK) ROW_CONTROLS else ROW_VOLUME
+                            ui.tab == MusicTab.LYRICS && listSize > 0 -> {
+                                if (lyricsFollowing) listIndex = ui.lyrics?.currentIndex(lyricsPositionMs())?.coerceAtLeast(0) ?: listIndex
+                                listIndex = (listIndex + 1).coerceAtMost(listSize - 1)
+                                lyricsManualAt = android.os.SystemClock.uptimeMillis()
+                            }
                             listIndex < listSize - 1 -> listIndex++
                             else -> Unit
                         }
@@ -461,6 +491,14 @@ fun MusicScreen(
                                 }
                             }
                         }
+                        MusicTab.LYRICS -> LyricsView(
+                            lyrics = ui.lyrics,
+                            loaded = ui.lyricsLoaded || ui.queue?.current == null,
+                            positionMs = remember(nowTick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { lyricsPositionMs() },
+                            focusedIndex = if (area == Area.CONTENT) listIndex else null,
+                            following = lyricsFollowing,
+                            onLineClick = { i -> listIndex = i; area = Area.CONTENT; activateListItem(i) },
+                        )
                         MusicTab.ZONES -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
                             itemsIndexed(ui.players, key = { _, p -> p.id }) { i, p ->
                                 MediaRow(
@@ -543,15 +581,19 @@ fun MusicScreen(
         ) {
             Box(Modifier.fillMaxSize().clickable(indication = null,
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { wake() }) {
+                val curIdx = ui.queue?.current?.let { cur ->
+                    ui.queueItems.indexOfFirst { it.id == cur.id }.takeIf { it >= 0 }
+                } ?: ui.queue?.currentIndex
                 MusicAmbient(
+                    current = ui.queue?.current,
+                    previous = curIdx?.let { ui.queueItems.getOrNull(it - 1) },
+                    next = curIdx?.let { ui.queueItems.getOrNull(it + 1) },
                     title = ui.queue?.current?.name ?: ui.selectedPlayer?.nowTitle,
                     artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
                     room = ui.selectedPlayer?.name,
                     imageUrl = coverUrl,
-                    next = ui.queue?.current?.let { cur ->
-                        val i = ui.queueItems.indexOfFirst { it.id == cur.id }
-                        ui.queueItems.getOrNull(if (i >= 0) i + 1 else (ui.queue?.currentIndex ?: -2) + 1)
-                    },
+                    elapsedSec = remember(nowTick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
+                    lyrics = ui.lyrics,
                     sleepingSoon = awakeIdleMs > MUSIC_AWAKE_CHECK_MS,
                 )
             }

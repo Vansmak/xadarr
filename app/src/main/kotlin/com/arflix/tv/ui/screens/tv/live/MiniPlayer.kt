@@ -65,6 +65,8 @@ fun MiniPlayerRow(
     compact: Boolean = false,
     // Backdrop shown in place of video for library (Shows/Movies) channels.
     artUrl: String? = null,
+    // Music rows: synced lyrics in place of the NEXT line; draws the fallback when there are none.
+    lyricsSlot: (@Composable (fallback: @Composable () -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (compact) {
@@ -88,6 +90,7 @@ fun MiniPlayerRow(
                 nowNext = nowNext,
                 isFavorite = channel?.id?.let { it in favoriteSet } == true,
                 onFavoriteToggle = onFavoriteToggle,
+                lyricsSlot = lyricsSlot,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -111,6 +114,7 @@ fun MiniPlayerRow(
                 nowNext = nowNext,
                 isFavorite = channel?.id?.let { it in favoriteSet } == true,
                 onFavoriteToggle = onFavoriteToggle,
+                lyricsSlot = lyricsSlot,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -271,6 +275,7 @@ private fun InfoColumn(
     nowNext: IptvNowNext?,
     isFavorite: Boolean,
     onFavoriteToggle: (String) -> Unit,
+    lyricsSlot: (@Composable (fallback: @Composable () -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -279,7 +284,7 @@ private fun InfoColumn(
     ) {
         ChannelIdentityRow(channel = channel)
         NowCard(channel = channel, clockTickMillis = clockTickMillis, nowNext = nowNext)
-        NextRow(nowNext = nowNext)
+        if (lyricsSlot != null) lyricsSlot { NextRow(nowNext = nowNext) } else NextRow(nowNext = nowNext)
     }
 }
 

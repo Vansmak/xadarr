@@ -12,12 +12,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 
-enum class MusicTab { NOW_PLAYING, QUEUE, ZONES, BROWSE }
+enum class MusicTab { NOW_PLAYING, QUEUE, LYRICS, ZONES, BROWSE }
 
 data class BrowseState(
     val title: String = "Library",
@@ -49,6 +52,10 @@ data class MusicUiState(
     val playersLoaded: Boolean = false,
     /** A pick waiting on "another room has the Spotify stream" (see [roomClashFor]). */
     val busyPrompt: MusicBusyPrompt? = null,
+    /** Lyrics for [lyricsKey] (the current track); null with [lyricsLoaded] = none found. */
+    val lyrics: MusicLyrics? = null,
+    val lyricsKey: String? = null,
+    val lyricsLoaded: Boolean = false,
 ) {
     val selectedPlayer: MaPlayer? get() = players.firstOrNull { it.id == selectedPlayerId }
     val isPlaying: Boolean get() = (queue?.state ?: selectedPlayer?.state) == "playing"
@@ -80,6 +87,20 @@ class MusicViewModel @Inject constructor(
             repo.selectedPlayerIdFlow.collect { id ->
                 if (id != null && id != _ui.value.selectedPlayerId && _ui.value.players.any { it.id == id }) selectPlayer(id)
             }
+        }
+        // Lyrics follow the current track (Lyrics tab + screensaver).
+        viewModelScope.launch {
+            ui.map { it.queue?.current }.distinctUntilChanged { a, b -> a?.let(MusicLyricsSource::key) == b?.let(MusicLyricsSource::key) }
+                .collectLatest { item ->
+                    if (item == null) {
+                        _ui.update { it.copy(lyrics = null, lyricsKey = null, lyricsLoaded = false) }
+                        return@collectLatest
+                    }
+                    val key = MusicLyricsSource.key(item)
+                    _ui.update { it.copy(lyrics = null, lyricsKey = key, lyricsLoaded = false) }
+                    val found = MusicLyricsSource.lyricsFor(item)
+                    _ui.update { if (it.lyricsKey == key) it.copy(lyrics = found, lyricsLoaded = true) else it }
+                }
         }
         // If the socket was already up (another screen holds it), load straight away.
         if (repo.state.value == ConnectionState.CONNECTED) viewModelScope.launch { loadAll() }
@@ -205,6 +226,13 @@ class MusicViewModel @Inject constructor(
 
     fun next() = queueId?.let { repo.fire("player_queues/next", JSONObject().put("queue_id", it)) }
     fun previous() = queueId?.let { repo.fire("player_queues/previous", JSONObject().put("queue_id", it)) }
+
+    fun seekTo(positionSec: Double) {
+        val id = queueId ?: return
+        val target = positionSec.coerceAtLeast(0.0)
+        _ui.update { it.copy(elapsedSec = target, elapsedAtMs = SystemClock.elapsedRealtime()) }
+        repo.fire("player_queues/seek", JSONObject().put("queue_id", id).put("position", target.toInt()))
+    }
 
     fun seekBy(deltaSec: Int) {
         val id = queueId ?: return

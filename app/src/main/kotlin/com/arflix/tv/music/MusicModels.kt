@@ -55,6 +55,10 @@ data class MaQueueItem(
     val imageUrl: String?,
     val quality: String?,
     val uri: String? = null,
+    val year: Int? = null,
+    /** Lyrics Music Assistant already has (its lyrics metadata providers), .lrc and plain. */
+    val lrcLyrics: String? = null,
+    val plainLyrics: String? = null,
 )
 
 data class MaQueue(
@@ -166,8 +170,20 @@ internal object MaParse {
             imageUrl = repo.imageUrl(o.optJSONObject("image")) ?: media?.let { itemImage(it, repo) },
             quality = o.optJSONObject("streamdetails")?.optJSONObject("audio_format")?.let(::quality),
             uri = media?.optString("uri")?.takeIf { it.isNotBlank() },
+            year = media?.let(::year),
+            lrcLyrics = media?.optJSONObject("metadata")?.optStringOrNull("lrc_lyrics"),
+            plainLyrics = media?.optJSONObject("metadata")?.optStringOrNull("lyrics"),
         )
     }
+
+    private fun year(media: JSONObject): Int? {
+        media.optJSONObject("album")?.optIntOrNull("year")?.takeIf { it > 0 }?.let { return it }
+        media.optIntOrNull("year")?.takeIf { it > 0 }?.let { return it }
+        return media.optJSONObject("metadata")?.optStringOrNull("release_date")?.take(4)?.toIntOrNull()
+    }
+
+    private fun JSONObject.optStringOrNull(key: String): String? =
+        if (has(key) && !isNull(key)) optString(key).takeIf { it.isNotBlank() && it != "null" } else null
 
     fun mediaItem(o: JSONObject, repo: MusicAssistantRepository): MaMediaItem? {
         val uri = o.optString("uri")
