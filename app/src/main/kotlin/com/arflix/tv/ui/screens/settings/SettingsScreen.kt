@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Home
@@ -391,6 +392,7 @@ fun SettingsScreen(
     var showCustomAddonInput by remember { mutableStateOf(false) }
     var customAddonUrl by remember { mutableStateOf("") }
     var showIptvInput by remember { mutableStateOf(false) }
+    var showChannelGroups by remember { mutableStateOf(false) }
     var editingIptvIndex by remember { mutableIntStateOf(-1) }
     var iptvEditName by remember { mutableStateOf("") }
     var iptvEditUrl by remember { mutableStateOf("") }
@@ -468,7 +470,7 @@ fun SettingsScreen(
     val sectionMaxIndex: (String) -> Int = { section ->
         when (section) {
             in tvGeneralSectionIds -> (tvGeneralRowsForSection(section).size - 1).coerceAtLeast(0)
-            "iptv" -> 2 + uiState.iptvPlaylists.size // Add + rows + refresh + clear
+            "iptv" -> 3 + uiState.iptvPlaylists.size // Add + rows + channel groups + refresh + clear
             "home_server" -> uiState.homeServerConnections.size + 3
             "catalogs" -> uiState.catalogs.size + 2 // Add + Watchlist + CW + catalog rows
             "stremio" -> stremioAddons.size + 11 + (if (uiState.groupBlacklistEnabled) 1 else 0) + uiState.webhookUrls.size // addons + add button + URL rows + 4 integration settings + Neolink + HA url/token + Smart Home link + Music Assistant url/login/open + optional blacklist path
@@ -987,9 +989,12 @@ fun SettingsScreen(
                                                     }
                                                 }
                                                 contentFocusIndex == uiState.iptvPlaylists.size + 1 -> {
-                                                    viewModel.refreshIptv(force = true)
+                                                    showChannelGroups = true
                                                 }
                                                 contentFocusIndex == uiState.iptvPlaylists.size + 2 -> {
+                                                    viewModel.refreshIptv(force = true)
+                                                }
+                                                contentFocusIndex == uiState.iptvPlaylists.size + 3 -> {
                                                     viewModel.clearIptvConfig()
                                                 }
                                             }
@@ -1444,6 +1449,7 @@ fun SettingsScreen(
                         }
                         } // end "general" block
                         "iptv" -> IptvSettings(
+                            onChannelGroups = { showChannelGroups = true },
                             playlists = uiState.iptvPlaylists,
                             channelCount = uiState.iptvChannelCount,
                             isLoading = uiState.isIptvLoading,
@@ -1927,6 +1933,9 @@ fun SettingsScreen(
                     showPlexHomeServerInput = false
                 }
             )
+        }
+        if (showChannelGroups) {
+            ChannelGroupsDialog(viewModel = viewModel, onDismiss = { showChannelGroups = false })
         }
         if (showIptvInput) {
             InputModal(
@@ -4353,7 +4362,12 @@ private fun MobileSettingsSubPage(
                 )
             }
             "IPTV" -> {
+                var showChannelGroups by remember { mutableStateOf(false) }
+                if (showChannelGroups) {
+                    ChannelGroupsDialog(viewModel = viewModel, onDismiss = { showChannelGroups = false })
+                }
                 IptvSettings(
+                    onChannelGroups = { showChannelGroups = true },
                     playlists = uiState.iptvPlaylists,
                     channelCount = uiState.iptvChannelCount,
                     isLoading = uiState.isIptvLoading,
@@ -6103,7 +6117,8 @@ private fun IptvSettings(
     onMovePlaylistDown: (Int) -> Unit,
     onDeletePlaylist: (Int) -> Unit,
     onRefresh: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onChannelGroups: () -> Unit = {},
 ) {
     val isMobile = LocalDeviceType.current.isTouchDevice()
     var selectionMode by remember { mutableStateOf(false) }
@@ -6319,13 +6334,25 @@ private fun IptvSettings(
             else -> "Reload playlist and EPG now"
         }
         SettingsRow(
+            icon = Icons.Default.Visibility,
+            title = "Channel groups",
+            subtitle = "Choose which groups show in the guide",
+            value = "MANAGE",
+            isFocused = focusedIndex == playlists.size + 1,
+            onClick = onChannelGroups,
+            modifier = Modifier.settingsFocusSlot(playlists.size + 1)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SettingsRow(
             icon = Icons.Default.Link,
             title = stringResource(R.string.refresh_iptv),
             subtitle = refreshSubtitle,
             value = if (isLoading) "LOADING" else "REFRESH",
-            isFocused = focusedIndex == playlists.size + 1,
+            isFocused = focusedIndex == playlists.size + 2,
             onClick = onRefresh,
-            modifier = Modifier.settingsFocusSlot(playlists.size + 1)
+            modifier = Modifier.settingsFocusSlot(playlists.size + 2)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -6335,9 +6362,9 @@ private fun IptvSettings(
             title = stringResource(R.string.delete_iptv),
             subtitle = if (playlists.isEmpty()) "No playlists configured" else "Remove playlists, EPG and favorites",
             value = if (playlists.isEmpty()) "EMPTY" else "DELETE",
-            isFocused = focusedIndex == playlists.size + 2,
+            isFocused = focusedIndex == playlists.size + 3,
             onClick = onDelete,
-            modifier = Modifier.settingsFocusSlot(playlists.size + 2)
+            modifier = Modifier.settingsFocusSlot(playlists.size + 3)
         )
 
         if (isLoading && !progressText.isNullOrBlank()) {

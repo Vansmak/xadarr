@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -2382,6 +2383,42 @@ class SettingsViewModel @Inject constructor(
         }
 
         saveIptvConfig(m3uInput, epgInput)
+    }
+
+    // ── Settings → Live TV → Channel groups ─────────────────────────────────────────────
+    // TiviMate-style checklist of every playlist group (Joe, 2026-10-11: "no way I'm going to
+    // hold and hide every single one"). Counts come from the cached channel list; states are live.
+    data class ChannelGroupRow(val name: String, val count: Int, val hidden: Boolean, val isNew: Boolean)
+
+    private val _channelGroupCounts = MutableStateFlow<List<Pair<String, Int>>>(emptyList())
+    val channelGroups: StateFlow<List<ChannelGroupRow>> = kotlinx.coroutines.flow.combine(
+        _channelGroupCounts,
+        iptvRepository.observeHiddenGroups(),
+        iptvRepository.observeNewGroups(),
+        iptvRepository.observeRemovedGroups(),
+    ) { counts, hidden, new, removed ->
+        val hiddenSet = hidden.toSet()
+        val newSet = new.toSet()
+        val removedSet = removed.toSet()
+        counts.filterNot { (name, _) -> name in removedSet }.map { (name, count) ->
+            ChannelGroupRow(name, count, hidden = name in hiddenSet || name in newSet, isNew = name in newSet)
+        }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun loadChannelGroups() {
+        viewModelScope.launch {
+            val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: iptvRepository.getCachedSnapshotOrNull()
+            val counts = LinkedHashMap<String, Int>()
+            snapshot?.channels?.forEach { ch ->
+                val g = ch.group.trim().ifBlank { "Uncategorized" }
+                counts[g] = (counts[g] ?: 0) + 1
+            }
+            _channelGroupCounts.value = counts.entries.map { it.key to it.value }
+        }
+    }
+
+    fun setChannelGroupsHidden(names: Collection<String>, hidden: Boolean) {
+        viewModelScope.launch { iptvRepository.setGroupsHidden(names, hidden) }
     }
 
     fun saveIptvPlaylists(playlists: List<IptvPlaylistEntry>) {

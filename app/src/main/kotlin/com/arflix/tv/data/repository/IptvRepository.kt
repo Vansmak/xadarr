@@ -977,6 +977,23 @@ class IptvRepository @Inject constructor(
         invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "set group state")
     }
 
+    /** Show or hide many groups in one write (Settings → Channel groups). Removed groups stay removed. */
+    suspend fun setGroupsHidden(groupNames: Collection<String>, hidden: Boolean) {
+        val names = groupNames.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (names.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val hiddenList = decodeHiddenGroups(prefs).filterNot { it in names }.toMutableList()
+            val new = decodeNewGroups(prefs).filterNot { it in names }
+            val removed = decodeRemovedGroups(prefs).toSet()
+            val known = decodeKnownGroups(prefs).toMutableSet().apply { addAll(names) }
+            if (hidden) hiddenList.addAll(names.filterNot { it in removed })
+            prefs[hiddenGroupsKey()] = gson.toJson(hiddenList)
+            prefs[newGroupsKey()] = gson.toJson(new)
+            prefs[knownGroupsKey()] = gson.toJson(known.toList())
+        }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "set groups hidden")
+    }
+
     fun observeGroupBlacklistEnabled(): Flow<Boolean> =
         context.settingsDataStore.data.map { prefs -> prefs[GROUP_BLACKLIST_ENABLED_KEY] == true }
 
