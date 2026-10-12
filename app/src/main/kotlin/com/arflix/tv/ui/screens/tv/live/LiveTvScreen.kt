@@ -512,14 +512,22 @@ fun LiveTvScreen(
     // until this matches selectedCategoryId, or it acts on a list that isn't the real one.
     var filteredForCategory by remember { mutableStateOf<String?>(null) }
     val recentsFilterKey = if (selectedCategoryId == "recent") recents.value else Unit
-    LaunchedEffect(enrichedState.value.index, selectedCategoryId, favSet, recentsFilterKey, favoriteSortMode) {
+    // Settings → Live TV → Channels: channels you never watch drop out of the group lists (like
+    // TiviMate's hide channel / DirecTV's custom guide). Favorites and Recent are your own lists,
+    // so they keep them; search and typing the number still reach them.
+    val hiddenChannelIds by remember { viewModel.iptvRepository.observeHiddenChannels() }
+        .collectAsStateWithLifecycle(initialValue = emptySet())
+    LaunchedEffect(enrichedState.value.index, selectedCategoryId, favSet, recentsFilterKey, favoriteSortMode, hiddenChannelIds) {
         val result = withContext(Dispatchers.Default) {
             enrichedState.value.index.channelsFor(
                 categoryId = selectedCategoryId,
                 favorites = state.snapshot.favoriteChannels,
                 recents = recents.value,
                 sortMode = favoriteSortMode,
-            )
+            ).let { list ->
+                if (hiddenChannelIds.isEmpty() || selectedCategoryId == "fav" || selectedCategoryId == "recent") list
+                else list.filterNot { it.id in hiddenChannelIds }
+            }
         }
         filteredChannelsState.value = result
         filteredForCategory = selectedCategoryId
@@ -912,7 +920,10 @@ fun LiveTvScreen(
         val currentIdx = all.indexOfFirst { it.id == playingChannelId }
         val start = if (currentIdx >= 0) currentIdx else 0
         val size = all.size
-        val nextIdx = ((start + delta) % size + size) % size
+        var nextIdx = ((start + delta) % size + size) % size
+        // Channels hidden in Settings → Channels are skipped, like a DirecTV custom guide.
+        var guard = size
+        while (all[nextIdx].id in hiddenChannelIds && guard-- > 0) nextIdx = ((nextIdx + delta) % size + size) % size
         notePreviousChannel()
         playingChannelId = all[nextIdx].id
         focusedChannelId = all[nextIdx].id

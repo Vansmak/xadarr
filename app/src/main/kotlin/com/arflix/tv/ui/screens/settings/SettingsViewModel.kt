@@ -2421,6 +2421,40 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { iptvRepository.setGroupsHidden(names, hidden) }
     }
 
+    // Settings → Live TV → Channels: every channel in the groups you show, in channel-number order
+    // (DirecTV's numbers in Joe's lineup), with a tick for whether the guide lists it.
+    data class ChannelRow(val id: String, val number: String, val name: String, val group: String, val hidden: Boolean)
+
+    private val _channelList = MutableStateFlow<List<ChannelRow>>(emptyList())
+    val channels: StateFlow<List<ChannelRow>> = kotlinx.coroutines.flow.combine(
+        _channelList,
+        iptvRepository.observeHiddenChannels(),
+    ) { rows, hidden -> rows.map { it.copy(hidden = it.id in hidden) } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun loadChannels() {
+        viewModelScope.launch {
+            val snapshot = iptvRepository.getMemoryCachedSnapshot() ?: iptvRepository.getCachedSnapshotOrNull() ?: return@launch
+            val offGroups = (snapshot.hiddenGroups + snapshot.newGroups + snapshot.removedGroups).mapTo(HashSet()) { it.trim() }
+            _channelList.value = snapshot.channels
+                .filter { it.group.trim() !in offGroups }
+                .sortedWith(compareBy({ it.chno?.toDoubleOrNull() ?: Double.MAX_VALUE }, { it.name.lowercase() }))
+                .map { ch ->
+                    ChannelRow(
+                        id = ch.id,
+                        number = ch.chno?.let { com.arflix.tv.ui.screens.tv.live.formatChno(it) }.orEmpty(),
+                        name = ch.name,
+                        group = ch.group.trim(),
+                        hidden = false,
+                    )
+                }
+        }
+    }
+
+    fun setChannelsHidden(ids: Collection<String>, hidden: Boolean) {
+        viewModelScope.launch { iptvRepository.setChannelsHidden(ids, hidden) }
+    }
+
     fun saveIptvPlaylists(playlists: List<IptvPlaylistEntry>) {
         viewModelScope.launch {
             iptvRepository.savePlaylists(playlists)

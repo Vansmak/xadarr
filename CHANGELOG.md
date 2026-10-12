@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.29] - 2026-10-12
+
+### Added
+- **Settings → Live TV → Channels** — hide channels you never watch, like TiviMate's hide channel or DirecTV's custom guide. Every channel in the groups you show, in channel-number order, ticked = in the guide. The filter matches a name, a group or the start of a number, and Show all / Hide all act on what it shows (type 4, Hide all = the whole 4000s). Hidden channels leave the group lists and fullscreen channel up/down; Favorites, Recent, search and typing the number still reach them. Synced to every device. TV and phone.
+
 ## [2.28] - 2026-10-12
 
 ### Fixed

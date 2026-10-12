@@ -151,6 +151,12 @@ data class IptvCloudProfileState(
     /** When the favourite channels last changed by a user edit (0 = unknown / older build). */
     val favoritesUpdatedAt: Long = 0L,
     val hiddenGroups: List<String> = emptyList(),
+    /**
+     * Channel ids left out of the guide (Settings → Live TV → Channels). Nullable on purpose:
+     * Gson leaves it null when an older build's blob has no such key, and null means "don't
+     * touch" while an empty list means "none hidden" -- so un-hiding the last one syncs too.
+     */
+    val hiddenChannels: List<String>? = null,
     val groupOrder: List<String> = emptyList(),
     val playlists: List<IptvPlaylistEntry> = emptyList(),
     val tvSession: IptvTvSessionState = IptvTvSessionState()
@@ -395,6 +401,32 @@ class IptvRepository @Inject constructor(
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
             decodeHiddenGroups(prefs)
         }
+
+    /** Channels hidden from the guide (TiviMate/DirecTV-style "channels I watch"). */
+    fun observeHiddenChannels(): Flow<Set<String>> =
+        profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
+            decodeStringList(prefs[hiddenChannelsKey()].orEmpty()).toSet()
+        }
+
+    /** Hide or show many channels in one write (Settings → Channels). */
+    suspend fun setChannelsHidden(channelIds: Collection<String>, hidden: Boolean) {
+        val ids = channelIds.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (ids.isEmpty()) return
+        context.settingsDataStore.edit { prefs ->
+            val current = decodeStringList(prefs[hiddenChannelsKey()].orEmpty()).toMutableSet()
+            if (hidden) current.addAll(ids) else current.removeAll(ids)
+            prefs[hiddenChannelsKey()] = gson.toJson(current.toList())
+        }
+        invalidationBus.markDirty(CloudSyncScope.IPTV, profileManager.getProfileIdSync(), "set channels hidden")
+    }
+
+    private fun decodeStringList(raw: String): List<String> {
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
 
     fun observeGroupOrder(): Flow<List<String>> =
         profileManager.activeProfileId.combine(context.settingsDataStore.data) { _, prefs ->
@@ -2126,6 +2158,9 @@ class IptvRepository @Inject constructor(
     }
 
     private fun hiddenGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_hidden_groups")
+    private fun hiddenChannelsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_hidden_channels")
+    private fun hiddenChannelsKeyFor(profileId: String): Preferences.Key<String> =
+        profileManager.profileStringKeyFor(profileId, "iptv_hidden_channels")
     private fun hiddenGroupsKeyFor(profileId: String): Preferences.Key<String> =
         profileManager.profileStringKeyFor(profileId, "iptv_hidden_groups")
     private fun newGroupsKey(): Preferences.Key<String> = profileManager.profileStringKey("iptv_new_groups")
@@ -2288,6 +2323,7 @@ class IptvRepository @Inject constructor(
         val prefs = context.settingsDataStore.data.first()
         val hiddenRaw = prefs[hiddenGroupsKeyFor(safeProfileId)].orEmpty()
         val orderRaw = prefs[groupOrderKeyFor(safeProfileId)].orEmpty()
+        val hiddenChannelsRaw = prefs[hiddenChannelsKeyFor(safeProfileId)]
         val playlistsRaw = prefs[playlistsKeyFor(safeProfileId)].orEmpty()
         val tvSessionRaw = prefs[tvSessionKeyFor(safeProfileId)].orEmpty()
         return IptvCloudProfileState(
@@ -2308,6 +2344,7 @@ class IptvRepository @Inject constructor(
                     gson.fromJson<List<String>>(hiddenRaw, type) ?: emptyList()
                 }.getOrDefault(emptyList())
             } else emptyList(),
+            hiddenChannels = hiddenChannelsRaw?.let { decodeStringList(it) },
             groupOrder = if (orderRaw.isNotBlank()) {
                 runCatching {
                     val type = TypeToken.getParameterized(List::class.java, String::class.java).type
@@ -2384,6 +2421,7 @@ class IptvRepository @Inject constructor(
             if (state.groupOrder.isNotEmpty()) {
                 prefs[groupOrderKeyFor(safeProfileId)] = gson.toJson(state.groupOrder.distinct())
             }
+            state.hiddenChannels?.let { prefs[hiddenChannelsKeyFor(safeProfileId)] = gson.toJson(it.distinct()) }
             if (normalizedPlaylists.isNotEmpty()) {
                 prefs[playlistsKeyFor(safeProfileId)] = gson.toJson(normalizedPlaylists)
             }
