@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21] - 2026-10-12
+
+### Added
+- **Your phone is a speaker** — Xadarr (and Xadarr Music) on a phone joins Music Assistant as a player and shows up as "This phone" in every zone list, next to the Sonos speakers. Keeps playing with the screen off (notification with Stop). Shows up about 15s after the app opens; leaves when the app is closed and nothing's playing.
+- **Hide playlists from the guide** — a playlist's menu has "Hide … from the guide"; "Hidden playlists…" brings them back. Synced to every device.
+
+### Changed
+- **Playlists sorted by last played** (guide and Music screen), from Music Assistant's play log, so it's the same order everywhere.
+- **Guide reopens on the music** — while music is still playing in this TV's room (or the zone it last started), the guide opens on the Music group with that room's Now Playing row selected.
+- **Turning the TV off pauses its room's music** (TV boxes only). If the room was only grouped into another room's music, it just leaves the group.
+- Music screensaver background is darker.
+
 ## [2.20] - 2026-10-12
 
 ### Added
