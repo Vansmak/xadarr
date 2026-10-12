@@ -619,7 +619,7 @@ fun LiveTvScreen(
     // Pick the startup channel only after saved IPTV preferences/session have
     // loaded. Favorites win over a stale recent channel, then we fall back to
     // the persisted recent channel, then the first filtered entry.
-    val musicReturn = rememberGuideMusicReturn(viewModel) { id -> enrichedState.value.index.byId[id] != null }
+    val musicReturn = rememberGuideMusicReturn(viewModel)
     LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded, filteredReady, musicReturn.waiting, musicReturn.channelId) {
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
@@ -806,7 +806,8 @@ fun LiveTvScreen(
         if (!filteredReady || musicReturn.waiting) return@LaunchedEffect
         val enriched = enrichedState.value
         val index = enriched.index
-        val returnId = returnFromLibraryId?.takeIf { index.byId[it] != null } ?: musicReturn.channelId
+        val returnId = returnFromLibraryId?.takeIf { index.byId[it] != null }
+            ?: musicReturn.channelId // music playing in this room: open on it (waits for the row below)
         val id = returnId ?: playingChannelId ?: return@LaunchedEffect
         if (returnId == null && isLibraryChannelId(id) && filteredChannels.none { it.id == id }) {
             // The remembered "playing" channel is a Shows/Movies row the user had highlighted

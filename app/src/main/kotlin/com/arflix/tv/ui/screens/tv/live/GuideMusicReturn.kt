@@ -24,7 +24,7 @@ class GuideMusicReturn(
 )
 
 @Composable
-fun rememberGuideMusicReturn(viewModel: TvViewModel, indexHas: (String) -> Boolean): GuideMusicReturn {
+fun rememberGuideMusicReturn(viewModel: TvViewModel): GuideMusicReturn {
     val configured by viewModel.musicConfigured.collectAsStateWithLifecycle()
     val loaded by viewModel.musicLineupsLoaded.collectAsStateWithLifecycle()
     val lineups by viewModel.musicLineups.collectAsStateWithLifecycle()
@@ -44,7 +44,9 @@ fun rememberGuideMusicReturn(viewModel: TvViewModel, indexHas: (String) -> Boole
     val playing = lineups.firstOrNull { lineup ->
         !lineup.paused && lineup.tracks.isNotEmpty() && lineup.queueId in zones
     } ?: return GuideMusicReturn(waiting = false, channelId = null)
-    val id = nowPlayingChannelId(playing.queueId)
-    // The row exists once the guide has re-built with the Now Playing items.
-    return if (indexHas(id)) GuideMusicReturn(waiting = false, channelId = id) else notYet
+    // Known as soon as the queues answer. The row itself shows up once the guide has re-built
+    // with the Now Playing items -- seconds later on the Shield, which is why this doesn't wait
+    // for it (Joe, 2026-10-12: the wait timed out and the last channel came back); the
+    // on-entry alignment waits for the row instead.
+    return GuideMusicReturn(waiting = false, channelId = nowPlayingChannelId(playing.queueId))
 }

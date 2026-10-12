@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.23] - 2026-10-12
+
+### Fixed
+- **Guide really opens on the music now** — 2.22 waited for the Now Playing row to be built, which takes longer than its 2.5s limit on the Shield, so it still went back to the last channel (muted, at least). It now decides as soon as it knows music is playing in the room, then selects the row once it's there.
+
+### Changed
+- **Screensaver: always the coverflow**, with just the line being sung and the next one under the progress bar (songs with synced lyrics). The full-page lyrics mode is gone from the screensaver; full lyrics are on the Lyrics tab.
+
 ## [2.22] - 2026-10-12
 
 ### Fixed

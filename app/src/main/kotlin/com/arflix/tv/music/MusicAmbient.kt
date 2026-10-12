@@ -106,9 +106,9 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
  * Music screensaver (Joe, 2026-10-12; look after a r/homeassistant now-playing display):
  * a coverflow -- this song's cover flat and large, the previous and next covers angled behind it
  * with a faint reflection -- over a blurred, darkened wash of the cover, with clock and room on
- * top, the song in big type, a thin progress bar, and "Up next". When the song has synced
- * lyrics, the cover side switches to them 30s in and flips back and forth (45s lyrics, 15s
- * covers). The whole layout drifts a few dp every 30s so nothing sits still long enough to burn
+ * top, the song in big type, a thin progress bar, and "Up next". Songs with synced lyrics
+ * show just the line being sung and the next one under the progress bar -- full lyrics are the
+ * Lyrics tab's job (Joe, 2026-10-12: "I like the cover flow look and just couple lines"). The whole layout drifts a few dp every 30s so nothing sits still long enough to burn
  * into an OLED. The Music screen wakes it on any key or tap.
  */
 @Composable
@@ -139,8 +139,6 @@ fun MusicAmbient(
             val dx by animateDpAsState(20.dp * drift.first, tween(8_000), label = "drift-x")
             val dy by animateDpAsState(14.dp * drift.second, tween(8_000), label = "drift-y")
 
-            // Cover vs lyrics: covers for the first 30s of a song, then lyrics 45s / covers 15s.
-            val showLyrics = lyrics?.synced == true && elapsedSec >= 30 && ((elapsedSec - 30) % 60) < 45
             val clock by produceState(initialValue = "") {
                 val fmt = android.text.format.DateFormat.getTimeFormat(context)
                 while (true) {
@@ -152,15 +150,8 @@ fun MusicAmbient(
             val positionMs = (elapsedSec * 1000).toLong()
 
             val visual: @Composable (Modifier) -> Unit = { mod ->
-                Crossfade(targetState = showLyrics, animationSpec = tween(900), label = "ambient-view", modifier = mod) { lyricsOn ->
-                    if (lyricsOn && lyrics != null) {
-                        LyricsView(lyrics = lyrics, loaded = true, positionMs = positionMs, big = true,
-                            align = if (narrow) TextAlign.Center else TextAlign.Start)
-                    } else {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CoverFlow(previous?.imageUrl, imageUrl, next?.imageUrl, coverSize)
-                        }
-                    }
+                Box(mod, contentAlignment = Alignment.Center) {
+                    CoverFlow(previous?.imageUrl, imageUrl, next?.imageUrl, coverSize)
                 }
             }
             val words: @Composable (TextAlign) -> Unit = { align ->
@@ -184,6 +175,25 @@ fun MusicAmbient(
                     if (duration > 0) {
                         Spacer(Modifier.height(if (narrow) 16.dp else 24.dp))
                         AmbientProgress(elapsedSec, duration)
+                    }
+                    lyrics?.takeIf { it.synced }?.let { synced ->
+                        val i = synced.currentIndex(positionMs)
+                        val now = synced.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() }
+                        val following = synced.lines.getOrNull(i + 1)?.text?.takeIf { it.isNotBlank() }
+                        if (now != null || following != null) {
+                            Spacer(Modifier.height(if (narrow) 14.dp else 22.dp))
+                            Crossfade(targetState = now to following, animationSpec = tween(400), label = "ambient-lyric") { (line, upcoming) ->
+                                Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
+                                    Text(line ?: "♪", color = Color.White, fontSize = if (narrow) 18.sp else 24.sp,
+                                        fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align)
+                                    upcoming?.let {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = if (narrow) 15.sp else 19.sp,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
