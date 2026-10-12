@@ -761,6 +761,7 @@ fun LiveTvScreen(
         }
     }
     var programInfoTarget by remember { mutableStateOf<Pair<EnrichedChannel, IptvProgram>?>(null) }
+    val guideSaver = remember { GuideSaverState() }
     var focusSelectedChannelSignal by remember { mutableIntStateOf(0) }
     val rememberedChannelByCategory = remember { mutableMapOf<String, String>() }
     // Entering Now Playing with a channel already playing (back from another screen -- the player
@@ -1401,6 +1402,7 @@ fun LiveTvScreen(
                 if (!isTouchDevice) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown) userPressedKey = true
+                        if (guideSaver.consume(event.type == KeyEventType.KeyDown)) return@onPreviewKeyEvent true
                         // Music on this room's Sonos: volume keys drive it (logic in the VM, kept out of here -- see RoomVolumeToast).
                         if (viewModel.roomVolumeKey(event.key, event.type == KeyEventType.KeyDown)) return@onPreviewKeyEvent true
                         // Number buttons (remotes/phone remote apps that have them): TiVo-style
@@ -2486,6 +2488,16 @@ fun LiveTvScreen(
                 },
             )
         }
+        // Guide left alone: music screensaver or back to fullscreen video (GuideScreensaver.kt).
+        GuideScreensaver(
+            saver = guideSaver,
+            viewModel = viewModel,
+            enabled = !isTouchDevice && !isFullScreen && !searchOpen && !keypadOpen && !showRemoteModeSheet &&
+                libraryMenuChannel == null && libraryCellTarget == null && musicSearchPick == null && programInfoTarget == null,
+            liveActive = miniPlayerState.isActive,
+            liveMuted = musicInRoom,
+            onGoFullscreen = openFullScreenPlayer,
+        )
         if (channelDigits.isNotEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize().zIndex(350f).padding(top = 40.dp, end = 48.dp),

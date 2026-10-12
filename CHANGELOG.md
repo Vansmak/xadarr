@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.24] - 2026-10-12
+
+### Added
+- **Guide screensaver** — left alone on the TV guide: with music playing in this TV's room (and the TV not sounding over it), the music screensaver comes up after a minute, same as on the Music screen; with a live channel playing, the guide goes back to fullscreen video after 90s. Any button wakes it without also acting on the guide. Not while a menu, search or the keypad is open.
+
 ## [2.23] - 2026-10-12
 
 ### Fixed

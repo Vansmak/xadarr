@@ -581,21 +581,7 @@ fun MusicScreen(
         ) {
             Box(Modifier.fillMaxSize().clickable(indication = null,
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { wake() }) {
-                val curIdx = ui.queue?.current?.let { cur ->
-                    ui.queueItems.indexOfFirst { it.id == cur.id }.takeIf { it >= 0 }
-                } ?: ui.queue?.currentIndex
-                MusicAmbient(
-                    current = ui.queue?.current,
-                    previous = curIdx?.let { ui.queueItems.getOrNull(it - 1) },
-                    next = curIdx?.let { ui.queueItems.getOrNull(it + 1) },
-                    title = ui.queue?.current?.name ?: ui.selectedPlayer?.nowTitle,
-                    artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
-                    room = ui.selectedPlayer?.name,
-                    imageUrl = coverUrl,
-                    elapsedSec = remember(nowTick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
-                    lyrics = ui.lyrics,
-                    sleepingSoon = awakeIdleMs > MUSIC_AWAKE_CHECK_MS,
-                )
+                MusicAmbientNow(viewModel, sleepingSoon = awakeIdleMs > MUSIC_AWAKE_CHECK_MS)
             }
         }
 

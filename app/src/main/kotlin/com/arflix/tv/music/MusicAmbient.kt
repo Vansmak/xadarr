@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,6 +100,31 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(bg.copy(alpha = (scrim - 0.12f).coerceIn(0f, 1f)), bg.copy(alpha = (scrim + 0.12f).coerceIn(0f, 1f))))
         )
+    )
+}
+
+/** The screensaver for whatever [viewModel]'s room is playing (Music screen and the guide). */
+@Composable
+fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
+    val ui by viewModel.ui.collectAsState()
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(ui.isPlaying) {
+        while (ui.isPlaying) { tick++; delay(500) }
+    }
+    val curIdx = ui.queue?.current?.let { cur ->
+        ui.queueItems.indexOfFirst { it.id == cur.id }.takeIf { it >= 0 }
+    } ?: ui.queue?.currentIndex
+    MusicAmbient(
+        current = ui.queue?.current,
+        previous = curIdx?.let { ui.queueItems.getOrNull(it - 1) },
+        next = curIdx?.let { ui.queueItems.getOrNull(it + 1) },
+        title = ui.queue?.current?.name ?: ui.selectedPlayer?.nowTitle,
+        artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
+        room = ui.selectedPlayer?.name,
+        imageUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl,
+        elapsedSec = remember(tick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
+        lyrics = ui.lyrics,
+        sleepingSoon = sleepingSoon,
     )
 }
 
