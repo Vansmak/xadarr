@@ -26,14 +26,15 @@ import com.arflix.tv.ui.screens.tv.TvViewModel
 import kotlinx.coroutines.delay
 
 /** How long the guide sits untouched before a live channel goes back to fullscreen. */
-private const val GUIDE_IDLE_TO_FULLSCREEN_MS = 90_000L
+// 90s was too soon for reading the guide (Joe, 2026-10-12).
+private const val GUIDE_IDLE_TO_FULLSCREEN_MS = 5 * 60_000L
 
 /**
  * The guide left alone (Joe, 2026-10-12: "ss mode should still kick in if guide left unattended.
  * either media if not on music or the ma ss"):
  * - music playing in this TV's room (and the TV isn't sounding over it) -> the music screensaver,
  *   same as the Music screen's, after a minute;
- * - otherwise a live channel playing -> back to fullscreen video after 90s.
+ * - otherwise a live channel playing with sound -> back to fullscreen video after 5 minutes.
  * [lastInputAt] is the guide's last key press (uptime ms); [enabled] is false while a menu,
  * search or the keypad is open, or already fullscreen. Returns whether the music screensaver is
  * up -- the guide's key handler swallows the waking press (see [wake]).
@@ -79,7 +80,10 @@ fun GuideScreensaver(
     // The queue to show: this room's (or the group it's in), else -- with no TV playing -- the
     // zone this TV last started.
     val roomLeader = roomZoneId?.let { id -> speakers.firstOrNull { it.id == id }?.syncedTo ?: id }
-    fun playing(id: String?) = id != null && lineups.any { it.queueId == id && !it.paused && it.tracks.isNotEmpty() }
+    // Same test as the guide's TV mute (musicInRoom): a playing queue, songs loaded or not. Also
+    // requiring loaded songs made this miss music the mute saw, and the guide went fullscreen
+    // on muted Fox News over the music (Joe, 2026-10-12).
+    fun playing(id: String?) = id != null && lineups.any { it.queueId == id && !it.paused }
     val musicZone = when {
         playing(roomLeader) -> roomLeader
         !liveActive && playing(lastZoneId) -> lastZoneId
@@ -98,7 +102,8 @@ fun GuideScreensaver(
             val idle = android.os.SystemClock.uptimeMillis() - saver.lastInputAt
             when {
                 musicWanted && idle > MUSIC_AMBIENT_AFTER_MS -> saver.musicUp = true
-                !musicWanted && liveActive && idle > GUIDE_IDLE_TO_FULLSCREEN_MS -> {
+                // Fullscreen only for a channel you're actually hearing -- never one muted for music.
+                !musicWanted && musicZone == null && liveActive && !liveMuted && idle > GUIDE_IDLE_TO_FULLSCREEN_MS -> {
                     saver.lastInputAt = android.os.SystemClock.uptimeMillis()
                     onGoFullscreen()
                 }

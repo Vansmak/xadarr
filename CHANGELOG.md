@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.25] - 2026-10-12
+
+### Fixed
+- **Guide went fullscreen on a muted channel over the music** — the screensaver's "music in this room" check also required the room's queue to have its songs loaded, so it could miss music the TV mute saw. It now uses the same test as the mute, and never takes a muted channel fullscreen.
+
+### Changed
+- Guide → fullscreen after 5 minutes untouched (was 90s), and only for a channel you're hearing.
+
 ## [2.24] - 2026-10-12
 
 ### Added
