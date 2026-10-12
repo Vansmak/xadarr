@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.18] - 2026-10-11
+
+### Added
+- **Settings → Live TV → Channel groups** — a checklist of every playlist group (ticked = shown in the guide), with a filter and Show all / Hide all that act on the filtered list (type "UK", Hide all). NEW auto-hidden groups are tagged. Works on TV and phone.
+
 ## [2.17] - 2026-10-11
 
 ### Fixed (phone)
