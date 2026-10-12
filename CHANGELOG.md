@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.26] - 2026-10-12
+
+### Changed
+- **Playlists play shuffled** — starting a playlist (or an artist) turns shuffle on, so random200 doesn't start from its first song every time. A song you pick in the guide still plays first, then the rest shuffled. Albums and single songs play in order. Applies to Xadarr Music too.
+
+### Fixed
+- **Guide catches up with a new song right away** — after picking something on a room that was already playing, the guide stopped checking as soon as the room said "playing" (it already was), so the old song stayed up until the next refresh. It now waits for the new song.
+
 ## [2.25] - 2026-10-12
 
 ### Fixed

@@ -454,13 +454,18 @@ class TvViewModel @Inject constructor(
     // the Now Playing row missing until the next 30s guide tick (2026-10-05).
     private var musicLineupWatchJob: kotlinx.coroutines.Job? = null
     private fun watchMusicLineupsFor(zoneId: String) {
+        // The song that was on before this play: a zone that was already playing reports
+        // "playing" straight away, so stopping at that showed the old song until the next
+        // guide tick (Joe, 2026-10-12: "it took a bit to change in the guide").
+        val before = _musicLineups.value.firstOrNull { it.queueId == zoneId }?.tracks?.firstOrNull()?.uri
         musicLineupWatchJob?.cancel()
         musicLineupWatchJob = viewModelScope.launch {
             repeat(20) {
                 delay(1_000)
                 val lineups = runCatching { musicAssistantRepository.playingLineups() }.getOrNull() ?: return@repeat
                 _musicLineups.value = lineups
-                if (lineups.any { it.queueId == zoneId && !it.paused && it.tracks.isNotEmpty() }) return@launch
+                val now = lineups.firstOrNull { it.queueId == zoneId && !it.paused && it.tracks.isNotEmpty() }
+                if (now != null && (before == null || now.tracks.first().uri != before)) return@launch
             }
         }
     }

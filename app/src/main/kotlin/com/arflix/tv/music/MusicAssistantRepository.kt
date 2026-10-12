@@ -505,6 +505,12 @@ class MusicAssistantRepository @Inject constructor(
             .put("radio_mode", radio)
         // Start a playlist partway in, at this track, and carry on from there.
         if (startItem != null) args.put("start_item", startItem)
+        // Playlists and artists play shuffled -- "random should be random after all" (Joe,
+        // 2026-10-12: random200 restarted from its first song). A picked song still plays
+        // first. Albums and single songs play in order. MA keeps shuffle per queue, so it's set
+        // every time rather than left over from the last thing played.
+        val shuffle = !radio && ("://playlist/" in uri || "://artist/" in uri)
+        request("player_queues/shuffle", JSONObject().put("queue_id", playerId).put("shuffle_enabled", shuffle))
         val ok = request("player_queues/play_media", args) != null || lastRequestOk
         if (ok) saveSelectedPlayerId(playerId)
         return ok
