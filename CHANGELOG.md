@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.27] - 2026-10-12
+
+### Added
+- **Phone speaker status** — when "This phone" isn't in the Rooms list, the bottom of the list says why (connecting, no answer, the error it got, or off because the app is in the background).
+
 ## [2.26] - 2026-10-12
 
 ### Changed

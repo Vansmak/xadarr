@@ -1061,6 +1061,12 @@ private fun RoomPickerDialog(players: List<MaPlayer>, selectedId: String?, onPic
                     }
                 }
             }
+            // A phone that should be listed as a speaker but isn't: say why.
+            if (PhoneSpeaker.myClientId != null && players.none { it.isThisDevice }) {
+                val phoneStatus by PhoneSpeaker.status.collectAsState()
+                Text("This phone: $phoneStatus", color = colors.onSurfaceVariant, fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+            }
         }
     }
 }

@@ -79,6 +79,12 @@ object PhoneSpeaker {
 
     @Volatile var streaming = false
         private set
+
+    /**
+     * What the phone speaker is doing, in words, for the Rooms list when "This phone" isn't
+     * there (Joe, 2026-10-12: it never showed up and there was no way to tell why).
+     */
+    val status = kotlinx.coroutines.flow.MutableStateFlow("Not started")
     @Volatile private var volume = 100
     @Volatile private var muted = false
 
@@ -110,16 +116,24 @@ object PhoneSpeaker {
         connectJob = scope.launch {
             var backoff = 2_000L
             while (isActive && socket == null && (foreground || streaming)) {
-                val url = maUrl() ?: return@launch
-                val host = runCatching { Uri.parse(url).host }.getOrNull() ?: return@launch
-                val req = Request.Builder().url("ws://$host:$PORT/sendspin").build()
-                val opened = kotlinx.coroutines.CompletableDeferred<Boolean>()
-                val ws = client.newWebSocket(req, Listener(opened))
-                if (kotlinx.coroutines.withTimeoutOrNull(8_000L) { opened.await() } == true) {
-                    socket = ws
+                val url = maUrl()
+                val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+                if (host == null) {
+                    status.value = "No Music Assistant address set"
                     return@launch
                 }
-                ws.cancel()
+                status.value = "Connecting to $host:$PORT…"
+                val req = Request.Builder().url("ws://$host:$PORT/sendspin").build()
+                val opened = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                val ws = runCatching { client.newWebSocket(req, Listener(opened)) }
+                    .onFailure { status.value = "Couldn't start: ${it.message}" }.getOrNull()
+                if (ws != null && kotlinx.coroutines.withTimeoutOrNull(8_000L) { opened.await() } == true) {
+                    socket = ws
+                    status.value = "Connected"
+                    return@launch
+                }
+                if (status.value.startsWith("Connecting")) status.value = "No answer from $host:$PORT -- retrying"
+                ws?.cancel()
                 delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(60_000L)
             }
@@ -135,6 +149,7 @@ object PhoneSpeaker {
         }
         socket = null
         stopStream()
+        status.value = "Off (app in background)"
     }
 
     private suspend fun maUrl(): String? =
@@ -222,6 +237,7 @@ object PhoneSpeaker {
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.w(TAG, "connection lost: ${t.message}")
+            status.value = "Couldn't connect: ${t.javaClass.simpleName} ${t.message.orEmpty()}".trim()
             opened.complete(false)
             dropped(webSocket)
         }
