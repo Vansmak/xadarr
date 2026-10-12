@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
@@ -102,6 +103,7 @@ fun CategorySidebar(
     onFavoriteSortToggle: () -> Unit = {},
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenKeypad: () -> Unit = {},
     onHideCategory: (String) -> Unit = {},
     onUnhideCategory: (String) -> Unit = {},
     onSetGroupState: (String, GroupState) -> Unit = { _, _ -> },
@@ -204,6 +206,16 @@ fun CategorySidebar(
             onMoveUp = onMoveUpFromSearch,
             onFocusChanged = onTopBoundaryFocusChanged,
             focusRequester = searchFocusRequester,
+        )
+        Spacer(Modifier.height(2.dp))
+        SearchEntry(
+            onClick = onOpenKeypad,
+            expanded = expanded,
+            onMoveUp = null,
+            onFocusChanged = { if (it) onTopBoundaryFocusChanged(false) },
+            label = "Go to channel",
+            icon = Icons.Filled.Dialpad,
+            hint = "123",
         )
         Spacer(Modifier.height(8.dp))
         LazyColumn(
@@ -513,9 +525,12 @@ fun CategorySidebar(
 private fun SearchEntry(
     onClick: () -> Unit,
     expanded: Boolean,
-    onMoveUp: () -> Unit = {},
+    onMoveUp: (() -> Unit)? = {},
     onFocusChanged: (Boolean) -> Unit = {},
     focusRequester: FocusRequester? = null,
+    label: String = "Search",
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Filled.Search,
+    hint: String = "/",
 ) {
     var focused by remember { mutableStateOf(false) }
     Row(
@@ -539,6 +554,7 @@ private fun SearchEntry(
                 if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (ev.key) {
                     Key.DirectionUp -> {
+                        if (onMoveUp == null) return@onKeyEvent false
                         onMoveUp()
                         true
                     }
@@ -555,19 +571,19 @@ private fun SearchEntry(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
-            imageVector = Icons.Filled.Search,
-            contentDescription = "Search",
+            imageVector = icon,
+            contentDescription = label,
             tint = LiveColors.FgDim,
             modifier = Modifier.size(14.dp),
         )
         if (expanded) {
             Text(
-                text = "Search",
+                text = label,
                 style = LiveType.CatLabel.copy(color = LiveColors.FgDim),
             )
             Spacer(Modifier.weight(1f))
             Text(
-                text = "/",
+                text = hint,
                 style = LiveType.NumberMono.copy(color = LiveColors.FgMute),
             )
         }

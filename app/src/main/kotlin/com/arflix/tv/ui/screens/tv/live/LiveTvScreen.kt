@@ -125,7 +125,7 @@ private enum class LiveTvFocusZone {
  * Last channel actually played, kept in process memory (freshest source); the persisted
  * tvSession.lastChannelId covers restarts. Now Playing always resumes it in its own group.
  */
-private fun digitForKey(key: Key): Char? = when (key) {
+internal fun digitForKey(key: Key): Char? = when (key) {
     Key.Zero, Key.NumPad0 -> '0'
     Key.One, Key.NumPad1 -> '1'
     Key.Two, Key.NumPad2 -> '2'
@@ -765,6 +765,9 @@ fun LiveTvScreen(
     var reopenSearchQuery by remember { mutableStateOf<String?>(null) }
     // Channel number being typed on a remote's number pad ("" when idle).
     var channelDigits by remember { mutableStateOf("") }
+    var keypadOpen by remember { mutableStateOf(false) }
+    var okLongPressJob by remember { mutableStateOf<Job?>(null) }
+    var okLongPressConsumed by remember { mutableStateOf(false) }
     // The Shows/Movies row a show or movie was started from (or whose Details were opened).
     // Saveable: this screen's composition is torn down while the player is on top, and on return
     // the guide goes back to that row in its own group with the row focused -- not to the last
@@ -1385,7 +1388,7 @@ fun LiveTvScreen(
                         if (viewModel.roomVolumeKey(event.key, event.type == KeyEventType.KeyDown)) return@onPreviewKeyEvent true
                         // Number buttons (remotes/phone remote apps that have them): TiVo-style
                         // direct tune -- digits collect in channelDigits, tuned after a pause.
-                        if (!searchOpen && event.type == KeyEventType.KeyDown) {
+                        if (!searchOpen && !keypadOpen && event.type == KeyEventType.KeyDown) {
                             val digit = digitForKey(event.key)
                             if (digit != null) {
                                 if (channelDigits.length < 5) channelDigits += digit
@@ -1638,6 +1641,7 @@ fun LiveTvScreen(
                         onFavoriteSortToggle = { viewModel.cycleFavoriteSortMode() },
                         onSelect = { id -> selectedCategoryId = id },
                         onOpenSearch = { searchOpen = true },
+                        onOpenKeypad = { keypadOpen = true },
                         onHideCategory = { groupName ->
                             selectedCategoryId = "all"
                             viewModel.setGroupState(groupName, GroupState.Hide)
@@ -1784,10 +1788,30 @@ fun LiveTvScreen(
                                 else -> false
                             }
                         }
+                        if (ev.key == Key.DirectionCenter || ev.key == Key.Enter) {
+                            // Short press: poke the HUD. Hold: on-screen number pad (remotes with
+                            // no number buttons).
+                            when (ev.type) {
+                                KeyEventType.KeyDown -> if (ev.nativeKeyEvent.repeatCount == 0) {
+                                    okLongPressConsumed = false
+                                    okLongPressJob?.cancel()
+                                    okLongPressJob = fsScope.launch {
+                                        delay(520L)
+                                        okLongPressConsumed = true
+                                        keypadOpen = true
+                                    }
+                                }
+                                KeyEventType.KeyUp -> {
+                                    okLongPressJob?.cancel()
+                                    if (!okLongPressConsumed) hudPokeSignal++
+                                    okLongPressConsumed = false
+                                }
+                            }
+                            return@onPreviewKeyEvent true
+                        }
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
                             Key.Back, Key.Escape -> { exitFullScreenPlayback(); true }
-                            Key.DirectionCenter, Key.Enter -> { hudPokeSignal++; true }
                             Key.DirectionRight -> { returnToPreviousChannel(); true }
                             // Matches TiviMate's cascade: Left/Back from fullscreen both drop to
                             // the windowed grid first (not straight to the sidebar) — a second
@@ -2403,11 +2427,8 @@ fun LiveTvScreen(
             }
         }
 
-        // Direct channel-number entry: show the digits, tune 1.5s after the last one.
-        LaunchedEffect(channelDigits) {
-            if (channelDigits.isEmpty()) return@LaunchedEffect
-            delay(1_500L)
-            val number = channelDigits.toIntOrNull()
+        fun tuneChannelNumber(digits: String) {
+            val number = digits.toIntOrNull()
             val target = number?.let { n -> enrichedState.value.all.filter { !isLibraryChannelGroup(it.source.group) }.channelForNumber(n, hiddenGroupSet) }
             if (target != null) {
                 notePreviousChannel()
@@ -2416,9 +2437,28 @@ fun LiveTvScreen(
                 focusedChannelId = target.id
                 focusSelectedChannelSignal += 1
             } else {
-                guideMessage = "No channel $channelDigits"
+                guideMessage = "No channel $digits"
             }
+        }
+        // Direct channel-number entry: show the digits, tune 1.5s after the last one.
+        LaunchedEffect(channelDigits) {
+            if (channelDigits.isEmpty()) return@LaunchedEffect
+            delay(1_500L)
+            tuneChannelNumber(channelDigits)
             channelDigits = ""
+        }
+        if (keypadOpen) {
+            ChannelKeypad(
+                onTune = { digits ->
+                    keypadOpen = false
+                    tuneChannelNumber(digits)
+                    if (isFullScreen) runCatching { fsFocus.requestFocus() }
+                },
+                onDismiss = {
+                    keypadOpen = false
+                    if (isFullScreen) runCatching { fsFocus.requestFocus() } else focusChannelList()
+                },
+            )
         }
         if (channelDigits.isNotEmpty()) {
             Box(
