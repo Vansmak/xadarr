@@ -619,9 +619,18 @@ fun LiveTvScreen(
     // Pick the startup channel only after saved IPTV preferences/session have
     // loaded. Favorites win over a stale recent channel, then we fall back to
     // the persisted recent channel, then the first filtered entry.
-    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded, filteredReady) {
+    val musicReturn = rememberGuideMusicReturn(viewModel) { id -> enrichedState.value.index.byId[id] != null }
+    LaunchedEffect(filteredChannels, playingChannelId, initialChannelId, state.tvSession, state.snapshot.favoriteChannels, enrichedState.value.all.size, state.snapshot.channels.size, state.iptvPreferencesLoaded, state.tvSessionLoaded, filteredReady, musicReturn.waiting, musicReturn.channelId) {
         val startupStateReady = state.iptvPreferencesLoaded && state.tvSessionLoaded
         val entersBlock = playingChannelId == null && filteredChannels.isNotEmpty() && (initialChannelId != null || startupStateReady)
+        // Music still playing in this room: resuming the last channel with sound flipped the
+        // soundbar to TV and killed the music (Joe, 2026-10-12). Wait for the check, then sit
+        // on the room's Now Playing row instead -- it has no stream, so nothing starts.
+        if (entersBlock && initialChannelId == null && musicReturn.waiting) return@LaunchedEffect
+        if (entersBlock && initialChannelId == null && musicReturn.channelId != null) {
+            playingChannelId = musicReturn.channelId
+            return@LaunchedEffect
+        }
         if (entersBlock) {
             // Always resume the last channel actually watched (= top of Recent), across restarts
             // and days too (Joe, 2026-09-30: "if recents persists then yes" -- the top of Recent is
@@ -792,7 +801,6 @@ fun LiveTvScreen(
     // enriched index can be Empty or the quick first pass -- so it took the "not in this
     // category" branches against a list that wasn't real, latched alignedOnEntry, and never
     // looked again.
-    val musicReturn = rememberGuideMusicReturn(viewModel) { id -> enrichedState.value.index.byId[id] != null }
     LaunchedEffect(playingChannelId, enrichedState.value, filteredChannels, filteredForCategory, selectedCategoryId, musicReturn.waiting, musicReturn.channelId) {
         if (alignedOnEntry) return@LaunchedEffect
         if (!filteredReady || musicReturn.waiting) return@LaunchedEffect

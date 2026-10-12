@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.22] - 2026-10-12
+
+### Fixed
+- **Opening the guide no longer kills the music** — with music playing in this TV's room, the guide resumed the last live channel with sound, the soundbar switched to TV and the music stopped. The guide now checks for music first (up to 2.5s) and opens on the room's Now Playing row instead of starting a channel.
+
 ## [2.21] - 2026-10-12
 
 ### Added
