@@ -20,7 +20,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +41,9 @@ private data class TouchCategoryRailItem(
     val id: String,
     val label: String,
     val count: Int,
+    val groupName: String? = null,
+    val hidden: Boolean = false,
+    val isNew: Boolean = false,
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -42,6 +53,9 @@ fun TouchCategoryRail(
     selectedId: String,
     onSelect: (String) -> Unit,
     onOpenSearch: () -> Unit,
+    // Long-press a group tab: Show (hidden/NEW tab) or Hide. The phone had no way to do either
+    // (Joe, 2026-10-11: "i don't know how to hide or unhide on mobile").
+    onSetGroupHidden: (groupName: String, hidden: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     // Remote Mode entry point — null hides the chip (no LAN Sync configured, e.g.).
     remoteModeActive: Boolean = false,
@@ -118,15 +132,35 @@ fun TouchCategoryRail(
 
         items(items, key = { it.id }) { item ->
             val active = selectedId == item.id
+            var menuOpen by remember { mutableStateOf(false) }
+            val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
             Box(
                 modifier = Modifier
                     .height(38.dp)
+                    .alpha(if (item.hidden && !active) 0.6f else 1f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (active) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Panel)
-                    .clickable { onSelect(item.id) }
+                    .combinedClickable(
+                        onClick = { onSelect(item.id) },
+                        onLongClick = if (item.groupName != null) {
+                            {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                menuOpen = true
+                            }
+                        } else null,
+                    )
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center,
             ) {
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { androidx.compose.material3.Text(if (item.hidden) "Show group" else "Hide group") },
+                        onClick = {
+                            menuOpen = false
+                            item.groupName?.let { onSetGroupHidden(it, !item.hidden) }
+                        },
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -137,6 +171,12 @@ fun TouchCategoryRail(
                             color = if (active) LiveColors.Bg else LiveColors.Fg,
                         ),
                     )
+                    if (item.isNew) {
+                        Text(
+                            text = "NEW",
+                            style = LiveType.Badge.copy(color = if (active) LiveColors.Bg else Color(0xFFE8A33D)),
+                        )
+                    }
                     if (item.count > 0) {
                         Spacer(Modifier.width(2.dp))
                         Text(
@@ -158,15 +198,20 @@ private fun rememberTouchRailItems(
     selectedId: String,
 ): List<TouchCategoryRailItem> {
     val base = buildList {
-        tree.top.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count)) }
-        tree.global.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count)) }
-        tree.countries.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count)) }
-        tree.adult.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count)) }
+        tree.top.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
+        tree.global.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
+        tree.countries.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
+        tree.adult.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
+        // Hidden and NEW (auto-hidden) groups last, dimmed -- they used to be left out entirely,
+        // so a tab like DIRECTV showed only while selected and was gone once you switched.
+        tree.hidden.categories.forEach {
+            add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName, hidden = true, isNew = it.isNew))
+        }
     }.distinctBy { it.id }.toMutableList()
 
     val selected = tree.byId(selectedId)
     if (selected != null && base.none { it.id == selectedId }) {
-        base.add(0, TouchCategoryRailItem(selected.id, selected.label, selected.count))
+        base.add(0, TouchCategoryRailItem(selected.id, selected.label, selected.count, selected.playlistGroupName))
     }
 
     return base

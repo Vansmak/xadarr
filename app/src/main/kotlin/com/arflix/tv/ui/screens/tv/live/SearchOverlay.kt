@@ -325,9 +325,18 @@ fun SearchOverlay(
     // request then throws, runCatching swallows it, and focus silently stays on the guide
     // underneath. That is the "search opens but the D-pad is still driving the grid behind it"
     // bug. Same pattern keepChannelFocus and openSidebar already use for the same reason.
+    // Phone: the panel was a fixed 760dp -- nearly twice a phone's width, so the search box ran off
+    // both edges (Joe, 2026-10-11: "search doesn't work on mobile"). Fit the screen there, and
+    // bring the keyboard up with the focus.
+    val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
+    val isTouch = com.arflix.tv.util.LocalDeviceType.current.isTouchDevice()
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) {
         repeat(6) { attempt ->
-            if (runCatching { focusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { focusRequester.requestFocus() }.isSuccess) {
+                if (isTouch) keyboard?.show()
+                return@LaunchedEffect
+            }
             delay(if (attempt < 2) 16L else 48L)
         }
     }
@@ -500,8 +509,10 @@ fun SearchOverlay(
     ) {
         Column(
             modifier = Modifier
-                .width(760.dp)
-                .padding(top = 64.dp)
+                .then(
+                    if (narrow) Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp)
+                    else Modifier.width(760.dp).padding(top = 64.dp)
+                )
                 .clip(RoundedCornerShape(16.dp))
                 .background(LiveColors.PanelRaised)
                 .border(1.dp, LiveColors.Divider, RoundedCornerShape(16.dp))
@@ -604,10 +615,17 @@ fun SearchOverlay(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(440.dp)
+                    .height(if (narrow) 360.dp else 440.dp)
                     .onFocusChanged { resultsFocused = it.hasFocus },
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // Typed a channel number: say which channel it is, one tap to go there (the
+                // phone's way to go to a channel by number).
+                exactChannelForNumber()?.let { exact ->
+                    item(key = "goto:${exact.id}") {
+                        GoToChannelRow(exact) { onPick(exact) }
+                    }
+                }
                 if (debounced.length >= 2 && (titleRow.isNotEmpty() || mediaLoading)) {
                     item(key = "titles") {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1282,6 +1300,38 @@ private fun RemoteStreamRow(
             contentDescription = if (isPinned) "Pinned to guide — hold to unpin" else "Hold to pin to guide",
             tint = if (isPinned) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FgMute,
             modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun GoToChannelRow(channel: EnrichedChannel, onPick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.FocusBg)
+            .focusable()
+            .onKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyDown && (ev.key == Key.DirectionCenter || ev.key == Key.Enter)) {
+                    onPick(); true
+                } else false
+            }
+            .pointerInput(channel.id) { detectTapGestures(onTap = { onPick() }) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Go to CH ${channel.numberLabel}",
+            style = LiveType.CatLabel.copy(color = if (focused) LiveColors.Bg else LiveColors.Fg, fontSize = 16.sp),
+        )
+        Text(
+            text = channel.name,
+            style = LiveType.ChannelName.copy(color = if (focused) LiveColors.Bg else LiveColors.FgDim, fontSize = 16.sp),
+            maxLines = 1,
         )
     }
 }

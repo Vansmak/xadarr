@@ -1490,6 +1490,9 @@ fun LiveTvScreen(
                         selectedId = selectedCategoryId,
                         onSelect = { id -> selectedCategoryId = id },
                         onOpenSearch = { searchOpen = true },
+                        onSetGroupHidden = { groupName, hide ->
+                            viewModel.setGroupState(groupName, if (hide) GroupState.Hide else GroupState.Show)
+                        },
                         remoteModeActive = remoteControl != null || remoteTarget != null,
                         onOpenRemoteMode = { showRemoteModeSheet = true },
                         onToggleRemoteMode = { viewModel.toggleRemoteLocal() },
