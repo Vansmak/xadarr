@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.19] - 2026-10-12
+
+### Fixed
+- **Phone guide tabs respect hidden groups** — 2.17 listed every hidden group in the tab row (dimmed), so hiding groups in Settings → Live TV → Channel groups looked like it did nothing. Hidden groups are out of the tabs again; Channel groups is where they come back.
+
 ## [2.18] - 2026-10-11
 
 ### Added
