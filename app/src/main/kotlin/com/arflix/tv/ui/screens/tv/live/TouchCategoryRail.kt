@@ -202,16 +202,18 @@ private fun rememberTouchRailItems(
         tree.global.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
         tree.countries.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
         tree.adult.categories.forEach { add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName)) }
-        // Hidden and NEW (auto-hidden) groups last, dimmed -- they used to be left out entirely,
-        // so a tab like DIRECTV showed only while selected and was gone once you switched.
-        tree.hidden.categories.forEach {
-            add(TouchCategoryRailItem(it.id, it.label, it.count, it.playlistGroupName, hidden = true, isNew = it.isNew))
-        }
+        // Hidden groups stay out of the tabs; Settings → Live TV → Channel groups is where they're
+        // shown again. (2.17 listed every hidden group here, dimmed -- with ~140 groups that read
+        // as hiding not working at all. Joe, 2026-10-12: "it's not working".)
     }.distinctBy { it.id }.toMutableList()
 
     val selected = tree.byId(selectedId)
     if (selected != null && base.none { it.id == selectedId }) {
-        base.add(0, TouchCategoryRailItem(selected.id, selected.label, selected.count, selected.playlistGroupName))
+        base.add(0, TouchCategoryRailItem(
+            selected.id, selected.label, selected.count, selected.playlistGroupName,
+            hidden = tree.hidden.categories.any { it.id == selected.id },
+            isNew = selected.isNew,
+        ))
     }
 
     return base
