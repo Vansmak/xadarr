@@ -76,6 +76,8 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
     @Inject
     lateinit var cloudSyncRepository: CloudSyncRepository
     @Inject
+    lateinit var musicSleepWatcher: com.arflix.tv.data.repository.MusicSleepWatcher
+    @Inject
     lateinit var cloudSyncCoordinator: CloudSyncCoordinator
     @Inject
     lateinit var realtimeSyncManager: RealtimeSyncManager
@@ -101,6 +103,10 @@ class ArflixApplication : Application(), Configuration.Provider, ImageLoaderFact
         // skipped there, though enqueueing it harmlessly would just never fire any work either.
         if (detectDeviceType(this) != DeviceType.TV) {
             scheduleWidgetRefreshIfNeeded()
+        }
+        // TV off -> its room's music stops (MusicSleepWatcher). TV boxes only.
+        if (detectDeviceType(this) == DeviceType.TV) {
+            musicSleepWatcher.register(this)
         }
 
         // Initialize global DNS provider and user agent from DataStore before network calls.

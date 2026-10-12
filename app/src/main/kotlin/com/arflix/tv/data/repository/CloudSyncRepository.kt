@@ -837,6 +837,7 @@ class CloudSyncRepository @Inject constructor(
         prefs[com.arflix.tv.music.MA_TOKEN_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_token", it) }
         prefs[com.arflix.tv.music.MA_SERVER_ID_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_server_id", it) }
         prefs[com.arflix.tv.music.MA_USERNAME_KEY]?.takeIf { it.isNotBlank() }?.let { root.put("ma_username", it) }
+        prefs[com.arflix.tv.music.MA_GUIDE_HIDDEN_PLAYLISTS_KEY]?.let { root.put("ma_guide_hidden_playlists", it) }
         root.put("activeProfileId", profileRepository.getActiveProfileId() ?: JSONObject.NULL)
         root.put("profiles", JSONArray(gson.toJson(profiles)))
         root.put(
@@ -1738,6 +1739,10 @@ class CloudSyncRepository @Inject constructor(
                 root.optString("ma_server_id", "").takeIf { it.isNotBlank() }?.let { prefs[com.arflix.tv.music.MA_SERVER_ID_KEY] = it }
                 root.optString("ma_username", "").takeIf { it.isNotBlank() }?.let { prefs[com.arflix.tv.music.MA_USERNAME_KEY] = it }
             }
+        }
+        if (root.has("ma_guide_hidden_playlists")) {
+            val hidden = root.optString("ma_guide_hidden_playlists", "[]")
+            context.settingsDataStore.edit { prefs -> prefs[com.arflix.tv.music.MA_GUIDE_HIDDEN_PLAYLISTS_KEY] = hidden }
         }
 
         // ── Watchlist/Continue-Watching row placement, hide, sort-order ──

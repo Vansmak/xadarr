@@ -126,7 +126,7 @@ fun MusicAmbient(
 ) {
     val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        BlurredCoverBackground(imageUrl, scrim = 0.68f)
+        BlurredCoverBackground(imageUrl, scrim = 0.82f) // darker than Now Playing: a dark room at night (Joe, 2026-10-12)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }

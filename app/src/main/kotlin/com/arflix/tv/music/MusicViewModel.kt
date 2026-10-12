@@ -301,7 +301,7 @@ class MusicViewModel @Inject constructor(
             suspend fun list(command: String, args: JSONObject) =
                 runCatching { repo.command(command, args) as? JSONArray }.getOrNull()
             val recentJob = async { list("music/recently_played_items", JSONObject().put("limit", 24)) }
-            val playlistsJob = async { list("music/playlists/library_items", JSONObject().put("limit", 300).put("order_by", "sort_name")) }
+            val playlistsJob = async { list("music/playlists/library_items", JSONObject().put("limit", 300).put("order_by", "last_played_desc")) }
             val albumsJob = async { list("music/albums/library_items", JSONObject().put("limit", 24).put("order_by", "random")) }
             val recent = recentJob.await()
             val playlistsArr = playlistsJob.await()

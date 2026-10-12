@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.Close
 import com.arflix.tv.music.roomClashFor
 import androidx.compose.runtime.key
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Add
 import androidx.activity.compose.BackHandler
@@ -299,7 +301,12 @@ fun LiveTvScreen(
     // same way pinnedProviderChannels are, below. See project_nostalgex_style_media_channel memory.
     val showsGuideSchedule by viewModel.showsGuideSchedule.collectAsStateWithLifecycle()
     val movieGuide by viewModel.movieGuide.collectAsStateWithLifecycle()
-    val musicPlaylists by viewModel.musicPlaylists.collectAsStateWithLifecycle()
+    val allMusicPlaylists by viewModel.musicPlaylists.collectAsStateWithLifecycle()
+    val hiddenMusicPlaylists by viewModel.hiddenMusicPlaylists.collectAsStateWithLifecycle()
+    // Most recently played first (MA's order); playlists hidden from the guide left out.
+    val musicPlaylists = remember(allMusicPlaylists, hiddenMusicPlaylists) {
+        allMusicPlaylists.filterNot { it.uri in hiddenMusicPlaylists }
+    }
     val musicConfigured by viewModel.musicConfigured.collectAsStateWithLifecycle()
     val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
     val musicLineups by viewModel.musicLineups.collectAsStateWithLifecycle()
@@ -354,7 +361,7 @@ fun LiveTvScreen(
         "pinned=${pinnedProviderChannels.size}:${pinnedProviderChannels.joinToString(",") { it.id }}:" +
         "shows=${showsGuideSchedule.size}:" +
         "movies=${movieGuide.movies.size}/${movieGuide.premiering.size}:" +
-        "music=${musicPlaylists.size}:np=${nowPlayingItems.joinToString(",") { it.uri }}:" +
+        "music=${musicPlaylists.size}:${musicPlaylists.joinToString(",") { it.uri }.hashCode()}:np=${nowPlayingItems.joinToString(",") { it.uri }}:" +
         "ephemeral=${ephemeralSearchPick?.id}"
     LaunchedEffect(channelsIdentitySignature) {
         // Returning to the guide: the new TvViewModel hasn't re-read the playlist yet, but the
@@ -785,12 +792,13 @@ fun LiveTvScreen(
     // enriched index can be Empty or the quick first pass -- so it took the "not in this
     // category" branches against a list that wasn't real, latched alignedOnEntry, and never
     // looked again.
-    LaunchedEffect(playingChannelId, enrichedState.value, filteredChannels, filteredForCategory, selectedCategoryId) {
+    val musicReturn = rememberGuideMusicReturn(viewModel) { id -> enrichedState.value.index.byId[id] != null }
+    LaunchedEffect(playingChannelId, enrichedState.value, filteredChannels, filteredForCategory, selectedCategoryId, musicReturn.waiting, musicReturn.channelId) {
         if (alignedOnEntry) return@LaunchedEffect
-        if (!filteredReady) return@LaunchedEffect
+        if (!filteredReady || musicReturn.waiting) return@LaunchedEffect
         val enriched = enrichedState.value
         val index = enriched.index
-        val returnId = returnFromLibraryId?.takeIf { index.byId[it] != null }
+        val returnId = returnFromLibraryId?.takeIf { index.byId[it] != null } ?: musicReturn.channelId
         val id = returnId ?: playingChannelId ?: return@LaunchedEffect
         if (returnId == null && isLibraryChannelId(id) && filteredChannels.none { it.id == id }) {
             // The remembered "playing" channel is a Shows/Movies row the user had highlighted
@@ -2564,6 +2572,8 @@ private const val MusicRadioToggleId = "__music_radio__"
 
 private const val MusicGroupId = "__music_group__"
 private const val MusicDoneId = "__music_done__"
+private const val MusicHideId = "__music_hide__"
+private const val MusicHiddenListId = "__music_hidden__"
 private const val MusicBusyHereId = "__music_busy_here__"
 private const val MusicBusyBothId = "__music_busy_both__"
 
@@ -2604,6 +2614,13 @@ private fun MusicZoneMenu(
     var pendingGroup by remember(channelId) { mutableStateOf(mapOf<String, Boolean>()) }
     // Another room already has MA's one Spotify stream: ask before stopping it (see roomClashFor).
     var busyPick by remember(channelId) { mutableStateOf<Pair<com.arflix.tv.music.MaPlayer, List<com.arflix.tv.music.MaPlayer>>?>(null) }
+    // Playlists hidden from the guide: "Hidden playlists…" lists them, picking one brings it back.
+    val allPlaylists by viewModel.musicPlaylists.collectAsStateWithLifecycle()
+    val hiddenUris by viewModel.hiddenMusicPlaylists.collectAsStateWithLifecycle()
+    val hiddenPlaylists = remember(allPlaylists, hiddenUris) { allPlaylists.filter { it.uri in hiddenUris } }
+    var showingHidden by remember(channelId) { mutableStateOf(false) }
+    // Only real playlist rows can be hidden -- not a search pick.
+    val canHide = playlist != null && isMusicChannelId(channelId)
     fun reportedInGroup(sp: com.arflix.tv.music.MaPlayer, lead: com.arflix.tv.music.MaPlayer) =
         sp.syncedTo == lead.id || sp.id in lead.groupMembers
     LaunchedEffect(speakers) {
@@ -2655,9 +2672,21 @@ private fun MusicZoneMenu(
     }
 
     // Fresh focus (top row) on each step.
-    key(picking, groupLeaderId, busyPick) {
+    key(picking, groupLeaderId, busyPick, showingHidden) {
         val busy = busyPick
         when {
+            showingHidden -> com.arflix.tv.ui.components.ContextMenu(
+                isVisible = true,
+                title = "Hidden playlists",
+                subtitle = if (hiddenPlaylists.isEmpty()) "None hidden" else "Select one to put it back in the guide",
+                actions = hiddenPlaylists.map { com.arflix.tv.ui.components.ContextAction(it.uri, it.name, Icons.Default.Visibility) } +
+                    com.arflix.tv.ui.components.ContextAction(MusicDoneId, "Done", Icons.Default.Check),
+                onAction = { action ->
+                    if (action.id == MusicDoneId) showingHidden = false
+                    else viewModel.setMusicPlaylistHidden(action.id, hidden = false)
+                },
+                onDismiss = { showingHidden = false },
+            )
             busy != null -> {
                 val (zone, playing) = busy
                 val first = playing.first()
@@ -2742,11 +2771,23 @@ private fun MusicZoneMenu(
                         MusicRadioToggleId,
                         if (radio) "Radio: on · switch to playlist" else "Radio: off · play similar songs endlessly",
                         Icons.Default.Radio,
+                    ) +
+                    listOfNotNull(
+                        com.arflix.tv.ui.components.ContextAction(MusicHideId, "Hide ${playlist?.name} from the guide", Icons.Default.VisibilityOff)
+                            .takeIf { canHide },
+                        com.arflix.tv.ui.components.ContextAction(MusicHiddenListId, "Hidden playlists (${hiddenPlaylists.size})…", Icons.Default.Visibility)
+                            .takeIf { hiddenPlaylists.isNotEmpty() },
                     ),
                 onAction = { action ->
                     when (action.id) {
                         MusicRadioToggleId -> radio = !radio
                         MusicGroupId -> picking = true
+                        MusicHiddenListId -> showingHidden = true
+                        MusicHideId -> {
+                            playlist?.let { viewModel.setMusicPlaylistHidden(it.uri, hidden = true) }
+                            onPlayed(false, "${playlist?.name} hidden · bring it back from Hidden playlists in any playlist's menu")
+                            onClose()
+                        }
                         else -> {
                             val zone = zones.firstOrNull { it.id == action.id }
                             if (playlist != null && zone != null) {
@@ -2838,8 +2879,10 @@ const val MusicChannelGroup = "Music"
 private const val MusicChannelIdPrefix = "music:"
 fun isMusicChannelId(id: String?): Boolean = id != null && id.startsWith(MusicChannelIdPrefix)
 
-private fun musicChannelId(item: com.arflix.tv.music.MaMediaItem) =
-    MusicChannelIdPrefix + item.uri.hashCode().toUInt().toString(16)
+private fun musicChannelId(item: com.arflix.tv.music.MaMediaItem) = musicChannelIdForUri(item.uri)
+private fun musicChannelIdForUri(uri: String) = MusicChannelIdPrefix + uri.hashCode().toUInt().toString(16)
+/** The guide id of a zone's "Now Playing" row (see toNowPlayingItems). */
+fun nowPlayingChannelId(queueId: String) = musicChannelIdForUri(MusicQueueUriPrefix + queueId)
 
 fun List<com.arflix.tv.music.MaMediaItem>.toMusicChannels(): List<IptvChannel> = map {
     IptvChannel(id = musicChannelId(it), name = it.name, streamUrl = "", group = MusicChannelGroup, logo = it.imageUrl)

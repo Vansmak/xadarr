@@ -49,6 +49,8 @@ val MA_SERVER_ID_KEY = stringPreferencesKey("ma_server_id")
 val MA_USERNAME_KEY = stringPreferencesKey("ma_username")
 // Per device on purpose (not synced): each TV remembers which zone it last controlled.
 val MA_SELECTED_PLAYER_KEY = stringPreferencesKey("ma_selected_player")
+// Playlists left out of the guide's Music group (JSON array of MA uris). Synced like the keys above.
+val MA_GUIDE_HIDDEN_PLAYLISTS_KEY = stringPreferencesKey("ma_guide_hidden_playlists")
 
 const val MA_DEFAULT_URL = "http://192.168.254.205:8095"
 
@@ -368,9 +370,13 @@ class MusicAssistantRepository @Inject constructor(
         }.onFailure { Log.w(TAG, "$name failed: ${it.message}") }.getOrNull()
     }
 
-    /** The library's playlists (Spotify's included), by name. Empty when MA isn't set up. */
+    /**
+     * The library's playlists (Spotify's included), most recently played first -- MA keeps the
+     * play log, so the order is the same on every device (Joe, 2026-10-12: "sorted esp on the
+     * guide by last used"). Empty when MA isn't set up.
+     */
     suspend fun playlists(): List<MaMediaItem> {
-        val arr = request("music/playlists/library_items", JSONObject().put("limit", 500).put("order_by", "sort_name")) as? JSONArray
+        val arr = request("music/playlists/library_items", JSONObject().put("limit", 500).put("order_by", "last_played_desc")) as? JSONArray
         return MaParse.mediaItems(arr, this)
     }
 

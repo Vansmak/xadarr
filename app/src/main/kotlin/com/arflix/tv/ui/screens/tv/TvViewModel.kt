@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
+import androidx.datastore.preferences.core.edit
+import com.arflix.tv.util.settingsDataStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -95,6 +98,7 @@ class TvViewModel @Inject constructor(
     private val homeServerRepository: com.arflix.tv.data.repository.HomeServerRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val plexWatchedMigration: com.arflix.tv.data.repository.PlexWatchedMigration,
+    private val invalidationBus: com.arflix.tv.data.repository.CloudSyncInvalidationBus,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TvUiState())
@@ -356,6 +360,28 @@ class TvViewModel @Inject constructor(
         kotlinx.coroutines.flow.MutableStateFlow(GuideSessionCache.musicPlaylists)
     val musicPlaylists: StateFlow<List<com.arflix.tv.music.MaMediaItem>> = _musicPlaylists.asStateFlow()
 
+    // Playlists kept out of the guide (Joe, 2026-10-12: "I don't use 2000 and above playlists").
+    // In the settings blob, so hiding one on any device hides it everywhere.
+    val hiddenMusicPlaylists: StateFlow<Set<String>> = appContext.settingsDataStore.data
+        .map { prefs -> parseUriSet(prefs[com.arflix.tv.music.MA_GUIDE_HIDDEN_PLAYLISTS_KEY]) }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
+
+    fun setMusicPlaylistHidden(uri: String, hidden: Boolean) {
+        viewModelScope.launch {
+            appContext.settingsDataStore.edit { prefs ->
+                val now = parseUriSet(prefs[com.arflix.tv.music.MA_GUIDE_HIDDEN_PLAYLISTS_KEY])
+                val next = if (hidden) now + uri else now - uri
+                prefs[com.arflix.tv.music.MA_GUIDE_HIDDEN_PLAYLISTS_KEY] = org.json.JSONArray(next.toList()).toString()
+            }
+            invalidationBus.markDirty(com.arflix.tv.data.repository.CloudSyncScope.PROFILE_SETTINGS, reason = "music guide playlists")
+        }
+    }
+
+    private fun parseUriSet(json: String?): Set<String> = runCatching {
+        val arr = org.json.JSONArray(json ?: return emptySet())
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }.toSet()
+    }.getOrDefault(emptySet())
+
     private val _musicZones = kotlinx.coroutines.flow.MutableStateFlow<List<com.arflix.tv.music.MaPlayer>>(emptyList())
     val musicZones: StateFlow<List<com.arflix.tv.music.MaPlayer>> = _musicZones.asStateFlow()
     private val _lastMusicZoneId = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -415,8 +441,13 @@ class TvViewModel @Inject constructor(
     fun refreshMusicLineups() {
         viewModelScope.launch {
             runCatching { musicAssistantRepository.playingLineups() }.getOrNull()?.let { _musicLineups.value = it }
+            _musicLineupsLoaded.value = true
         }
     }
+    // Set once the first queue read this entry has answered (empty or not), so the guide knows
+    // whether music is playing before it decides which group to open on.
+    private val _musicLineupsLoaded = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val musicLineupsLoaded: StateFlow<Boolean> = _musicLineupsLoaded.asStateFlow()
 
     // After a play/transfer, re-read the queues every second until [zoneId] reports playing
     // with songs. Spotify through MA often takes 5-10s to start, and a single read at 2s left
