@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.20] - 2026-10-12
+
+### Added
+- **Lyrics tab** on the Music screen (between Queue and Zones). Synced lyrics highlight the line being sung and keep it centred; Up/Down scrolls, OK jumps the song to that line. Plain lyrics scroll as a page. From Music Assistant's own lyrics when it has them, otherwise LRCLIB; cached per song.
+- **New music screensaver** (after 1 minute idle while music plays): coverflow with the previous and next covers angled behind the current one, clock and room, big title / artist / album · year, progress bar, Up next. Songs with synced lyrics switch to lyrics 30s in (45s lyrics, 15s covers).
+- **Lyrics in the guide** — a playing Music row shows the line being sung and the next one in the top panel, in place of NEXT.
+- Xadarr Music (standalone app) gets the same Lyrics tab and screensaver.
+
 ## [2.19] - 2026-10-12
 
 ### Fixed
