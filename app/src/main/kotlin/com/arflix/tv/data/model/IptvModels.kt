@@ -16,7 +16,10 @@ data class IptvChannel(
     val xtreamStreamId: Int? = null,
     val catchupDays: Int = 0,
     val catchupType: String? = null,
-    val catchupSource: String? = null
+    val catchupSource: String? = null,
+    // Playlist channel number (tvg-chno), e.g. Dispatcharr's DirecTV-numbered lineup. May be a
+    // decimal ("2.1"); null when the playlist doesn't carry one.
+    val chno: String? = null
 )
 
 /**

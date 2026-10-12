@@ -472,9 +472,9 @@ fun EpgGrid(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("CH", style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)))
-                    val currentNumber = channels.firstOrNull { it.id == selectedChannelId }?.number
+                    val currentNumber = channels.firstOrNull { it.id == selectedChannelId }?.numberLabel
                     Text(
-                        currentNumber?.toString() ?: "—",
+                        currentNumber ?: "—",
                         style = LiveType.NumberMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                     )
                 }

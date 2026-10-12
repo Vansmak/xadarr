@@ -5291,6 +5291,7 @@ class IptvRepository @Inject constructor(
                 val catchupType = extractAttr(metadata, "catchup")
                 val catchupDays = extractAttr(metadata, "catchup-days")?.toIntOrNull() ?: 0
                 val catchupSource = extractAttr(metadata, "catchup-source")
+                val chno = extractAttr(metadata, "tvg-chno")?.trim()?.takeIf { it.isNotEmpty() }
 
                 channels += IptvChannel(
                     id = id,
@@ -5302,7 +5303,8 @@ class IptvRepository @Inject constructor(
                     rawTitle = metadata ?: channelName,
                     catchupDays = catchupDays,
                     catchupType = catchupType,
-                    catchupSource = catchupSource
+                    catchupSource = catchupSource,
+                    chno = chno
                 )
                 parsedCount++
                 if (parsedCount % 5000 == 0) {

@@ -298,7 +298,7 @@ private fun ChannelIdentityRow(channel: EnrichedChannel?) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = "CH " + channel.number,
+                        text = "CH " + channel.numberLabel,
                         style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
                     )
                     Text(

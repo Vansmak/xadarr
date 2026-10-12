@@ -116,7 +116,7 @@ fun FullscreenHud(
                         ChannelLogo(channel = channel, size = 40.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "CH ${channel.number}",
+                                text = "CH ${channel.numberLabel}",
                                 style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
                             )
                             Text(

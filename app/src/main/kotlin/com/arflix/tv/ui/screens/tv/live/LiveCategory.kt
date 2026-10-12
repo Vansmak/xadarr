@@ -34,6 +34,8 @@ data class EnrichedChannel(
     val brandFg: Color,
     val isAdult: Boolean,
 ) {
+    /** What "CH ###" shows: the playlist's own number as written ("2.1"), else [number]. */
+    val numberLabel: String get() = source.chno?.let { formatChno(it) } ?: number.toString()
     val id: String get() = source.id
     val name: String get() = source.name
     val streamUrl: String get() = source.streamUrl
@@ -252,11 +254,32 @@ private fun IptvChannel.traits(): ChannelTraits {
     )
 }
 
+// The playlist's tvg-chno when it has one (Joe's Dispatcharr lineup uses real DirecTV numbers:
+// 206 is ESPN), otherwise the positional fallback the caller passes. A decimal number keeps its
+// whole part here; numberLabel shows it as written.
+fun IptvChannel.channelNumber(fallback: Int): Int =
+    chno?.toDoubleOrNull()?.takeIf { it >= 0 && it < Int.MAX_VALUE }?.toInt() ?: fallback
+
+/**
+ * Channel for a typed number. Several can share one (the same number in different groups, or
+ * 2 and 2.1): prefer a whole-number match, then one in a group that isn't hidden.
+ */
+fun List<EnrichedChannel>.channelForNumber(n: Int, hiddenGroups: Set<String> = emptySet()): EnrichedChannel? =
+    asSequence()
+        .filter { it.number == n }
+        .sortedWith(compareBy({ it.numberLabel != n.toString() }, { it.source.group in hiddenGroups }))
+        .firstOrNull()
+
+fun formatChno(raw: String): String {
+    val d = raw.toDoubleOrNull() ?: return raw
+    return if (d == Math.floor(d)) d.toLong().toString() else raw
+}
+
 fun IptvChannel.enrich(number: Int): EnrichedChannel {
     val traits = traits()
     return EnrichedChannel(
         source = this,
-        number = number,
+        number = channelNumber(number),
         country = traits.country,
         genre = traits.genre,
         quality = traits.quality,
@@ -275,7 +298,7 @@ fun IptvChannel.enrichForFastStartup(number: Int): EnrichedChannel {
     val brand = brandForGenre(Genre.General)
     return EnrichedChannel(
         source = this,
-        number = number,
+        number = channelNumber(number),
         country = null,
         genre = Genre.General,
         quality = Quality.SD,

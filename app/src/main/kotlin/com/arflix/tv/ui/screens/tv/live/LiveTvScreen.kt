@@ -2408,7 +2408,7 @@ fun LiveTvScreen(
             if (channelDigits.isEmpty()) return@LaunchedEffect
             delay(1_500L)
             val number = channelDigits.toIntOrNull()
-            val target = number?.let { n -> enrichedState.value.all.firstOrNull { it.number == n && !isLibraryChannelGroup(it.source.group) } }
+            val target = number?.let { n -> enrichedState.value.all.filter { !isLibraryChannelGroup(it.source.group) }.channelForNumber(n, hiddenGroupSet) }
             if (target != null) {
                 notePreviousChannel()
                 playingChannelId = target.id

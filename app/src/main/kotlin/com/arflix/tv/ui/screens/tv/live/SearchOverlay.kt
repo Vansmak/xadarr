@@ -318,7 +318,7 @@ fun SearchOverlay(
         val q = query.trim()
         if (q.isEmpty() || !q.all { it.isDigit() }) return null
         val n = q.toIntOrNull() ?: return null
-        return channels.firstOrNull { it.number == n }
+        return channels.channelForNumber(n)
     }
     // Retry, because a single attempt loses the race. This runs as soon as the overlay enters
     // composition, which can be before the FocusRequester's modifier has been attached — the
@@ -420,7 +420,7 @@ fun SearchOverlay(
                         .filterNotNull()
                         .firstOrNull { it.title.lowercase().contains(q) }
                     val score = when {
-                        ch.number.toString() == q -> 1000
+                        ch.number.toString() == q || ch.numberLabel == q -> 1000
                         nameLower == q -> 900
                         nameLower.startsWith(q) -> 700
                         nameLower.contains(q) -> 500
@@ -1100,7 +1100,7 @@ private fun SearchResultRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = channel.number.toString(),
+            text = channel.numberLabel,
             style = LiveType.NumberMono.copy(color = LiveColors.FgMute),
             modifier = Modifier.width(40.dp),
         )
