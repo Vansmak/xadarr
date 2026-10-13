@@ -5,7 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -16,6 +21,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 import com.arflix.tv.music.MusicAssistantRepository
 import com.arflix.tv.music.MusicScreen
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -29,11 +37,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Joe, 2026-10-12: the phone's status bar sat over the top row -- hide it while the app
+        // is open; a swipe down from the top shows it briefly.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.statusBars())
+        }
         setContent {
             XadarrMusicTheme {
                 val configured by repo.isConfigured.collectAsState(initial = null)
                 val connection by repo.state.collectAsState()
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                // Android 15 draws edge to edge for targetSdk 35: keep the navy behind the bars but
+                // the screen inside them. The status bar is hidden (below), so this is mostly the
+                // nav bar and the keyboard. Zero on TVs.
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
+                ) {
                     when (configured) {
                         null -> Unit
                         false -> SignInScreen(repo)
