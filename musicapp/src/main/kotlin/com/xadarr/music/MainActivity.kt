@@ -15,11 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.darkColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
 import com.arflix.tv.music.MusicAssistantRepository
+import com.arflix.tv.ui.glass.GlassMode
+import com.arflix.tv.ui.glass.GlassNight
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassColorScheme
+import com.arflix.tv.ui.glass.rememberGlassPalette
 import com.arflix.tv.music.MusicScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -70,21 +74,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Xadarr's Midnight theme (navy, blue accent).
+// Xadarr's glass theme, like the home launcher (Joe, 2026-10-25): the Music screen follows day
+// and night (Auto: dark from local sunset to sunrise); sign-in stays on the night colours.
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun XadarrMusicTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Color(0xFF4F7FB0),
-            onPrimary = Color.White,
-            background = Color(0xFF0B1220),
-            onBackground = Color(0xFFE6EAF2),
-            surface = Color(0xFF141D2E),
-            onSurface = Color(0xFFE6EAF2),
-            surfaceVariant = Color(0xFF1F2A40),
-            onSurfaceVariant = Color(0xFF9AA6BD),
-        ),
-        content = content,
-    )
+    val glass = rememberGlassPalette(GlassMode.AUTO)
+    CompositionLocalProvider(LocalGlass provides glass) {
+        MaterialTheme(colorScheme = glassColorScheme(GlassNight), content = content)
+    }
 }

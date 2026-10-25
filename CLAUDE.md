@@ -150,6 +150,8 @@ Full integration with Episeerr for media management awareness on the TV.
 ### 16. Theme System
 Multiple selectable themes persisted in DataStore, applied on app start without restart. All composables use `MaterialTheme.colorScheme.*` tokens — no hardcoded colors. Themes: **Midnight** (default, navy/blue), **Owl** (warm dark, amber/gold), **Black & Gold** (pure black, rich gold), **Neon** (pure black, electric cyan/green).
 
+**Glass** (v2.36, matches Joe's Free My TV launcher): `ui/glass/` holds the day/night tokens (`GlassPalette`, `LocalGlass`), the offline sunrise/sunset clock (`SunClock`, place from the time zone) and `glassColorScheme`; Compose-only so `:musicapp` compiles it too. Setting `GLASS_MODE_KEY` (Auto/Day/Night, per device). Globally Glass uses its night colours; only restyled screens read `LocalGlass` for day/night: the guide body (`LiveColors` is now a `LivePalette` via `LocalLivePalette`/`ProvideLivePalette`; overlays over video stay night), Details TV layout (`DetailsGlass.kt`), and MusicScreen. Phase 2 = restyle the rest.
+
 ### 17. IPTV Group Management (Dispatcharr integration)
 Three-state per group: **Show / Hide / Remove**. New groups that appear in an M3U sync are automatically hidden and badged "NEW" until the user explicitly shows them. Groups marked Remove are written to a configurable blacklist file for Dispatcharr to consume.
 

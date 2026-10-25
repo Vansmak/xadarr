@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -112,15 +113,19 @@ fun ChannelRow(
     var longPressJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val visuallyFocused = focused || forceFocused
+    // Glass: the focused row is the launcher's white pill (dark ink, soft shadow), no ring.
+    val glass = LiveColors.IsGlass
+    val glassFocus = glass && visuallyFocused
+    val rowShape = RoundedCornerShape(10.dp)
     val bg = when {
-        visuallyFocused -> LiveColors.PanelRaised
+        visuallyFocused -> LiveColors.FocusFill
         isActive -> LiveColors.FocusBg
         stripe -> LiveColors.RowStripe
         else -> Color.Transparent
     }
     val now = nowNext?.now
     val animatedBorderWidth by animateDpAsState(
-        targetValue = if (visuallyFocused) 3.dp else 0.dp,
+        targetValue = if (visuallyFocused && !glass) 3.dp else 0.dp,
         animationSpec = tween(durationMillis = 130),
         label = "channel-row-border",
     )
@@ -141,11 +146,21 @@ fun ChannelRow(
                 focused = it.hasFocus
                 if (it.hasFocus) onFocused()
             }
+            .then(
+                if (glassFocus) {
+                    Modifier
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .shadow(6.dp, rowShape, ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus)
+                        .clip(rowShape)
+                } else {
+                    Modifier
+                }
+            )
             .border(
                 width = animatedBorderWidth,
                 color = if (visuallyFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
             )
-            .background(if (visuallyFocused) LiveColors.PanelRaised else bg)
+            .background(bg)
             .focusable()
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown) {
@@ -232,7 +247,12 @@ fun ChannelRow(
                 Text(
                     text = channel.name,
                     style = LiveType.CellTitle.copy(
-                        color = if (isActive) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else LiveColors.Fg,
+                        color = when {
+                            glassFocus -> LiveColors.FocusInk
+                            isActive && glass -> LiveColors.Fg
+                            isActive -> (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)
+                            else -> LiveColors.Fg
+                        },
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -269,7 +289,7 @@ fun ChannelRow(
                 Text(
                     text = now?.title.orEmpty(),
                     style = LiveType.CellTitle.copy(
-                        color = LiveColors.FgDim,
+                        color = if (glassFocus) LiveColors.FocusInkDim else LiveColors.FgDim,
                         fontSize = 11.sp,
                     ),
                     maxLines = 1,
@@ -282,8 +302,8 @@ fun ChannelRow(
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.width(80.dp).height(2.dp),
-                    color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
-                    trackColor = LiveColors.Divider,
+                    color = if (glass) (if (glassFocus) LiveColors.FocusInk else LiveColors.Fg) else (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
+                    trackColor = if (glassFocus) LiveColors.FocusInk.copy(alpha = 0.14f) else LiveColors.Divider,
                 )
             }
         }

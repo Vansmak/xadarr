@@ -7,6 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
+import com.arflix.tv.ui.glass.GlassMode
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.rememberGlassPalette
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.ProvideXadarrSkin
 import com.arflix.tv.ui.skin.focusBorderColorFromName
@@ -123,6 +126,18 @@ private fun paletteForTheme(name: String, oledBlack: Boolean): ThemePalette = wh
         accent = Color(0xFFD4AF37),
         borderLight = Color(0xFFD4AF37).copy(alpha = 0.20f),
     )
+    // Glass (Joe, 2026-10-25): the launcher's night colours. Screens restyled for glass read
+    // LocalGlass for the day/night look; everything else stays on these until it's restyled.
+    "Glass" -> ThemePalette(
+        background = Color(0xFF141416),
+        card = Color(0xFF1C1C1E),
+        elevated = Color(0xFF2C2C2E),
+        textPrimary = Color(0xFFF5F5F7),
+        textSecondary = Color(0xFFF5F5F7).copy(alpha = 0.7f),
+        textTertiary = Color(0xFFF5F5F7).copy(alpha = 0.5f),
+        accent = Color(0xFF0A84FF),
+        borderLight = Color(0xFF0A84FF).copy(alpha = 0.18f),
+    )
     "Neon" -> ThemePalette(
         background = if (oledBlack) Color.Black else Color(0xFF050505),
         card = Color(0xFF0A0A10),
@@ -187,8 +202,10 @@ fun XadarrTvTheme(
     oledBlackBackground: Boolean = false,
     focusBorderColorName: String? = null,
     themeName: String = "Midnight",
+    glassMode: String = GlassMode.AUTO,
     content: @Composable () -> Unit
 ) {
+    val glass = if (themeName == "Glass") rememberGlassPalette(glassMode) else null
     val palette = paletteForTheme(themeName, oledBlackBackground)
     val focusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) } ?: palette.accent
     val colorScheme = darkColorScheme(
@@ -220,7 +237,8 @@ fun XadarrTvTheme(
     CompositionLocalProvider(
         LocalXadarrColors provides xadarrColors,
         LocalOledBlackBackground provides oledBlackBackground,
-        LocalFocusBorderColorOverride provides focusBorderColor
+        LocalFocusBorderColorOverride provides focusBorderColor,
+        LocalGlass provides glass
     ) {
         ProvideXadarrSkin {
             MaterialTheme(
@@ -238,11 +256,13 @@ fun ArflixTvTheme(
     oledBlackBackground: Boolean = false,
     focusBorderColorName: String? = null,
     themeName: String = "Midnight",
+    glassMode: String = GlassMode.AUTO,
     content: @Composable () -> Unit
 ) = XadarrTvTheme(
     oledBlackBackground = oledBlackBackground,
     focusBorderColorName = focusBorderColorName,
     themeName = themeName,
+    glassMode = glassMode,
     content = content
 )
 

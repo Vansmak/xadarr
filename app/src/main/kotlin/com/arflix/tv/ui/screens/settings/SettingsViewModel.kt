@@ -190,6 +190,8 @@ data class SettingsUiState(
     val focusBorderColor: String = "Auto",
     // Color theme — full palette preset
     val selectedTheme: String = "Midnight",
+    // Glass theme's Day / Night: "auto", "day" or "night"
+    val glassMode: String = "auto",
     val qualityFilterPresetLabel: String = "OFF",
     // Toast
     val toastMessage: String? = null,
@@ -468,6 +470,7 @@ class SettingsViewModel @Inject constructor(
             val homeRowSelection = prefs[homeRowSelectionKey()] ?: "continue_watching"
             val focusBorderColor = prefs[com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY] ?: "Auto"
             val selectedTheme = prefs[com.arflix.tv.util.THEME_KEY] ?: "Midnight"
+            val glassMode = prefs[com.arflix.tv.util.GLASS_MODE_KEY] ?: com.arflix.tv.ui.glass.GlassMode.AUTO
             val volumeBoostDb = prefs[volumeBoostDbKey()]?.toIntOrNull()?.coerceIn(0, 15) ?: 0
             val showLoadingStats = prefs[showLoadingStatsKey()] ?: true
 
@@ -608,6 +611,7 @@ class SettingsViewModel @Inject constructor(
                 homeRowSelection = homeRowSelection,
                 focusBorderColor = focusBorderColor,
                 selectedTheme = selectedTheme,
+                glassMode = glassMode,
                 qualityFilters = qualityFilters,
                 qualityFilterPresetLabel = detectQualityFilterPreset(qualityFilters).label,
                 webhookEnabled = webhookEnabled,
@@ -1299,13 +1303,22 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun cycleTheme() {
-        val themes = listOf("Midnight", "Owl", "Black & Gold", "Neon")
+        val themes = listOf("Midnight", "Owl", "Black & Gold", "Neon", "Glass")
         val current = _uiState.value.selectedTheme
         val next = themes[(themes.indexOf(current) + 1) % themes.size]
         viewModelScope.launch {
             context.settingsDataStore.edit { it[com.arflix.tv.util.THEME_KEY] = next }
             _uiState.value = _uiState.value.copy(selectedTheme = next)
             syncLocalStateToCloud(silent = true)
+        }
+    }
+
+    /** Glass theme: Auto (night from sunset to sunrise) → Day → Night. Per device, like the theme. */
+    fun cycleGlassMode() {
+        val next = com.arflix.tv.ui.glass.GlassMode.next(_uiState.value.glassMode)
+        viewModelScope.launch {
+            context.settingsDataStore.edit { it[com.arflix.tv.util.GLASS_MODE_KEY] = next }
+            _uiState.value = _uiState.value.copy(glassMode = next)
         }
     }
 

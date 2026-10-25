@@ -2,7 +2,8 @@ import java.util.Properties
 
 // Xadarr Music: the Music Assistant remote on its own, for devices that don't run full Xadarr.
 // It compiles Xadarr's own `com.arflix.tv.music` package straight from the app module (that
-// package depends only on DataStore/OkHttp/Hilt by design), so the two never drift apart.
+// package depends only on DataStore/OkHttp/Hilt by design, plus the Compose-only `ui.glass`
+// theme package), so the two never drift apart.
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -49,7 +50,12 @@ android {
         }
     }
 
-    sourceSets["main"].java.srcDirs("src/main/kotlin", "../app/src/main/kotlin/com/arflix/tv/music")
+    // ui/glass is the glass look's palette + sun clock (Compose only), shared so the two apps match.
+    sourceSets["main"].java.srcDirs(
+        "src/main/kotlin",
+        "../app/src/main/kotlin/com/arflix/tv/music",
+        "../app/src/main/kotlin/com/arflix/tv/ui/glass",
+    )
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -1,6 +1,16 @@
 package com.arflix.tv.music
 
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
+import com.arflix.tv.ui.glass.GlassMaterialTheme
+import com.arflix.tv.ui.glass.GlassPalette
+import com.arflix.tv.ui.glass.LocalGlass
 import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -142,7 +152,17 @@ fun MusicScreen(
     viewModel: MusicViewModel = hiltViewModel(),
     onBack: () -> Unit = {},
 ) {
+    // Glass theme: the whole screen follows day/night through the colour scheme.
+    GlassMaterialTheme { MusicScreenBody(viewModel, onBack) }
+}
+
+@Composable
+private fun MusicScreenBody(
+    viewModel: MusicViewModel,
+    onBack: () -> Unit,
+) {
     val ui by viewModel.ui.collectAsState()
+    val glass = LocalGlass.current
     val colors = MaterialTheme.colorScheme
     val accent = colors.primary
 
@@ -376,7 +396,8 @@ fun MusicScreen(
     ) {
         val coverUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl
         // Lighter than first shipped (0.78): Joe found it too subtle behind Now Playing.
-        BlurredCoverBackground(coverUrl, scrim = 0.62f)
+        // Glass: the cover's colours frosted -- whitened by day, darkened at night (the launcher's photo wash).
+        BlurredCoverBackground(coverUrl, scrim = if (glass?.isNight == true) 0.70f else 0.62f)
         // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
@@ -426,6 +447,22 @@ fun MusicScreen(
                         }
                         return@forEach
                     }
+                    if (glass != null) {
+                        // The launcher's text tabs: selected is bold ink, the rest gray; focus is the white pill.
+                        Box(
+                            Modifier
+                                .padding(end = 10.dp)
+                                .then(if (focused) Modifier.shadow(8.dp, CircleShape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus) else Modifier)
+                                .clip(CircleShape)
+                                .background(if (focused) glass.focusBg else Color.Transparent)
+                                .clickable { viewModel.setTab(tab); area = Area.CONTENT }
+                                .padding(horizontal = 18.dp, vertical = 8.dp)
+                        ) {
+                            Text(TAB_LABELS.getValue(tab), color = if (focused) glass.focusInk else if (selected) glass.ink else glass.dim,
+                                fontSize = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+                        }
+                        return@forEach
+                    }
                     Box(
                         Modifier
                             .padding(end = 10.dp)
@@ -439,7 +476,10 @@ fun MusicScreen(
                             fontSize = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
-                if (!narrow) {
+                if (!narrow && glass != null) {
+                    Spacer(Modifier.weight(1f))
+                    SpeakerChip(ui.selectedPlayer, ui.connection, glass)
+                } else if (!narrow) {
                     Spacer(Modifier.weight(1f))
                     ui.selectedPlayer?.let { p ->
                         Icon(Icons.Default.Speaker, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
@@ -622,9 +662,13 @@ private fun NowPlaying(
         return
     }
 
+    val glass = LocalGlass.current
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        val coverShape = RoundedCornerShape(if (glass != null) 11.dp else 16.dp)
         Box(
-            Modifier.fillMaxHeight(0.8f).aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(colors.surfaceVariant),
+            Modifier.fillMaxHeight(0.8f).aspectRatio(1f)
+                .then(if (glass != null) Modifier.shadow(24.dp, coverShape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus) else Modifier)
+                .clip(coverShape).background(colors.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
             if (image != null) {
@@ -640,7 +684,7 @@ private fun NowPlaying(
                 Spacer(Modifier.height(8.dp))
                 Text("Open Library to start something on ${player?.name ?: "a zone"}.", color = colors.onSurfaceVariant, fontSize = 18.sp)
             } else {
-                Text(title, color = colors.onSurface, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, color = colors.onSurface, fontSize = 34.sp, fontWeight = if (glass != null) FontWeight.SemiBold else FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 artist?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(it, color = colors.onSurface.copy(alpha = 0.85f), fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -748,15 +792,19 @@ private fun VolumeBar(player: MaPlayer?, focused: Boolean, onControl: (Control) 
     val colors = MaterialTheme.colorScheme
     val accent = colors.primary
     val level = player?.effectiveVolume
+    // Glass: monochrome bars (Apple Music style); blue is kept for "active" states only.
+    val glass = LocalGlass.current
+    val fill = glass?.dim ?: accent
+    val ring = glass?.ink ?: accent
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ControlButton(Icons.Default.VolumeDown, "Volume down", false) { onControl(Control.VOLUME_DOWN) }
             Box(
                 Modifier.weight(1f).height(if (focused) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp))
-                    .background(colors.onSurface.copy(alpha = 0.18f))
-                    .border(if (focused) 2.dp else 0.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(5.dp))
+                    .background(glass?.track ?: colors.onSurface.copy(alpha = 0.18f))
+                    .border(if (focused) 2.dp else 0.dp, if (focused) ring else Color.Transparent, RoundedCornerShape(5.dp))
             ) {
-                Box(Modifier.fillMaxWidth(((level ?: 0) / 100f).coerceIn(0f, 1f)).fillMaxHeight().background(accent))
+                Box(Modifier.fillMaxWidth(((level ?: 0) / 100f).coerceIn(0f, 1f)).fillMaxHeight().background(fill))
             }
             Spacer(Modifier.width(12.dp))
             ControlButton(Icons.Default.VolumeUp, "Volume up", false) { onControl(Control.VOLUME_UP) }
@@ -765,7 +813,7 @@ private fun VolumeBar(player: MaPlayer?, focused: Boolean, onControl: (Control) 
             Text(listOfNotNull(player?.name, level?.let { "Volume $it" }).joinToString(" · "),
                 color = colors.onSurfaceVariant, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
-            if (focused) Text("◀ ▶ volume", color = accent, fontSize = 13.sp)
+            if (focused) Text("◀ ▶ volume", color = ring, fontSize = 13.sp)
         }
     }
 }
@@ -775,19 +823,21 @@ private fun SeekBar(elapsed: Double, duration: Int, focused: Boolean) {
     val colors = MaterialTheme.colorScheme
     val accent = colors.primary
     val fraction = if (duration > 0) (elapsed / duration).toFloat().coerceIn(0f, 1f) else 0f
+    val glass = LocalGlass.current
+    val fill = glass?.ink ?: accent
     Column {
         Box(
             Modifier.fillMaxWidth().height(if (focused) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp))
-                .background(colors.onSurface.copy(alpha = 0.18f))
-                .border(if (focused) 2.dp else 0.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(5.dp))
+                .background(glass?.track ?: colors.onSurface.copy(alpha = 0.18f))
+                .border(if (focused) 2.dp else 0.dp, if (focused) fill else Color.Transparent, RoundedCornerShape(5.dp))
         ) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(accent))
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(fill))
         }
         Spacer(Modifier.height(6.dp))
         Row {
             Text(formatTime(elapsed), color = colors.onSurfaceVariant, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
-            if (focused) Text("◀ ▶ seek 10s", color = accent, fontSize = 13.sp)
+            if (focused) Text("◀ ▶ seek 10s", color = fill, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             Text(if (duration > 0) formatTime(duration.toDouble()) else "--:--", color = colors.onSurfaceVariant, fontSize = 14.sp)
         }
@@ -806,6 +856,11 @@ private fun ControlButton(
     val colors = MaterialTheme.colorScheme
     val accent = colors.primary
     val size = if (large) 72.dp else 54.dp
+    val glass = LocalGlass.current
+    if (glass != null) {
+        GlassControlButton(icon, label, focused, active, large, size, glass, onClick)
+        return
+    }
     Box(
         Modifier.padding(end = 12.dp).size(size).clip(CircleShape)
             .background(
@@ -833,12 +888,95 @@ private fun ControlButton(
 @Composable
 private fun Chip(text: String, highlight: Boolean = false) {
     val colors = MaterialTheme.colorScheme
+    val glass = LocalGlass.current
     Box(
-        Modifier.clip(RoundedCornerShape(6.dp))
-            .background(if (highlight) colors.primary.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.10f))
+        Modifier.clip(if (glass != null) CircleShape else RoundedCornerShape(6.dp))
+            .background(if (highlight) colors.primary.copy(alpha = if (glass != null) 0.16f else 0.22f) else glass?.chip ?: colors.onSurface.copy(alpha = 0.10f))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(text, color = if (highlight) colors.primary else colors.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/**
+ * Glass transport button: a glass disc at rest; focus is the launcher's round-button focus --
+ * a white disc with a dark icon, scaled 1.1, with its name underneath.
+ */
+@Composable
+private fun GlassControlButton(
+    icon: ImageVector,
+    label: String,
+    focused: Boolean,
+    active: Boolean,
+    large: Boolean,
+    size: Dp,
+    g: GlassPalette,
+    onClick: () -> Unit,
+) {
+    val scale by animateFloatAsState(if (focused) 1.1f else 1f, tween(150), label = "music-control-scale")
+    Box(Modifier.padding(end = 12.dp).size(size), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize()
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .then(if (focused) Modifier.shadow(14.dp, CircleShape, ambientColor = g.shadowFocus, spotColor = g.shadowFocus) else Modifier)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        focused -> g.focusBg
+                        large -> g.glassStrong
+                        else -> g.glass
+                    }
+                )
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon, contentDescription = label,
+                tint = when {
+                    focused -> g.focusInk
+                    active -> g.accent
+                    else -> g.ink
+                },
+                modifier = Modifier.size(if (large) 40.dp else 30.dp),
+            )
+        }
+        if (focused) {
+            Text(
+                label, color = g.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                modifier = Modifier.align(Alignment.BottomCenter).wrapContentSize(unbounded = true).offset(y = 22.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The room being controlled, as the launcher's glass capsule (speaker icon, name, +N when it
+ * leads a group, connection dot). Display only for now: picking a room/grouping from here is
+ * a separate request (project_xadarr_music_grouping).
+ */
+@Composable
+private fun SpeakerChip(player: MaPlayer?, connection: ConnectionState, g: GlassPalette) {
+    Row(
+        Modifier
+            .shadow(8.dp, CircleShape, ambientColor = g.shadow, spotColor = g.shadow)
+            .clip(CircleShape)
+            .background(g.glassStrong)
+            .border(1.dp, g.glassRim, CircleShape)
+            .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Speaker, contentDescription = null, tint = g.ink, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(player?.name ?: "No room", color = g.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        if (player != null && player.isGroupLeader) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "+${player.groupMembers.size - 1}", color = g.dim, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clip(CircleShape).background(g.chip).padding(horizontal = 7.dp, vertical = 2.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        ConnectionDot(connection)
     }
 }
 
@@ -857,16 +995,20 @@ private fun MediaRow(
 ) {
     val colors = MaterialTheme.colorScheme
     val accent = colors.primary
+    // Glass: the focused row is the white pill with dark ink, no ring.
+    val glassFocus = focused && LocalGlass.current != null
+    val glass = LocalGlass.current
     Row(
         Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp))
             .background(
                 when {
+                    glassFocus -> glass!!.focusBg
                     focused -> accent.copy(alpha = 0.22f)
                     highlighted -> colors.onSurface.copy(alpha = 0.07f)
                     else -> Color.Transparent
                 }
             )
-            .border(2.dp, if (focused) accent else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(2.dp, if (focused && !glassFocus) accent else Color.Transparent, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -883,15 +1025,15 @@ private fun MediaRow(
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = if (highlighted) accent else colors.onSurface, fontSize = 18.sp,
+            Text(title, color = if (glassFocus) glass!!.focusInk else if (highlighted) accent else colors.onSurface, fontSize = 18.sp,
                 fontWeight = if (highlighted) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
             subtitle?.let {
-                Text(it, color = colors.onSurfaceVariant, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(it, color = if (glassFocus) glass!!.focusInkDim else colors.onSurfaceVariant, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         trailing?.let {
             Spacer(Modifier.width(12.dp))
-            Text(it, color = colors.onSurfaceVariant, fontSize = 14.sp)
+            Text(it, color = if (glassFocus) glass!!.focusInkDim else colors.onSurfaceVariant, fontSize = 14.sp)
         }
     }
 }

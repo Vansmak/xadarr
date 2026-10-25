@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +56,9 @@ fun ChannelLogo(
     val logoUrl = channel.logo
     var logoLoaded by remember(logoUrl) { mutableStateOf(false) }
     val showPlaceholder = logoUrl.isNullOrBlank() || !logoLoaded
+    // Glass: real logos sit on a dark squircle tile like the launcher's -- most network logos are
+    // white-on-transparent and would vanish on the light day background.
+    val glassTile = LiveColors.IsGlass && !showPlaceholder
     // The colored rounded-square badge is only the placeholder look, shown while there's no real
     // logo yet — a successfully loaded logo renders flat with no badge container, matching
     // TiviMate's style (real network logo on the dark row, not boxed into an app-icon badge).
@@ -65,6 +70,11 @@ fun ChannelLogo(
                     Modifier
                         .clip(RoundedCornerShape((size.value / 5.5f).dp))
                         .background(channel.brandBg)
+                } else if (glassTile) {
+                    Modifier
+                        .clip(RoundedCornerShape((size.value / 4.5f).dp))
+                        .background(Brush.verticalGradient(listOf(Color(0xFF2B2B2E), Color(0xFF0E0E10))))
+                        .padding((size.value * 0.12f).dp)
                 } else {
                     Modifier
                 }

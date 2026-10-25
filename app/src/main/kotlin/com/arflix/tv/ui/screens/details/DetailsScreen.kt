@@ -90,7 +90,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
@@ -141,6 +143,7 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.EpisodeContextMenu
 import com.arflix.tv.ui.components.SeasonContextMenu
 import com.arflix.tv.ui.components.LoadingIndicator
+import com.arflix.tv.ui.glass.LocalGlass
 import com.arflix.tv.ui.components.CardLayoutMode
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.components.PersonModal
@@ -1510,8 +1513,9 @@ private fun DetailsContent(
     val context = LocalContext.current
     val metadataLogoImageLoader = rememberMetadataLogoImageLoader(context)
     val focusSectionForUi = if (contentHasFocus) focusedSection else null
+    val glass = LocalGlass.current?.takeIf { !isMobile }
     // === PREMIUM LAYERED TEXT SHADOWS ===
-    val textShadow = Shadow(
+    val textShadow = if (glass != null) Shadow(color = Color.Transparent) else Shadow(
         color = Color.Black.copy(alpha = 0.9f),
         offset = Offset(0f, 2f),
         blurRadius = 8f  // Soft spread shadow for better readability
@@ -2094,70 +2098,81 @@ private fun DetailsContent(
     }
     // ===================== END MOBILE LAYOUT =====================
 
+    // Glass theme (launcher look): washed backdrop, ink text on frosted paper, glass capsules.
+    // Phones keep the dark layout above.
+    val heroInk = glass?.ink ?: Color.White
+    val heroDim = glass?.dim ?: Color.White.copy(alpha = 0.7f)
+    val heroBody = glass?.dim ?: Color.White.copy(alpha = 0.9f)
+    val heroSeparator = if (glass != null) "·" else "|"
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Full-screen hero background
-        AsyncImage(
-            model = item.backdrop ?: item.image,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        if (glass != null) {
+            GlassDetailsBackdrop(item.backdrop ?: item.image, glass)
+        } else {
+            // Full-screen hero background
+            AsyncImage(
+                model = item.backdrop ?: item.image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
 
-        // === PREMIUM MULTI-LAYER SCRIM SYSTEM ===
+            // === PREMIUM MULTI-LAYER SCRIM SYSTEM ===
 
-        // Layer 1: Strong left gradient for hero text area (Netflix-style)
-        // Uses colorStops with percentages to work on any resolution
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.85f),
-                            0.15f to Color.Black.copy(alpha = 0.75f),
-                            0.25f to Color.Black.copy(alpha = 0.55f),
-                            0.35f to Color.Black.copy(alpha = 0.35f),
-                            0.45f to Color.Black.copy(alpha = 0.15f),
-                            0.55f to Color.Transparent,
-                            1.0f to Color.Transparent
+            // Layer 1: Strong left gradient for hero text area (Netflix-style)
+            // Uses colorStops with percentages to work on any resolution
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Black.copy(alpha = 0.85f),
+                                0.15f to Color.Black.copy(alpha = 0.75f),
+                                0.25f to Color.Black.copy(alpha = 0.55f),
+                                0.35f to Color.Black.copy(alpha = 0.35f),
+                                0.45f to Color.Black.copy(alpha = 0.15f),
+                                0.55f to Color.Transparent,
+                                1.0f to Color.Transparent
+                            )
                         )
                     )
-                )
-        )
+            )
 
-        // Layer 2: Top vignette for clock/status area
-        // Uses colorStops with percentages to work on any resolution
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.5f),
-                            0.05f to Color.Black.copy(alpha = 0.25f),
-                            0.12f to Color.Transparent,
-                            1.0f to Color.Transparent
+            // Layer 2: Top vignette for clock/status area
+            // Uses colorStops with percentages to work on any resolution
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Black.copy(alpha = 0.5f),
+                                0.05f to Color.Black.copy(alpha = 0.25f),
+                                0.12f to Color.Transparent,
+                                1.0f to Color.Transparent
+                            )
                         )
                     )
-                )
-        )
+            )
 
-        // Layer 3: Bottom floor-fade (starts low, darker at bottom)
-        // Uses colorStops with percentages to work on any resolution
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.0f to Color.Transparent,
-                            0.85f to Color.Transparent,
-                            0.92f to Color.Black.copy(alpha = 0.5f),
-                            1.0f to Color.Black.copy(alpha = 0.85f)
+            // Layer 3: Bottom floor-fade (starts low, darker at bottom)
+            // Uses colorStops with percentages to work on any resolution
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Transparent,
+                                0.85f to Color.Transparent,
+                                0.92f to Color.Black.copy(alpha = 0.5f),
+                                1.0f to Color.Black.copy(alpha = 0.85f)
+                            )
                         )
                     )
-                )
-        )
+            )
+        }
 
         // Layer 4 removed for performance - radial gradients are expensive on TV
 
@@ -2207,6 +2222,8 @@ private fun DetailsContent(
                                 contentDescription = item.title,
                                 contentScale = ContentScale.Fit,
                                 alignment = Alignment.CenterStart,
+                                // Day glass: most title logos are white -- draw them in ink on the light page.
+                                colorFilter = if (glass != null && !glass.isNight) ColorFilter.tint(glass.ink) else null,
                                 modifier = Modifier
                                     .height(72.dp)
                                     .width(320.dp)
@@ -2262,11 +2279,11 @@ private fun DetailsContent(
                             fontWeight = FontWeight.Bold,
                             shadow = textShadow
                         ),
-                        color = Color.White
+                        color = heroInk
                     )
 
                     if (displayDate.isNotEmpty()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = displayDate,
                             style = ArflixTypography.caption.copy(
@@ -2274,12 +2291,12 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
 
                     if (hasDuration) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = item.duration,
                             style = ArflixTypography.caption.copy(
@@ -2287,12 +2304,12 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
 
                     if (!audioFormat.isNullOrBlank()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = audioFormat,
                             style = ArflixTypography.caption.copy(
@@ -2300,12 +2317,12 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
 
                     if (isPlexHandoffMode && item.mediaType == MediaType.TV && realTotalSeasons > 0) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = if (realTotalSeasons == 1) "1 Season" else "$realTotalSeasons Seasons",
                             style = ArflixTypography.caption.copy(
@@ -2313,12 +2330,12 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
 
                     if (primaryNetworkLogo != null) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         AsyncImage(
                             model = primaryNetworkLogo,
                             imageLoader = metadataLogoImageLoader,
@@ -2331,19 +2348,20 @@ private fun DetailsContent(
                     }
 
                     if (ratingValue > 0f) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         DetailsImdbSvgRatingBadge(
                             rating = rating,
                             imageLoader = metadataLogoImageLoader,
                             ratingFontSize = 13,
                             logoWidth = 34.dp,
                             logoHeight = 14.dp,
-                            textShadow = textShadow
+                            textShadow = textShadow,
+                            color = heroInk
                         )
                     }
 
                     if (!budgetText.isNullOrBlank()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = "${stringResource(R.string.budget)} $budgetText",
                             style = ArflixTypography.caption.copy(
@@ -2351,12 +2369,12 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
 
                     if (!isPlexHandoffMode && item.mediaType == MediaType.TV && !upcomingEpisodeLabel.isNullOrBlank()) {
-                        Text(text = "|", style = separatorStyle, color = Color.White.copy(alpha = 0.7f))
+                        Text(text = heroSeparator, style = separatorStyle, color = heroDim)
                         Text(
                             text = upcomingEpisodeLabel,
                             style = ArflixTypography.caption.copy(
@@ -2364,7 +2382,7 @@ private fun DetailsContent(
                                 fontWeight = FontWeight.Bold,
                                 shadow = textShadow
                             ),
-                            color = Color.White
+                            color = heroInk
                         )
                     }
                 }
@@ -2386,7 +2404,7 @@ private fun DetailsContent(
                             lineHeight = 16.sp,
                             shadow = textShadow
                         ),
-                        color = Color.White.copy(alpha = 0.9f),
+                        color = heroBody,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -2524,41 +2542,44 @@ private fun DetailsContent(
             }
         }
 
-        DetailsTvRows(
-            modifier = Modifier.align(Alignment.BottomStart),
-            item = item,
-            episodes = episodes,
-            totalSeasons = totalSeasons,
-            currentSeason = currentSeason,
-            cast = cast,
-            reviews = reviews,
-            similar = similar,
-            similarLogoUrls = similarLogoUrls,
-            collectionItems = collectionItems,
-            collectionName = collectionName,
-            collectionIndex = collectionIndex,
-            focusedSection = focusedSection,
-            focusSectionForUi = focusSectionForUi,
-            episodeIndex = episodeIndex,
-            seasonIndex = seasonIndex,
-            castIndex = castIndex,
-            reviewIndex = reviewIndex,
-            similarIndex = similarIndex,
-            seasonProgress = seasonProgress,
-            usePosterCards = usePosterCards,
-            spoilerBlurEnabled = spoilerBlurEnabled,
-            sonarrEpisodeStatuses = sonarrEpisodeStatuses,
-            onSonarrSearch = onSonarrSearch,
-            contentRowHeight = contentRowHeight,
-            contentRowBottomPadding = contentRowBottomPadding,
-            configuration = configuration,
-            contentHasFocus = contentHasFocus,
-            onSeasonClick = onSeasonClick,
-            onEpisodeClick = onEpisodeClick,
-            onCastClick = onCastClick,
-            onSimilarClick = onSimilarClick,
-            onCollectionClick = onCollectionClick
-        )
+        // Glass: shared cards below (MediaCard titles) read the skin colours -- ink on paper.
+        ProvideDetailsGlassSkin(glass) {
+            DetailsTvRows(
+                modifier = Modifier.align(Alignment.BottomStart),
+                item = item,
+                episodes = episodes,
+                totalSeasons = totalSeasons,
+                currentSeason = currentSeason,
+                cast = cast,
+                reviews = reviews,
+                similar = similar,
+                similarLogoUrls = similarLogoUrls,
+                collectionItems = collectionItems,
+                collectionName = collectionName,
+                collectionIndex = collectionIndex,
+                focusedSection = focusedSection,
+                focusSectionForUi = focusSectionForUi,
+                episodeIndex = episodeIndex,
+                seasonIndex = seasonIndex,
+                castIndex = castIndex,
+                reviewIndex = reviewIndex,
+                similarIndex = similarIndex,
+                seasonProgress = seasonProgress,
+                usePosterCards = usePosterCards,
+                spoilerBlurEnabled = spoilerBlurEnabled,
+                sonarrEpisodeStatuses = sonarrEpisodeStatuses,
+                onSonarrSearch = onSonarrSearch,
+                contentRowHeight = contentRowHeight,
+                contentRowBottomPadding = contentRowBottomPadding,
+                configuration = configuration,
+                contentHasFocus = contentHasFocus,
+                onSeasonClick = onSeasonClick,
+                onEpisodeClick = onEpisodeClick,
+                onCastClick = onCastClick,
+                onSimilarClick = onSimilarClick,
+                onCollectionClick = onCollectionClick
+            )
+        }
     }
 }
 
@@ -2900,6 +2921,9 @@ private fun DetailsEpisodeRail(
 
     val currentFocusedSection by rememberUpdatedState(focusSectionForUi)
     val currentEpisodeIndex by rememberUpdatedState(episodeIndex)
+    // Glass: the card in the fixed first slot lifts itself (scale + shadow) instead of a ring
+    // drawn over the lane. Which card is focused, and the scrolling, are unchanged.
+    val glassCards = LocalGlass.current != null
 
     Box(modifier = Modifier.fillMaxWidth()) {
         TvLazyRow(
@@ -2929,7 +2953,7 @@ private fun DetailsEpisodeRail(
                 EpisodeCard(
                     episode = episode,
                     cardWidth = episodeCardWidth,
-                    isFocused = isFocused && !episodeFixedFocus,
+                    isFocused = isFocused && (glassCards || !episodeFixedFocus),
                     spoilerBlurEnabled = spoilerBlurEnabled,
                     sonarrInfo = sonarrEpisodeStatuses[episode.episodeNumber],
                     onSonarrSearch = { onSonarrSearch(episode.episodeNumber) },
@@ -2937,7 +2961,7 @@ private fun DetailsEpisodeRail(
                 )
             }
         }
-        if (episodeFixedFocus) {
+        if (episodeFixedFocus && !glassCards) {
             FixedDetailsRailFocusOverlay(
                 startPadding = contentStartPadding,
                 topPadding = 6.dp,
@@ -2974,7 +2998,7 @@ private fun DetailsCastRail(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = Color.White.copy(alpha = 0.9f),
+            color = LocalGlass.current?.ink ?: Color.White.copy(alpha = 0.9f),
             modifier = Modifier.padding(start = contentStartPadding, bottom = 10.dp)
         )
 
@@ -3036,7 +3060,7 @@ private fun DetailsReviewRail(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = Color.White.copy(alpha = 0.9f),
+            color = LocalGlass.current?.ink ?: Color.White.copy(alpha = 0.9f),
             modifier = Modifier.padding(start = contentStartPadding, bottom = 10.dp)
         )
 
@@ -3104,7 +3128,7 @@ private fun DetailsSimilarRail(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = Color.White.copy(alpha = 0.9f),
+            color = LocalGlass.current?.ink ?: Color.White.copy(alpha = 0.9f),
             modifier = Modifier.padding(start = contentStartPadding, bottom = 10.dp)
         )
 
@@ -3189,7 +3213,7 @@ private fun DetailsCollectionRail(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = Color.White.copy(alpha = 0.9f),
+            color = LocalGlass.current?.ink ?: Color.White.copy(alpha = 0.9f),
             modifier = Modifier.padding(start = contentStartPadding, bottom = 10.dp)
         )
 
@@ -3405,7 +3429,8 @@ private fun DetailsImdbSvgRatingBadge(
     ratingFontSize: Int,
     logoWidth: Dp,
     logoHeight: Dp,
-    textShadow: Shadow
+    textShadow: Shadow,
+    color: Color = Color.White
 ) {
     val imdbLogoUri = remember { "android.resource://com.arflix.tv/${R.raw.logo_imdb_rectangle}" }
     Row(
@@ -3428,7 +3453,7 @@ private fun DetailsImdbSvgRatingBadge(
                 fontWeight = FontWeight.Bold,
                 shadow = textShadow
             ),
-            color = Color.White,
+            color = color,
             maxLines = 1
         )
     }
@@ -3587,7 +3612,10 @@ private fun PremiumActionButton(
     isIconOnly: Boolean = false,
     isActive: Boolean = false
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    // Glass: capsules -- Play is the one solid ink capsule, the rest frosted glass; focus is the
+    // launcher's white pill with dark ink and a soft shadow.
+    val glass = LocalGlass.current
+    val shape = if (glass != null) RoundedCornerShape(50) else RoundedCornerShape(12.dp)
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val textStyle = XadarrSkin.typography.button.copy(
@@ -3597,7 +3625,7 @@ private fun PremiumActionButton(
     )
     val iconSize = if (isIconOnly) 20.dp else 16.dp
     val expandedPadding = 12.dp
-    val collapsedPadding = 0.dp
+    val collapsedPadding = if (glass != null) 8.dp else 0.dp
     val labelSpacing = 8.dp
     val labelExtraWidth = 12.dp
     val showLabel = isFocused && text.isNotBlank()
@@ -3644,8 +3672,11 @@ private fun PremiumActionButton(
     // Animated background color - buttons only glow when focused
     val backgroundColor by animateColorAsState(
         targetValue = when {
+            isFocused && glass != null -> glass.focusBg
             isFocused && isPrimary -> Color.White
             isFocused -> Color.White.copy(alpha = 0.95f)
+            glass != null && isPrimary -> glass.ink
+            glass != null -> glass.glass
             else -> Color.Transparent
         },
         animationSpec = tween(150),
@@ -3654,7 +3685,12 @@ private fun PremiumActionButton(
 
     // Animated text/icon color - black when focused (on white bg), white otherwise
     val contentColor by animateColorAsState(
-        targetValue = if (isFocused) Color.Black else Color.White.copy(alpha = 0.9f),
+        targetValue = when {
+            isFocused -> glass?.focusInk ?: Color.Black
+            glass != null && isPrimary -> glass.bgTop
+            glass != null -> glass.ink
+            else -> Color.White.copy(alpha = 0.9f)
+        },
         animationSpec = tween(150),
         label = "button_content"
     )
@@ -3675,9 +3711,19 @@ private fun PremiumActionButton(
                 scaleY = scale
             }
             .width(animatedWidth)
+            .then(
+                if (glass != null) {
+                    Modifier.shadow(if (isFocused) 10.dp else 4.dp, shape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus)
+                } else {
+                    Modifier
+                }
+            )
             .background(
-                if (isFocused) backgroundColor else Color.Transparent,
+                if (isFocused || glass != null) backgroundColor else Color.Transparent,
                 shape
+            )
+            .then(
+                if (glass != null && !isFocused && !isPrimary) Modifier.border(1.dp, glass.glassRim, shape) else Modifier
             )
             .then(
                 if (borderAlpha > 0f) {
@@ -3737,13 +3783,16 @@ private fun EpisodeCard(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    val shape = rememberXadarrCardShape(XadarrSkin.radius.md)
+    // Glass: the launcher's card focus -- radius 9 (18 px), scale 1.05 with a deeper shadow and a
+    // glass sheen + white rim, and no outline ring.
+    val glass = LocalGlass.current
+    val shape = if (glass != null) RoundedCornerShape(9.dp) else rememberXadarrCardShape(XadarrSkin.radius.md)
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.03f else 1f,
+        targetValue = if (isFocused) (if (glass != null) 1.05f else 1.03f) else 1f,
         animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 400f),
         label = "episode_scale"
     )
-    val borderWidth = if (isFocused || scale != 1f) 3.dp else 0.dp
+    val borderWidth = if (glass == null && (isFocused || scale != 1f)) 3.dp else 0.dp
 
     val imageRequest = remember(episode.stillPath, cardWidth, context, density) {
         val widthPx = with(density) { cardWidth.roundToPx() }
@@ -3778,7 +3827,8 @@ private fun EpisodeCard(
         Modifier.graphicsLayer {
             scaleX = scale
             scaleY = scale
-            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+            // Glass grows from the centre so the 1.05 scale stays inside the rail's 6 dp padding.
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, if (glass != null) 0.5f else 1f)
         }
     } else {
         Modifier
@@ -3788,9 +3838,16 @@ private fun EpisodeCard(
         modifier = Modifier
             .width(cardWidth)
             .aspectRatio(aspectRatio)
-            .then(scaleModifier),
+            .then(scaleModifier)
+            .then(
+                if (glass != null) {
+                    Modifier.shadow(if (isFocused) 16.dp else 5.dp, shape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus)
+                } else {
+                    Modifier
+                }
+            ),
         shape = shape,
-        backgroundColor = XadarrSkin.colors.surface,
+        backgroundColor = glass?.cardEmpty ?: XadarrSkin.colors.surface,
         outlineColor = XadarrSkin.colors.focusOutline,
         outlineWidth = borderWidth,
         focusedScale = 1f,
@@ -3826,6 +3883,15 @@ private fun EpisodeCard(
                         )
                     )
             )
+
+            if (glass != null && isFocused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.linearGradient(0f to Color.White.copy(alpha = 0.22f), 0.45f to Color.Transparent))
+                        .border(1.dp, Color.White.copy(alpha = 0.45f), shape)
+                )
+            }
 
             if (isSpoilerBlurred && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 Box(
@@ -4046,7 +4112,21 @@ private fun EpisodeCard(
                         )
                     }
                 }
-                if (episode.isWatched) {
+                if (episode.isWatched && glass != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .background(Color.White.copy(alpha = 0.9f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = glass.up,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                } else if (episode.isWatched) {
                     Box(
                         modifier = Modifier
                             .size(16.dp)
@@ -4111,16 +4191,20 @@ private fun SeasonButton(
     onClick: () -> Unit = {},
     onLongClick: (() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    // Glass: the launcher's text tabs -- selected season bold ink, the rest gray, no chip;
+    // focus is the white pill.
+    val glass = LocalGlass.current
+    val shape = if (glass != null) RoundedCornerShape(50) else RoundedCornerShape(8.dp)
     val backgroundColor = when {
-        isFocused -> Color.White
+        isFocused -> glass?.focusBg ?: Color.White
+        glass != null -> Color.Transparent
         isSelected -> Color.White.copy(alpha = 0.2f)
         else -> Color.White.copy(alpha = 0.08f)
     }
     val textColor = when {
-        isFocused -> Color.Black
-        isSelected -> Color.White
-        else -> Color.White.copy(alpha = 0.6f)
+        isFocused -> glass?.focusInk ?: Color.Black
+        isSelected -> glass?.ink ?: Color.White
+        else -> glass?.dim ?: Color.White.copy(alpha = 0.6f)
     }
 
     val isFullyWatched = totalCount > 0 && watchedCount >= totalCount
@@ -4140,6 +4224,13 @@ private fun SeasonButton(
 
     Row(
         modifier = clickModifier
+            .then(
+                if (glass != null && isFocused) {
+                    Modifier.shadow(8.dp, shape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus)
+                } else {
+                    Modifier
+                }
+            )
             .background(backgroundColor, shape)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -4148,8 +4239,8 @@ private fun SeasonButton(
         Text(
             text = "${stringResource(R.string.season_label)} $season",
             style = XadarrSkin.typography.button.copy(
-                fontSize = 13.sp,
-                fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium
+                fontSize = if (glass != null) 14.sp else 13.sp,
+                fontWeight = if (isFocused || isSelected) (if (glass != null) FontWeight.SemiBold else FontWeight.Bold) else FontWeight.Medium
             ),
             color = textColor
         )
@@ -4336,7 +4427,7 @@ private fun CircularCastCard(
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     ),
-                    color = Color.White.copy(alpha = 0.6f)
+                    color = LocalGlass.current?.dim ?: Color.White.copy(alpha = 0.6f)
                 )
             }
         }
@@ -4350,7 +4441,7 @@ private fun CircularCastCard(
                 fontSize = 11.sp,
                 fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
             ),
-            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.8f),
+            color = LocalGlass.current?.ink ?: if (isFocused) Color.White else Color.White.copy(alpha = 0.8f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -4362,7 +4453,7 @@ private fun CircularCastCard(
             Text(
                 text = castMember.character,
                 style = XadarrSkin.typography.caption.copy(fontSize = 10.sp),
-                color = Color.White.copy(alpha = 0.5f),
+                color = LocalGlass.current?.dim ?: Color.White.copy(alpha = 0.5f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -4414,7 +4505,7 @@ private fun ReviewCard(
             .height(160.dp)
             .then(scaleModifier)
             .background(
-                color = Color.White.copy(alpha = if (isFocused) 0.12f else 0.06f),
+                color = LocalGlass.current?.let { if (isFocused) it.glassStrong else it.glass } ?: Color.White.copy(alpha = if (isFocused) 0.12f else 0.06f),
                 shape = shape
             )
             .border(
@@ -4455,7 +4546,7 @@ private fun ReviewCard(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             ),
-                            color = Color.White.copy(alpha = 0.7f)
+                            color = LocalGlass.current?.dim ?: Color.White.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -4467,7 +4558,7 @@ private fun ReviewCard(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = Color.White,
+                        color = LocalGlass.current?.ink ?: Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -4487,7 +4578,7 @@ private fun ReviewCard(
                             Text(
                                 text = String.format("%.1f", review.rating),
                                 style = XadarrSkin.typography.caption.copy(fontSize = 11.sp),
-                                color = Color.White.copy(alpha = 0.8f)
+                                color = LocalGlass.current?.dim ?: Color.White.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -4501,7 +4592,7 @@ private fun ReviewCard(
                     fontSize = 12.sp,
                     lineHeight = 18.sp
                 ),
-                color = Color.White.copy(alpha = 0.85f),
+                color = LocalGlass.current?.ink ?: Color.White.copy(alpha = 0.85f),
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth()

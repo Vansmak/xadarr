@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.36] - 2026-10-25
+
+### Added
+- **Glass theme** — Settings → Appearance → Theme → **Glass**: the look of the home launcher. Frosted white glass by day, smoked glass at night, and focus is the launcher's white pill (dark text, soft shadow, slight lift) instead of a coloured ring. Per device, like the other themes.
+- **Day / Night** (Settings → Appearance, under Theme) — **Auto** goes dark from sunset to sunrise where you are (worked out on the device from its time zone, no location or internet needed) with a 2-second fade; **Day** and **Night** pin it.
+- Restyled for Glass so far: **the guide** (frosted page, glass trays for the groups and the grid, soft rounded programme chips, a red edge on what's airing and red "now" marks, logos on dark tiles), **Details** (backdrop washed into the page, ink text, Play as a solid capsule and the other actions as glass capsules, seasons as text tabs, episode cards that lift with a deeper shadow instead of an outline) and **Music → Now Playing** (cover colours frosted behind, text tabs, the room as a glass chip, glass transport buttons with a white-disc focus and the button's name underneath, monochrome seek and volume bars).
+- **Xadarr Music** uses the Glass look too, on Auto.
+
+### Notes
+- Screens not restyled yet stay on Glass's night colours in Day mode: Settings, Movies/Shows, Cameras, search, the player, Smart Home, profiles, the side menu, the guide's pop-ups and full-screen info, and Details on phones.
+
 ## [2.35] - 2026-10-25
 
 ### Added

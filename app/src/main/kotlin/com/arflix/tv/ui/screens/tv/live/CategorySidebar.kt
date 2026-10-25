@@ -63,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -188,6 +189,16 @@ fun CategorySidebar(
         modifier = modifier
             .width(animatedWidth)
             .fillMaxHeight()
+            .then(
+                // Glass: a frosted drawer with rounded outer corners and a soft shadow.
+                if (LiveColors.IsGlass) {
+                    Modifier
+                        .shadow(12.dp, RoundedCornerShape(topEnd = 15.dp, bottomEnd = 15.dp), ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus)
+                        .clip(RoundedCornerShape(topEnd = 15.dp, bottomEnd = 15.dp))
+                } else {
+                    Modifier
+                }
+            )
             .background(LiveColors.PanelDeep)
             .onFocusChanged { if (it.hasFocus) onFocusEnter() }
             // DPAD_LEFT at the sidebar edge opens the global NavRail instead of
@@ -575,12 +586,12 @@ private fun SearchEntry(
             }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .border(
-                width = if (focused) 3.dp else 0.dp,
+                width = if (focused && !LiveColors.IsGlass) 3.dp else 0.dp,
                 color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                 shape = RoundedCornerShape(10.dp),
             )
             .clip(RoundedCornerShape(10.dp))
-            .background(if (focused) LiveColors.FocusBg else LiveColors.Panel)
+            .background(if (focused) (if (LiveColors.IsGlass) LiveColors.FocusFill else LiveColors.FocusBg) else LiveColors.Panel)
             .focusable()
             .onKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -602,6 +613,7 @@ private fun SearchEntry(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        FocusInk(focused) {
         Icon(
             imageVector = icon,
             contentDescription = label,
@@ -618,6 +630,7 @@ private fun SearchEntry(
                 text = hint,
                 style = LiveType.NumberMono.copy(color = LiveColors.FgMute),
             )
+        }
         }
     }
 }
@@ -711,12 +724,12 @@ private fun SidebarRow(
                 }
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .border(
-                    width = if (focused) 3.dp else 0.dp,
+                    width = if (focused && !LiveColors.IsGlass) 3.dp else 0.dp,
                     color = if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent,
                     shape = RoundedCornerShape(8.dp),
                 )
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (focused) LiveColors.PanelRaised else bg)
+                .background(if (focused) LiveColors.FocusFill else bg)
                 .focusable()
                 .onKeyEvent { ev ->
                     val isSelect = ev.key == Key.DirectionCenter || ev.key == Key.Enter
@@ -764,6 +777,7 @@ private fun SidebarRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            FocusInk(focused) {
             when {
                 leadingCode != null -> Text(
                     text = leadingCode,
@@ -820,6 +834,7 @@ private fun SidebarRow(
                         modifier = Modifier.size(16.dp),
                     )
                 }
+            }
             }
         }
         if (showMenu && (canHide || canUnhide || canRemove || canRestore || canMove)) {
@@ -896,7 +911,7 @@ private fun CategoryContextMenu(
             modifier = Modifier
                 .width(184.dp)
                 .background(LiveColors.PanelRaised, RoundedCornerShape(10.dp))
-                .border(1.dp, (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                .border(1.dp, if (LiveColors.IsGlass) LiveColors.Divider else (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
                 .focusRequester(focusRequester)
                 .focusable()
                 .onPreviewKeyEvent { event ->
@@ -962,7 +977,7 @@ private fun CategoryMenuItem(
             .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (focused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent)
+            .background(if (focused) (if (LiveColors.IsGlass) LiveColors.FocusFill else LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else Color.Transparent)
             .pointerInput(onClick) { detectTapGestures(onTap = { onClick() }) }
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -971,13 +986,13 @@ private fun CategoryMenuItem(
         Icon(
             imageVector = action.icon,
             contentDescription = null,
-            tint = if (focused) Color.Black else LiveColors.FgDim,
+            tint = if (focused) (if (LiveColors.IsGlass) LiveColors.FocusInk else Color.Black) else LiveColors.FgDim,
             modifier = Modifier.size(16.dp),
         )
         Text(
             text = action.label,
             style = LiveType.CatLabel.copy(
-                color = if (focused) Color.Black else LiveColors.Fg,
+                color = if (focused) (if (LiveColors.IsGlass) LiveColors.FocusInk else Color.Black) else LiveColors.Fg,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             ),

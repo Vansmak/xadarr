@@ -29,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -78,23 +80,32 @@ fun ProgramCell(
     val deviceType = LocalDeviceType.current
     val isTouchDevice = deviceType.isTouchDevice()
     var focused by remember { mutableStateOf(false) }
+    // Glass (launcher look): soft glass chips; focus is a white pill with dark ink, scaled 1.05
+    // with a deeper shadow instead of a ring; the airing cell gets a red edge, not a blue tint.
+    val glass = LiveColors.IsGlass
     val baseBg = when {
+        glass -> LiveColors.Panel
         isNow -> LiveColors.FocusBg
         else -> LiveColors.Panel
     }
-    val bg = if (focused) LiveColors.PanelRaised else baseBg
+    val bg = if (focused) LiveColors.FocusFill else baseBg
     val borderColor = when {
+        glass -> Color.Transparent
         focused -> (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing)
         isNow -> (LocalFocusBorderColorOverride.current ?: LiveColors.Accent).copy(alpha = 0.45f)
         else -> Color.Transparent
     }
+    val titleColor = if (focused && glass) LiveColors.FocusInk else LiveColors.Fg
+    val subColor = if (focused && glass) LiveColors.FocusInkDim else LiveColors.FgDim
+    val timeColor = if (focused && glass) LiveColors.FocusInkDim else LiveColors.FgMute
+    val cellShape = RoundedCornerShape(if (glass) 7.dp else LiveDims.CellRadius)
     val borderWidth by animateDpAsState(
         targetValue = if (focused) 3.dp else 1.dp,
         animationSpec = tween(durationMillis = 130),
         label = "program-cell-border",
     )
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.012f else 1f,
+        targetValue = if (focused) (if (glass) 1.05f else 1.012f) else 1f,
         animationSpec = tween(durationMillis = 150),
         label = "program-cell-scale",
     )
@@ -112,6 +123,7 @@ fun ProgramCell(
             // text + badges, which the LIVE pill alone consumed — leaving
             // blocks visually empty. Total horizontal overhead is now 8dp.
             .padding(horizontal = 1.dp, vertical = 3.dp)
+            .then(if (glass && focused) Modifier.zIndex(1f) else Modifier)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -133,13 +145,28 @@ fun ProgramCell(
                     Modifier
                 }
             )
+            .then(
+                if (glass && focused) {
+                    Modifier.shadow(8.dp, cellShape, ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus)
+                } else {
+                    Modifier
+                }
+            )
             .border(
                 width = borderWidth,
                 color = borderColor,
-                shape = RoundedCornerShape(LiveDims.CellRadius),
+                shape = cellShape,
             )
-            .clip(RoundedCornerShape(LiveDims.CellRadius))
+            .clip(cellShape)
             .background(bg)
+            .then(
+                if (glass && isNow) {
+                    val edge = LiveColors.LiveRed
+                    Modifier.drawBehind { drawRect(edge, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height)) }
+                } else {
+                    Modifier
+                }
+            )
             // Downloading (Shows guide): the cell fills left to right like a progress bar.
             .then(
                 program.downloadProgress?.let { p ->
@@ -180,7 +207,7 @@ fun ProgramCell(
             )
             .padding(horizontal = 6.dp, vertical = 4.dp),
     ) {
-        if (isNow) {
+        if (isNow && !glass) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -216,7 +243,7 @@ fun ProgramCell(
                 }
                 Text(
                     text = program.title,
-                    style = LiveType.CellTitle.copy(color = LiveColors.Fg, fontSize = 14.sp),
+                    style = LiveType.CellTitle.copy(color = titleColor, fontSize = 14.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -225,7 +252,7 @@ fun ProgramCell(
             if (!program.description.isNullOrBlank()) {
                 Text(
                     text = program.description!!,
-                    style = LiveType.BodySynopsis.copy(color = LiveColors.FgDim, fontSize = 13.sp),
+                    style = LiveType.BodySynopsis.copy(color = subColor, fontSize = 13.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -236,14 +263,14 @@ fun ProgramCell(
             ) {
                 Text(
                     text = formatClock(program.startUtcMillis),
-                    style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 13.sp),
+                    style = LiveType.TimeMono.copy(color = timeColor, fontSize = 13.sp),
                 )
                 val mins = ((program.endUtcMillis - program.startUtcMillis) / 60_000L)
                     .coerceAtLeast(0L)
                 if (mins > 0) {
                     Text(
                         text = "·  ${mins}min",
-                        style = LiveType.TimeMono.copy(color = LiveColors.FgMute, fontSize = 13.sp),
+                        style = LiveType.TimeMono.copy(color = timeColor, fontSize = 13.sp),
                     )
                 }
             }

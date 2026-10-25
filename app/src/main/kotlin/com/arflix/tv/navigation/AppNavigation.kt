@@ -305,6 +305,11 @@ fun AppNavigation(
                 }
             }
             if (tvHandoffChecked) {
+                // Glass: the guide body (mini player, groups, grid) follows day/night inside
+                // LiveTvScreen; its overlays over video (HUD, splash, search, popups) stay night.
+                com.arflix.tv.ui.screens.tv.live.ProvideLivePalette(
+                    glass = com.arflix.tv.ui.glass.LocalGlass.current?.let { com.arflix.tv.ui.glass.GlassNight },
+                ) {
                 LiveTvScreen(
                     playerViewModel = liveTvPlayerViewModel,
                     currentProfile = currentProfile,
@@ -347,6 +352,7 @@ fun AppNavigation(
                     },
                     onBack = goBack
                 )
+                }
             }
         }
 

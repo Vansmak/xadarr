@@ -78,6 +78,7 @@ import com.arflix.tv.util.SKIP_PROFILE_SELECTION_KEY
 import com.arflix.tv.util.OLED_BLACK_BACKGROUND_KEY
 import com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY
 import com.arflix.tv.util.THEME_KEY
+import com.arflix.tv.util.GLASS_MODE_KEY
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
@@ -388,6 +389,9 @@ class MainActivity : ComponentActivity() {
             val selectedTheme by remember {
                 this@MainActivity.settingsDataStore.data.map { it[THEME_KEY] ?: "Midnight" }
             }.collectAsStateWithLifecycle(initialValue = "Midnight")
+            val glassMode by remember {
+                this@MainActivity.settingsDataStore.data.map { it[GLASS_MODE_KEY] ?: com.arflix.tv.ui.glass.GlassMode.AUTO }
+            }.collectAsStateWithLifecycle(initialValue = com.arflix.tv.ui.glass.GlassMode.AUTO)
             val activeProfileId by remember {
                 profileRepository.get().activeProfileId
             }.collectAsStateWithLifecycle(initialValue = null)
@@ -444,7 +448,8 @@ class MainActivity : ComponentActivity() {
                 ArflixTvTheme(
                     oledBlackBackground = oledBlackBackground,
                     focusBorderColorName = focusBorderColorName,
-                    themeName = selectedTheme
+                    themeName = selectedTheme,
+                    glassMode = glassMode
                 ) {
                     val startupState by startupViewModel.state.collectAsStateWithLifecycle()
                     ArflixApp(

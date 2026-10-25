@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -146,6 +147,14 @@ private fun VideoCard(
             .clickable(enabled = isTouchDevice && onFullscreenClick != null) {
                 onFullscreenClick?.invoke()
             }
+            .then(
+                // Glass: the video tile floats on the frosted page with the launcher's card shadow.
+                if (LiveColors.IsGlass) {
+                    Modifier.shadow(10.dp, RoundedCornerShape(LiveDims.VideoRadius), ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus)
+                } else {
+                    Modifier
+                }
+            )
             .clip(RoundedCornerShape(LiveDims.VideoRadius))
             .background(LiveColors.PanelDeep),
     ) {
@@ -372,7 +381,8 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(LiveDims.CardRadius))
-            .background(LiveColors.PanelRaised)
+            // Glass: the now-playing text sits straight on the page (no card), like the mockup.
+            .background(if (LiveColors.IsGlass) Color.Transparent else LiveColors.PanelRaised)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -390,7 +400,7 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
             if (remaining.isNotBlank()) {
                 Text(
                     text = remaining,
-                    style = LiveType.TimeMono.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
+                    style = LiveType.TimeMono.copy(color = if (LiveColors.IsGlass) LiveColors.FgDim else (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)),
                 )
             }
         }
@@ -413,8 +423,9 @@ private fun NowCard(channel: EnrichedChannel?, clockTickMillis: Long, nowNext: I
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
-                trackColor = LiveColors.Panel,
+                // Glass: monochrome ink progress on a soft track (Apple style); red stays for "now".
+                color = if (LiveColors.IsGlass) LiveColors.Fg else (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
+                trackColor = if (LiveColors.IsGlass) LiveColors.DividerStrong else LiveColors.Panel,
             )
         }
     }

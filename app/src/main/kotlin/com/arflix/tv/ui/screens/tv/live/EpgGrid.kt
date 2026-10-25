@@ -445,15 +445,22 @@ fun EpgGrid(
         }
     }
 
+    // Glass: the grid is one frosted tray (radius 15, the launcher drawer's 30 px) instead of
+    // a black slab; the header and channel column sit on it without their own fill.
+    val glass = LiveColors.IsGlass
+    val glassTray = RoundedCornerShape(topStart = 15.dp, topEnd = 15.dp)
     Column(
-        modifier = modifier.fillMaxSize().background(LiveColors.Bg),
+        modifier = modifier.fillMaxSize().then(
+            if (glass) Modifier.clip(glassTray).background(LiveColors.PanelDeep)
+            else Modifier.background(LiveColors.Bg)
+        ),
     ) {
         // ─── Header row ─────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight)
-                .background(LiveColors.PanelDeep),
+                .background(if (glass) Color.Transparent else LiveColors.PanelDeep),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Sticky channel-column label + current CH indicator
@@ -521,7 +528,7 @@ fun EpgGrid(
                     ) {
                         Text(
                             text = "NOW " + formatClock(clockTickMillis),
-                            style = LiveType.Badge.copy(color = LiveColors.Bg),
+                            style = LiveType.Badge.copy(color = if (glass) Color.White else LiveColors.Bg),
                         )
                     }
                 }
@@ -626,7 +633,7 @@ fun EpgGrid(
                                     ch.id == selectedChannelId,
                                 modifier = Modifier
                                     .width(channelColumnWidth)
-                                    .background(LiveColors.PanelDeep)
+                                    .background(if (glass) Color.Transparent else LiveColors.PanelDeep)
                                     .focusRequester(channelFocusRequester)
                                     .then(if (idx == 0) Modifier.focusRequester(firstChannelFocusRequester) else Modifier)
                                     .then(if (ch.id == selectedChannelId) Modifier.focusRequester(selectedChannelFocusRequester) else Modifier),

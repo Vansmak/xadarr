@@ -60,6 +60,9 @@ val FOCUS_BORDER_COLOR_KEY = stringPreferencesKey("focus_border_color")
 /** Key for the user-selected color theme (e.g. "Midnight", "Owl", "Black & Gold", "Neon") */
 val THEME_KEY = stringPreferencesKey("selected_theme")
 
+/** Glass theme only: "auto" (night from sunset to sunrise), "day" or "night". Per device, like THEME_KEY. */
+val GLASS_MODE_KEY = stringPreferencesKey("glass_mode")
+
 /**
  * Fast-path cache for the device-mode override. Read before onCreate() during
  * cold start, where the DataStore IO would otherwise block the main thread for

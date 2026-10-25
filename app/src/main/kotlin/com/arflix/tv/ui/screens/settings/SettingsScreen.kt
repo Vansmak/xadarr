@@ -237,7 +237,7 @@ private fun tvGeneralRowsForSection(section: String): List<Int> {
         "language" -> listOf(0, 3)
         "subtitles" -> listOf(1, 2, 4, 5, 6, 7, 8, 9)
         "playback" -> listOf(10, 11, 12, 13, 14, 34, 15, 27, 43, 44)
-        "appearance" -> listOf(28, 17, 18, 20, 21, 24, 23, 22, 36, 41, 42)
+        "appearance" -> listOf(28, 46, 17, 18, 20, 21, 24, 23, 22, 36, 41, 42)
         "profiles" -> listOf(19)
         "android_settings" -> listOf(37)
         "network" -> listOf(25, 26, 35, 38, 39, 40, 45)
@@ -929,6 +929,7 @@ fun SettingsScreen(
                                                 23 -> viewModel.setSpoilerBlurEnabled(!uiState.spoilerBlurEnabled)
                                                 24 -> viewModel.cycleFocusBorderColor()
                                                 28 -> viewModel.cycleTheme()
+                                                46 -> viewModel.cycleGlassMode()
                                                 25 -> openDnsProviderPicker()
                                                 26 -> viewModel.setShowLoadingStats(!uiState.showLoadingStats)
                                                 35 -> showCustomUserAgentDialog = true
@@ -1403,6 +1404,8 @@ fun SettingsScreen(
                             onFocusBorderColorClick = { viewModel.cycleFocusBorderColor() },
                             selectedTheme = uiState.selectedTheme,
                             onThemeClick = { viewModel.cycleTheme() },
+                            glassMode = uiState.glassMode,
+                            onGlassModeClick = { viewModel.cycleGlassMode() },
                             showLoadingStats = uiState.showLoadingStats,
                             onShowLoadingStatsToggle = { viewModel.setShowLoadingStats(it) },
                             onVolumeBoostClick = { viewModel.cycleVolumeBoost() },
@@ -4220,8 +4223,15 @@ private fun MobileSettingsSubPage(
                         title = stringResource(R.string.app_theme),
                         value = uiState.selectedTheme,
                         isFocused = false,
-                        showDivider = false,
                         onClick = { viewModel.cycleTheme() }
+                    )
+                    MobileSettingsRow(
+                        icon = Icons.Default.Schedule,
+                        title = "Day / Night",
+                        value = com.arflix.tv.ui.glass.GlassMode.label(uiState.glassMode),
+                        isFocused = false,
+                        showDivider = false,
+                        onClick = { viewModel.cycleGlassMode() }
                     )
                 }
             }
@@ -5150,6 +5160,7 @@ private fun tvSettingsPanelFacts(
         )
         "appearance" -> listOf(
             "Theme" to uiState.selectedTheme,
+            "Day / Night" to com.arflix.tv.ui.glass.GlassMode.label(uiState.glassMode),
             "OLED" to if (uiState.oledBlackBackground) "On" else "Off",
             "Focus border" to uiState.focusBorderColor
         )
@@ -5306,6 +5317,8 @@ private fun TvGeneralSettingsRows(
     onSpoilerBlurToggle: (Boolean) -> Unit = {},
     onFocusBorderColorClick: () -> Unit = {},
     onThemeClick: () -> Unit = {},
+    glassMode: String = "auto",
+    onGlassModeClick: () -> Unit = {},
     showLoadingStats: Boolean = true,
     onShowLoadingStatsToggle: (Boolean) -> Unit = {},
     onVolumeBoostClick: () -> Unit = {},
@@ -5422,6 +5435,7 @@ private fun TvGeneralSettingsRows(
                 23 -> SettingsToggleRow(stringResource(R.string.spoiler_blur), stringResource(R.string.spoiler_blur_desc), spoilerBlurEnabled, focusedIndex == localIndex, onSpoilerBlurToggle, Modifier.settingsFocusSlot(localIndex))
                 24 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.focus_border_color), stringResource(R.string.focus_border_color_desc), focusBorderColor, focusedIndex == localIndex, onFocusBorderColorClick, Modifier.settingsFocusSlot(localIndex))
                 28 -> SettingsRow(Icons.Default.Palette, stringResource(R.string.app_theme), stringResource(R.string.app_theme_desc), selectedTheme, focusedIndex == localIndex, onThemeClick, Modifier.settingsFocusSlot(localIndex))
+                46 -> SettingsRow(Icons.Default.Schedule, "Day / Night", "Glass theme: Auto is light by day and dark from sunset to sunrise", com.arflix.tv.ui.glass.GlassMode.label(glassMode), focusedIndex == localIndex, onGlassModeClick, Modifier.settingsFocusSlot(localIndex))
                 25 -> SettingsRow(Icons.Default.Language, stringResource(R.string.dns_provider), stringResource(R.string.dns_desc), dnsProvider, focusedIndex == localIndex, onDnsProviderClick, Modifier.settingsFocusSlot(localIndex))
                 26 -> SettingsToggleRow(stringResource(R.string.show_loading_stats), stringResource(R.string.show_loading_stats_desc), showLoadingStats, focusedIndex == localIndex, onShowLoadingStatsToggle, Modifier.settingsFocusSlot(localIndex))
                 27 -> SettingsRow(
