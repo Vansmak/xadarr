@@ -195,6 +195,9 @@ fun DetailsScreen(
     // once data has loaded instead of waiting for a tap. See MainActivity's RemoteCommandBus
     // collector and Screen.Details.createRoute.
     autoPlay: Boolean = false,
+    // External deep link (widget_season/widget_episode): start with focus on initialEpisode in
+    // the episode row rather than the buttons. See WidgetTapIntent.kt.
+    focusEpisode: Boolean = false,
     viewModel: DetailsViewModel = hiltViewModel(),
     liveTvPlayerViewModel: com.arflix.tv.ui.screens.tv.live.LiveTvPlayerViewModel? = null,
     currentProfile: com.arflix.tv.data.model.Profile? = null,
@@ -502,6 +505,20 @@ fun DetailsScreen(
         if (uiState.initialEpisodeIndex > 0 && uiState.episodes.isNotEmpty()) {
             episodeIndex = uiState.initialEpisodeIndex
         }
+    }
+
+    // focusEpisode: once the target season's episodes are in, move focus onto the target episode.
+    // Matching the episode itself (not just the index) skips any stale list from a previous load.
+    var pendingEpisodeFocus by remember(mediaType, mediaId, initialSeason, initialEpisode, focusEpisode) {
+        mutableStateOf(focusEpisode && mediaType == MediaType.TV && initialSeason != null && initialEpisode != null)
+    }
+    LaunchedEffect(pendingEpisodeFocus, uiState.initialEpisodeIndex, uiState.episodes) {
+        if (!pendingEpisodeFocus) return@LaunchedEffect
+        val target = uiState.episodes.getOrNull(uiState.initialEpisodeIndex) ?: return@LaunchedEffect
+        if (target.seasonNumber != initialSeason || target.episodeNumber != initialEpisode) return@LaunchedEffect
+        episodeIndex = uiState.initialEpisodeIndex
+        focusedSection = FocusSection.EPISODES
+        pendingEpisodeFocus = false
     }
 
     // Sync seasonIndex with initialSeasonIndex from ViewModel

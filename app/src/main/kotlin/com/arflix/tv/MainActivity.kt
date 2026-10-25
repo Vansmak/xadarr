@@ -1338,7 +1338,16 @@ fun ArflixApp(
     LaunchedEffect(activeProfile?.id, pendingWidgetDeepLink) {
         val request = pendingWidgetDeepLink ?: return@LaunchedEffect
         if (activeProfile == null) return@LaunchedEffect
-        navController.navigate(Screen.Details.createRoute(request.mediaType, request.tmdbId)) {
+        // Optional season/episode (another app pointing at a specific episode): land on Details
+        // with that episode focused — never autoplay, the point is to check it before playing.
+        val route = Screen.Details.createRoute(
+            mediaType = request.mediaType,
+            mediaId = request.tmdbId,
+            initialSeason = request.season,
+            initialEpisode = request.episode,
+            focusEpisode = request.season != null && request.episode != null,
+        )
+        navController.navigate(route) {
             popUpTo(Screen.ProfileSelection.route) { inclusive = true }
             launchSingleTop = true
         }

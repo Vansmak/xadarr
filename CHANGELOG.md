@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.35] - 2026-10-25
+
+### Added
+- **Open a show's Details on a specific episode from another app** — the existing `widget_media_type` / `widget_tmdb_id` launch extras now also take optional `widget_season` and `widget_episode` (Int). For a TV title with both, Details opens on that season with that episode focused, ready to check before pressing play (nothing auto-plays). Works whether Xadarr is closed or already running.
+
+### Fixed
+- **Guide stopped flipping between groups** when the playing channel was filtered out or hidden.
+- **Xadarr Music (phone)** hides the status bar and keeps the screen inside the system bars.
+
 ## [2.34] - 2026-10-12
 
 ### Changed

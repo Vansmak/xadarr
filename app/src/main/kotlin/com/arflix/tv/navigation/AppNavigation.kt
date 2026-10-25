@@ -95,7 +95,7 @@ sealed class Screen(val route: String) {
     // Bookmarks, and Upcoming Releases at a glance. See HomeDashboardScreen.kt.
     object Dashboard : Screen("dashboard")
     
-    object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}&autoPlay={autoPlay}") {
+    object Details : Screen("details/{mediaType}/{mediaId}?initialSeason={initialSeason}&initialEpisode={initialEpisode}&autoPlay={autoPlay}&focusEpisode={focusEpisode}") {
         fun createRoute(
             mediaType: MediaType,
             mediaId: Int,
@@ -104,12 +104,15 @@ sealed class Screen(val route: String) {
             // Remote Mode only — a play-title command already decided to play, so Details
             // should invoke its own playNow() once loaded instead of waiting for a tap.
             autoPlay: Boolean = false,
+            // Start with D-pad focus on initialEpisode in the episode row instead of the buttons.
+            focusEpisode: Boolean = false,
         ): String {
             val base = "details/${mediaType.name.lowercase()}/$mediaId"
             val params = mutableListOf<String>()
             initialSeason?.let { params.add("initialSeason=$it") }
             initialEpisode?.let { params.add("initialEpisode=$it") }
             if (autoPlay) params.add("autoPlay=true")
+            if (focusEpisode) params.add("focusEpisode=true")
             return if (params.isNotEmpty()) "$base?${params.joinToString("&")}" else base
         }
     }
@@ -498,6 +501,10 @@ fun AppNavigation(
                 navArgument("autoPlay") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument("focusEpisode") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
@@ -510,6 +517,7 @@ fun AppNavigation(
             val initialSeason = backStackEntry.arguments?.getInt("initialSeason")?.takeIf { it >= 0 }
             val initialEpisode = backStackEntry.arguments?.getInt("initialEpisode")?.takeIf { it >= 0 }
             val autoPlay = backStackEntry.arguments?.getBoolean("autoPlay") ?: false
+            val focusEpisode = backStackEntry.arguments?.getBoolean("focusEpisode") ?: false
             val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
 
             DetailsScreen(
@@ -518,6 +526,7 @@ fun AppNavigation(
                 initialSeason = initialSeason,
                 initialEpisode = initialEpisode,
                 autoPlay = autoPlay,
+                focusEpisode = focusEpisode,
                 currentProfile = currentProfile,
                 liveTvPlayerViewModel = liveTvPlayerViewModel,
                 onNavigateToPlayer = { type, id, season, episode, imdbId, url, preferredAddonId, preferredSourceName, startPositionMs, isDeliberateSourcePick ->

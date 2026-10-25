@@ -11,6 +11,10 @@ import com.arflix.tv.data.model.MediaType
 // be resolved (see ActivityFeedRepository) rather than looked up at tap time.
 const val EXTRA_WIDGET_MEDIA_TYPE = "widget_media_type"
 const val EXTRA_WIDGET_TMDB_ID = "widget_tmdb_id"
+// Optional, TV only: open Details on this season with this episode focused (not played) — for
+// other apps that want to land on a specific episode so it can be checked before pressing play.
+const val EXTRA_WIDGET_SEASON = "widget_season"
+const val EXTRA_WIDGET_EPISODE = "widget_episode"
 
 fun widgetTapIntent(context: Context, mediaTypeName: String?, tmdbId: Int?): Intent {
     val intent = Intent(context, MainActivity::class.java).apply {
@@ -23,11 +27,21 @@ fun widgetTapIntent(context: Context, mediaTypeName: String?, tmdbId: Int?): Int
     return intent
 }
 
-data class WidgetDeepLinkRequest(val mediaType: MediaType, val tmdbId: Int)
+data class WidgetDeepLinkRequest(
+    val mediaType: MediaType,
+    val tmdbId: Int,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
 
 fun parseWidgetDeepLink(intent: Intent?): WidgetDeepLinkRequest? {
     val mediaTypeName = intent?.getStringExtra(EXTRA_WIDGET_MEDIA_TYPE) ?: return null
     val tmdbId = intent.getIntExtra(EXTRA_WIDGET_TMDB_ID, -1).takeIf { it > 0 } ?: return null
     val mediaType = runCatching { MediaType.valueOf(mediaTypeName) }.getOrNull() ?: return null
+    val season = intent.getIntExtra(EXTRA_WIDGET_SEASON, -1).takeIf { it >= 0 }
+    val episode = intent.getIntExtra(EXTRA_WIDGET_EPISODE, -1).takeIf { it > 0 }
+    if (mediaType == MediaType.TV && season != null && episode != null) {
+        return WidgetDeepLinkRequest(mediaType, tmdbId, season, episode)
+    }
     return WidgetDeepLinkRequest(mediaType, tmdbId)
 }
