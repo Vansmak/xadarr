@@ -6,8 +6,11 @@ import com.arflix.tv.music.MA_SERVER_ID_KEY
 import com.arflix.tv.music.MA_TOKEN_KEY
 import com.arflix.tv.music.MA_URL_KEY
 import com.arflix.tv.music.MA_USERNAME_KEY
+import com.arflix.tv.music.MUSIC_HA_TOKEN_KEY
+import com.arflix.tv.music.MUSIC_HA_URL_KEY
 import com.arflix.tv.util.settingsDataStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -44,6 +47,35 @@ suspend fun importMusicAssistantFromXadarr(context: Context, rawSyncUrl: String)
         prefs[MA_TOKEN_KEY] = token
         root.optString("ma_server_id").takeIf { it.isNotBlank() }?.let { prefs[MA_SERVER_ID_KEY] = it }
         root.optString("ma_username").takeIf { it.isNotBlank() }?.let { prefs[MA_USERNAME_KEY] = it }
+        copyHomeAssistant(root, prefs)
     }
     null
+}
+
+/** Home Assistant login from the blob too: the Speakers dialog's TV toggles go through HA. */
+private fun copyHomeAssistant(root: JSONObject, prefs: androidx.datastore.preferences.core.MutablePreferences) {
+    val url = root.optString("ha_url")
+    val token = root.optString("ha_token")
+    if (url.isNotBlank() && token.isNotBlank()) {
+        prefs[MUSIC_HA_URL_KEY] = url
+        prefs[MUSIC_HA_TOKEN_KEY] = token
+    }
+}
+
+/**
+ * Installs signed in before the TV toggles existed have MA but no HA login: borrow it quietly
+ * from the sync server once. Does nothing when HA is already set or the server can't be reached.
+ */
+suspend fun backfillHomeAssistantFromXadarr(context: Context, rawSyncUrl: String = DEFAULT_SYNC_URL) = withContext(Dispatchers.IO) {
+    val prefs = context.settingsDataStore.data.first()
+    if (!prefs[MUSIC_HA_URL_KEY].isNullOrBlank() && !prefs[MUSIC_HA_TOKEN_KEY].isNullOrBlank()) return@withContext
+    if (prefs[MA_TOKEN_KEY].isNullOrBlank()) return@withContext
+    val base = rawSyncUrl.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
+    val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+    val root = runCatching {
+        client.newCall(Request.Builder().url("$base/api/integration/xadarr/settings").get().build()).execute().use { resp ->
+            if (resp.isSuccessful) JSONObject(resp.body?.string().orEmpty()) else null
+        }
+    }.getOrNull() ?: return@withContext
+    context.settingsDataStore.edit { copyHomeAssistant(root, it) }
 }

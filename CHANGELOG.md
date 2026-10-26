@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.40] - 2026-10-26
+
+### Added
+- **Music → Speakers: group rooms, wake their TVs, move the music.** New Speakers button on Now Playing (the speaker-group icon after Radio). On a TV, the room chip at the top right also opens it: go right past Library and press OK. Phones get the button too. Full Xadarr's Music screen and Xadarr Music both have it.
+  - **Group:** tick a room and it plays what the current room plays; untick to take it out.
+  - **TV toggle:** rooms with a TV have one. It starts off every time the dialog opens. When it's on, joining the room also wakes that room's TV and opens Xadarr Music, which shows the shared music. If the TV's Sonos jumps to TV audio as the TV comes on, it's put back in the group. Grouping never turns a TV off. Rooms without a TV have no toggle.
+  - **Move:** rooms with a TV offer **Move · with TV** and **Speaker only**; rooms without a TV offer **Move here**. The target room joins the group (its TV wakes with "with TV"), then the starting room's TV turns off and the starting speaker leaves the group. Music Assistant hands the queue over at the same song and position, with at most a second's gap.
+  - **Control another room** switches which room you control.
+- TVs are woken through Home Assistant: `script.xadarr_music_tv_on` / `script.xadarr_music_tv_off`, which use the Android TV Remote entities. The script's room list is also how the app knows which rooms have a TV.
+- **Xadarr Music 1.1:** opens from `xadarrmusic://open` (what Home Assistant launches). Sign in with Xadarr now also copies the Home Assistant login; older installs fetch it once, quietly.
+
+### Changed
+- **Music screensaver (cover flow), Glass day look: easier to read.** The progress bar, the times and the "Up next" line were thin light gray on the near-white faded cover. They now use the glass ink colour: a slightly thicker solid bar over a soft ink track, and times and "Up next" in Medium weight, a size up. The faded look itself is unchanged, and so are the night look and the other themes.
+- When the room you're controlling joins another room's group, Music now follows that group's leader. Before, it jumped to the first room in the alphabet.
+
 ## [2.39] - 2026-10-25
 
 ### Fixed

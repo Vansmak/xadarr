@@ -1,6 +1,8 @@
 package com.xadarr.music
 
 import android.os.Bundle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.statusBars())
         }
+        lifecycleScope.launch { runCatching { backfillHomeAssistantFromXadarr(applicationContext) } }
         setContent {
             XadarrMusicTheme {
                 val configured by repo.isConfigured.collectAsState(initial = null)

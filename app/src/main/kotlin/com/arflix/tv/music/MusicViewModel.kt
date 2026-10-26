@@ -56,7 +56,22 @@ data class MusicUiState(
     val lyrics: MusicLyrics? = null,
     val lyricsKey: String? = null,
     val lyricsLoaded: Boolean = false,
+    /** Every Sonos speaker, grouped members included (players hides those under their leader). */
+    val speakers: List<MaPlayer> = emptyList(),
+    /** Rooms with a TV Home Assistant can wake (lower-cased MA names, see [MusicTvRooms]). */
+    val tvRooms: Set<String> = emptySet(),
+    /**
+     * Rooms whose TV toggle is on in the open Speakers dialog: joining them wakes their TV into
+     * Xadarr Music. Not remembered -- every toggle starts off each time (Joe decides each time).
+     */
+    val tvToggles: Set<String> = emptySet(),
+    /** A "Move to <room>" in progress (target room name). */
+    val moving: String? = null,
 ) {
+    fun hasTv(p: MaPlayer) = p.name.lowercase() in tvRooms
+    fun tvOn(p: MaPlayer) = p.name in tvToggles
+    /** [member] plays [leader]'s music right now. */
+    fun inGroupOf(member: MaPlayer, leader: MaPlayer) = member.syncedTo == leader.id || (member.id != leader.id && member.id in leader.groupMembers)
     val selectedPlayer: MaPlayer? get() = players.firstOrNull { it.id == selectedPlayerId }
     val isPlaying: Boolean get() = (queue?.state ?: selectedPlayer?.state) == "playing"
 }
@@ -64,6 +79,7 @@ data class MusicUiState(
 @HiltViewModel
 class MusicViewModel @Inject constructor(
     private val repo: MusicAssistantRepository,
+    private val tv: MusicTvRooms,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(MusicUiState())
@@ -102,6 +118,7 @@ class MusicViewModel @Inject constructor(
                     _ui.update { if (it.lyricsKey == key) it.copy(lyrics = found, lyricsLoaded = true) else it }
                 }
         }
+        viewModelScope.launch { val rooms = tv.roomsWithTv(refresh = true); _ui.update { it.copy(tvRooms = rooms) } }
         // If the socket was already up (another screen holds it), load straight away.
         if (repo.state.value == ConnectionState.CONNECTED) viewModelScope.launch { loadAll() }
     }
@@ -117,11 +134,14 @@ class MusicViewModel @Inject constructor(
         val players = runCatching { repo.command("players/all") as? JSONArray }.getOrNull() ?: return
         val parsed = (0 until players.length()).mapNotNull { players.optJSONObject(it)?.let { o -> MaParse.player(o, repo) } }
         val visible = parsed.filter { it.visible }.sortedBy { it.name.lowercase() }
-        val saved = repo.selectedPlayerId()
+        val speakers = parsed.filter { it.provider == "sonos" }.sortedBy { it.name.lowercase() }
+        // A room that's been grouped under another since (e.g. this TV's room joined a group and
+        // the TV was woken into Xadarr Music): follow its leader -- that's what plays here.
+        val saved = repo.selectedPlayerId()?.let { id -> parsed.firstOrNull { it.id == id }?.syncedTo ?: id }
         val selected = visible.firstOrNull { it.id == saved }?.id
             ?: visible.firstOrNull { it.isPlaying && !it.isTvAudio }?.id
             ?: visible.firstOrNull()?.id
-        _ui.update { it.copy(players = visible, selectedPlayerId = selected, playersLoaded = true) }
+        _ui.update { it.copy(players = visible, speakers = speakers, selectedPlayerId = selected, playersLoaded = true) }
         selected?.let { loadQueue(it) }
         if (_ui.value.browse.items.isEmpty()) loadLibraryHome()
     }
@@ -172,8 +192,16 @@ class MusicViewModel @Inject constructor(
                 _ui.update { s ->
                     val others = s.players.filterNot { it.id == p.id }
                     val list = if (p.visible) (others + p).sortedBy { it.name.lowercase() } else others
-                    val sel = s.selectedPlayerId.takeIf { id -> list.any { it.id == id } } ?: list.firstOrNull()?.id
-                    s.copy(players = list, selectedPlayerId = sel)
+                    // The selected room joined another's group: follow the leader, not the alphabet.
+                    val leader = p.syncedTo?.takeIf { p.id == s.selectedPlayerId && list.any { it.id == p.syncedTo } }
+                    val sel = leader ?: s.selectedPlayerId.takeIf { id -> list.any { it.id == id } } ?: list.firstOrNull()?.id
+                    val speakers = if (p.provider == "sonos") (s.speakers.filterNot { it.id == p.id } + p).sortedBy { it.name.lowercase() } else s.speakers
+                    s.copy(players = list, speakers = speakers, selectedPlayerId = sel)
+                }
+                if (_ui.value.selectedPlayerId != before?.id) _ui.value.selectedPlayerId?.let { id ->
+                    repo.saveSelectedPlayerId(id)
+                    loadQueue(id)
+                    return
                 }
                 // Switching source (e.g. a new playlist started from the Sonos app) can move the
                 // selected player onto a different queue.
@@ -209,6 +237,128 @@ class MusicViewModel @Inject constructor(
     }
 
     fun setTab(tab: MusicTab) = _ui.update { it.copy(tab = tab) }
+
+    // ── Speakers: group, TV toggle, move ─────────────────────────────────────
+
+    /** Fresh room list (and TV rooms) for the Speakers dialog; every TV toggle starts off. */
+    fun refreshSpeakers() {
+        _ui.update { it.copy(tvToggles = emptySet()) }
+        viewModelScope.launch {
+            val all = runCatching { repo.speakers() }.getOrNull()?.filter { it.provider == "sonos" }
+            if (all != null) _ui.update { it.copy(speakers = all) }
+            val rooms = tv.roomsWithTv(refresh = true)
+            _ui.update { it.copy(tvRooms = rooms) }
+        }
+    }
+
+    /** Joins [member] to the selected room's group, or takes it out. Never turns a TV off. */
+    fun toggleGrouped(member: MaPlayer) {
+        val leader = _ui.value.selectedPlayer ?: return showMessage("Pick a room first")
+        if (member.id == leader.id) return
+        val join = !_ui.value.inGroupOf(member, leader)
+        // Optimistic tick; MA's player_updated events confirm (or undo) it.
+        _ui.update { s ->
+            s.copy(speakers = s.speakers.map { if (it.id == member.id) it.copy(syncedTo = if (join) leader.id else null) else it })
+        }
+        viewModelScope.launch {
+            val ok = runCatching { repo.setGrouped(leader.id, member.id, join) }.getOrDefault(false)
+            if (!ok) { showMessage("Couldn't ${if (join) "add" else "remove"} ${member.name}"); refreshSpeakers(); return@launch }
+            if (join && _ui.value.hasTv(member) && _ui.value.tvOn(member)) wakeTv(member, leader)
+        }
+    }
+
+    /** The room's TV toggle. Turning it on for a room already in the group wakes its TV now. */
+    fun toggleTv(room: MaPlayer) {
+        val on = !_ui.value.tvOn(room)
+        _ui.update { it.copy(tvToggles = if (on) it.tvToggles + room.name else it.tvToggles - room.name) }
+        viewModelScope.launch {
+            val leader = _ui.value.selectedPlayer
+            if (on && leader != null && _ui.value.inGroupOf(room, leader)) wakeTv(room, leader)
+        }
+    }
+
+    /**
+     * Wakes [room]'s TV into Xadarr Music. A Sonos on the TV's HDMI can jump to TV audio when
+     * the TV comes on, dropping out of the group: for a while after, put it back (twice at most).
+     */
+    private suspend fun wakeTv(room: MaPlayer, leader: MaPlayer) {
+        if (!tv.tvOn(room.name)) { showMessage("Couldn't wake the ${room.name} TV"); return }
+        showMessage("Waking the ${room.name} TV")
+        viewModelScope.launch {
+            var retries = 0
+            var joined = false
+            val until = SystemClock.elapsedRealtime() + 25_000
+            while (SystemClock.elapsedRealtime() < until && retries < 2) {
+                delay(3_000)
+                val now = runCatching { repo.speakers() }.getOrNull() ?: continue
+                val r = now.firstOrNull { it.id == room.id } ?: continue
+                val l = now.firstOrNull { it.id == leader.id } ?: return@launch
+                if (!l.isPlaying) return@launch
+                if (r.syncedTo == leader.id) { joined = true; continue }
+                // Out of the group but not on TV audio, after it had joined: taken out on purpose.
+                if (joined && !r.isTvAudio) return@launch
+                if (r.isTvAudio) {
+                    retries++
+                    runCatching { repo.setGrouped(leader.id, room.id, true) }
+                }
+            }
+        }
+    }
+
+    /**
+     * "Move to <room>": the music carries on in [target] alone, same song and position.
+     * 1. [target] joins the playing room's group (its TV wakes into Xadarr Music if it has one
+     *    Joe picked "with TV" -- "speaker only", or a room without a TV, moves the speaker only);
+     * 2. the starting room's TV goes off (always, when it has one); 3. the starting room leaves the group -- Music
+     * Assistant hands the queue to [target] at the current position (a second's gap at most).
+     */
+    fun moveTo(target: MaPlayer, withTv: Boolean) {
+        val from = _ui.value.selectedPlayer ?: return showMessage("Pick a room first")
+        if (target.id == from.id || _ui.value.moving != null) return
+        if (!from.isPlaying || !from.playsMaQueue) return showMessage("Nothing playing on ${from.name} to move")
+        _ui.update { it.copy(moving = target.name) }
+        showMessage("Moving to ${target.name}…")
+        viewModelScope.launch {
+            try {
+                suspend fun speaker(id: String) = runCatching { repo.speakers() }.getOrNull()?.firstOrNull { it.id == id }
+                suspend fun waitFor(ms: Long, test: suspend () -> Boolean): Boolean {
+                    val until = SystemClock.elapsedRealtime() + ms
+                    while (SystemClock.elapsedRealtime() < until) { if (test()) return true; delay(700) }
+                    return false
+                }
+                // 1. Group the target (TV on).
+                if (speaker(target.id)?.syncedTo != from.id) runCatching { repo.setGrouped(from.id, target.id, true) }
+                // TV optional (Joe): "with TV" only when the room has one; else speaker only.
+                val woke = withTv && _ui.value.hasTv(target) && tv.tvOn(target.name)
+                if (!waitFor(10_000) { speaker(target.id)?.syncedTo == from.id }) {
+                    showMessage("${target.name} didn't join · music stays on ${from.name}")
+                    return@launch
+                }
+                // Let the TV come on first; if its Sonos jumps to TV audio, put it back.
+                if (woke) {
+                    delay(6_000)
+                    if (speaker(target.id)?.syncedTo != from.id) {
+                        runCatching { repo.setGrouped(from.id, target.id, true) }
+                        if (!waitFor(8_000) { speaker(target.id)?.syncedTo == from.id }) {
+                            showMessage("${target.name} went to TV audio · music stays on ${from.name}")
+                            return@launch
+                        }
+                    }
+                }
+                // 2. The starting room's TV off.
+                if (_ui.value.hasTv(from)) tv.tvOff(from.name)
+                // 3. The starting room leaves; MA moves the queue to a remaining member.
+                repo.send("players/cmd/ungroup", JSONObject().put("player_id", from.id))
+                waitFor(12_000) { speaker(target.id)?.let { it.syncedTo != from.id } ?: false }
+                val leader = speaker(target.id)?.let { it.syncedTo ?: it.id } ?: target.id
+                loadAll()
+                selectPlayer(leader)
+                showMessage("Now playing on ${target.name}")
+            } finally {
+                _ui.update { it.copy(moving = null) }
+            }
+        }
+    }
 
     // ── Controls ─────────────────────────────────────────────────────────────
     // All of these just tell Music Assistant what to do; the speakers do the playing.

@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.lerp
 import com.arflix.tv.ui.glass.GlassPalette
+import com.arflix.tv.ui.glass.LocalGlass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -276,8 +277,13 @@ fun MusicAmbient(
                 }
                 Spacer(Modifier.height(12.dp))
                 next?.let {
+                    // Glass: ink, not light gray -- unreadable over the day look's near-white
+                    // cover wash (Joe, 2026-10-26). Other themes unchanged.
+                    val g = LocalGlass.current
                     Text("Up next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
-                        color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 18.sp,
+                        color = g?.ink?.copy(alpha = 0.8f) ?: Color.White.copy(alpha = 0.6f),
+                        fontSize = if (g != null) (if (narrow) 15.sp else 19.sp) else if (narrow) 14.sp else 18.sp,
+                        fontWeight = if (g != null) FontWeight.Medium else null,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
                 }
@@ -295,15 +301,26 @@ fun MusicAmbient(
 @Composable
 private fun AmbientProgress(elapsedSec: Double, durationSec: Int) {
     val frac = (elapsedSec / durationSec).toFloat().coerceIn(0f, 1f)
+    // Glass: a slightly thicker bar in solid ink over a ~28% ink track, and ink times, so they
+    // hold up on the day look's near-white cover wash (Joe, 2026-10-26). At night ink is the
+    // light glass ink, so it looks as before. Other themes unchanged.
+    val g = LocalGlass.current
+    val bar = if (g != null) 5.dp else 4.dp
+    val shape = RoundedCornerShape(bar / 2)
+    val fill = g?.ink ?: Color.White.copy(alpha = 0.85f)
+    val rest = g?.ink?.copy(alpha = 0.28f) ?: Color.White.copy(alpha = 0.2f)
+    val timeColor = g?.ink?.copy(alpha = 0.8f) ?: Color.White.copy(alpha = 0.6f)
+    val timeSize = if (g != null) 15.sp else 14.sp
+    val timeWeight = if (g != null) FontWeight.Medium else null
     Column(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.2f))) {
-            Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.85f)))
+        Box(Modifier.fillMaxWidth().height(bar).clip(shape).background(rest)) {
+            Box(Modifier.fillMaxWidth(frac).height(bar).clip(shape).background(fill))
         }
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()) {
-            Text(clockTime(elapsedSec), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+            Text(clockTime(elapsedSec), color = timeColor, fontSize = timeSize, fontWeight = timeWeight)
             Spacer(Modifier.weight(1f))
-            Text(clockTime(durationSec.toDouble()), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+            Text(clockTime(durationSec.toDouble()), color = timeColor, fontSize = timeSize, fontWeight = timeWeight)
         }
     }
 }

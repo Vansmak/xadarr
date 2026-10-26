@@ -22,12 +22,23 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- xadarrmusic://open: how Home Assistant opens the app on a room's TV
+                 (script.xadarr_music_tv_on, Android TV Remote "activity"). A package name would
+                 go through market://launch, which these Play-Store-less TVs can't resolve. The app
+                 shows what's playing on its own, so the link carries nothing. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="xadarrmusic" />
             </intent-filter>
         </activity>
         <!-- The phone as a Music Assistant speaker (music/PhoneSpeaker.kt); runs only while MA streams to it. -->
