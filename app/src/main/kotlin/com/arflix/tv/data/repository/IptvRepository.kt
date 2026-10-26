@@ -2199,6 +2199,14 @@ class IptvRepository @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
+    private fun decodeGroupList(raw: String): List<String> {
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = TypeToken.getParameterized(List::class.java, String::class.java).type
+            gson.fromJson<List<String>>(raw, type)?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
     private fun decodeNewGroups(prefs: Preferences): List<String> {
         val raw = prefs[newGroupsKey()].orEmpty()
         if (raw.isBlank()) return emptyList()
@@ -2427,6 +2435,20 @@ class IptvRepository @Inject constructor(
             }
             if (state.groupOrder.isNotEmpty()) {
                 prefs[groupOrderKeyFor(safeProfileId)] = gson.toJson(state.groupOrder.distinct())
+            }
+            // "New" (auto-hidden, badged NEW) is local to each device, but a group that's already in
+            // the synced order or hidden list has been placed on another device: it isn't new here.
+            // Mark it known and drop it from this device's new list, so it shows (or stays hidden)
+            // like everywhere else instead of landing under HIDDEN. The Office TV, updated late, had
+            // DIRECTV there although no device ever hid it (Joe, 2026-10-25).
+            val placed = (state.groupOrder + state.hiddenGroups).map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            if (placed.isNotEmpty()) {
+                val newKey = profileManager.profileStringKeyFor(safeProfileId, "iptv_new_groups")
+                val knownKey = profileManager.profileStringKeyFor(safeProfileId, "iptv_known_groups")
+                val localNew = decodeGroupList(prefs[newKey].orEmpty())
+                val known = decodeGroupList(prefs[knownKey].orEmpty()).toMutableSet()
+                if (localNew.any { it in placed }) prefs[newKey] = gson.toJson(localNew.filterNot { it in placed })
+                if (known.addAll(placed)) prefs[knownKey] = gson.toJson(known.toList())
             }
             state.hiddenChannels?.let { incoming ->
                 val editedKey = profileManager.profileLongKeyFor(safeProfileId, "iptv_hidden_channels_edited_at")

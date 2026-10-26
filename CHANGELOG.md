@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file.
 - **Night Music is richer** — with no cover the page is the launcher's night sky (deep gradient with soft violet/blue glows) instead of flat gray; with a cover its colours stay rich, darkened rather than grayed out. "No cover" is a tinted glass tile instead of a gray slab. Lyrics, the room/search dialogs, the phone mini bar and Xadarr Music's sign-in follow day/night too.
 - **Easier to read over video** — on Glass, the full-screen channel info, channel badge, clock, back button, player menus, notifications and the guide's pop-ups use near-solid panels (white by day, smoke at night) with full-contrast text and slightly larger type, instead of see-through glass that let bright video bleed through.
 
+### Fixed
+- **A channel group already set up on your other TVs no longer shows up under HIDDEN as "new"** on a TV that updates later (the Office TV had DIRECTV there). Groups in the synced order show normally, groups hidden elsewhere stay hidden, and only groups no device has seen are auto-hidden as new.
+
 ## [2.36] - 2026-10-25
 
 ### Added
