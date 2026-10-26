@@ -44,6 +44,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Each launch (launcher or Home Assistant's xadarrmusic://open) opens on this TV's room.
+        com.arflix.tv.music.MusicLaunch.opened()
+        val isTv = getSystemService(android.app.UiModeManager::class.java)?.currentModeType ==
+            android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
         // Joe, 2026-10-12: the phone's status bar sat over the top row -- hide it while the app
         // is open; a swipe down from the top shows it briefly.
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -69,12 +73,18 @@ class MainActivity : ComponentActivity() {
                         true -> if (connection == MusicAssistantRepository.ConnectionState.AUTH_FAILED) {
                             SignInScreen(repo)
                         } else {
-                            MusicScreen(onBack = { finish() })
+                            MusicScreen(onBack = { finish() }, homeRoom = isTv)
                         }
                     }
                 }
             }
         }
+    }
+
+    // singleTask: a launch while already open lands here.
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        com.arflix.tv.music.MusicLaunch.opened()
     }
 }
 

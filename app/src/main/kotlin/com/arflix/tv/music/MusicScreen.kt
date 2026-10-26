@@ -162,7 +162,13 @@ private val TAB_SHORT_LABELS = mapOf(
 fun MusicScreen(
     viewModel: MusicViewModel = hiltViewModel(),
     onBack: () -> Unit = {},
+    /** Xadarr Music on a TV: open on this TV's own room each launch, asking once which it is. */
+    homeRoom: Boolean = false,
 ) {
+    if (homeRoom) {
+        val opens by MusicLaunch.opens.collectAsState()
+        LaunchedEffect(opens) { viewModel.openOnHomeRoom() }
+    }
     // Glass theme: the whole screen follows day/night through the colour scheme.
     GlassMaterialTheme { MusicScreenBody(viewModel, onBack) }
 }
@@ -185,7 +191,8 @@ private fun MusicScreenBody(
     var showRoomPicker by remember { mutableStateOf(false) }
     // Speakers dialog: group rooms, their TV toggles, "Move to <room>".
     var showSpeakers by remember { mutableStateOf(false) }
-    // TV: the room chip (top right) is the last stop right of the tabs; OK opens Speakers.
+    // TV: the room chip (top right) is the last stop right of the tabs; OK switches the room this
+    // device controls (like Zones). Grouping and Move are only on the Speakers button.
     var chipFocus by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -210,7 +217,7 @@ private fun MusicScreenBody(
             val now = android.os.SystemClock.uptimeMillis()
             idleMs = now - lastInputAt
             awakeIdleMs = now - maxOf(lastInputAt, lastVolumeAt)
-            ambient = ui.isPlaying && !showSearch && !showSpeakers && ui.busyPrompt == null && idleMs > MUSIC_AMBIENT_AFTER_MS
+            ambient = ui.isPlaying && !showSearch && !showSpeakers && !showRoomPicker && !ui.askHomeRoom && ui.busyPrompt == null && idleMs > MUSIC_AMBIENT_AFTER_MS
         }
     }
     KeepScreenOn(ui.isPlaying && awakeIdleMs < MUSIC_AWAKE_CHECK_MS + MUSIC_AWAKE_GRACE_MS)
@@ -223,7 +230,9 @@ private fun MusicScreenBody(
 
     LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
     LaunchedEffect(showSearch) { if (!showSearch) runCatching { rootFocus.requestFocus() } }
-    LaunchedEffect(showSpeakers, showRoomPicker) { if (!showSpeakers && !showRoomPicker) runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(showSpeakers, showRoomPicker, ui.askHomeRoom) {
+        if (!showSpeakers && !showRoomPicker && !ui.askHomeRoom) runCatching { rootFocus.requestFocus() }
+    }
     LaunchedEffect(area) { if (area != Area.TABS) chipFocus = false }
     LaunchedEffect(ui.tab) { listIndex = 0 }
     // Lyrics tab: the view follows the song until the D-pad moves, then stays on the remote's
@@ -292,7 +301,17 @@ private fun MusicScreenBody(
         }
     }
 
-    BackHandler(enabled = !showSearch && !showRoomPicker && !showSpeakers) { handleBack() }
+    BackHandler(enabled = !showSearch && !showRoomPicker && !showSpeakers && !ui.askHomeRoom) { handleBack() }
+    if (ui.askHomeRoom && ui.players.isNotEmpty()) {
+        RoomPickerDialog(
+            players = ui.players,
+            selectedId = null,
+            title = "Which room is this TV in?",
+            subtitle = "Xadarr Music will always open on this room here. Asked once, kept on this TV only.",
+            onPick = { id -> viewModel.setHomeRoom(id); viewModel.setTab(MusicTab.NOW_PLAYING) },
+            onDismiss = { viewModel.dismissHomeRoomQuestion() },
+        )
+    }
     if (showSpeakers) {
         SpeakersDialog(
             ui = ui,
@@ -409,7 +428,7 @@ private fun MusicScreenBody(
                     }
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                         when {
-                            area == Area.TABS && chipFocus -> { viewModel.refreshSpeakers(); showSpeakers = true }
+                            area == Area.TABS && chipFocus -> showRoomPicker = true
                             area == Area.TABS -> { area = Area.CONTENT; npRow = ROW_CONTROLS }
                             ui.tab == MusicTab.NOW_PLAYING ->
                                 when (npRow) {
@@ -511,14 +530,14 @@ private fun MusicScreenBody(
                 if (!narrow && glass != null) {
                     Spacer(Modifier.weight(1f))
                     SpeakerChip(ui.selectedPlayer, ui.connection, glass, focused = area == Area.TABS && chipFocus,
-                        onClick = { viewModel.refreshSpeakers(); showSpeakers = true })
+                        onClick = { showRoomPicker = true })
                 } else if (!narrow) {
                     Spacer(Modifier.weight(1f))
                     ui.selectedPlayer?.let { p ->
                         Row(
                             Modifier.clip(RoundedCornerShape(16.dp))
                                 .border(2.dp, if (area == Area.TABS && chipFocus) accent else Color.Transparent, RoundedCornerShape(16.dp))
-                                .clickable { viewModel.refreshSpeakers(); showSpeakers = true }
+                                .clickable { showRoomPicker = true }
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -1021,7 +1040,7 @@ private fun GlassCoverPlaceholder(g: GlassPalette, shape: Shape, iconSize: Dp) {
 
 /**
  * The room being controlled, as the launcher's glass capsule (speaker icon, name, +N when it
- * leads a group, connection dot). OK / tap opens the Speakers dialog (group, TV, move).
+ * leads a group, connection dot). OK / tap picks the room to control (Speakers is its own button).
  */
 @Composable
 private fun SpeakerChip(player: MaPlayer?, connection: ConnectionState, g: GlassPalette, focused: Boolean = false, onClick: () -> Unit = {}) {
@@ -1252,36 +1271,54 @@ private fun BusyRoomDialog(prompt: MusicBusyPrompt, onAnswer: (Boolean?) -> Unit
     }
 }
 
-/** Phone: pick the room to control. TV-audio rooms are labelled so, not as music. */
+/**
+ * Pick the room to control (room chip, phone header, "Control another room"), or with [title]
+ * the first-run "Which room is this TV in?". TV-audio rooms are labelled so, not as music.
+ * Compose-focus pills so it works on a remote as well as touch.
+ */
 @Composable
-private fun RoomPickerDialog(players: List<MaPlayer>, selectedId: String?, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+private fun RoomPickerDialog(
+    players: List<MaPlayer>,
+    selectedId: String?,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+    title: String = "Rooms",
+    subtitle: String? = null,
+) {
     val colors = MaterialTheme.colorScheme
     val glass = LocalGlass.current
+    val firstFocus = remember { FocusRequester() }
+    val focusIndex = players.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+    LaunchedEffect(Unit) { delay(150); runCatching { firstFocus.requestFocus() } }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().dialogSurface(glass, colors.surface).padding(vertical = 12.dp),
         ) {
-            Text("Rooms", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-            players.forEach { p ->
-                val status = when {
-                    p.isTvAudio -> "TV audio"
-                    p.isPlaying && p.nowTitle != null -> listOfNotNull("Playing", p.nowTitle, p.nowArtist).joinToString(" · ")
-                    p.nowTitle != null -> "Paused · ${p.nowTitle}"
-                    else -> "Idle"
-                }
-                Row(
-                    Modifier.fillMaxWidth().clickable { onPick(p.id) }
-                        .background(if (p.id == selectedId) colors.primary.copy(alpha = 0.15f) else Color.Transparent)
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Speaker, contentDescription = null, tint = if (p.id == selectedId) colors.primary else colors.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(p.name + if (p.isGroupLeader) " +${p.groupMembers.size - 1}" else "", color = colors.onSurface, fontSize = 16.sp)
-                        Text(status, color = colors.onSurfaceVariant, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+            subtitle?.let {
+                Text(it, color = colors.onSurfaceVariant, fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 6.dp))
+            }
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp).padding(horizontal = 8.dp)) {
+                itemsIndexed(players, key = { _, p -> p.id }) { i, p ->
+                    val status = when {
+                        p.isTvAudio -> "TV audio"
+                        p.isPlaying && p.nowTitle != null -> listOfNotNull("Playing", p.nowTitle, p.nowArtist).joinToString(" · ")
+                        p.nowTitle != null -> "Paused · ${p.nowTitle}"
+                        else -> "Idle"
+                    }
+                    DialogPill(
+                        modifier = Modifier.fillMaxWidth().then(if (i == focusIndex) Modifier.focusRequester(firstFocus) else Modifier),
+                        active = p.id == selectedId,
+                        onClick = { onPick(p.id) },
+                    ) { tint, dimTint ->
+                        Icon(Icons.Default.Speaker, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name + if (p.isGroupLeader) " +${p.groupMembers.size - 1}" else "", color = tint, fontSize = 16.sp)
+                            Text(status, color = dimTint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }

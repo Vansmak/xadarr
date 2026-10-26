@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.41] - 2026-10-26
+
+### Fixed
+- **Move · with TV and Group with TV on now keep the room's speaker in the group.** In the first real test (Family Room → Gym), the Gym TV woke but the Gym Sonos never joined: as the TV came on over CEC, the Sonos switched to TV input and dropped out. The order is now:
+  1. Wake the TV.
+  2. Wait until the room's Sonos has switched to TV (or about 10 seconds).
+  3. Join the speaker to the group.
+  4. For 30 seconds after, re-join it whenever it flips back to TV or drops out. This replaces the old two retries.
+  - Move turns off the starting room's TV and lets go of its speaker only once the join has held. If it never holds, the music keeps playing where it was and a short message says so.
+- **Xadarr Music no longer opens on the first room in the alphabet.** The SHIELD and Gym opened on "Bathroom". If the remembered room isn't there, Music now never picks the alphabetically first room.
+
+### Changed
+- **Xadarr Music asks once, on a TV, "Which room is this TV in?"** It then always opens on that room, or on that room's group leader while it's grouped. The answer is kept on that TV only and never synced.
+- **The room chip (top right) now switches which room you control,** like the Zones tab. Grouping and Move are only on the Now Playing **Speakers** button. The room picker works with the remote too.
+- Music follows the room you picked: if that room joins a group it shows the group's leader, and when the room is on its own again it shows that room again.
+- Xadarr Music 1.2.
+
 ## [2.40] - 2026-10-26
 
 ### Added

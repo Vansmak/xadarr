@@ -173,6 +173,17 @@ class MusicAssistantRepository @Inject constructor(
         context.settingsDataStore.edit { it[MA_SELECTED_PLAYER_KEY] = id }
     }
 
+    /**
+     * The room this TV is in (Xadarr Music asks once). SharedPreferences, not the settings
+     * DataStore: it belongs to this device and must never ride along in a settings sync.
+     */
+    fun homeRoomId(): String? =
+        context.getSharedPreferences(HOME_ROOM_PREFS, Context.MODE_PRIVATE).getString(HOME_ROOM_KEY, null)?.takeIf { it.isNotBlank() }
+
+    fun saveHomeRoomId(id: String) {
+        context.getSharedPreferences(HOME_ROOM_PREFS, Context.MODE_PRIVATE).edit().putString(HOME_ROOM_KEY, id).apply()
+    }
+
     // ── Connection lifecycle ────────────────────────────────────────────────
 
     fun acquire() {
@@ -574,6 +585,8 @@ class MusicAssistantRepository @Inject constructor(
 
     companion object {
         private const val TAG = "MusicAssistant"
+        private const val HOME_ROOM_PREFS = "music_home_room"
+        private const val HOME_ROOM_KEY = "home_room_id"
         /** Synthetic event emitted after every (re)connect so callers can re-fetch state. */
         const val EVENT_CONNECTED = "__connected"
     }
