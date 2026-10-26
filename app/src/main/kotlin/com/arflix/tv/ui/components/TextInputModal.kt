@@ -1,5 +1,11 @@
 package com.arflix.tv.ui.components
 
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheetRaised
+import com.arflix.tv.ui.glass.sheetFocusInk
+import com.arflix.tv.ui.glass.sheetFocus
+import com.arflix.tv.ui.glass.sheet
+import androidx.compose.runtime.ReadOnlyComposable
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
@@ -61,13 +67,23 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
+import com.arflix.tv.ui.theme.Pink as ThemePink
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.tr
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { sheetRaised }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 /**
  * TV-friendly text input modal using native Android keyboard
@@ -197,7 +213,7 @@ fun TextInputModal(
             Column(
                 modifier = Modifier
                     .width(500.dp)
-                    .background(Color(0xFF1A1A1A), RoundedCornerShape(20.dp))
+                    .background(glassOr(Color(0xFF1A1A1A)) { sheet }, RoundedCornerShape(20.dp))
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -337,15 +353,15 @@ private fun ActionButton(
             .height(48.dp)
             .background(
                 when {
-                    isFocused -> if (isPrimary) Pink else Color.White
+                    isFocused -> glassOr(if (isPrimary) ThemePink else Color.White) { sheetFocus }
                     isPrimary -> Pink.copy(alpha = 0.3f)
-                    else -> Color.White.copy(alpha = 0.1f)
+                    else -> Ink.copy(alpha = 0.1f)
                 },
                 RoundedCornerShape(8.dp)
             )
             .border(
                 width = if (isFocused) 0.dp else 1.dp,
-                color = if (isPrimary) Pink else Color.White.copy(alpha = 0.2f),
+                color = if (isPrimary) Pink else Ink.copy(alpha = 0.2f),
                 shape = RoundedCornerShape(8.dp)
             ),
         contentAlignment = Alignment.Center
@@ -354,7 +370,7 @@ private fun ActionButton(
             text = text,
             style = ArflixTypography.button,
             color = if (isFocused) {
-                Color.Black
+                glassOr(Color.Black) { sheetFocusInk }
             } else {
                 if (isPrimary) Pink else TextSecondary
             },

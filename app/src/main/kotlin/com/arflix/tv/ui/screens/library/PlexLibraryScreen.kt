@@ -76,6 +76,11 @@ import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.ui.screens.tv.live.LiveType
+import com.arflix.tv.ui.screens.tv.live.liveBackground
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.util.LocalNeolinkConfigured
@@ -380,7 +385,7 @@ fun PlexLibraryScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LiveColors.Bg)
+            .liveBackground()
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -573,11 +578,22 @@ private fun PlexPosterCard(
     onClick: () -> Unit,
 ) {
     val borderColor = if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.FocusRing) else LiveColors.Divider
+    // Glass: the launcher's card focus -- lift (scale 1.05 + shadow), no ring.
+    val glass = LiveColors.IsGlass
+    val scale by animateFloatAsState(if (glass && isFocused) 1.05f else 1f, tween(150), label = "plex-card-scale")
+    val shape = RoundedCornerShape(LiveDims.CardRadius)
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(LiveDims.CardRadius))
-            .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, RoundedCornerShape(LiveDims.CardRadius))
+            .then(
+                if (glass) Modifier
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .shadow(if (isFocused) 18.dp else 6.dp, shape, ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus)
+                    .clip(shape)
+                else Modifier
+                    .clip(shape)
+                    .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, shape)
+            )
             .background(LiveColors.Panel)
             .clickable(onClick = onClick),
     ) {

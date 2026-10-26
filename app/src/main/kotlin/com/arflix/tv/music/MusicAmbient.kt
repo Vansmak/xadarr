@@ -43,6 +43,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.lerp
+import com.arflix.tv.ui.glass.GlassPalette
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +105,35 @@ fun BlurredCoverBackground(url: String?, scrim: Float) {
             Brush.verticalGradient(listOf(bg.copy(alpha = (scrim - 0.12f).coerceIn(0f, 1f)), bg.copy(alpha = (scrim + 0.12f).coerceIn(0f, 1f))))
         )
     )
+}
+
+/**
+ * Glass Now Playing backdrop: the cover's own colours frosted -- whitened by day; at night
+ * darkened but kept rich (saturation up, near-black wash) rather than a flat gray scrim. With no
+ * cover nothing is drawn, so the page behind (glassSky: the launcher's night sky) shows through.
+ */
+@Composable
+fun GlassCoverBackground(url: String?, g: GlassPalette) {
+    val context = LocalContext.current
+    val wash = lerp(g.bgBase, g.bgBottom, g.night)
+    Crossfade(targetState = url, animationSpec = tween(900), label = "glass-cover-bg") { u ->
+        if (u != null) {
+            Box(Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(u).size(24).build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1f + 0.5f * g.night) }),
+                    modifier = Modifier.fillMaxSize().blur(24.dp),
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(wash.copy(alpha = 0.50f - 0.12f * g.night), wash.copy(alpha = 0.74f - 0.14f * g.night)))
+                    )
+                )
+            }
+        }
+    }
 }
 
 /** The screensaver for whatever [viewModel]'s room is playing (Music screen and the guide). */

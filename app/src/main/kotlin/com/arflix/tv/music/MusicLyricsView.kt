@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.arflix.tv.ui.glass.LocalGlass
 
 /**
  * Lyrics for the current song: synced (.lrc) lyrics highlight the line being sung and keep it
@@ -68,6 +69,9 @@ fun LyricsView(
         runCatching { listState.animateScrollToItem(target.coerceIn(0, (lyrics.lines.size - 1).coerceAtLeast(0))) }
     }
     val lineSize = if (big) 30.sp else 22.sp
+    // Glass: ink on the page (dark by day); the focused line is a soft chip, no ring.
+    val glass = LocalGlass.current
+    val ink = glass?.ink ?: Color.White
     BoxWithConstraints(modifier.fillMaxSize()) {
         // Half-height padding above and below, so "scroll item to the top" puts it in the middle.
         val half = (maxHeight / 2 - (if (big) 28.dp else 22.dp)).coerceAtLeast(0.dp)
@@ -83,10 +87,10 @@ fun LyricsView(
                 val isFocused = focusedIndex == i && !following
                 val color by animateColorAsState(
                     when {
-                        isCurrent -> Color.White
-                        isPast -> Color.White.copy(alpha = 0.38f)
-                        lyrics.synced -> Color.White.copy(alpha = 0.6f)
-                        else -> Color.White.copy(alpha = 0.85f)
+                        isCurrent -> ink
+                        isPast -> ink.copy(alpha = 0.38f)
+                        lyrics.synced -> ink.copy(alpha = 0.6f)
+                        else -> ink.copy(alpha = 0.85f)
                     },
                     tween(300), label = "lyric-color",
                 )
@@ -94,7 +98,11 @@ fun LyricsView(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .then(if (isFocused) Modifier.background(colors.primary.copy(alpha = 0.22f)).border(2.dp, colors.primary, RoundedCornerShape(10.dp)) else Modifier)
+                        .then(
+                            if (isFocused && glass != null) Modifier.background(glass.chip)
+                            else if (isFocused) Modifier.background(colors.primary.copy(alpha = 0.22f)).border(2.dp, colors.primary, RoundedCornerShape(10.dp))
+                            else Modifier
+                        )
                         .then(if (onLineClick != null) Modifier.clickable { onLineClick(i) } else Modifier)
                         .padding(horizontal = 14.dp, vertical = if (big) 8.dp else 6.dp),
                 ) {

@@ -1,5 +1,11 @@
 package com.arflix.tv.ui.components
 
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheet
+import com.arflix.tv.ui.glass.GlassFocusInk
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassFocusPill
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,11 +66,21 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
+import com.arflix.tv.ui.theme.Pink as ThemePink
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.LocalDeviceType
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { sheet }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 /**
  * Context menu action
@@ -73,22 +89,22 @@ data class ContextAction(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    val color: Color = TextPrimary
+    val color: Color = ThemeTextPrimary
 )
 
 /**
  * Predefined context actions
  */
 object ContextActions {
-    val play = ContextAction("play", "Play", Icons.Default.PlayArrow, Pink)
-    val selectSource = ContextAction("sources", "Select Source", Icons.Default.Info, TextPrimary)
+    val play = ContextAction("play", "Play", Icons.Default.PlayArrow, ThemePink)
+    val selectSource = ContextAction("sources", "Select Source", Icons.Default.Info, ThemeTextPrimary)
     val markWatched = ContextAction("mark_watched", "Mark as Watched", Icons.Default.Visibility, Color(0xFF22C55E))
-    val markUnwatched = ContextAction("mark_unwatched", "Mark as Unwatched", Icons.Default.VisibilityOff, TextSecondary)
-    val addWatchlist = ContextAction("add_watchlist", "Add to Watchlist", Icons.Default.BookmarkBorder, Pink)
-    val removeWatchlist = ContextAction("remove_watchlist", "Remove from Watchlist", Icons.Default.Bookmark, TextSecondary)
-    val viewDetails = ContextAction("view_details", "View Details", Icons.Default.Info, TextPrimary)
+    val markUnwatched = ContextAction("mark_unwatched", "Mark as Unwatched", Icons.Default.VisibilityOff, ThemeTextSecondary)
+    val addWatchlist = ContextAction("add_watchlist", "Add to Watchlist", Icons.Default.BookmarkBorder, ThemePink)
+    val removeWatchlist = ContextAction("remove_watchlist", "Remove from Watchlist", Icons.Default.Bookmark, ThemeTextSecondary)
+    val viewDetails = ContextAction("view_details", "View Details", Icons.Default.Info, ThemeTextPrimary)
     val markSeasonWatched = ContextAction("mark_season_watched", "Mark Season Watched", Icons.Default.Check, Color(0xFF22C55E))
-    val markSeasonUnwatched = ContextAction("mark_season_unwatched", "Mark Season Unwatched", Icons.Default.Clear, TextSecondary)
+    val markSeasonUnwatched = ContextAction("mark_season_unwatched", "Mark Season Unwatched", Icons.Default.Clear, ThemeTextSecondary)
     val searchSonarr = ContextAction("search_sonarr", "Find & Download", Icons.Default.Search, Color(0xFFEF5350))
     val deleteEpisodeFile = ContextAction("delete_episode_file", "Delete Episode", Icons.Default.Close, Color(0xFFDC2626))
 }
@@ -96,7 +112,7 @@ object ContextActions {
 /**
  * Context menu popup for media items and episodes
  */
-private val CloseMenuAction = ContextAction("__close", "Close", Icons.Default.Close, TextSecondary)
+private val CloseMenuAction = ContextAction("__close", "Close", Icons.Default.Close, ThemeTextSecondary)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -230,7 +246,7 @@ fun ContextMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
-                            .background(Color.White.copy(alpha = 0.1f))
+                            .background(Ink.copy(alpha = 0.1f))
                     )
                     
                     Spacer(modifier = Modifier.height(12.dp))
@@ -310,7 +326,7 @@ fun ContextMenu(
                                 .width(36.dp)
                                 .height(4.dp)
                                 .background(
-                                    Color.White.copy(alpha = 0.2f),
+                                    Ink.copy(alpha = 0.2f),
                                     RoundedCornerShape(2.dp)
                                 )
                         )
@@ -343,7 +359,7 @@ fun ContextMenu(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(1.dp)
-                                .background(Color.White.copy(alpha = 0.08f))
+                                .background(Ink.copy(alpha = 0.08f))
                         )
 
                         // Action items
@@ -376,7 +392,7 @@ fun ContextMenu(
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp)
                                         .height(1.dp)
-                                        .background(Color.White.copy(alpha = 0.05f))
+                                        .background(Ink.copy(alpha = 0.05f))
                                 )
                             }
                         }
@@ -393,51 +409,64 @@ private fun ContextMenuItem(
     action: ContextAction,
     isFocused: Boolean
 ) {
-    val bgColor = if (isFocused) Color.White.copy(alpha = 0.1f) else Color.Transparent
+    val bgColor = if (isFocused) Ink.copy(alpha = 0.1f) else Color.Transparent
+    // Glass: the white pill with dark ink; the action colours map onto the glass tokens.
+    val glass = LocalGlass.current
+    val actionColor = when (action.color) {
+        ThemeTextPrimary, ThemePink -> TextPrimary
+        ThemeTextSecondary -> TextSecondary
+        else -> action.color
+    }
     val borderColor = if (isFocused) Pink else Color.Transparent
     
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(bgColor, RoundedCornerShape(12.dp))
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = action.icon,
-            contentDescription = null,
-            tint = if (isFocused) Pink else action.color,
-            modifier = Modifier.size(24.dp)
-        )
-        
-        Spacer(modifier = Modifier.width(16.dp))
-        
-        Text(
-            text = action.label,
-            style = ArflixTypography.body,
-            color = if (isFocused) TextPrimary else action.color
-        )
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        if (isFocused) {
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .background(Pink, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(16.dp)
+    GlassFocusInk(isFocused) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (glass != null) Modifier.glassFocusPill(glass, isFocused, RoundedCornerShape(12.dp))
+                    else Modifier
+                        .background(bgColor, RoundedCornerShape(12.dp))
+                        .border(
+                            width = if (isFocused) 2.dp else 0.dp,
+                            color = borderColor,
+                            shape = RoundedCornerShape(12.dp)
+                        )
                 )
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = action.icon,
+                contentDescription = null,
+                tint = if (isFocused) Pink else actionColor,
+                modifier = Modifier.size(24.dp)
+            )
+        
+            Spacer(modifier = Modifier.width(16.dp))
+        
+            Text(
+                text = action.label,
+                style = ArflixTypography.body,
+                color = if (isFocused) TextPrimary else actionColor
+            )
+        
+            Spacer(modifier = Modifier.weight(1f))
+        
+            if (isFocused) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .background(Pink, RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = glassOr(Color.Black) { bgBase },
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }

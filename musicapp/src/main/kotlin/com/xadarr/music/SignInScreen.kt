@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.arflix.tv.music.MA_DEFAULT_URL
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassPanel
 import com.arflix.tv.music.MusicAssistantRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -96,7 +98,10 @@ fun SignInScreen(repo: MusicAssistantRepository) {
     Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(max = 520.dp).fillMaxWidth().padding(24.dp)
-                .clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(28.dp),
+                .then(
+                    LocalGlass.current?.let { Modifier.glassPanel(it, RoundedCornerShape(16.dp), strong = true) }
+                        ?: Modifier.clip(RoundedCornerShape(16.dp)).background(colors.surface)
+                ).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Xadarr Music", color = colors.onSurface, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)

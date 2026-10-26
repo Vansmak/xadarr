@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -85,6 +86,16 @@ fun FullscreenHud(
         exit = fadeOut(tween(200)),
         modifier = modifier.fillMaxSize(),
     ) {
+        // Glass: everything here sits on live video, so the panels are near-opaque (not glass),
+        // with a soft shadow, full-contrast text and a size up (Joe, 2026-10-25: bright video
+        // bled through and small gray text was unreadable). Other themes: unchanged.
+        val glass = LiveColors.IsGlass
+        val panel = if (glass) LiveColors.VideoPanel else Color(0x66000000)
+        val ink = if (glass) LiveColors.VideoInk else LiveColors.Fg
+        val dim = if (glass) LiveColors.VideoDim else LiveColors.FgDim
+        val mute = if (glass) LiveColors.VideoDim else LiveColors.FgMute
+        val up = if (glass) 2 else 0
+        val lift = if (glass) Modifier.shadow(12.dp, RoundedCornerShape(12.dp), ambientColor = LiveColors.Shadow, spotColor = LiveColors.Shadow) else Modifier
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -107,8 +118,9 @@ fun FullscreenHud(
                 ) {
                     Row(
                         modifier = Modifier
+                            .then(lift)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0x66000000))
+                            .background(panel)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -117,23 +129,23 @@ fun FullscreenHud(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = "CH ${channel.numberLabel}",
-                                style = LiveType.SectionTag.copy(color = LiveColors.FgMute),
+                                style = LiveType.SectionTag.copy(color = mute),
                             )
                             Text(
                                 text = channel.name,
                                 style = LiveType.ChannelName.copy(
-                                    color = LiveColors.Fg,
-                                    fontSize = 16.sp,
+                                    color = ink,
+                                    fontSize = (16 + up).sp,
                                 ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                HudBadge(channel.quality.label, LiveColors.Fg, LiveColors.Panel)
+                                HudBadge(channel.quality.label, ink, LiveColors.Panel)
                                 channel.country?.takeIf { it != channel.lang }?.let {
-                                    HudBadge(it.uppercase(), LiveColors.FgDim, LiveColors.Panel)
+                                    HudBadge(it.uppercase(), dim, LiveColors.Panel)
                                 }
-                                HudBadge(channel.lang.uppercase(), LiveColors.FgDim, LiveColors.Panel)
+                                HudBadge(channel.lang.uppercase(), dim, LiveColors.Panel)
                             }
                         }
                     }
@@ -147,14 +159,15 @@ fun FullscreenHud(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(20.dp)
+                    .then(lift)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0x66000000))
+                    .background(panel)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 Text(
                     text = formatClock(clockMillis),
                     style = LiveType.TimeMono.copy(
-                        color = LiveColors.Fg,
+                        color = ink,
                         fontSize = 18.sp,
                     ),
                 )
@@ -166,8 +179,9 @@ fun FullscreenHud(
                     .fillMaxWidth(0.6f)
                     .padding(horizontal = 24.dp, vertical = 24.dp)
                     .wrapContentHeight()
+                    .then(if (glass) Modifier.shadow(16.dp, RoundedCornerShape(LiveDims.CardRadius), ambientColor = LiveColors.Shadow, spotColor = LiveColors.Shadow) else Modifier)
                     .clip(RoundedCornerShape(LiveDims.CardRadius))
-                    .background(LiveColors.PanelRaised.copy(alpha = 0.85f))
+                    .background(if (glass) panel else LiveColors.PanelRaised.copy(alpha = 0.85f))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 val now = nowNext?.now
@@ -180,7 +194,7 @@ fun FullscreenHud(
                         Text("NOW", style = LiveType.SectionTag.copy(color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent)))
                         Text(
                             text = formatTimeWindow(now),
-                            style = LiveType.TimeMono.copy(color = LiveColors.Fg),
+                            style = LiveType.TimeMono.copy(color = ink),
                         )
                         Spacer(Modifier.weight(1f))
                         val remaining = remainingLabel(now)
@@ -196,8 +210,8 @@ fun FullscreenHud(
                             ?: channel?.name
                             ?: "No programme data",
                         style = LiveType.ProgramTitle.copy(
-                            color = LiveColors.Fg,
-                            fontSize = 18.sp,
+                            color = ink,
+                            fontSize = (18 + up).sp,
                         ),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -206,8 +220,8 @@ fun FullscreenHud(
                         Text(
                             text = now!!.description!!,
                             style = LiveType.BodySynopsis.copy(
-                                color = LiveColors.FgDim,
-                                fontSize = 12.sp,
+                                color = dim,
+                                fontSize = (12 + up).sp,
                             ),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -222,7 +236,7 @@ fun FullscreenHud(
                                 .height(3.dp)
                                 .clip(RoundedCornerShape(2.dp)),
                             color = (LocalFocusBorderColorOverride.current ?: LiveColors.Accent),
-                            trackColor = LiveColors.Panel,
+                            trackColor = if (glass) LiveColors.Divider else LiveColors.Panel,
                         )
                     }
                     if (next != null) {
@@ -236,16 +250,16 @@ fun FullscreenHud(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text("NEXT", style = LiveType.SectionTag.copy(color = LiveColors.FgMute))
+                            Text("NEXT", style = LiveType.SectionTag.copy(color = mute))
                             Text(
                                 text = formatClock(next.startUtcMillis),
-                                style = LiveType.TimeMono.copy(color = LiveColors.FgDim),
+                                style = LiveType.TimeMono.copy(color = dim),
                             )
                             Text(
                                 text = next.title,
                                 style = LiveType.CellTitle.copy(
-                                    color = LiveColors.FgDim,
-                                    fontSize = 12.sp,
+                                    color = dim,
+                                    fontSize = (12 + up).sp,
                                 ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -262,14 +276,14 @@ fun FullscreenHud(
                         .padding(20.dp)
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.62f))
+                        .background(if (glass) panel else Color.Black.copy(alpha = 0.62f))
                         .clickable { onBackClick() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Go Back",
-                        tint = Color.White,
+                        tint = if (glass) ink else Color.White,
                         modifier = Modifier.size(24.dp),
                     )
                 }

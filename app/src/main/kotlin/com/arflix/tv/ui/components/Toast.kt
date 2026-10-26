@@ -31,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.overVideo
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
@@ -103,7 +105,7 @@ fun Toast(
                         spotColor = Color.Black.copy(alpha = 0.32f)
                     )
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xE61A1E28))
+                    .background(glassOr(Color(0xE61A1E28)) { overVideo })
                     .border(
                         width = 1.dp,
                         color = accentColor.copy(alpha = 0.55f),
@@ -132,7 +134,7 @@ fun Toast(
                 Text(
                     text = message,
                     style = ArflixTypography.body,
-                    color = Color.White
+                    color = glassOr(Color.White) { ink }
                 )
             }
         }

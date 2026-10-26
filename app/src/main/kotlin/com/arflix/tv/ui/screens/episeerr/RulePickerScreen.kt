@@ -1,5 +1,7 @@
 package com.arflix.tv.ui.screens.episeerr
 
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +59,12 @@ import com.arflix.tv.data.repository.EpiseerrRepository
 import com.arflix.tv.data.repository.EpiseerrRule
 import com.arflix.tv.ui.theme.XadarrTheme
 import kotlinx.coroutines.launch
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 @Composable
 fun RulePickerScreen(
@@ -229,7 +237,7 @@ fun RulePickerScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else bgElevated)
+                                .background(if (isFocused) Ink.copy(alpha = 0.12f) else bgElevated)
                                 .then(
                                     if (isFocused) Modifier.border(2.dp, accent, RoundedCornerShape(10.dp))
                                     else Modifier
@@ -260,7 +268,7 @@ fun RulePickerScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isFocused) Color.White.copy(alpha = 0.12f) else bgElevated)
+                                .background(if (isFocused) Ink.copy(alpha = 0.12f) else bgElevated)
                                 .then(
                                     if (isFocused) Modifier.border(2.dp, textSecondary, RoundedCornerShape(10.dp))
                                     else Modifier

@@ -41,6 +41,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.ReadOnlyComposable
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.glassSky
+import com.arflix.tv.ui.glass.sheet
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -71,6 +76,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.widget.doAfterTextChanged
 import com.arflix.tv.R
+
+// Glass (phase 2, 2026-10-25): white on the dark page becomes the glass ink (dark by day).
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -149,7 +157,7 @@ fun ProfileSelectionScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(appBackgroundDark()),
+            .then(LocalGlass.current?.let { Modifier.glassSky(it) } ?: Modifier.background(appBackgroundDark())),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -160,7 +168,7 @@ fun ProfileSelectionScreen(
                 text = "Xadarr",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = Ink,
                 letterSpacing = 6.sp
             )
 
@@ -170,7 +178,7 @@ fun ProfileSelectionScreen(
                 text = if (uiState.isManageMode) stringResource(R.string.manage_profiles) else stringResource(R.string.whos_watching),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Normal,
-                color = Color.White.copy(alpha = 0.8f)
+                color = Ink.copy(alpha = 0.8f)
             )
 
             Spacer(modifier = Modifier.height(48.dp))
@@ -292,7 +300,7 @@ fun ProfileSelectionScreen(
                     text = stringResource(R.string.loading_profile),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color.White.copy(alpha = 0.72f)
+                    color = Ink.copy(alpha = 0.72f)
                 )
             }
         }
@@ -440,7 +448,7 @@ private fun ProfileAvatar(
                     ),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = androidx.tv.material3.Border(
-                            border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                            border = androidx.compose.foundation.BorderStroke(3.dp, Ink),
                             shape = RoundedCornerShape(8.dp)
                         )
                     )
@@ -473,7 +481,7 @@ private fun ProfileAvatar(
             text = profile.name,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
-            color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f),
+            color = if (isFocused > 0) Ink else Ink.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
         )
 
@@ -501,7 +509,7 @@ private fun AddProfileButton(
     ) {
         val addContent: @Composable () -> Unit = {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+                Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = Ink, modifier = Modifier.size(48.dp))
             }
         }
         if (isTouchDevice) {
@@ -510,8 +518,8 @@ private fun AddProfileButton(
                     .size(avatarSize)
                     .scale(scale)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
-                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .background(Ink.copy(alpha = 0.1f))
+                    .border(2.dp, Ink.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                     .clickable { onClick() }
             ) { addContent() }
         } else {
@@ -523,16 +531,16 @@ private fun AddProfileButton(
                     .onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.1f),
-                    focusedContainerColor = Color.White.copy(alpha = 0.2f)
+                    containerColor = Ink.copy(alpha = 0.1f),
+                    focusedContainerColor = Ink.copy(alpha = 0.2f)
                 ),
                 border = ClickableSurfaceDefaults.border(
                     border = androidx.tv.material3.Border(
-                        border = androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = 0.3f)),
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Ink.copy(alpha = 0.3f)),
                         shape = RoundedCornerShape(8.dp)
                     ),
                     focusedBorder = androidx.tv.material3.Border(
-                        border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                        border = androidx.compose.foundation.BorderStroke(3.dp, Ink),
                         shape = RoundedCornerShape(8.dp)
                     )
                 )
@@ -545,7 +553,7 @@ private fun AddProfileButton(
             text = stringResource(R.string.add_profile),
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
-            color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f),
+            color = if (isFocused > 0) Ink else Ink.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
         )
     }
@@ -570,15 +578,15 @@ private fun ManageProfilesButton(
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(4.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = Color.White.copy(alpha = 0.1f)
+            focusedContainerColor = Ink.copy(alpha = 0.1f)
         ),
         border = ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Ink.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(4.dp)
             ),
             focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                border = androidx.compose.foundation.BorderStroke(2.dp, Ink),
                 shape = RoundedCornerShape(4.dp)
             )
         )
@@ -587,7 +595,7 @@ private fun ManageProfilesButton(
             text = if (isManageMode) stringResource(R.string.done) else stringResource(R.string.manage_profiles),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.White,
+            color = Ink,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
         )
     }
@@ -613,7 +621,7 @@ private fun ConnectServerButton(
                         )
                     )
                 )
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                .border(1.dp, Ink.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                 .clickable { onClick() }
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -622,14 +630,14 @@ private fun ConnectServerButton(
             Icon(
                 imageVector = Icons.Default.Cloud,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
+                tint = Ink.copy(alpha = 0.85f),
                 modifier = Modifier.size(18.dp)
             )
             Text(
                 text = stringResource(R.string.connect_to_server),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = Ink.copy(alpha = 0.85f)
             )
         }
     } else {
@@ -638,16 +646,16 @@ private fun ConnectServerButton(
             modifier = Modifier.onFocusChanged { isFocused = if (it.isFocused) 1 else 0 },
             shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(24.dp)),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = Color.White.copy(alpha = 0.06f),
-                focusedContainerColor = Color.White.copy(alpha = 0.18f)
+                containerColor = Ink.copy(alpha = 0.06f),
+                focusedContainerColor = Ink.copy(alpha = 0.18f)
             ),
             border = ClickableSurfaceDefaults.border(
                 border = androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Ink.copy(alpha = 0.15f)),
                     shape = RoundedCornerShape(24.dp)
                 ),
                 focusedBorder = androidx.tv.material3.Border(
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = 0.6f)),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Ink.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(24.dp)
                 )
             )
@@ -660,14 +668,14 @@ private fun ConnectServerButton(
                 Icon(
                     imageVector = Icons.Default.Cloud,
                     contentDescription = null,
-                    tint = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f),
+                    tint = if (isFocused > 0) Ink else Ink.copy(alpha = 0.7f),
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
                     text = stringResource(R.string.connect_to_server),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isFocused > 0) Color.White else Color.White.copy(alpha = 0.7f)
+                    color = if (isFocused > 0) Ink else Ink.copy(alpha = 0.7f)
                 )
             }
         }
@@ -711,15 +719,15 @@ private fun ConnectServerDialog(
                     .then(if (isTouchDevice) Modifier.fillMaxWidth(0.9f) else Modifier.wrapContentWidth())
                     .widthIn(min = 320.dp, max = 520.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF141414))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                    .background(glassOr(Color(0xFF141414)) { sheet })
+                    .border(1.dp, Ink.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
                     .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
                     imageVector = Icons.Default.Dns,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.7f),
+                    tint = Ink.copy(alpha = 0.7f),
                     modifier = Modifier.size(32.dp)
                 )
 
@@ -729,7 +737,7 @@ private fun ConnectServerDialog(
                     text = "Connect to Server",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
+                    color = Ink,
                     textAlign = TextAlign.Center
                 )
 
@@ -739,7 +747,7 @@ private fun ConnectServerDialog(
                     text = "Enter your sync server URL to restore\nsettings on this device.",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Normal,
-                    color = Color.White.copy(alpha = 0.55f),
+                    color = Ink.copy(alpha = 0.55f),
                     textAlign = TextAlign.Center
                 )
 
@@ -750,7 +758,7 @@ private fun ConnectServerDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF222222))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
+                        .border(1.dp, Ink.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
                 ) {
                     AndroidView(
                         factory = { ctx ->
@@ -806,7 +814,7 @@ private fun ConnectServerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isConnecting) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.15f))
+                            .background(if (isConnecting) Ink.copy(alpha = 0.1f) else Ink.copy(alpha = 0.15f))
                             .clickable(enabled = !isConnecting) { onConnect() }
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
@@ -815,7 +823,7 @@ private fun ConnectServerDialog(
                             text = if (isConnecting) "Connecting…" else "Connect",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (isConnecting) Color.White.copy(alpha = 0.4f) else Color.White
+                            color = if (isConnecting) Ink.copy(alpha = 0.4f) else Ink
                         )
                     }
                 } else {
@@ -827,12 +835,12 @@ private fun ConnectServerDialog(
                             .onFocusChanged { connectFocused = if (it.isFocused) 1 else 0 },
                         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                         colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Color.White.copy(alpha = 0.12f),
-                            focusedContainerColor = Color.White.copy(alpha = 0.25f)
+                            containerColor = Ink.copy(alpha = 0.12f),
+                            focusedContainerColor = Ink.copy(alpha = 0.25f)
                         ),
                         border = ClickableSurfaceDefaults.border(
                             focusedBorder = androidx.tv.material3.Border(
-                                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                                border = androidx.compose.foundation.BorderStroke(2.dp, Ink),
                                 shape = RoundedCornerShape(8.dp)
                             )
                         )
@@ -847,7 +855,7 @@ private fun ConnectServerDialog(
                                 text = if (isConnecting) "Connecting…" else "Connect",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isConnecting) Color.White.copy(alpha = 0.4f) else Color.White
+                                color = if (isConnecting) Ink.copy(alpha = 0.4f) else Ink
                             )
                         }
                     }
@@ -860,7 +868,7 @@ private fun ConnectServerDialog(
                     Text(
                         text = "Skip — set up manually",
                         fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.4f),
+                        color = Ink.copy(alpha = 0.4f),
                         modifier = Modifier
                             .clickable(enabled = !isConnecting) { onSkip() }
                             .padding(8.dp)
@@ -872,11 +880,11 @@ private fun ConnectServerDialog(
                         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(6.dp)),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = Color.Transparent,
-                            focusedContainerColor = Color.White.copy(alpha = 0.06f)
+                            focusedContainerColor = Ink.copy(alpha = 0.06f)
                         ),
                         border = ClickableSurfaceDefaults.border(
                             focusedBorder = androidx.tv.material3.Border(
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Ink.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(6.dp)
                             )
                         )
@@ -884,7 +892,7 @@ private fun ConnectServerDialog(
                         Text(
                             text = "Skip — set up manually",
                             fontSize = 13.sp,
-                            color = if (skipFocused > 0) Color.White.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.35f),
+                            color = if (skipFocused > 0) Ink.copy(alpha = 0.7f) else Ink.copy(alpha = 0.35f),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }

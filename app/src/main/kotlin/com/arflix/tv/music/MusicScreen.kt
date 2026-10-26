@@ -11,6 +11,9 @@ import androidx.compose.ui.unit.Dp
 import com.arflix.tv.ui.glass.GlassMaterialTheme
 import com.arflix.tv.ui.glass.GlassPalette
 import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassFocusPill
+import com.arflix.tv.ui.glass.glassSheet
+import com.arflix.tv.ui.glass.glassSky
 import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -78,7 +81,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -287,7 +293,7 @@ private fun MusicScreenBody(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
+            .then(if (glass != null) Modifier.glassSky(glass) else Modifier.background(colors.background))
             .focusRequester(rootFocus)
             .focusable()
             .pointerInput(Unit) {
@@ -396,8 +402,9 @@ private fun MusicScreenBody(
     ) {
         val coverUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl
         // Lighter than first shipped (0.78): Joe found it too subtle behind Now Playing.
-        // Glass: the cover's colours frosted -- whitened by day, darkened at night (the launcher's photo wash).
-        BlurredCoverBackground(coverUrl, scrim = if (glass?.isNight == true) 0.70f else 0.62f)
+        // Glass: the cover's colours frosted -- whitened by day, darkened but rich at night; no cover
+        // shows the launcher's page (its night sky after sunset).
+        if (glass != null) GlassCoverBackground(coverUrl, glass) else BlurredCoverBackground(coverUrl, scrim = 0.62f)
         // Phones: tighter margins, and Now Playing stacks vertically (see NowPlaying).
         val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
         Column(Modifier.fillMaxSize().padding(horizontal = if (narrow) 16.dp else 48.dp, vertical = if (narrow) 12.dp else 28.dp)) {
@@ -673,6 +680,8 @@ private fun NowPlaying(
         ) {
             if (image != null) {
                 AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else if (glass != null) {
+                GlassCoverPlaceholder(glass, coverShape, 96.dp)
             } else {
                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(96.dp))
             }
@@ -737,6 +746,7 @@ private fun NowPlayingNarrow(
     onControl: (Control) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val glass = LocalGlass.current
     val player = ui.selectedPlayer
     val item = ui.queue?.current
     val q = ui.queue
@@ -750,6 +760,8 @@ private fun NowPlayingNarrow(
         ) {
             if (image != null) {
                 AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else if (glass != null) {
+                GlassCoverPlaceholder(glass, RoundedCornerShape(16.dp), 72.dp)
             } else {
                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(72.dp))
             }
@@ -950,6 +962,26 @@ private fun GlassControlButton(
 }
 
 /**
+ * No cover art: a glass tile with a soft tinted gradient -- a pale blue/pink wash by day, the
+ * launcher's night-sky violet/blue at night -- instead of a flat gray slab.
+ */
+@Composable
+private fun GlassCoverPlaceholder(g: GlassPalette, shape: Shape, iconSize: Dp) {
+    Box(
+        Modifier.fillMaxSize()
+            .background(Brush.linearGradient(listOf(
+                lerp(Color(0xFFD0DEF6), Color(0xFF4B2F8F).copy(alpha = 0.85f), g.night),
+                lerp(Color(0xFFFFD6E0), Color(0xFF16225A).copy(alpha = 0.90f), g.night),
+            )))
+            .background(Brush.verticalGradient(listOf(g.glassStrong, Color.Transparent)))
+            .border(1.dp, g.glassRim, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Default.MusicNote, contentDescription = null, tint = g.ink.copy(alpha = 0.6f), modifier = Modifier.size(iconSize))
+    }
+}
+
+/**
  * The room being controlled, as the launcher's glass capsule (speaker icon, name, +N when it
  * leads a group, connection dot). Display only for now: picking a room/grouping from here is
  * a separate request (project_xadarr_music_grouping).
@@ -1091,9 +1123,10 @@ private fun SearchDialog(initial: String, onSearch: (String) -> Unit, onDismiss:
     var text by remember { mutableStateOf(initial) }
     val fieldFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(100); runCatching { fieldFocus.requestFocus() } }
+    val glass = LocalGlass.current
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
-            Modifier.width(560.dp).clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(24.dp)
+            Modifier.width(560.dp).dialogSurface(glass, colors.surface).padding(24.dp)
         ) {
             Text("Search music", color = colors.onSurface, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(14.dp))
@@ -1117,6 +1150,10 @@ private fun SearchDialog(initial: String, onSearch: (String) -> Unit, onDismiss:
         }
     }
 }
+
+/** Dialog card: the glass sheet with the glass look, else the theme surface. */
+private fun Modifier.dialogSurface(glass: GlassPalette?, surface: Color): Modifier =
+    if (glass != null) glassSheet(glass, RoundedCornerShape(16.dp)) else clip(RoundedCornerShape(16.dp)).background(surface)
 
 private fun formatTime(seconds: Double): String {
     val s = seconds.toInt().coerceAtLeast(0)
@@ -1142,9 +1179,10 @@ private fun BusyRoomDialog(prompt: MusicBusyPrompt, onAnswer: (Boolean?) -> Unit
     )
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(100); runCatching { firstFocus.requestFocus() } }
+    val glass = LocalGlass.current
     androidx.compose.ui.window.Dialog(onDismissRequest = { onAnswer(null) }) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(vertical = 12.dp),
+            Modifier.fillMaxWidth().dialogSurface(glass, colors.surface).padding(vertical = 12.dp),
         ) {
             Text("Music is playing in $rooms", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
@@ -1156,15 +1194,19 @@ private fun BusyRoomDialog(prompt: MusicBusyPrompt, onAnswer: (Boolean?) -> Unit
                     Modifier.fillMaxWidth()
                         .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
                         .onFocusChanged { focused = it.isFocused }
-                        .background(if (focused) colors.primary.copy(alpha = 0.2f) else Color.Transparent)
+                        .then(
+                            if (glass != null) Modifier.padding(horizontal = 8.dp).glassFocusPill(glass, focused, RoundedCornerShape(12.dp))
+                            else Modifier.background(if (focused) colors.primary.copy(alpha = 0.2f) else Color.Transparent)
+                        )
                         .clickable { onAnswer(answer) }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .padding(horizontal = if (glass != null) 12.dp else 20.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(if (answer == null) Icons.Default.Close else Icons.Default.Speaker, contentDescription = null,
-                        tint = if (focused) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        tint = if (focused && glass != null) glass.focusInk else if (focused) colors.primary else colors.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(14.dp))
-                    Text(label, color = colors.onSurface, fontSize = 16.sp)
+                    Text(label, color = if (focused && glass != null) glass.focusInk else colors.onSurface, fontSize = 16.sp)
                 }
             }
         }
@@ -1175,9 +1217,10 @@ private fun BusyRoomDialog(prompt: MusicBusyPrompt, onAnswer: (Boolean?) -> Unit
 @Composable
 private fun RoomPickerDialog(players: List<MaPlayer>, selectedId: String?, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val glass = LocalGlass.current
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface).padding(vertical = 12.dp),
+            Modifier.fillMaxWidth().dialogSurface(glass, colors.surface).padding(vertical = 12.dp),
         ) {
             Text("Rooms", color = colors.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))

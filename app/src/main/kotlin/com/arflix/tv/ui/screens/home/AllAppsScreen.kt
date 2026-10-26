@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.screens.home
 
+import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Build
@@ -62,9 +65,9 @@ import com.arflix.tv.data.repository.BOOKMARKS_KEY
 import com.arflix.tv.data.repository.HIDDEN_QUICK_LINK_NAMES_KEY
 import com.arflix.tv.data.repository.MOBILE_APPS_ALLOWLIST_KEY
 import com.arflix.tv.data.repository.parseBookmarks
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.settingsDataStore
@@ -77,6 +80,13 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { glass }
+
 
 private data class AppEntry(val packageName: String, val label: String)
 

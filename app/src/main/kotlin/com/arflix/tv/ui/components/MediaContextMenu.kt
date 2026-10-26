@@ -1,5 +1,9 @@
 package com.arflix.tv.ui.components
 
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheetFocusInk
+import com.arflix.tv.ui.glass.sheetFocus
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,14 +62,23 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.XadarrTheme
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.Pink as ThemePink
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.LocalDeviceType
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
 import kotlinx.coroutines.delay
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 /**
  * Context menu for media cards on home screen
@@ -271,7 +284,7 @@ fun MediaContextMenu(
                                 .width(36.dp)
                                 .height(4.dp)
                                 .background(
-                                    Color.White.copy(alpha = 0.2f),
+                                    Ink.copy(alpha = 0.2f),
                                     RoundedCornerShape(2.dp)
                                 )
                         )
@@ -294,7 +307,7 @@ fun MediaContextMenu(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(1.dp)
-                                .background(Color.White.copy(alpha = 0.08f))
+                                .background(Ink.copy(alpha = 0.08f))
                         )
 
                         // Menu items
@@ -330,7 +343,7 @@ fun MediaContextMenu(
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp)
                                         .height(1.dp)
-                                        .background(Color.White.copy(alpha = 0.05f))
+                                        .background(Ink.copy(alpha = 0.05f))
                                 )
                             }
                         }
@@ -354,12 +367,12 @@ private fun ContextMenuItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (isFocused) Pink else Color.Transparent,
+                if (isFocused) glassOr(ThemePink) { sheetFocus } else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
             .border(
                 width = if (isFocused) 0.dp else 1.dp,
-                color = if (isFocused) Color.Transparent else Color.White.copy(alpha = 0.1f),
+                color = if (isFocused) Color.Transparent else Ink.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(8.dp)
             )
             // The row took an onClick and never attached it. On TV that went unnoticed because the
@@ -375,13 +388,13 @@ private fun ContextMenuItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isFocused) Color.Black else TextSecondary,
+                tint = if (isFocused) glassOr(Color.Black) { sheetFocusInk } else TextSecondary,
                 modifier = Modifier.size(22.dp)
             )
             Text(
                 text = label,
                 style = ArflixTypography.body,
-                color = if (isFocused) Color.Black else TextPrimary
+                color = if (isFocused) glassOr(Color.Black) { sheetFocusInk } else TextPrimary
             )
         }
     }

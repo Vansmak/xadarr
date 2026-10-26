@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.components
 
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheet
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,11 +75,21 @@ import com.arflix.tv.data.repository.DPadKey
 import com.arflix.tv.data.repository.LanPeer
 import com.arflix.tv.data.repository.tvremote.RemoteCapability
 import com.arflix.tv.data.repository.tvremote.RemoteDevice
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
+import com.arflix.tv.ui.theme.Pink as ThemePink
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import kotlinx.coroutines.launch
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { glass }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 /** A Home Assistant media_player that can serve as a room's volume target. */
 data class HaSpeaker(val entityId: String, val name: String)
@@ -108,7 +121,7 @@ fun RemoteModeSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = com.arflix.tv.ui.theme.BackgroundDark,
+        containerColor = glassOr(com.arflix.tv.ui.theme.BackgroundDark) { sheet },
         contentColor = TextPrimary,
     ) {
         RemoteModeContent(devices, device, onSelectDevice, onSendDpad, onSendText, isTvRemotePaired, onPairTvRemote, onSendPower, speakers, volumeEntityId, onSelectVolumeEntity, onSelectInput)
@@ -160,7 +173,7 @@ fun RemoteModeTopPanel(
                     .fillMaxWidth()
                     .heightIn(max = maxHeight)
                     .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
-                    .background(com.arflix.tv.ui.theme.BackgroundDark)
+                    .background(glassOr(com.arflix.tv.ui.theme.BackgroundDark) { sheet })
                     .statusBarsPadding()
                     // Absorb taps on the panel itself so they don't fall through to the scrim's
                     // onDismiss above.
@@ -364,7 +377,7 @@ private fun RemoteModeContent(
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White.copy(alpha = 0.06f))
+                                    .background(Ink.copy(alpha = 0.06f))
                                     .clickable { onSelectInput?.invoke(source) }
                                     .padding(horizontal = 14.dp, vertical = 9.dp),
                             ) {
@@ -531,7 +544,7 @@ private fun RemoteDevicePicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(Ink.copy(alpha = 0.05f))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -618,7 +631,7 @@ private fun RemoteDpadCross(onPress: (DPadKey) -> Unit, onPower: (() -> Unit)? =
                 .padding(vertical = 4.dp)
                 .size(172.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(Ink.copy(alpha = 0.05f))
                 .border(1.dp, Pink.copy(alpha = 0.35f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
@@ -690,7 +703,7 @@ private fun RemoteVolumeRocker(onUp: () -> Unit, onDown: () -> Unit) {
             .width(56.dp)
             .height(172.dp)
             .clip(RoundedCornerShape(32.dp))
-            .background(Color.White.copy(alpha = 0.05f)),
+            .background(Ink.copy(alpha = 0.05f)),
     ) {
         Box(
             modifier = Modifier
@@ -727,7 +740,7 @@ private fun DpadButton(icon: ImageVector, label: String, filled: Boolean = false
             .padding(4.dp)
             .size(48.dp)
             .clip(CircleShape)
-            .background(if (filled) Pink.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.06f))
+            .background(if (filled) Pink.copy(alpha = 0.20f) else Ink.copy(alpha = 0.06f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

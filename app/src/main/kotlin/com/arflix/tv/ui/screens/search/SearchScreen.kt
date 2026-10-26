@@ -1,5 +1,10 @@
 package com.arflix.tv.ui.screens.search
 
+import com.arflix.tv.ui.glass.sheet
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassSky
+import androidx.compose.runtime.ReadOnlyComposable
 import android.os.SystemClock
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -89,13 +94,23 @@ import com.arflix.tv.ui.skin.XadarrSkin
 import com.arflix.tv.ui.skin.rememberXadarrCardShape
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
-import com.arflix.tv.ui.theme.BackgroundCard
+import com.arflix.tv.ui.theme.BackgroundCard as ThemeBackgroundCard
 import com.arflix.tv.ui.theme.appBackgroundDark
 import com.arflix.tv.ui.theme.AccentGreen
-import com.arflix.tv.ui.theme.Pink
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.Pink as ThemePink
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.LocalDeviceType
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundCard: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundCard) { sheet }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -481,7 +496,7 @@ fun SearchScreen(
         }
     } else Modifier
 
-    Box(modifier = Modifier.fillMaxSize().background(appBackgroundDark()).then(dpadModifier)) {
+    Box(modifier = Modifier.fillMaxSize().then(LocalGlass.current?.let { Modifier.glassSky(it) } ?: Modifier.background(appBackgroundDark())).then(dpadModifier)) {
         // No old horizontal top bar on Search (Joe, 2026-07-11: "I do not want
         // top bar on search period") — but it does get the same NavRail every
         // other screen has, so Search can reach any other page too (Joe,
@@ -629,7 +644,7 @@ fun SearchScreen(
                 hasAiResults -> {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)) {
                         Icon(Icons.Default.AutoAwesome, null, tint = AccentGreen, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
-                        Text(uiState.aiInterpretation ?: "", style = ArflixTypography.body.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium), color = Color.White.copy(alpha = 0.85f))
+                        Text(uiState.aiInterpretation ?: "", style = ArflixTypography.body.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium), color = Ink.copy(alpha = 0.85f))
                     }
                     ContentGrid(items = uiState.aiResults, usePosterCards = aiUsePosterCards, isLoading = false, isTouchDevice = isTouchDevice, onItemClick = { onNavigateToDetails(it.mediaType, it.id) }, onLoadMore = {}, inLibraryTmdbIds = uiState.inLibraryTmdbIds)
                 }
@@ -706,11 +721,11 @@ private fun SearchInputBar(
             colors = TextFieldDefaults.colors(
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
-                cursorColor = Color.White,
+                cursorColor = Ink,
                 focusedContainerColor = BackgroundCard,
                 unfocusedContainerColor = BackgroundCard,
-                focusedIndicatorColor = Color.White,
-                unfocusedIndicatorColor = Color.White.copy(alpha = 0.18f)
+                focusedIndicatorColor = Ink,
+                unfocusedIndicatorColor = Ink.copy(alpha = 0.18f)
             ),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
@@ -739,8 +754,8 @@ private fun SearchInputBar(
             }
             .focusRequester(searchFocusRequester),
         shape = shape,
-        backgroundColor = Color.White.copy(alpha = if (isFocused) 0.075f else 0.045f),
-        outlineColor = Color.White,
+        backgroundColor = Ink.copy(alpha = if (isFocused) 0.075f else 0.045f),
+        outlineColor = Ink,
         outlineWidth = if (isFocused) 3.dp else 2.dp,
         glowWidth = if (isFocused) 2.dp else 0.dp,
         glowAlpha = 0.22f,
@@ -757,14 +772,14 @@ private fun SearchInputBar(
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Search, null, tint = if (isFocused) Color.White else TextSecondary, modifier = Modifier.size(22.dp))
+            Icon(Icons.Default.Search, null, tint = if (isFocused) Ink else TextSecondary, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(12.dp))
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 readOnly = !isEditing,
                 textStyle = ArflixTypography.body.copy(color = TextPrimary, fontSize = 17.sp),
-                cursorBrush = SolidColor(Color.White),
+                cursorBrush = SolidColor(Ink),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSearch() }),
@@ -776,7 +791,7 @@ private fun SearchInputBar(
                         Text(
                             stringResource(R.string.search),
                             style = ArflixTypography.body.copy(fontSize = 17.sp),
-                            color = Color.White.copy(alpha = 0.32f)
+                            color = Ink.copy(alpha = 0.32f)
                         )
                     }
                     inner()
@@ -867,14 +882,14 @@ private fun GlowChip(
     val chipShape = RoundedCornerShape(7.dp)
     val focusBorderColor = resolveFocusBorderColor(fallback = Color.White)
     val backgroundColor = when {
-        focused -> Color.White.copy(alpha = 0.12f)
+        focused -> Ink.copy(alpha = 0.12f)
         isSelected -> Color.White.copy(alpha = 0.92f)
-        else -> Color.White.copy(alpha = 0.075f)
+        else -> Ink.copy(alpha = 0.075f)
     }
     val borderColor = when {
         focused -> focusBorderColor
         isSelected -> Color.White.copy(alpha = 0.92f)
-        else -> Color.White.copy(alpha = 0.24f)
+        else -> Ink.copy(alpha = 0.24f)
     }
     Box(
         modifier = modifier
@@ -903,9 +918,9 @@ private fun GlowChip(
                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium
             ),
             color = when {
-                focused -> Color.White                // White text on dark bg
+                focused -> Ink                // White text on dark bg
                 isSelected -> Color.Black             // Black text on bright bg
-                else -> Color.White.copy(alpha = 0.84f)
+                else -> Ink.copy(alpha = 0.84f)
             },
             maxLines = 1
         )
@@ -1003,7 +1018,7 @@ private fun RowsLayer(
                             Text(
                                 category.title,
                                 style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp),
-                                color = Color.White.copy(alpha = if (isCurrentRow) 0.9f else 0.5f)
+                                color = Ink.copy(alpha = if (isCurrentRow) 0.9f else 0.5f)
                             )
                         }
 

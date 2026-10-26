@@ -79,6 +79,8 @@ import com.arflix.tv.util.OLED_BLACK_BACKGROUND_KEY
 import com.arflix.tv.util.FOCUS_BORDER_COLOR_KEY
 import com.arflix.tv.util.THEME_KEY
 import com.arflix.tv.util.GLASS_MODE_KEY
+import com.arflix.tv.ui.glass.overVideo
+import com.arflix.tv.ui.glass.overVideoDim
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalHasTouchScreen
 import com.arflix.tv.util.LocalAppLanguage
@@ -1428,7 +1430,7 @@ private fun AppNotificationToast(notification: AppNotification) {
         modifier = Modifier
             .widthIn(max = 400.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xE6111827))
+            .background(com.arflix.tv.ui.glass.glassOr(Color(0xE6111827)) { overVideo }) // Glass: opaque over video
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1449,13 +1451,13 @@ private fun AppNotificationToast(notification: AppNotification) {
                 Text(
                     notification.title.ifBlank { "Unknown" },
                     fontSize = 14.sp,
-                    color = Color.White,
+                    color = com.arflix.tv.ui.glass.glassOr(Color.White) { ink },
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!notification.message.isNullOrBlank()) {
-                    Text(notification.message, fontSize = 11.sp, color = Color(0xFFD1D5DB))
+                    Text(notification.message, fontSize = 11.sp, color = com.arflix.tv.ui.glass.glassOr(Color(0xFFD1D5DB)) { overVideoDim })
                 }
             }
         }

@@ -43,7 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -57,6 +62,10 @@ import androidx.tv.material3.Text
 import com.arflix.tv.data.model.NavSectionConfig
 import com.arflix.tv.data.model.NavSectionKind
 import com.arflix.tv.navigation.NavTargets
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassFocusPill
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheet
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
@@ -280,11 +289,20 @@ fun NavRail(
         label = "nav_rail_width"
     )
 
+    // Glass: the launcher's frosted drawer (rim on the open edge, soft shadow) instead of black.
+    val glass = LocalGlass.current
+    val rule = glassOr(Color.White.copy(alpha = 0.10f)) { ink.copy(alpha = 0.10f) }
     Box(
         modifier = Modifier
             .fillMaxHeight()
             .width(railWidth)
-            .background(Color.Black.copy(alpha = 0.92f))
+            .then(
+                if (glass != null) Modifier
+                    .shadow(24.dp, RectangleShape, ambientColor = glass.shadowFocus, spotColor = glass.shadowFocus)
+                    .background(glass.sheet.copy(alpha = 0.94f))
+                    .drawBehind { drawRect(glass.glassRim, topLeft = Offset(size.width - 1.dp.toPx(), 0f), size = Size(1.dp.toPx(), size.height)) }
+                else Modifier.background(Color.Black.copy(alpha = 0.92f))
+            )
     ) {
         Column(
             modifier = Modifier
@@ -307,7 +325,7 @@ fun NavRail(
                             .fillMaxWidth()
                             .padding(vertical = 6.dp)
                             .height(1.dp)
-                            .background(Color.White.copy(alpha = 0.10f))
+                            .background(rule)
                     )
                 } else {
                     // A rule between groups rather than a caption over them. The captions read
@@ -323,7 +341,7 @@ fun NavRail(
                                 .padding(start = 14.dp, end = 14.dp, top = 5.dp, bottom = 4.dp)
                                 .fillMaxWidth()
                                 .height(1.dp)
-                                .background(Color.White.copy(alpha = 0.10f))
+                                .background(rule)
                         )
                     }
                 }
@@ -387,13 +405,19 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
     // highlighted row on screen ourselves.
     val bringIntoView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
     LaunchedEffect(isFocused) { if (isFocused) runCatching { bringIntoView.bringIntoView() } }
+    // Glass: focus is the white pill with dark ink, no ring.
+    val glass = LocalGlass.current
     Row(
         modifier = Modifier
             .bringIntoViewRequester(bringIntoView)
             .fillMaxWidth()
-            .border(LiveDims.FocusBorder, if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+            .then(
+                if (glass != null) Modifier.glassFocusPill(glass, isFocused, RoundedCornerShape(12.dp))
+                else Modifier
+                    .border(LiveDims.FocusBorder, if (isFocused) (LocalFocusBorderColorOverride.current ?: LiveColors.Accent) else Color.Transparent, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -402,14 +426,22 @@ private fun RailRow(entry: NavSectionConfig, isFocused: Boolean, onClick: () -> 
         Icon(
             imageVector = navEntryIcon(entry),
             contentDescription = null,
-            tint = if (isFocused) Color.White else Color.White.copy(alpha = 0.65f),
+            tint = when {
+                glass != null -> if (isFocused) glass.focusInk else glass.dim
+                isFocused -> Color.White
+                else -> Color.White.copy(alpha = 0.65f)
+            },
             modifier = Modifier.width(20.dp)
         )
         Text(
             text = label,
             fontSize = 15.sp,
             fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
-            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.72f),
+            color = when {
+                glass != null -> if (isFocused) glass.focusInk else glass.ink
+                isFocused -> Color.White
+                else -> Color.White.copy(alpha = 0.72f)
+            },
         )
     }
 }

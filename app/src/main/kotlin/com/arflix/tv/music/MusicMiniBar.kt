@@ -36,6 +36,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.sheet
 import coil.compose.AsyncImage
 
 /**
@@ -55,11 +57,12 @@ fun MusicMiniBar(onOpen: () -> Unit, viewModel: MusicViewModel = hiltViewModel()
     val artist = item?.artist ?: player?.nowArtist
     val image = item?.imageUrl ?: player?.nowImageUrl
     val colors = MaterialTheme.colorScheme
+    val glass = LocalGlass.current
 
     Row(
         Modifier
             .fillMaxWidth()
-            .background(Color(0xF2121418))
+            .background(glass?.sheet?.copy(alpha = 0.95f) ?: Color(0xF2121418))
             .clickable(onClick = onOpen)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -76,12 +79,12 @@ fun MusicMiniBar(onOpen: () -> Unit, viewModel: MusicViewModel = hiltViewModel()
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text(title, color = glass?.ink ?: Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 listOfNotNull(artist, player?.name?.let { it + if (player.isGroupLeader) " +${player.groupMembers.size - 1}" else "" })
                     .joinToString(" · "),
-                color = Color.White.copy(alpha = 0.65f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = glass?.dim ?: Color.White.copy(alpha = 0.65f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         MiniButton(if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (ui.isPlaying) "Pause" else "Play") {
@@ -98,6 +101,6 @@ private fun MiniButton(icon: ImageVector, label: String, onClick: () -> Unit) {
         Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(28.dp))
+        Icon(icon, contentDescription = label, tint = LocalGlass.current?.ink ?: Color.White, modifier = Modifier.size(28.dp))
     }
 }

@@ -46,6 +46,8 @@ data class GlassPalette(
     val up: Color,
     val down: Color,
     val track: Color,
+    /** 0 = day, 1 = night; in between during the crossfade (drives the night-sky blobs). */
+    val night: Float = if (isNight) 1f else 0f,
 )
 
 val GlassDay = GlassPalette(
@@ -125,12 +127,13 @@ fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float): GlassPalette = if (t 
     up = lerp(a.up, b.up, t),
     down = lerp(a.down, b.down, t),
     track = lerp(a.track, b.track, t),
+    night = a.night + (b.night - a.night) * t,
 )
 
 /**
  * The glass look in effect right now (day or night), or null when another theme is selected.
- * Only restyled screens read it; everything else stays on the theme's night colors. Dynamic
- * (not static) so the day/night crossfade only recomposes the screens that use it.
+ * The theme's colour scheme follows it too; screens with fixed dark colours swap them through
+ * glassOr (GlassUi.kt). Dynamic (not static) so the crossfade only recomposes its readers.
  */
 val LocalGlass = compositionLocalOf<GlassPalette?> { null }
 

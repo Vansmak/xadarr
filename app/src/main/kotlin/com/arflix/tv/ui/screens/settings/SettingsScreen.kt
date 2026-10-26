@@ -120,6 +120,7 @@ import com.arflix.tv.ui.components.QrCodeImage
 import com.arflix.tv.ui.components.Toast
 import com.arflix.tv.ui.components.ToastType as ComponentToastType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -148,6 +149,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -191,11 +193,17 @@ import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.skin.resolveFocusBorderColor
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
-import com.arflix.tv.ui.theme.BackgroundElevated
-import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
+import com.arflix.tv.ui.theme.Pink as ThemePink
 import com.arflix.tv.ui.theme.SuccessGreen
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
+import com.arflix.tv.ui.glass.GlassFocusInk
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassFocusPill
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.glassSky
+import com.arflix.tv.ui.glass.sheet
 import kotlin.math.abs
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
@@ -231,6 +239,48 @@ private val tvGeneralSectionIds = setOf(
     "profiles",
     "network"
 )
+
+// ── Glass (phase 2, 2026-10-25) ──
+// Settings was drawn for a dark page with the fixed theme constants. These file-level stand-ins
+// return exactly those values on every other theme and follow the glass look's day/night on
+// Glass: white text and white tints become ink, dark wells become glass chips.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { glass }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+/** Black text on a [Pink] fill. */
+private val OnInk: Color @Composable @ReadOnlyComposable get() = glassOr(Color.Black) { bgBase }
+/** A dark well (black at [alpha]) on the dark page; a glass chip on Glass. */
+@Composable
+@ReadOnlyComposable
+private fun shade(alpha: Float): Color = glassOr(Color.Black.copy(alpha = alpha)) { chip }
+/**
+ * A settings row's surface: a glass chip at rest and the white pill on focus on Glass (wrap the
+ * row in GlassFocusInk so its text turns dark on the pill); the tinted ring otherwise.
+ */
+@Composable
+private fun Modifier.settingsRowSurface(isFocused: Boolean, focusRingColor: Color, shape: Shape = RoundedCornerShape(10.dp)): Modifier {
+    val g = LocalGlass.current
+    return if (g != null) glassFocusPill(g, isFocused, shape, rest = g.glass)
+    else background(if (isFocused) focusRingColor.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.055f), shape)
+        .border(width = if (isFocused) 2.dp else 0.dp, color = if (isFocused) focusRingColor else Color.Transparent, shape = shape)
+}
+
+/** Like [settingsRowSurface] for the larger card rows (accounts, addons): elevated fill and ring otherwise. */
+@Composable
+private fun Modifier.settingsCardSurface(isFocused: Boolean, focusRingColor: Color): Modifier {
+    val g = LocalGlass.current
+    val shape = RoundedCornerShape(12.dp)
+    return if (g != null) glassFocusPill(g, isFocused, shape, rest = g.glass)
+    else background(if (isFocused) Color.White.copy(alpha = 0.1f) else ThemeBackgroundElevated, shape)
+        .border(width = if (isFocused) 2.dp else 0.dp, color = if (isFocused) focusRingColor else Color.Transparent, shape = shape)
+}
+
+/** The page: the launcher's frosted gradient / night sky on Glass. */
+@Composable
+private fun Modifier.settingsPage(): Modifier = LocalGlass.current?.let { glassSky(it) } ?: background(appBackgroundDark())
 
 private fun tvGeneralRowsForSection(section: String): List<Int> {
     return when (section) {
@@ -732,7 +782,7 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(appBackgroundDark())
+            .settingsPage()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -1253,8 +1303,8 @@ fun SettingsScreen(
                         .width(204.dp)
                         .fillMaxSize()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF050505))
-                        .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
+                        .background(glassOr(Color(0xFF050505)) { glassStrong })
+                        .border(1.dp, Ink.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
                         .padding(vertical = 18.dp, horizontal = 10.dp)
                 ) {
                     Text(
@@ -2713,7 +2763,7 @@ private fun QualityFiltersModal(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(10.dp))
+                                    .background(Ink.copy(alpha = 0.04f), RoundedCornerShape(10.dp))
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -2797,9 +2847,9 @@ private fun SettingsChip(
             .clip(RoundedCornerShape(10.dp))
             .background(
                 when {
-                    !enabled -> Color.White.copy(alpha = 0.06f)
+                    !enabled -> Ink.copy(alpha = 0.06f)
                     isFocused -> Color.White
-                    else -> Color.White.copy(alpha = 0.12f)
+                    else -> Ink.copy(alpha = 0.12f)
                 }
             )
             .border(
@@ -3075,8 +3125,8 @@ private fun CloudEmailPasswordModal(
                         colors = androidx.compose.material3.TextFieldDefaults.colors(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
-                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = Ink.copy(alpha = 0.1f),
+                            unfocusedContainerColor = Ink.copy(alpha = 0.05f),
                             focusedIndicatorColor = Pink,
                             unfocusedIndicatorColor = Color.Transparent,
                             cursorColor = Pink
@@ -3086,7 +3136,7 @@ private fun CloudEmailPasswordModal(
                             .focusRequester(emailRequester)
                             .border(
                                 width = if (focusedIndex == 0) 2.dp else 1.dp,
-                                color = if (focusedIndex == 0) Pink else Color.White.copy(alpha = 0.2f),
+                                color = if (focusedIndex == 0) Pink else Ink.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                     )
@@ -3110,8 +3160,8 @@ private fun CloudEmailPasswordModal(
                         colors = androidx.compose.material3.TextFieldDefaults.colors(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
-                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = Ink.copy(alpha = 0.1f),
+                            unfocusedContainerColor = Ink.copy(alpha = 0.05f),
                             focusedIndicatorColor = Pink,
                             unfocusedIndicatorColor = Color.Transparent,
                             cursorColor = Pink
@@ -3121,7 +3171,7 @@ private fun CloudEmailPasswordModal(
                             .focusRequester(passwordRequester)
                             .border(
                                 width = if (focusedIndex == 1) 2.dp else 1.dp,
-                                color = if (focusedIndex == 1) Pink else Color.White.copy(alpha = 0.2f),
+                                color = if (focusedIndex == 1) Pink else Ink.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                     )
@@ -3139,7 +3189,7 @@ private fun CloudEmailPasswordModal(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
+                                color = if (isCancelFocused) Ink.copy(alpha = 0.2f) else Ink.copy(alpha = 0.1f)
                             )
                             .clickable { onDismiss() }
                             .border(
@@ -3187,7 +3237,7 @@ private fun CloudEmailPasswordModal(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                color = if (isCreateFocused) SuccessGreen else Color.White.copy(alpha = 0.08f)
+                                color = if (isCreateFocused) SuccessGreen else Ink.copy(alpha = 0.08f)
                             )
                             .clickable { onCreateAccount() }
                             .border(
@@ -3201,7 +3251,7 @@ private fun CloudEmailPasswordModal(
                         Text(
                             text = "Create",
                             style = ArflixTypography.button,
-                            color = Color.White
+                            color = Ink
                         )
                     }
                 }
@@ -3319,7 +3369,7 @@ private fun CloudPairModal(
                         modifier = Modifier
                             .size(qrContainerSize)
                             .background(appBackgroundDark().copy(alpha = 0.92f), RoundedCornerShape(16.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                            .border(1.dp, Ink.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
                             .padding(12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3418,7 +3468,7 @@ private fun CloudPairModal(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    color = Color.White.copy(alpha = 0.1f),
+                                    color = Ink.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .clickable { onDismiss() }
@@ -3441,7 +3491,7 @@ private fun CloudPairModal(
                         Box(
                             modifier = Modifier
                                 .background(
-                                    color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                                    color = if (isCancelFocused) Ink.copy(alpha = 0.2f) else Ink.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .border(
@@ -3544,7 +3594,7 @@ private fun TraktActivationModal(
                         else Modifier.width(560.dp)
                     )
                     .background(BackgroundElevated, RoundedCornerShape(16.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                    .border(1.dp, Ink.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
                     .padding(if (isMobile) 20.dp else 28.dp)
                     .focusRequester(focusRequester)
                     .focusable()
@@ -3639,8 +3689,8 @@ private fun TraktActivationModal(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                            .background(Ink.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                            .border(1.dp, Ink.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
                             .clickable { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userCode)) }
                             .padding(vertical = 12.dp, horizontal = 18.dp),
                         contentAlignment = Alignment.Center
@@ -3648,7 +3698,7 @@ private fun TraktActivationModal(
                         Text(
                             text = "Copy code",
                             style = ArflixTypography.button,
-                            color = Color.White
+                            color = Ink
                         )
                     }
 
@@ -3658,7 +3708,7 @@ private fun TraktActivationModal(
                 Box(
                     modifier = Modifier
                         .background(
-                            if (isMobile && onOpenUrl != null) Color.White.copy(alpha = 0.08f) else Pink,
+                            if (isMobile && onOpenUrl != null) Ink.copy(alpha = 0.08f) else Pink,
                             RoundedCornerShape(10.dp)
                         )
                         .then(if (isMobile && onOpenUrl != null) Modifier.fillMaxWidth() else Modifier)
@@ -3723,7 +3773,7 @@ private fun MobileSettingsLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(appBackgroundDark())
+            .settingsPage()
     ) {
         if (page == "MAIN") {
             Row(
@@ -3905,7 +3955,7 @@ private fun MobileSettingsMainPage(
                             Icon(imageVector = Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
                         }
                         if (index < categories.lastIndex) {
-                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Ink.copy(alpha = 0.05f)))
                         }
                     }
                 }
@@ -4346,7 +4396,7 @@ private fun MobileSettingsSubPage(
                                 )
                             }
                             if (index < episeerrOnly.lastIndex) {
-                                Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+                                Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Ink.copy(alpha = 0.05f)))
                             }
                         }
                     }
@@ -4586,7 +4636,7 @@ private fun MobileSettingsRow(
             }
         }
         if (showDivider) {
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Ink.copy(alpha = 0.05f)))
         }
     }
 }
@@ -4655,7 +4705,7 @@ private fun MobileBookmarkRow(
                 }
             }
         }
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Color.White.copy(alpha = 0.05f)))
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).padding(horizontal = 16.dp).background(Ink.copy(alpha = 0.05f)))
     }
 }
 
@@ -4738,25 +4788,25 @@ private fun UpdateActionButton(
     enabled: Boolean = true
 ) {
     val background = when {
-        !enabled -> Color.White.copy(alpha = 0.06f)
+        !enabled -> Ink.copy(alpha = 0.06f)
         highlighted && isFocused -> Pink
-        isFocused -> Color.White.copy(alpha = 0.16f)
+        isFocused -> Ink.copy(alpha = 0.16f)
         highlighted -> Pink.copy(alpha = 0.18f)
-        else -> Color.White.copy(alpha = 0.08f)
+        else -> Ink.copy(alpha = 0.08f)
     }
     val textColor = when {
         !enabled -> TextSecondary.copy(alpha = 0.6f)
-        highlighted && isFocused -> Color.Black
-        highlighted -> Color.White
+        highlighted && isFocused -> OnInk
+        highlighted -> Ink
         isFocused -> TextPrimary
         else -> TextSecondary
     }
     val borderColor = when {
-        !enabled -> Color.White.copy(alpha = 0.1f)
+        !enabled -> Ink.copy(alpha = 0.1f)
         highlighted && isFocused -> Pink.copy(alpha = 0.95f)
         highlighted -> Pink.copy(alpha = 0.4f)
-        isFocused -> Color.White.copy(alpha = 0.75f)
-        else -> Color.White.copy(alpha = 0.12f)
+        isFocused -> Ink.copy(alpha = 0.75f)
+        else -> Ink.copy(alpha = 0.12f)
     }
 
     Box(
@@ -4814,60 +4864,68 @@ private fun SettingsSectionItem(
     val accentColor = resolveFocusBorderColor(fallback = Pink)
     val bgColor = when {
         isFocused -> accentColor.copy(alpha = 0.10f)
-        isSelected -> Color.White.copy(alpha = 0.07f)
+        isSelected -> Ink.copy(alpha = 0.07f)
         else -> Color.Transparent
     }
     val textColor = when {
-        isFocused -> TextPrimary
+        isFocused -> glassOr(ThemeTextPrimary) { focusInk }
         isSelected -> TextPrimary
         else -> TextSecondary
     }
     
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .background(bgColor, RoundedCornerShape(12.dp))
-            .border(
-                width = if (isFocused) 1.dp else 0.dp,
-                color = if (isFocused) accentColor else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(horizontal = 9.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
+    // Glass: the white pill on focus, a soft chip for the open section.
+    val glass = LocalGlass.current
+    GlassFocusInk(isFocused) {
+        Row(
             modifier = Modifier
-                .size(28.dp)
-                .background(
-                    if (isSelected || isFocused) accentColor.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f),
-                    RoundedCornerShape(9.dp)
-                ),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .then(
+                    if (glass != null) Modifier.glassFocusPill(glass, isFocused, RoundedCornerShape(12.dp), rest = if (isSelected) glass.chip else Color.Transparent)
+                    else Modifier
+                        .background(bgColor, RoundedCornerShape(12.dp))
+                        .border(
+                            width = if (isFocused) 1.dp else 0.dp,
+                            color = if (isFocused) accentColor else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                )
+                .padding(horizontal = 9.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isFocused || isSelected) accentColor else textColor,
-                modifier = Modifier.size(17.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = title,
-            style = ArflixTypography.body.copy(fontSize = 16.sp),
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        if (isSelected) {
             Box(
                 modifier = Modifier
-                    .width(3.dp)
-                    .height(20.dp)
-                    .background(accentColor, RoundedCornerShape(99.dp))
+                    .size(28.dp)
+                    .background(
+                        if (isSelected || isFocused) accentColor.copy(alpha = 0.14f) else Ink.copy(alpha = 0.05f),
+                        RoundedCornerShape(9.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isFocused || isSelected) accentColor else textColor,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = title,
+                style = ArflixTypography.body.copy(fontSize = 16.sp),
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(20.dp)
+                        .background(accentColor, RoundedCornerShape(99.dp))
+                )
+            }
         }
     }
 }
@@ -4919,8 +4977,8 @@ private fun TvSettingsStatusPill(label: String) {
     Row(
         modifier = Modifier
             .height(26.dp)
-            .background(Color.White.copy(alpha = 0.065f), RoundedCornerShape(999.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(999.dp))
+            .background(Ink.copy(alpha = 0.065f), RoundedCornerShape(999.dp))
+            .border(1.dp, Ink.copy(alpha = 0.08f), RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -4952,8 +5010,8 @@ private fun TvSettingsInsightPanel(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF050505))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+            .background(glassOr(Color(0xFF050505)) { glassStrong })
+            .border(1.dp, Ink.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
             .padding(22.dp)
     ) {
         Text(
@@ -4976,8 +5034,8 @@ private fun TvSettingsInsightPanel(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.055f), RoundedCornerShape(16.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
+                .background(Ink.copy(alpha = 0.055f), RoundedCornerShape(16.dp))
+                .border(1.dp, Ink.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
                 .padding(18.dp)
         ) {
             Column {
@@ -6190,7 +6248,7 @@ private fun IptvSettings(
                             selectionMode = false
                             selectedIndices = emptySet()
                         }
-                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
+                        .background(Ink.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = Color.White, modifier = Modifier.size(20.dp))
@@ -6222,7 +6280,7 @@ private fun IptvSettings(
                     .fillMaxWidth()
                     .background(
                         if (isSelected) Pink.copy(alpha = 0.2f)
-                        else if (focusedIndex == rowIndex) Color.White.copy(alpha = 0.08f) 
+                        else if (focusedIndex == rowIndex) Ink.copy(alpha = 0.08f) 
                         else Color.Transparent,
                         RoundedCornerShape(12.dp)
                     )
@@ -6420,7 +6478,7 @@ private fun IptvSettings(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)
-                    .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+                    .background(Ink.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
             ) {
                 Box(
                     modifier = Modifier
@@ -6475,72 +6533,66 @@ private fun SettingsRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .background(
-                if (isFocused) focusRingColor.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.055f),
-                RoundedCornerShape(10.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(10.dp)
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = TextSecondary,
-                modifier = Modifier.size(19.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = ArflixTypography.cardTitle.copy(fontSize = 18.sp),
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+    GlassFocusInk(isFocused) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
                 )
-                if (subtitle.isNotEmpty()) {
+                .settingsRowSurface(isFocused, focusRingColor)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = subtitle,
-                        style = ArflixTypography.caption.copy(fontSize = 13.sp),
-                        color = TextSecondary,
+                        text = title,
+                        style = ArflixTypography.cardTitle.copy(fontSize = 18.sp),
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            style = ArflixTypography.caption.copy(fontSize = 13.sp),
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+        
+            if (value.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(min = 80.dp, max = 158.dp)
+                        .background(shade(0.22f), RoundedCornerShape(999.dp))
+                        .border(1.dp, Ink.copy(alpha = 0.07f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = value.uppercase(),
+                        style = ArflixTypography.label.copy(fontSize = 12.sp),
+                        color = focusRingColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        
-        if (value.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .widthIn(min = 80.dp, max = 158.dp)
-                    .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = value.uppercase(),
-                    style = ArflixTypography.label.copy(fontSize = 12.sp),
-                    color = focusRingColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
     }
@@ -6558,64 +6610,58 @@ private fun SettingsToggleRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = { onToggle(!isEnabled) }
-            )
-            .background(
-                if (isFocused) focusRingColor.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.055f),
-                RoundedCornerShape(10.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(10.dp)
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = ArflixTypography.cardTitle.copy(fontSize = 18.sp),
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = subtitle,
-                style = ArflixTypography.caption.copy(fontSize = 13.sp),
-                color = TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        
-        // Custom toggle indicator instead of Switch
-        Box(
-            modifier = Modifier
-                .width(42.dp)
-                .height(22.dp)
-                .background(
-                    color = if (isEnabled) SuccessGreen else Color.White.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(13.dp)
+    GlassFocusInk(isFocused) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = { onToggle(!isEnabled) }
                 )
-                .padding(3.dp),
-            contentAlignment = if (isEnabled) Alignment.CenterEnd else Alignment.CenterStart
+                .settingsRowSurface(isFocused, focusRingColor)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = ArflixTypography.cardTitle.copy(fontSize = 18.sp),
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = ArflixTypography.caption.copy(fontSize = 13.sp),
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        
+            // Custom toggle indicator instead of Switch
             Box(
                 modifier = Modifier
-                    .size(16.dp)
+                    .width(42.dp)
+                    .height(22.dp)
                     .background(
-                        color = Color.White,
-                        shape = RoundedCornerShape(10.dp)
+                        color = if (isEnabled) SuccessGreen else Ink.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(13.dp)
                     )
-            )
+                    .padding(3.dp),
+                contentAlignment = if (isEnabled) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .background(
+                            color = Color.White,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                )
+            }
         }
     }
 }
@@ -6680,8 +6726,8 @@ private fun CatalogDiscoveryModal(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
-                    .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
+                    .background(shade(0.34f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
+                    .border(1.dp, Ink.copy(alpha = 0.12f), RoundedCornerShape(if (isCompact) 12.dp else 18.dp))
                     .padding(if (isCompact) 10.dp else 18.dp)
             ) {
                 if (isCompact) {
@@ -6689,8 +6735,8 @@ private fun CatalogDiscoveryModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color.Black.copy(alpha = 0.32f))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                            .background(shade(0.32f))
+                            .border(1.dp, Ink.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
                             .padding(10.dp)
                     ) {
                         CatalogDiscoveryInputButton(
@@ -6736,8 +6782,8 @@ private fun CatalogDiscoveryModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.Black.copy(alpha = 0.32f))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
+                            .background(shade(0.32f))
+                            .border(1.dp, Ink.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -6826,8 +6872,8 @@ private fun CatalogDiscoveryModal(
                         .fillMaxWidth()
                         .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Black.copy(alpha = 0.20f))
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+                        .background(shade(0.20f))
+                        .border(1.dp, Ink.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
                         .padding(if (isCompact) 8.dp else 12.dp)
                 ) {
                     when {
@@ -6931,10 +6977,10 @@ private fun CatalogDiscoveryInputButton(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) Color.White else Color.Black.copy(alpha = 0.36f))
+            .background(if (isFocused) Color.White else shade(0.36f))
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) inputFocusColor else Color.White.copy(alpha = 0.55f),
+                color = if (isFocused) inputFocusColor else Ink.copy(alpha = 0.55f),
                 shape = RoundedCornerShape(12.dp)
             )
             .onFocusChanged { isFocused = it.isFocused }
@@ -6944,7 +6990,7 @@ private fun CatalogDiscoveryInputButton(
         Text(
             text = label,
             style = ArflixTypography.caption,
-            color = if (isFocused) Color.Black.copy(alpha = 0.68f) else TextSecondary,
+            color = if (isFocused) shade(0.68f) else TextSecondary,
             maxLines = 1
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -6991,8 +7037,8 @@ private fun CatalogDiscoveryTextInputDialog(
                     .widthIn(max = 680.dp)
                     .fillMaxWidth(if (isCompact) 0.92f else 0.76f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF181818), RoundedCornerShape(16.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                    .background(glassOr(Color(0xFF181818)) { sheet }, RoundedCornerShape(16.dp))
+                    .border(1.dp, Ink.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
                     .padding(if (isCompact) 16.dp else 20.dp)
             ) {
             Text(title, style = ArflixTypography.sectionTitle, color = TextPrimary)
@@ -7006,10 +7052,10 @@ private fun CatalogDiscoveryTextInputDialog(
                 colors = androidx.compose.material3.TextFieldDefaults.colors(
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
-                    focusedContainerColor = Color.White.copy(alpha = 0.08f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                    focusedContainerColor = Ink.copy(alpha = 0.08f),
+                    unfocusedContainerColor = Ink.copy(alpha = 0.06f),
                     focusedIndicatorColor = Color.White,
-                    unfocusedIndicatorColor = Color.White.copy(alpha = 0.18f),
+                    unfocusedIndicatorColor = Ink.copy(alpha = 0.18f),
                     focusedPlaceholderColor = TextSecondary,
                     unfocusedPlaceholderColor = TextSecondary
                 )
@@ -7074,12 +7120,12 @@ private fun CatalogDiscoveryResultRow(
                 .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
                 .clickable(onClick = { if (!isAdded) onAdd() })
                 .background(
-                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
+                    if (isFocused) Ink.copy(alpha = 0.12f) else shade(0.38f),
                     RoundedCornerShape(14.dp)
                 )
                 .border(
                     width = if (isFocused) 3.dp else 1.dp,
-                    color = if (isFocused) compactFocusColor else Color.White.copy(alpha = 0.08f),
+                    color = if (isFocused) compactFocusColor else Ink.copy(alpha = 0.08f),
                     shape = RoundedCornerShape(14.dp)
                 )
                 .padding(12.dp)
@@ -7096,7 +7142,7 @@ private fun CatalogDiscoveryResultRow(
                         Box(
                             modifier = Modifier
                                 .size(width = 52.dp, height = 78.dp)
-                                .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
+                                .background(Ink.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
                         )
                     }
                 } else {
@@ -7108,7 +7154,7 @@ private fun CatalogDiscoveryResultRow(
                             modifier = Modifier
                                 .size(width = 52.dp, height = 78.dp)
                                 .clip(RoundedCornerShape(7.dp))
-                                .background(Color.White.copy(alpha = 0.08f))
+                                .background(Ink.copy(alpha = 0.08f))
                         )
                     }
                 }
@@ -7187,12 +7233,12 @@ private fun CatalogDiscoveryResultRow(
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
             .clickable(onClick = { if (!isAdded) onAdd() })
             .background(
-                if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.38f),
+                if (isFocused) Ink.copy(alpha = 0.12f) else shade(0.38f),
                 RoundedCornerShape(14.dp)
             )
             .border(
                 width = if (isFocused) 3.dp else 1.dp,
-                color = if (isFocused) resultFocusColor else Color.White.copy(alpha = 0.08f),
+                color = if (isFocused) resultFocusColor else Ink.copy(alpha = 0.08f),
                 shape = RoundedCornerShape(14.dp)
             )
             .padding(16.dp),
@@ -7210,7 +7256,7 @@ private fun CatalogDiscoveryResultRow(
                     Box(
                         modifier = Modifier
                             .size(width = 60.dp, height = 90.dp)
-                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
+                            .background(Ink.copy(alpha = 0.08f), RoundedCornerShape(7.dp))
                     )
                 }
             } else {
@@ -7222,7 +7268,7 @@ private fun CatalogDiscoveryResultRow(
                         modifier = Modifier
                             .size(width = 60.dp, height = 90.dp)
                             .clip(RoundedCornerShape(7.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
+                            .background(Ink.copy(alpha = 0.08f))
                     )
                 }
             }
@@ -7329,10 +7375,10 @@ private fun CatalogDiscoveryAddPill(
         modifier = modifier
             .widthIn(min = 112.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(Color.Black.copy(alpha = 0.46f), RoundedCornerShape(10.dp))
+            .background(shade(0.46f), RoundedCornerShape(10.dp))
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.74f),
+                color = Ink.copy(alpha = 0.74f),
                 shape = RoundedCornerShape(10.dp)
             )
             .padding(horizontal = 22.dp, vertical = 13.dp),
@@ -7375,12 +7421,12 @@ private fun SourceChip(
         color = if (active) TextPrimary else TextSecondary,
         modifier = Modifier
             .background(
-                if (active) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.06f),
+                if (active) shade(0.30f) else Ink.copy(alpha = 0.06f),
                 RoundedCornerShape(999.dp)
             )
             .border(
                 width = 1.dp,
-                color = if (active) Color.White.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.12f),
+                color = if (active) Ink.copy(alpha = 0.48f) else Ink.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(999.dp)
             )
             .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 3.dp else 5.dp)
@@ -7404,20 +7450,20 @@ private fun DiscoveryActionButton(
             .clip(RoundedCornerShape(10.dp))
             .background(
                 when {
-                    !enabled -> Color.Black.copy(alpha = 0.18f)
+                    !enabled -> shade(0.18f)
                     isFocused -> Color.White
-                    highlighted -> Color.Black.copy(alpha = 0.46f)
-                    else -> Color.Black.copy(alpha = 0.36f)
+                    highlighted -> shade(0.46f)
+                    else -> shade(0.36f)
                 },
                 RoundedCornerShape(10.dp)
             )
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
                 color = when {
-                    !enabled -> Color.White.copy(alpha = 0.18f)
+                    !enabled -> Ink.copy(alpha = 0.18f)
                     isFocused -> Color.White
-                    highlighted -> Color.White.copy(alpha = 0.74f)
-                    else -> Color.White.copy(alpha = 0.55f)
+                    highlighted -> Ink.copy(alpha = 0.74f)
+                    else -> Ink.copy(alpha = 0.55f)
                 },
                 shape = RoundedCornerShape(10.dp)
             )
@@ -7554,7 +7600,7 @@ private fun CatalogsSettings(
                             selectionMode = false
                             selectedIds = emptySet()
                         }
-                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
+                        .background(Ink.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = Color.White, modifier = Modifier.size(20.dp))
@@ -7589,7 +7635,7 @@ private fun CatalogsSettings(
                         .settingsFocusSlot(1)
                         .fillMaxWidth()
                         .background(
-                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            if (isRowFocused) Ink.copy(alpha = 0.08f) else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
                 ) {
@@ -7666,7 +7712,7 @@ private fun CatalogsSettings(
                         .settingsFocusSlot(1)
                         .fillMaxWidth()
                         .background(
-                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            if (isRowFocused) Ink.copy(alpha = 0.08f) else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -7740,7 +7786,7 @@ private fun CatalogsSettings(
                         .settingsFocusSlot(2)
                         .fillMaxWidth()
                         .background(
-                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            if (isRowFocused) Ink.copy(alpha = 0.08f) else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
                 ) {
@@ -7815,7 +7861,7 @@ private fun CatalogsSettings(
                         .settingsFocusSlot(2)
                         .fillMaxWidth()
                         .background(
-                            if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                            if (isRowFocused) Ink.copy(alpha = 0.08f) else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -7925,7 +7971,7 @@ private fun CatalogsSettings(
                         .fillMaxWidth()
                         .background(
                             if (isSelected) Pink.copy(alpha = 0.2f)
-                            else if (isRowFocused) Color.White.copy(alpha = 0.08f)
+                            else if (isRowFocused) Ink.copy(alpha = 0.08f)
                             else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
@@ -8050,7 +8096,7 @@ private fun CatalogsSettings(
                         .fillMaxWidth()
                         .background(
                             if (isSelected) Pink.copy(alpha = 0.2f)
-                            else if (isRowFocused) Color.White.copy(alpha = 0.08f)
+                            else if (isRowFocused) Ink.copy(alpha = 0.08f)
                             else Color.Transparent,
                             RoundedCornerShape(12.dp)
                         )
@@ -8199,7 +8245,7 @@ private fun NavigationCustomizationModal(
             modifier = Modifier
                 .fillMaxWidth(0.75f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF1A1A2E))
+                .background(glassOr(Color(0xFF1A1A2E)) { sheet })
                 .padding(24.dp)
                 .focusRequester(focusRequester)
                 .focusable()
@@ -8257,7 +8303,7 @@ private fun NavigationCustomizationModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                if (isRowFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                                if (isRowFocused) Ink.copy(alpha = 0.08f) else Color.Transparent,
                                 RoundedCornerShape(12.dp)
                             )
                             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -8432,7 +8478,7 @@ internal fun ManageAppsModal(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                    if (isFocused) Ink.copy(alpha = 0.12f) else Color.Transparent,
                                     androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                                 )
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -8472,7 +8518,7 @@ internal fun ManageAppsModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (focusedIdx == installedApps.size) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                            if (focusedIdx == installedApps.size) Ink.copy(alpha = 0.12f) else Color.Transparent,
                             androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                         )
                         .padding(12.dp),
@@ -8513,7 +8559,7 @@ private fun ManageServicesModal(
                 .fillMaxWidth(0.65f)
                 .fillMaxHeight(0.8f)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                .background(Color(0xFF1A1A2E))
+                .background(glassOr(Color(0xFF1A1A2E)) { sheet })
                 .padding(24.dp)
                 .focusRequester(focusRequester)
                 .focusable()
@@ -8552,7 +8598,7 @@ private fun ManageServicesModal(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                    if (isFocused) Ink.copy(alpha = 0.12f) else Color.Transparent,
                                     androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                                 )
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -8576,7 +8622,7 @@ private fun ManageServicesModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (focusedIdx == children.size) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                            if (focusedIdx == children.size) Ink.copy(alpha = 0.12f) else Color.Transparent,
                             androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                         )
                         .padding(12.dp),
@@ -8601,8 +8647,8 @@ private fun MobileCatalogChip(
     isDestructive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val bgColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f)
-    val borderColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f)
+    val bgColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.12f) else Ink.copy(alpha = 0.06f)
+    val borderColor = if (isDestructive) Color(0xFFDC2626).copy(alpha = 0.4f) else Ink.copy(alpha = 0.12f)
     val contentColor = when {
         !enabled -> TextSecondary.copy(alpha = 0.3f)
         isDestructive -> Color(0xFFFF6B6B)
@@ -8640,16 +8686,16 @@ private fun CatalogActionChip(
     var isPressed by remember { mutableStateOf(false) }
     val visualActive = isFocused || isPressed
     val bgColor = when {
-        !enabled -> Color.Black.copy(alpha = 0.4f)
+        !enabled -> shade(0.4f)
         visualActive && isDestructive -> Color(0xFFDC2626)
         visualActive -> Color.White
-        else -> Color.White.copy(alpha = 0.08f)
+        else -> Ink.copy(alpha = 0.08f)
     }
     val fgColor = when {
-        !enabled -> Color.White.copy(alpha = 0.5f)
+        !enabled -> Ink.copy(alpha = 0.5f)
         visualActive && isDestructive -> Color.White
         visualActive -> Color.Black
-        else -> Color.White.copy(alpha = 0.7f)
+        else -> Ink.copy(alpha = 0.7f)
     }
     val shape = RoundedCornerShape(8.dp)
     if (label != null) {
@@ -8660,7 +8706,7 @@ private fun CatalogActionChip(
                 .background(bgColor, shape)
                 .border(
                     width = if (visualActive) 1.5.dp else 1.dp,
-                    color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                    color = if (visualActive) Ink.copy(alpha = 0.5f) else Ink.copy(alpha = 0.15f),
                     shape = shape
                 )
                 .padding(horizontal = 10.dp),
@@ -8678,7 +8724,7 @@ private fun CatalogActionChip(
                 .background(bgColor, shape)
                 .border(
                     width = if (visualActive) 1.5.dp else 1.dp,
-                    color = if (visualActive) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                    color = if (visualActive) Ink.copy(alpha = 0.5f) else Ink.copy(alpha = 0.15f),
                     shape = shape
                 ),
             contentAlignment = Alignment.Center
@@ -8759,36 +8805,30 @@ private fun StremioAddonsSettings(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Add custom addon button
-        Row(
-            modifier = Modifier
-                .settingsFocusSlot(addons.size)
-                .fillMaxWidth()
-                .clickable(onClick = onAddCustomAddon)
-                .background(
-                    if (focusedIndex == addons.size) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                    RoundedCornerShape(12.dp)
+        GlassFocusInk(focusedIndex == addons.size) {
+            Row(
+                modifier = Modifier
+                    .settingsFocusSlot(addons.size)
+                    .fillMaxWidth()
+                    .clickable(onClick = onAddCustomAddon)
+                    .settingsCardSurface(focusedIndex == addons.size, Pink)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Widgets,
+                    contentDescription = null,
+                    tint = Pink,
+                    modifier = Modifier.size(20.dp)
                 )
-                .border(
-                    width = if (focusedIndex == addons.size) 2.dp else 0.dp,
-                    color = if (focusedIndex == addons.size) Pink else Color.Transparent,
-                    shape = RoundedCornerShape(12.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Add Addon",
+                    style = ArflixTypography.button,
+                    color = Pink
                 )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Widgets,
-                contentDescription = null,
-                tint = Pink,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "Add Addon",
-                style = ArflixTypography.button,
-                color = Pink
-            )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -8828,36 +8868,30 @@ private fun StremioAddonsSettings(
 
         // Add Webhook URL button
         val addUrlIndex = addons.size + 2 + webhookUrls.size
-        Row(
-            modifier = Modifier
-                .settingsFocusSlot(addUrlIndex)
-                .fillMaxWidth()
-                .clickable { onWebhookUrlClick(null) }
-                .background(
-                    if (focusedIndex == addUrlIndex) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                    RoundedCornerShape(12.dp)
+        GlassFocusInk(focusedIndex == addUrlIndex) {
+            Row(
+                modifier = Modifier
+                    .settingsFocusSlot(addUrlIndex)
+                    .fillMaxWidth()
+                    .clickable { onWebhookUrlClick(null) }
+                    .settingsCardSurface(focusedIndex == addUrlIndex, Pink)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Pink,
+                    modifier = Modifier.size(20.dp)
                 )
-                .border(
-                    width = if (focusedIndex == addUrlIndex) 2.dp else 0.dp,
-                    color = if (focusedIndex == addUrlIndex) Pink else Color.Transparent,
-                    shape = RoundedCornerShape(12.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Add Webhook URL",
+                    style = ArflixTypography.button,
+                    color = Pink
                 )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = Pink,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "Add Webhook URL",
-                style = ArflixTypography.button,
-                color = Pink
-            )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -9054,131 +9088,125 @@ private fun AddonRow(
     val isEnabled = addon.isEnabled
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .background(
-                if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                RoundedCornerShape(12.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+    GlassFocusInk(isFocused) {
         Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .settingsCardSurface(isFocused, focusRingColor)
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Pink.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Widgets,
-                    contentDescription = null,
-                    tint = Pink,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column {
-                Text(
-                    text = addon.name,
-                    style = ArflixTypography.cardTitle,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = addon.description,
-                    style = ArflixTypography.caption,
-                    color = TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AddonStatusChip(
-                        text = "Installed",
-                        background = Color(0xFF2563EB).copy(alpha = 0.18f),
-                        textColor = Color(0xFF93C5FD)
-                    )
-                    AddonStatusChip(
-                        text = if (isEnabled) "Enabled" else "Disabled",
-                        background = if (isEnabled) SuccessGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
-                        textColor = if (isEnabled) SuccessGreen else TextSecondary
-                    )
-                }
-            }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .border(
-                        width = if (isToggleFocused) 2.dp else 0.dp,
-                        color = if (isToggleFocused) Color.White else Color.Transparent,
-                        shape = RoundedCornerShape(13.dp)
-                    )
-                    .padding(2.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
                 Box(
                     modifier = Modifier
-                        .width(48.dp)
-                        .height(26.dp)
-                        .background(
-                            color = if (isEnabled) SuccessGreen else Color.White.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(13.dp)
-                        )
-                        .padding(3.dp),
-                    contentAlignment = if (isEnabled) Alignment.CenterEnd else Alignment.CenterStart
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .background(
-                                color = Color.White,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                    )
-                }
-            }
-
-            if (canDelete) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clickable { onDelete() }
-                        .background(
-                            color = if (isDeleteFocused) Color(0xFFEF4444) else Color.White.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        .border(
-                            width = if (isDeleteFocused) 2.dp else 0.dp,
-                            color = if (isDeleteFocused) Color.White else Color.Transparent,
-                            shape = RoundedCornerShape(8.dp)
-                        ),
+                        .size(40.dp)
+                        .background(Pink.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete addon",
-                        tint = if (isDeleteFocused) Color.White else TextSecondary,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Default.Widgets,
+                        contentDescription = null,
+                        tint = Pink,
+                        modifier = Modifier.size(24.dp)
                     )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column {
+                    Text(
+                        text = addon.name,
+                        style = ArflixTypography.cardTitle,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = addon.description,
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AddonStatusChip(
+                            text = "Installed",
+                            background = Color(0xFF2563EB).copy(alpha = 0.18f),
+                            textColor = Color(0xFF93C5FD)
+                        )
+                        AddonStatusChip(
+                            text = if (isEnabled) "Enabled" else "Disabled",
+                            background = if (isEnabled) SuccessGreen.copy(alpha = 0.18f) else Ink.copy(alpha = 0.08f),
+                            textColor = if (isEnabled) SuccessGreen else TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .border(
+                            width = if (isToggleFocused) 2.dp else 0.dp,
+                            color = if (isToggleFocused) Color.White else Color.Transparent,
+                            shape = RoundedCornerShape(13.dp)
+                        )
+                        .padding(2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(48.dp)
+                            .height(26.dp)
+                            .background(
+                                color = if (isEnabled) SuccessGreen else Ink.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(13.dp)
+                            )
+                            .padding(3.dp),
+                        contentAlignment = if (isEnabled) Alignment.CenterEnd else Alignment.CenterStart
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .background(
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                        )
+                    }
+                }
+
+                if (canDelete) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable { onDelete() }
+                            .background(
+                                color = if (isDeleteFocused) Color(0xFFEF4444) else Ink.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                width = if (isDeleteFocused) 2.dp else 0.dp,
+                                color = if (isDeleteFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete addon",
+                            tint = if (isDeleteFocused) Color.White else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -9339,60 +9367,54 @@ private fun AccountActionRow(
     isFocused: Boolean
 ) {
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                RoundedCornerShape(12.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = ArflixTypography.cardTitle,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = description,
-                style = ArflixTypography.caption,
-                color = TextSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
+    GlassFocusInk(isFocused) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .background(
-                    if (isEnabled) Pink.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .fillMaxWidth()
+                .settingsCardSurface(isFocused, focusRingColor)
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = if (isEnabled) Icons.Default.LinkOff else Icons.Default.Link,
-                contentDescription = null,
-                tint = if (isEnabled) Pink else TextSecondary,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = actionLabel.uppercase(),
-                style = ArflixTypography.label,
-                color = if (isEnabled) Pink else TextSecondary
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = ArflixTypography.cardTitle,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = description,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .background(
+                        if (isEnabled) Pink.copy(alpha = 0.2f) else Ink.copy(alpha = 0.1f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = if (isEnabled) Icons.Default.LinkOff else Icons.Default.Link,
+                    contentDescription = null,
+                    tint = if (isEnabled) Pink else TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = actionLabel.uppercase(),
+                    style = ArflixTypography.label,
+                    color = if (isEnabled) Pink else TextSecondary
+                )
+            }
         }
     }
 }
@@ -9408,61 +9430,55 @@ private fun SettingsActionRow(
     modifier: Modifier = Modifier
 ) {
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .background(
-                if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                RoundedCornerShape(12.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = ArflixTypography.cardTitle,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = description,
-                style = ArflixTypography.caption,
-                color = TextSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
+    GlassFocusInk(isFocused) {
         Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .settingsCardSurface(isFocused, focusRingColor)
+                .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .background(
-                    Pink.copy(alpha = 0.2f),
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = Pink,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = actionLabel.uppercase(),
-                style = ArflixTypography.label,
-                color = Pink
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = ArflixTypography.cardTitle,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = description,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .background(
+                        Pink.copy(alpha = 0.2f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Pink,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = actionLabel.uppercase(),
+                    style = ArflixTypography.label,
+                    color = Pink
+                )
+            }
         }
     }
 }
@@ -9484,144 +9500,138 @@ private fun AccountRow(
     expirationText: String? = null
 ) {
     val focusRingColor = resolveFocusBorderColor(fallback = Pink)
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(enabled = !isWorking) {
-                if (isConnected) onDisconnect() else onConnect()
-            }
-            .background(
-                if (isFocused) Color.White.copy(alpha = 0.1f) else BackgroundElevated,
-                RoundedCornerShape(12.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) focusRingColor else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(20.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+    GlassFocusInk(isFocused) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable(enabled = !isWorking) {
+                    if (isConnected) onDisconnect() else onConnect()
+                }
+                .settingsCardSurface(isFocused, focusRingColor)
+                .padding(20.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    style = ArflixTypography.cardTitle,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = description,
-                    style = ArflixTypography.caption,
-                    color = TextSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = name,
+                        style = ArflixTypography.cardTitle,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = description,
+                        style = ArflixTypography.caption,
+                        color = TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             
-            if (isConnected) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .background(SuccessGreen.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(16.dp)
+                if (isConnected) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(SuccessGreen.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = SuccessGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.connected).uppercase(),
+                            style = ArflixTypography.label,
+                            color = SuccessGreen
+                        )
+                    }
+                } else if (isWorking) {
+                    LoadingIndicator(
+                        color = Pink,
+                        size = 24.dp,
+                        strokeWidth = 2.dp
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.connected).uppercase(),
-                        style = ArflixTypography.label,
-                        color = SuccessGreen
-                    )
-                }
-            } else if (isWorking) {
-                LoadingIndicator(
-                    color = Pink,
-                    size = 24.dp,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .background(Pink.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Link,
-                        contentDescription = null,
-                        tint = Pink,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.connect).uppercase(),
-                        style = ArflixTypography.label,
-                        color = Pink
-                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(Pink.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = Pink,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.connect).uppercase(),
+                            style = ArflixTypography.label,
+                            color = Pink
+                        )
+                    }
                 }
             }
-        }
         
-        // Show expiration date when connected
-        if (isConnected && expirationText != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = expirationText,
-                style = ArflixTypography.caption,
-                color = TextSecondary.copy(alpha = 0.7f)
-            )
-        }
-
-        // Show auth code when polling
-        if (!isConnected && isWorking && !authCode.isNullOrBlank() && !authUrl.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Go to: $authUrl",
-                style = ArflixTypography.caption,
-                color = TextSecondary.copy(alpha = 0.9f)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Show expiration date when connected
+            if (isConnected && expirationText != null) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = stringResource(R.string.enter_code),
+                    text = expirationText,
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.7f)
+                )
+            }
+
+            // Show auth code when polling
+            if (!isConnected && isWorking && !authCode.isNullOrBlank() && !authUrl.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Go to: $authUrl",
                     style = ArflixTypography.caption,
                     color = TextSecondary.copy(alpha = 0.9f)
                 )
-                Spacer(modifier = Modifier.width(10.dp))
-                Box(
-                    modifier = Modifier
-                        .background(Pink.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
-                        .border(1.dp, Pink.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = authCode,
-                        style = ArflixTypography.label,
-                        color = Pink
+                        text = stringResource(R.string.enter_code),
+                        style = ArflixTypography.caption,
+                        color = TextSecondary.copy(alpha = 0.9f)
                     )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Pink.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Pink.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = authCode,
+                            style = ArflixTypography.label,
+                            color = Pink
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = stringResource(R.string.loading_label),
+                    style = ArflixTypography.caption,
+                    color = TextSecondary.copy(alpha = 0.7f)
+                )
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = stringResource(R.string.loading_label),
-                style = ArflixTypography.caption,
-                color = TextSecondary.copy(alpha = 0.7f)
-            )
         }
     }
 }
@@ -9795,8 +9805,8 @@ private fun InputModalLegacy(
                         colors = androidx.compose.material3.TextFieldDefaults.colors(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
-                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = Ink.copy(alpha = 0.1f),
+                            unfocusedContainerColor = Ink.copy(alpha = 0.05f),
                             focusedIndicatorColor = Pink,
                             unfocusedIndicatorColor = Color.Transparent,
                             cursorColor = Pink
@@ -9806,7 +9816,7 @@ private fun InputModalLegacy(
                             .focusRequester(fieldFocusRequesters[index])
                             .border(
                                 width = if (isFocused) 2.dp else 1.dp,
-                                color = if (isFocused) resolveFocusBorderColor(fallback = Pink) else Color.White.copy(alpha = 0.2f),
+                                color = if (isFocused) resolveFocusBorderColor(fallback = Pink) else Ink.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                     )
@@ -9826,7 +9836,7 @@ private fun InputModalLegacy(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        color = if (isPasteFocused) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f),
+                        color = if (isPasteFocused) Ink.copy(alpha = 0.15f) else Ink.copy(alpha = 0.08f),
                         shape = RoundedCornerShape(8.dp)
                     )
                     .border(
@@ -9865,7 +9875,7 @@ private fun InputModalLegacy(
                     modifier = Modifier
                         .weight(1f)
                         .background(
-                            color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
+                            color = if (isCancelFocused) Ink.copy(alpha = 0.2f) else Ink.copy(alpha = 0.1f),
                             shape = RoundedCornerShape(8.dp)
                         )
                         .border(
@@ -10021,7 +10031,7 @@ fun InputModal(
                     .imePadding()
                     .heightIn(max = 560.dp)
                     .background(BackgroundElevated, RoundedCornerShape(14.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                    .border(1.dp, Ink.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
                     .padding(horizontal = if (LocalDeviceType.current.isTouchDevice()) 16.dp else 20.dp, vertical = 18.dp)
                     .focusRequester(modalFocusRequester)
                     .focusable()
@@ -10149,12 +10159,12 @@ fun InputModal(
                                     modifier = Modifier
                                         .size(22.dp)
                                         .background(
-                                            if (isFocused) Pink.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.08f),
+                                            if (isFocused) Pink.copy(alpha = 0.20f) else Ink.copy(alpha = 0.08f),
                                             RoundedCornerShape(11.dp)
                                         )
                                         .border(
                                             1.dp,
-                                            if (isFocused) Pink else Color.White.copy(alpha = 0.12f),
+                                            if (isFocused) Pink else Ink.copy(alpha = 0.12f),
                                             RoundedCornerShape(11.dp)
                                         ),
                                     contentAlignment = Alignment.Center
@@ -10177,10 +10187,10 @@ fun InputModal(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color.White.copy(alpha = if (isFocused) 0.12f else 0.05f), RoundedCornerShape(10.dp))
+                                    .background(Ink.copy(alpha = if (isFocused) 0.12f else 0.05f), RoundedCornerShape(10.dp))
                                     .border(
                                         width = if (isFocused) 2.dp else 1.dp,
-                                        color = if (isFocused) regexFieldFocusColor else Color.White.copy(alpha = 0.2f),
+                                        color = if (isFocused) regexFieldFocusColor else Ink.copy(alpha = 0.2f),
                                         shape = RoundedCornerShape(10.dp)
                                     )
                                     .padding(2.dp)
@@ -10305,12 +10315,12 @@ fun InputModal(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            color = if (isPasteFocused) Color.White else Color.Black.copy(alpha = 0.82f),
+                            color = if (isPasteFocused) Color.White else shade(0.82f),
                             shape = RoundedCornerShape(10.dp)
                         )
                         .border(
                             width = 1.dp,
-                            color = if (isPasteFocused) Color.White else Color.White.copy(alpha = 0.14f),
+                            color = if (isPasteFocused) Color.White else Ink.copy(alpha = 0.14f),
                             shape = RoundedCornerShape(10.dp)
                         )
                         .clickable {
@@ -10333,14 +10343,14 @@ fun InputModal(
                     Icon(
                         imageVector = Icons.Default.ContentPaste,
                         contentDescription = "Paste",
-                        tint = if (isPasteFocused) Color.Black else Color.White,
+                        tint = if (isPasteFocused) Color.Black else Ink,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Paste from Clipboard",
                         style = ArflixTypography.button,
-                        color = if (isPasteFocused) Color.Black else Color.White
+                        color = if (isPasteFocused) Color.Black else Ink
                     )
                 }
 
@@ -10356,12 +10366,12 @@ fun InputModal(
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                color = if (isCancelFocused) Color.White else Color.Black.copy(alpha = 0.82f),
+                                color = if (isCancelFocused) Color.White else shade(0.82f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
                                 width = 1.dp,
-                                color = if (isCancelFocused) Color.White else Color.White.copy(alpha = 0.14f),
+                                color = if (isCancelFocused) Color.White else Ink.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .clickable {
@@ -10374,7 +10384,7 @@ fun InputModal(
                         Text(
                             text = tr("Cancel"),
                             style = ArflixTypography.button,
-                            color = if (isCancelFocused) Color.Black else Color.White
+                            color = if (isCancelFocused) Color.Black else Ink
                         )
                     }
 
@@ -10384,12 +10394,12 @@ fun InputModal(
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                color = if (isConfirmFocused) Color.White else Color.Black.copy(alpha = 0.82f),
+                                color = if (isConfirmFocused) Color.White else shade(0.82f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
                                 width = 1.dp,
-                                color = if (isConfirmFocused) Color.White else Color.White.copy(alpha = 0.14f),
+                                color = if (isConfirmFocused) Color.White else Ink.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .clickable {
@@ -10402,7 +10412,7 @@ fun InputModal(
                         Text(
                             text = tr("Confirm"),
                             style = ArflixTypography.button,
-                            color = if (isConfirmFocused) Color.Black else Color.White
+                            color = if (isConfirmFocused) Color.Black else Ink
                         )
                     }
                 }
@@ -10508,12 +10518,12 @@ private fun SubtitlePickerModal(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                                    if (isFocused) Ink.copy(alpha = 0.12f) else Color.Transparent,
                                     RoundedCornerShape(10.dp)
                                 )
                                 .border(
                                     width = if (isFocused) 2.dp else 1.dp,
-                                    color = if (isFocused) optionFocusColor else Color.White.copy(alpha = 0.1f),
+                                    color = if (isFocused) optionFocusColor else Ink.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .clickable { onSelect(option) }
@@ -10666,7 +10676,7 @@ private fun UiModeWarningDialog(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                color = if (isCancelFocused) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
+                                color = if (isCancelFocused) Ink.copy(alpha = 0.2f) else Ink.copy(alpha = 0.1f)
                             )
                             .clickable { onDismiss() }
                             .border(
@@ -11591,8 +11601,8 @@ private fun DriveAccountPickerDialog(
                         onClick = { onSelect(account) },
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                         colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Color.White.copy(alpha = 0.05f),
-                            focusedContainerColor = Color.White.copy(alpha = 0.12f)
+                            containerColor = Ink.copy(alpha = 0.05f),
+                            focusedContainerColor = Ink.copy(alpha = 0.12f)
                         ),
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp))
                     ) {

@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.screens.home
 
+import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -56,8 +59,8 @@ import com.arflix.tv.data.model.MediaItem
 import com.arflix.tv.ui.screens.episeerr.EpiseerrWebviewScreen
 import com.arflix.tv.ui.screens.tv.live.LiveColors
 import com.arflix.tv.ui.screens.tv.live.LiveType
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.PlexDeepLink
 import com.arflix.tv.util.settingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -72,6 +75,12 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import javax.inject.Inject
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+
 
 // ── ViewModel ────────────────────────────────────────────────────────────────
 

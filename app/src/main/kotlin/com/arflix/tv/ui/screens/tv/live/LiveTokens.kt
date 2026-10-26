@@ -16,6 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.ui.glass.GlassPalette
 import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.overVideo
+import com.arflix.tv.ui.glass.overVideoDim
+import com.arflix.tv.ui.glass.sheetRaised
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.theme.InterFontFamily
 
@@ -57,6 +60,10 @@ data class LivePalette(
     val shadowFocus: Color = Color.Transparent,
     val bgTop: Color = bg,
     val bgBottom: Color = bg,
+    // Over live video: an opaque panel and full-contrast text (glass is far more opaque here).
+    val videoPanel: Color = panelDeep.copy(alpha = 0.85f),
+    val videoInk: Color = fg,
+    val videoDim: Color = fgDim,
 )
 
 // Unified near-black palette so the AppTopBar gradient blends cleanly
@@ -114,8 +121,26 @@ fun livePaletteForGlass(g: GlassPalette): LivePalette {
         shadowFocus = g.shadowFocus,
         bgTop = g.bgTop,
         bgBottom = g.bgBottom,
+        videoPanel = g.overVideo,
+        videoInk = g.ink,
+        videoDim = g.overVideoDim,
     )
 }
+
+/**
+ * The guide's pop-ups over live video (HUD, splash, search, programme info, keypad, toasts) in the
+ * glass look: same day/night ink, but opaque panels and full-contrast secondary text, since glass
+ * over bright video was unreadable (Joe, 2026-10-25). Focus rings are ink so they show on white.
+ */
+fun livePaletteOverVideo(g: GlassPalette): LivePalette = livePaletteForGlass(g).copy(
+    bg = g.overVideo,
+    panel = g.sheetRaised,
+    panelDeep = g.overVideo,
+    panelRaised = g.sheetRaised,
+    fgDim = g.overVideoDim,
+    fgMute = g.overVideoDim,
+    focusRing = g.ink,
+)
 
 val LocalLivePalette = staticCompositionLocalOf { LiveDarkPalette }
 
@@ -146,6 +171,10 @@ object LiveColors {
     val FocusInk: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.focusInk
     val FocusInkDim: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.focusInkDim
     val ShadowFocus: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.shadowFocus
+    val Shadow: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.shadow
+    val VideoPanel: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.videoPanel
+    val VideoInk: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.videoInk
+    val VideoDim: Color @Composable @ReadOnlyComposable get() = LocalLivePalette.current.videoDim
 
     data class Brand(val bg: Color, val fg: Color)
     val BrandNews    = Brand(Color(0xFF8A2F2F), Color(0xFFFDE7D4))
@@ -194,12 +223,26 @@ fun Modifier.liveRootBackground(): Modifier {
 /**
  * Provides the guide palette for the current theme: glass day/night when the Glass theme is on,
  * otherwise the original dark guide. Inside, the custom focus colour becomes the glass "live" red
- * for the guide's now/active accents (focus itself is the white pill).
+ * for the guide's now/active accents (focus itself is the white pill) unless [liveFocus] is off.
  */
 @Composable
-fun ProvideLivePalette(glass: GlassPalette? = LocalGlass.current, content: @Composable () -> Unit) {
+fun ProvideLivePalette(
+    glass: GlassPalette? = LocalGlass.current,
+    liveFocus: Boolean = true,
+    overVideo: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     if (glass == null) {
         content()
+    } else if (overVideo) {
+        CompositionLocalProvider(
+            LocalLivePalette provides livePaletteOverVideo(glass),
+            LocalFocusBorderColorOverride provides glass.live,
+            content = content,
+        )
+    } else if (!liveFocus) {
+        // Screens outside the guide (library, cameras) keep the app's focus colour.
+        CompositionLocalProvider(LocalLivePalette provides livePaletteForGlass(glass), content = content)
     } else {
         CompositionLocalProvider(
             LocalLivePalette provides livePaletteForGlass(glass),

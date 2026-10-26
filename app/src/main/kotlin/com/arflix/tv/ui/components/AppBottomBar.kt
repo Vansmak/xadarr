@@ -1,5 +1,7 @@
 package com.arflix.tv.ui.components
 
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.foundation.background
@@ -53,8 +55,16 @@ import com.arflix.tv.data.model.MediaType
 import com.arflix.tv.navigation.Screen
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 // TiviMate-clone redesign: mirrors the TV side menu (NavRail/NavSectionRepository —
 // Guide/Movies/Shows/Apps/Cameras/Settings), not the old Home/Search/Discover/Tv set.
@@ -101,7 +111,7 @@ fun AppBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Color.White.copy(alpha = 0.08f))
+                .background(Ink.copy(alpha = 0.08f))
         )
 
         Row(
@@ -122,10 +132,10 @@ fun AppBottomBar(
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .then(
-                            if (isFocused) Modifier.border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                            if (isFocused) Modifier.border(2.dp, Ink.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
                             else Modifier
                         )
-                        .background(if (isFocused) Color.White.copy(alpha = 0.1f) else Color.Transparent)
+                        .background(if (isFocused) Ink.copy(alpha = 0.1f) else Color.Transparent)
                         .focusable()
                         .onFocusChanged { isFocused = it.isFocused }
                         .onKeyEvent { event ->
@@ -144,8 +154,8 @@ fun AppBottomBar(
                             .clip(RoundedCornerShape(12.dp))
                             .background(
                                 when {
-                                    isFocused -> Color.White.copy(alpha = 0.18f)
-                                    isSelected -> Color.White.copy(alpha = 0.12f)
+                                    isFocused -> Ink.copy(alpha = 0.18f)
+                                    isSelected -> Ink.copy(alpha = 0.12f)
                                     else -> Color.Transparent
                                 }
                             )
@@ -156,7 +166,7 @@ fun AppBottomBar(
                             imageVector = item.icon,
                             contentDescription = label,
                             tint = when {
-                                isFocused -> Color.White
+                                isFocused -> Ink
                                 isSelected -> TextPrimary
                                 else -> TextSecondary.copy(alpha = 0.6f)
                             },
@@ -168,7 +178,7 @@ fun AppBottomBar(
                             modifier = Modifier
                                 .size(4.dp)
                                 .clip(CircleShape)
-                                .background(if (isFocused) Color.White else TextPrimary)
+                                .background(if (isFocused) Ink else TextPrimary)
                         )
                     } else {
                         Spacer(modifier = Modifier.size(4.dp))
@@ -177,7 +187,7 @@ fun AppBottomBar(
                         text = label,
                         style = ArflixTypography.caption.copy(fontSize = 10.sp),
                         color = when {
-                            isFocused -> Color.White
+                            isFocused -> Ink
                             isSelected -> TextPrimary
                             else -> TextSecondary.copy(alpha = 0.6f)
                         },

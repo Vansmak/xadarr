@@ -147,6 +147,12 @@ import com.arflix.tv.util.settingsDataStore
 import com.arflix.tv.util.weightedSubtitleScore
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.theme.ArflixTypography
+import androidx.compose.runtime.ReadOnlyComposable
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.overVideo
+import com.arflix.tv.ui.glass.overVideoDim
+import com.arflix.tv.ui.glass.sheetFocus
+import com.arflix.tv.ui.glass.sheetFocusInk
 import com.arflix.tv.ui.theme.Pink
 import com.arflix.tv.ui.theme.PurpleDark
 import com.arflix.tv.ui.theme.PurpleLight
@@ -178,6 +184,16 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import com.arflix.tv.R
+
+// Glass (phase 2, 2026-10-25): the player's menus and dialogs sit on live video, so on Glass they
+// use the opaque over-video panel (white by day, smoke at night) with full-contrast text. Text on
+// the video scrims stays white. Other themes: the old values.
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+private val PanelInk: Color @Composable @ReadOnlyComposable get() = glassOr(TextPrimary) { ink }
+private val PanelDim: Color @Composable @ReadOnlyComposable get() = glassOr(TextSecondary) { overVideoDim }
+/** Focused item: the white pill at night, an ink pill on the white day panel (sheetFocus). */
+private val FocusFill: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { sheetFocus }
+private val FocusText: Color @Composable @ReadOnlyComposable get() = glassOr(Color.Black) { sheetFocusInk }
 
 /**
  * Netflix-style Player UI for Android TV
@@ -2936,7 +2952,7 @@ fun PlayerScreen(
                 Column(
                     modifier = Modifier
                         .width(480.dp)
-                        .background(Color(0xFF1A1A1A), RoundedCornerShape(16.dp))
+                        .background(glassOr(Color(0xFF1A1A1A)) { overVideo }, RoundedCornerShape(16.dp))
                         .border(1.dp, accentColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                         .padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -2960,7 +2976,7 @@ fun PlayerScreen(
                     Text(
                         text = if (isSetup) "Addon Setup Required" else "Playback Error",
                         style = ArflixTypography.sectionTitle,
-                        color = TextPrimary
+                        color = PanelInk
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -2968,7 +2984,7 @@ fun PlayerScreen(
                     Text(
                         text = uiState.error ?: "An unknown error occurred",
                         style = ArflixTypography.body,
-                        color = TextSecondary,
+                        color = PanelDim,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -2978,7 +2994,7 @@ fun PlayerScreen(
                         Text(
                             text = stringResource(R.string.no_results),
                             style = ArflixTypography.caption,
-                            color = TextSecondary.copy(alpha = 0.7f),
+                            color = PanelDim.copy(alpha = 0.7f),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -3479,10 +3495,10 @@ private fun SubtitleMenu(
                     .width(480.dp)
                     .padding(end = 32.dp)
                     .background(
-                        Color.Black.copy(alpha = 0.85f),
+                        glassOr(Color.Black.copy(alpha = 0.85f)) { overVideo },
                         RoundedCornerShape(16.dp)
                     )
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                    .border(1.dp, Ink.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
                     .padding(16.dp)
                     .clickable(enabled = false) {}
             ) {
@@ -3508,7 +3524,7 @@ private fun SubtitleMenu(
                     Text(
                         text = streamSource,
                         style = ArflixTypography.caption.copy(fontSize = 11.sp),
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = Ink.copy(alpha = 0.5f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 10.dp)
@@ -3554,7 +3570,7 @@ private fun SubtitleMenu(
                                     .width(1.dp)
                                     .fillMaxHeight()
                                     .padding(vertical = 4.dp)
-                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .background(Ink.copy(alpha = 0.1f))
                             )
 
                             // Right panel: tracks for selected language
@@ -3569,7 +3585,7 @@ private fun SubtitleMenu(
                                     Text(
                                         text = "—",
                                         style = ArflixTypography.caption,
-                                        color = TextSecondary.copy(alpha = 0.3f)
+                                        color = PanelDim.copy(alpha = 0.3f)
                                     )
                                 }
                             } else {
@@ -3621,7 +3637,7 @@ private fun SubtitleMenu(
                                     Text(
                                         text = stringResource(R.string.no_audio_tracks),
                                         style = ArflixTypography.body,
-                                        color = TextSecondary,
+                                        color = PanelDim,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 }
@@ -3661,7 +3677,7 @@ private fun SubtitleMenu(
                     Text(
                         text = "${stringResource(R.string.subtitles)} • ${stringResource(R.string.back)} • ${stringResource(R.string.close)}",
                         style = ArflixTypography.caption,
-                        color = TextSecondary.copy(alpha = 0.5f)
+                        color = PanelDim.copy(alpha = 0.5f)
                     )
                 }
             }
@@ -3687,7 +3703,7 @@ private fun SubtitleMenu(
                     .fillMaxHeight(0.70f)
                     .align(Alignment.BottomCenter)
                     .background(
-                        Color(0xFF1A1A1A),
+                        glassOr(Color(0xFF1A1A1A)) { overVideo },
                         RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                     )
                     .clickable(
@@ -3709,7 +3725,7 @@ private fun SubtitleMenu(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = Color.White
+                        color = Ink
                     )
                     Box(
                         modifier = Modifier
@@ -3723,7 +3739,7 @@ private fun SubtitleMenu(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = stringResource(R.string.close),
-                            tint = Color.White,
+                            tint = Ink,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -3748,11 +3764,11 @@ private fun SubtitleMenu(
                                     onTabChanged(tabIndex)
                                 }
                                 .background(
-                                    if (selected) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                                    if (selected) Ink.copy(alpha = 0.15f) else Color.Transparent,
                                     RoundedCornerShape(20.dp)
                                 )
                                 .then(
-                                    if (selected) Modifier.border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                                    if (selected) Modifier.border(1.dp, Ink.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                                     else Modifier
                                 )
                                 .padding(horizontal = 20.dp, vertical = 8.dp)
@@ -3763,7 +3779,7 @@ private fun SubtitleMenu(
                                     fontSize = 14.sp,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                                 ),
-                                color = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
+                                color = if (selected) Ink else Ink.copy(alpha = 0.6f)
                             )
                         }
                     }
@@ -3775,7 +3791,7 @@ private fun SubtitleMenu(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .height(1.dp)
-                        .background(Color.White.copy(alpha = 0.1f))
+                        .background(Ink.copy(alpha = 0.1f))
                 )
 
                 // ── Track list ────────────────────────────────────────────
@@ -3800,7 +3816,7 @@ private fun SubtitleMenu(
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp)
                                     .height(1.dp)
-                                    .background(Color.White.copy(alpha = 0.06f))
+                                    .background(Ink.copy(alpha = 0.06f))
                             )
                         }
 
@@ -3813,7 +3829,7 @@ private fun SubtitleMenu(
                                         fontSize = 10.sp,
                                         letterSpacing = 1.sp
                                     ),
-                                    color = TextSecondary.copy(alpha = 0.45f),
+                                    color = PanelDim.copy(alpha = 0.45f),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(start = 16.dp, top = 8.dp, bottom = 2.dp)
@@ -3840,7 +3856,7 @@ private fun SubtitleMenu(
                                             .fillMaxWidth()
                                             .padding(horizontal = 8.dp)
                                             .height(1.dp)
-                                            .background(Color.White.copy(alpha = 0.06f))
+                                            .background(Ink.copy(alpha = 0.06f))
                                     )
                                 }
                             }
@@ -3852,7 +3868,7 @@ private fun SubtitleMenu(
                                 Text(
                                     text = stringResource(R.string.no_audio_tracks),
                                     style = ArflixTypography.body.copy(fontSize = 14.sp),
-                                    color = TextSecondary,
+                                    color = PanelDim,
                                     modifier = Modifier.padding(16.dp)
                                 )
                             }
@@ -3883,7 +3899,7 @@ private fun SubtitleMenu(
                                             .fillMaxWidth()
                                             .padding(horizontal = 8.dp)
                                             .height(1.dp)
-                                            .background(Color.White.copy(alpha = 0.06f))
+                                            .background(Ink.copy(alpha = 0.06f))
                                     )
                                 }
                             }
@@ -3908,11 +3924,11 @@ private fun TabButton(
         modifier = modifier
             .clickable { onClick() }
             .background(
-                if (isSelected) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                if (isSelected) Ink.copy(alpha = 0.2f) else Color.Transparent,
                 RoundedCornerShape(20.dp)
             )
             .then(
-                if (isSelected) Modifier.border(1.dp, Color.White, RoundedCornerShape(20.dp))
+                if (isSelected) Modifier.border(1.dp, Ink, RoundedCornerShape(20.dp))
                 else Modifier
             )
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -3923,7 +3939,7 @@ private fun TabButton(
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 fontSize = 14.sp
             ),
-            color = Color.White
+            color = Ink
         )
     }
 }
@@ -3945,7 +3961,7 @@ private fun TrackMenuItem(
             .fillMaxWidth()
             .clickable { onClick() }
             .background(
-                if (isFocused) Color.White else Color.Transparent,
+                if (isFocused) FocusFill else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -3956,7 +3972,7 @@ private fun TrackMenuItem(
             Text(
                 text = label,
                 style = ArflixTypography.body.copy(fontSize = 14.sp),
-                color = if (isFocused) Color.Black else Color.White
+                color = if (isFocused) FocusText else Ink
             )
             if (subtitle != null) {
                 Text(
@@ -3965,14 +3981,14 @@ private fun TrackMenuItem(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     ),
-                    color = if (isFocused) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
+                    color = if (isFocused) FocusText.copy(alpha = 0.85f) else Ink.copy(alpha = 0.85f)
                 )
             }
             if (subtitleDetail != null) {
                 Text(
                     text = subtitleDetail,
                     style = ArflixTypography.caption.copy(fontSize = 10.sp),
-                    color = if (isFocused) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.5f)
+                    color = if (isFocused) FocusText.copy(alpha = 0.55f) else Ink.copy(alpha = 0.5f)
                 )
             }
         }
@@ -3981,7 +3997,7 @@ private fun TrackMenuItem(
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = stringResource(R.string.selected),
-                tint = if (isFocused) Color.Black else Color.White,
+                tint = if (isFocused) FocusText else Ink,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -4001,8 +4017,8 @@ private fun LangPanelItem(
             .fillMaxWidth()
             .background(
                 when {
-                    isFocused -> Color.White
-                    isActivePanel -> Color.White.copy(alpha = 0.12f)
+                    isFocused -> FocusFill
+                    isActivePanel -> Ink.copy(alpha = 0.12f)
                     else -> Color.Transparent
                 },
                 RoundedCornerShape(8.dp)
@@ -4014,7 +4030,7 @@ private fun LangPanelItem(
         Text(
             text = name,
             style = ArflixTypography.body.copy(fontSize = 13.sp),
-            color = if (isFocused) Color.Black else Color.White,
+            color = if (isFocused) FocusText else Ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
@@ -4024,7 +4040,7 @@ private fun LangPanelItem(
             Box(
                 modifier = Modifier
                     .background(
-                        if (isFocused) Color.Black.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.15f),
+                        if (isFocused) FocusText.copy(alpha = 0.2f) else Ink.copy(alpha = 0.15f),
                         RoundedCornerShape(10.dp)
                     )
                     .padding(horizontal = 5.dp, vertical = 1.dp)
@@ -4032,14 +4048,14 @@ private fun LangPanelItem(
                 Text(
                     text = "$count",
                     style = ArflixTypography.caption.copy(fontSize = 10.sp),
-                    color = if (isFocused) Color.Black else Color.White
+                    color = if (isFocused) FocusText else Ink
                 )
             }
         } else if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
-                tint = if (isFocused) Color.Black else Color.White,
+                tint = if (isFocused) FocusText else Ink,
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -4070,7 +4086,7 @@ private fun MobileTrackItem(
             Text(
                 text = name,
                 style = ArflixTypography.body.copy(fontSize = 14.sp),
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f),
+                color = if (isSelected) Ink else Ink.copy(alpha = 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -4078,7 +4094,7 @@ private fun MobileTrackItem(
                 Text(
                     text = description,
                     style = ArflixTypography.caption.copy(fontSize = 12.sp),
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = Ink.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

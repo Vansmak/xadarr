@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +39,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.sheet
+import com.arflix.tv.ui.glass.sheetRaised
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -48,11 +52,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 
-private val Panel = Color(0xFF15171F)
-private val RowBg = Color(0xFF1E2130)
-private val Accent = Color(0xFF4F7FB0)
-private val Fg = Color(0xFFF5F5F8)
-private val FgDim = Color(0xFFB5B6BE)
+// Glass (2026-10-25): these follow the glass look's day/night; the old values on other themes.
+private val Panel: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFF15171F)) { sheet }
+private val RowBg: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFF1E2130)) { sheetRaised }
+private val Accent: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFF4F7FB0)) { accent }
+private val Fg: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFFF5F5F8)) { ink }
+private val FgDim: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFFB5B6BE)) { dim }
+private val FocusRing: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
 
 /**
  * Settings → Live TV → Channels: every channel in the groups you show, in channel-number order,
@@ -161,7 +167,7 @@ private fun ChannelFilterField(value: String, onChange: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 1.dp, if (focused) Color.White else Color(0x33FFFFFF), RoundedCornerShape(10.dp))
+            .border(if (focused) 2.dp else 1.dp, if (focused) FocusRing else glassOr(Color(0x33FFFFFF)) { chip }, RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         decorationBox = { inner ->
             if (value.isEmpty()) Text("Filter: name, group or number (e.g. 4 for the 4000s, STARZ)", color = FgDim, fontSize = 16.sp)
@@ -178,7 +184,7 @@ private fun ChannelsPill(label: String, modifier: Modifier = Modifier, onClick: 
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) Accent else RowBg)
-            .border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(if (focused) 2.dp else 0.dp, if (focused) FocusRing else Color.Transparent, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
@@ -196,7 +202,7 @@ private fun ChannelRowItem(ch: SettingsViewModel.ChannelRow, onToggle: () -> Uni
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) Accent.copy(alpha = 0.35f) else RowBg)
-            .border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(if (focused) 2.dp else 0.dp, if (focused) FocusRing else Color.Transparent, RoundedCornerShape(10.dp))
             .clickable(onClick = onToggle)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

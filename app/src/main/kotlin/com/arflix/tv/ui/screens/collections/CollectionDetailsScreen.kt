@@ -1,5 +1,7 @@
 package com.arflix.tv.ui.screens.collections
 
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -73,8 +75,8 @@ import com.arflix.tv.ui.components.rememberCatalogueRowLayoutMode
 import com.arflix.tv.ui.focus.xadarrDpadFocusGroup
 import com.arflix.tv.ui.theme.ArflixTypography
 import com.arflix.tv.ui.theme.appBackgroundDark
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
 import com.arflix.tv.util.LocalDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,6 +88,14 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 enum class CollectionTab { MOVIES, SERIES }
 
@@ -695,16 +705,16 @@ private fun CollectionTabChip(
     val bg = when {
         isSelected -> Color.White
         isFocused -> Color.Transparent
-        else -> Color.White.copy(alpha = 0.08f)
+        else -> Ink.copy(alpha = 0.08f)
     }
     val fg = when {
-        isSelected -> appBackgroundDark()
-        isFocused -> Color.White
+        isSelected -> glassOr(appBackgroundDark()) { focusInk }
+        isFocused -> Ink
         else -> TextPrimary.copy(alpha = 0.75f)
     }
     val borderColor = when {
         isSelected && isFocused -> Color(0xFF4F7FB0)
-        isFocused -> Color.White
+        isFocused -> Ink
         else -> Color.Transparent
     }
     val borderWidth = when {
@@ -817,7 +827,7 @@ private fun CollectionItemsGrid(
                     modifier = Modifier
                         .height(cardHeight)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
+                        .background(Ink.copy(alpha = 0.05f))
                 )
             }
         } else if (items.isEmpty() && !isLoadingMore) {

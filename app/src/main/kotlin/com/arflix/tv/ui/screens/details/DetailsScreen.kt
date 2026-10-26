@@ -94,6 +94,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -183,6 +185,11 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import androidx.compose.ui.res.stringResource
+
+// Glass (phase 2, 2026-10-25): the phone layout's black page and white text follow the glass
+// look's day/night (the TV layout uses DetailsGlass). Other themes: black and white as before.
+private val PhonePage: Color @Composable @ReadOnlyComposable get() = glassOr(Color.Black) { bgBase }
+private val PhoneInk: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
 
 /**
  * Details screen for movies and TV shows
@@ -1558,7 +1565,7 @@ private fun DetailsContent(
             item.isWatched
         }
 
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Box(modifier = Modifier.fillMaxSize().background(PhonePage)) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1586,8 +1593,8 @@ private fun DetailsContent(
                                     colorStops = arrayOf(
                                         0.0f to Color.Transparent,
                                         0.55f to Color.Transparent,
-                                        0.8f to Color.Black.copy(alpha = 0.84f),
-                                        1.0f to Color.Black
+                                        0.8f to PhonePage.copy(alpha = 0.84f),
+                                        1.0f to PhonePage
                                     )
                                 )
                             )
@@ -1602,7 +1609,7 @@ private fun DetailsContent(
                                     alpha = topBarAlpha
                                     translationY = mobileScrollState.value.toFloat()
                                 }
-                                .background(Color.Black.copy(alpha = 0.85f))
+                                .background(PhonePage.copy(alpha = 0.85f))
                         ) {
                             Spacer(modifier = Modifier.statusBarsPadding().height(64.dp))
                         }
@@ -1687,7 +1694,7 @@ private fun DetailsContent(
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = textShadow
                                     ),
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = PhoneInk.copy(alpha = 0.78f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1701,7 +1708,7 @@ private fun DetailsContent(
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = textShadow
                                     ),
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = PhoneInk.copy(alpha = 0.78f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1715,7 +1722,7 @@ private fun DetailsContent(
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = textShadow
                                     ),
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = PhoneInk.copy(alpha = 0.78f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1729,7 +1736,7 @@ private fun DetailsContent(
                                         fontWeight = FontWeight.SemiBold,
                                         shadow = textShadow
                                     ),
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = PhoneInk.copy(alpha = 0.78f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1745,7 +1752,7 @@ private fun DetailsContent(
                                     fontWeight = FontWeight.SemiBold,
                                     shadow = textShadow
                                 ),
-                                color = Color.White.copy(alpha = 0.74f),
+                                color = PhoneInk.copy(alpha = 0.74f),
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1760,7 +1767,7 @@ private fun DetailsContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black)
+                        .background(PhonePage)
                         .padding(horizontal = 16.dp)
                 ) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1863,7 +1870,7 @@ private fun DetailsContent(
                             lineHeight = 18.sp,
                             fontWeight = FontWeight.Normal
                         ),
-                        color = Color.White.copy(alpha = 0.88f),
+                        color = PhoneInk.copy(alpha = 0.88f),
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1875,7 +1882,7 @@ private fun DetailsContent(
                             Text(
                                 text = stringResource(R.string.seasons),
                                 style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                                color = Color.White.copy(alpha = 0.9f)
+                                color = PhoneInk.copy(alpha = 0.9f)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
@@ -1910,7 +1917,7 @@ private fun DetailsContent(
                         Text(
                             text = stringResource(R.string.episodes),
                             style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = PhoneInk.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -1953,7 +1960,7 @@ private fun DetailsContent(
                         Text(
                             text = stringResource(R.string.cast),
                             style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = PhoneInk.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -1987,7 +1994,7 @@ private fun DetailsContent(
                         Text(
                             text = stringResource(R.string.more_like_this),
                             style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = PhoneInk.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -2024,7 +2031,7 @@ private fun DetailsContent(
                         Text(
                             text = displayName,
                             style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = PhoneInk.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -2060,7 +2067,7 @@ private fun DetailsContent(
                         Text(
                             text = stringResource(R.string.reviews),
                             style = XadarrSkin.typography.sectionTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = PhoneInk.copy(alpha = 0.9f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -3495,7 +3502,7 @@ private fun MobileMetadataSeparator() {
     Text(
         text = "•",
         style = ArflixTypography.caption.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-        color = Color.White.copy(alpha = 0.42f),
+        color = PhoneInk.copy(alpha = 0.42f),
         maxLines = 1
     )
 }
@@ -3516,13 +3523,13 @@ private fun MobileActionButton(
 ) {
     val shape = RoundedCornerShape(percent = 50)
     val bgColor = when {
-        isPrimary -> Color.White
+        isPrimary -> PhoneInk
         isOutlined -> Color.Transparent
-        isActive -> Color.White.copy(alpha = 0.15f)
-        else -> Color.White.copy(alpha = 0.08f)
+        isActive -> PhoneInk.copy(alpha = 0.15f)
+        else -> PhoneInk.copy(alpha = 0.08f)
     }
-    val contentColor = if (isPrimary) Color.Black else Color.White.copy(alpha = 0.92f)
-    val borderColor = if (isOutlined) Color.White.copy(alpha = if (isActive) 0.55f else 0.22f) else Color.Transparent
+    val contentColor = if (isPrimary) PhonePage else PhoneInk.copy(alpha = 0.92f)
+    val borderColor = if (isOutlined) PhoneInk.copy(alpha = if (isActive) 0.55f else 0.22f) else Color.Transparent
 
     Row(
         modifier = modifier
@@ -3567,19 +3574,19 @@ private fun MobileIconActionButton(
 ) {
     val shape = RoundedCornerShape(20.dp)
     val backgroundColor = when {
-        !enabled -> Color.White.copy(alpha = 0.04f)
-        isActive -> Color.White.copy(alpha = 0.18f)
-        else -> Color.White.copy(alpha = 0.08f)
+        !enabled -> PhoneInk.copy(alpha = 0.04f)
+        isActive -> PhoneInk.copy(alpha = 0.18f)
+        else -> PhoneInk.copy(alpha = 0.08f)
     }
     val contentColor = if (enabled) {
-        Color.White.copy(alpha = if (isActive) 0.96f else 0.88f)
+        PhoneInk.copy(alpha = if (isActive) 0.96f else 0.88f)
     } else {
-        Color.White.copy(alpha = 0.3f)
+        PhoneInk.copy(alpha = 0.3f)
     }
     val borderColor = if (isActive) {
-        Color.White.copy(alpha = 0.28f)
+        PhoneInk.copy(alpha = 0.28f)
     } else {
-        Color.White.copy(alpha = 0.12f)
+        PhoneInk.copy(alpha = 0.12f)
     }
 
     Box(

@@ -51,6 +51,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.ReadOnlyComposable
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.glassSky
+import com.arflix.tv.ui.glass.sheet
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -72,6 +77,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+// Glass (phase 2, 2026-10-25): day/night stand-ins for this screen's fixed dark colours.
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+private val Muted: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0xFF9CA3AF)) { dim }
 
 // ── ViewModel ────────────────────────────────────────────────────────────────
 
@@ -313,7 +322,7 @@ fun SmartHomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF111827))
+            .then(LocalGlass.current?.let { Modifier.glassSky(it) } ?: Modifier.background(Color(0xFF111827)))
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { evt ->
@@ -365,10 +374,10 @@ fun SmartHomeScreen(
         Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Ink)
                 }
                 Spacer(Modifier.width(12.dp))
-                Text("Smart Home", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("Smart Home", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -376,10 +385,10 @@ fun SmartHomeScreen(
                             if (focusedIndex == -1) Modifier.border(2.dp, Color(0xFF4F7FB0), RoundedCornerShape(8.dp))
                             else Modifier
                         )
-                        .background(if (focusedIndex == -1) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                        .background(if (focusedIndex == -1) Ink.copy(alpha = 0.12f) else Color.Transparent)
                 ) {
                     IconButton(onClick = { showPicker = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Choose entities", tint = Color(0xFF9CA3AF))
+                        Icon(Icons.Default.Edit, contentDescription = "Choose entities", tint = Muted)
                     }
                 }
             }
@@ -390,10 +399,10 @@ fun SmartHomeScreen(
                 uiState.isLoading -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF4F7FB0))
                 }
-                uiState.error != null -> Text(uiState.error!!, color = Color(0xFF9CA3AF), fontSize = 14.sp)
+                uiState.error != null -> Text(uiState.error!!, color = Muted, fontSize = 14.sp)
                 visibleEntities.isEmpty() -> Text(
                     "No entities selected. Tap the edit icon above to choose which ones show here.",
-                    color = Color(0xFF9CA3AF),
+                    color = Muted,
                     fontSize = 14.sp,
                 )
                 else -> LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -451,7 +460,7 @@ private fun SmartHomeDomainHeaderRow(
             .padding(top = 16.dp, bottom = 4.dp)
             .clip(RoundedCornerShape(8.dp))
             .then(if (isFocused) Modifier.border(2.dp, Color(0xFF4F7FB0), RoundedCornerShape(8.dp)) else Modifier)
-            .background(if (isFocused) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+            .background(if (isFocused) Ink.copy(alpha = 0.08f) else Color.Transparent)
             .focusable()
             .onFocusChanged { if (it.hasFocus) onFocusChanged() }
             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -459,12 +468,12 @@ private fun SmartHomeDomainHeaderRow(
         Icon(
             if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
             contentDescription = null,
-            tint = Color(0xFF9CA3AF),
+            tint = Muted,
             modifier = Modifier.height(16.dp).width(16.dp),
         )
         Text(
             text = "${domainGroupLabel(domain).uppercase()} ($count)",
-            color = Color(0xFF9CA3AF),
+            color = Muted,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
@@ -502,7 +511,7 @@ private fun SmartHomeEntityRow(
         entity.domain == "binary_sensor" && entity.state == "on" -> Color(0xFFDC2626)
         entity.domain == "binary_sensor" -> Color(0xFF16A34A)
         entity.state == "on" -> Color(0xFF4F7FB0)
-        else -> Color(0xFF9CA3AF)
+        else -> Muted
     }
 
     Box(
@@ -510,7 +519,7 @@ private fun SmartHomeEntityRow(
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(if (isFocused) Color.White.copy(alpha = 0.12f) else Color(0xFF1F2937))
+            .background(if (isFocused) Ink.copy(alpha = 0.12f) else glassOr(Color(0xFF1F2937)) { glass })
             .then(
                 if (isFocused) Modifier.border(2.dp, Color(0xFF4F7FB0), RoundedCornerShape(10.dp))
                 else Modifier
@@ -520,17 +529,17 @@ private fun SmartHomeEntityRow(
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(domainIcon(entity.domain), contentDescription = null, tint = Color(0xFF9CA3AF))
-            Text(entity.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Icon(domainIcon(entity.domain), contentDescription = null, tint = Muted)
+            Text(entity.name, color = Ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
             if (isPending) {
                 CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp), color = Color(0xFF4F7FB0), strokeWidth = 2.dp)
             } else {
                 if (isFocused && adjustable) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = Color(0xFF9CA3AF), modifier = Modifier.height(16.dp).width(16.dp))
+                    Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = Muted, modifier = Modifier.height(16.dp).width(16.dp))
                 }
                 Text(statusText, color = statusColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 if (isFocused && adjustable) {
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF9CA3AF), modifier = Modifier.height(16.dp).width(16.dp))
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.height(16.dp).width(16.dp))
                 }
                 if (actionable) {
                     Spacer(Modifier.width(8.dp))
@@ -584,7 +593,7 @@ private fun EntityPickerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE6000000))
+            .background(glassOr(Color(0xE6000000)) { sheet })
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { evt ->
@@ -604,10 +613,10 @@ private fun EntityPickerOverlay(
         Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Done", tint = Color.White)
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Done", tint = Ink)
                 }
                 Spacer(Modifier.width(12.dp))
-                Text("Choose entities", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Choose entities", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(16.dp))
             LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -616,7 +625,7 @@ private fun EntityPickerOverlay(
                         if (row.domain != null) {
                             Text(
                                 text = domainGroupLabel(row.domain).uppercase(),
-                                color = Color(0xFF9CA3AF),
+                                color = Muted,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
@@ -631,7 +640,7 @@ private fun EntityPickerOverlay(
                                     .fillMaxWidth()
                                     .padding(vertical = 3.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                                    .background(if (isFocused) Ink.copy(alpha = 0.12f) else Color.Transparent)
                                     .then(if (isFocused) Modifier.border(2.dp, Color(0xFF4F7FB0), RoundedCornerShape(10.dp)) else Modifier)
                                     .focusable()
                                     .onFocusChanged { if (it.hasFocus) focusedIndex = idx }
@@ -640,9 +649,9 @@ private fun EntityPickerOverlay(
                                 Icon(
                                     if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                                     contentDescription = null,
-                                    tint = if (checked) Color(0xFF4F7FB0) else Color(0xFF9CA3AF),
+                                    tint = if (checked) Color(0xFF4F7FB0) else Muted,
                                 )
-                                Text(row.entity.name, color = Color.White, fontSize = 14.sp)
+                                Text(row.entity.name, color = Ink, fontSize = 14.sp)
                             }
                         }
                     }

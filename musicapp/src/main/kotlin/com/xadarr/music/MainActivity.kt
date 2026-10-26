@@ -23,6 +23,7 @@ import com.arflix.tv.ui.glass.GlassMode
 import com.arflix.tv.ui.glass.GlassNight
 import com.arflix.tv.ui.glass.LocalGlass
 import com.arflix.tv.ui.glass.glassColorScheme
+import com.arflix.tv.ui.glass.glassSky
 import com.arflix.tv.ui.glass.rememberGlassPalette
 import com.arflix.tv.music.MusicScreen
 import androidx.core.view.WindowCompat
@@ -56,7 +57,7 @@ class MainActivity : ComponentActivity() {
                 // nav bar and the keyboard. Zero on TVs.
                 Box(
                     Modifier.fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .glassSky(LocalGlass.current ?: GlassNight)
                         .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
                 ) {
                     when (configured) {
@@ -74,13 +75,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Xadarr's glass theme, like the home launcher (Joe, 2026-10-25): the Music screen follows day
-// and night (Auto: dark from local sunset to sunrise); sign-in stays on the night colours.
+// Xadarr's glass theme, like the home launcher (Joe, 2026-10-25): the whole app follows day and
+// night (Auto: dark from local sunset to sunrise).
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun XadarrMusicTheme(content: @Composable () -> Unit) {
     val glass = rememberGlassPalette(GlassMode.AUTO)
     CompositionLocalProvider(LocalGlass provides glass) {
-        MaterialTheme(colorScheme = glassColorScheme(GlassNight), content = content)
+        MaterialTheme(colorScheme = glassColorScheme(glass), content = content)
     }
 }

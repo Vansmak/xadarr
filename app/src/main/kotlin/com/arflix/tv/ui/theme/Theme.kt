@@ -8,10 +8,15 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 import com.arflix.tv.ui.glass.GlassMode
+import com.arflix.tv.ui.glass.GlassPalette
+import com.arflix.tv.ui.glass.glassColorScheme
+import com.arflix.tv.ui.glass.sheet
+import com.arflix.tv.ui.glass.sheetRaised
 import com.arflix.tv.ui.glass.LocalGlass
 import com.arflix.tv.ui.glass.rememberGlassPalette
 import com.arflix.tv.ui.skin.LocalFocusBorderColorOverride
 import com.arflix.tv.ui.skin.ProvideXadarrSkin
+import com.arflix.tv.ui.skin.XadarrSkinTokens
 import com.arflix.tv.ui.skin.focusBorderColorFromName
 
 /**
@@ -126,8 +131,8 @@ private fun paletteForTheme(name: String, oledBlack: Boolean): ThemePalette = wh
         accent = Color(0xFFD4AF37),
         borderLight = Color(0xFFD4AF37).copy(alpha = 0.20f),
     )
-    // Glass (Joe, 2026-10-25): the launcher's night colours. Screens restyled for glass read
-    // LocalGlass for the day/night look; everything else stays on these until it's restyled.
+    // Glass (Joe, 2026-10-25): the launcher's night colours. XadarrTvTheme uses glassThemePalette
+    // (day/night) instead; this entry is only the fallback.
     "Glass" -> ThemePalette(
         background = Color(0xFF141416),
         card = Color(0xFF1C1C1E),
@@ -159,6 +164,32 @@ private fun paletteForTheme(name: String, oledBlack: Boolean): ThemePalette = wh
         borderLight = Color(0xFF4A9EFF).copy(alpha = 0.18f),
     )
 }
+
+/** Skin colours for the glass look, so shared cards (MediaCard titles, badges) read on light paper. */
+private fun glassSkinTokens(g: GlassPalette): XadarrSkinTokens {
+    val tokens = XadarrSkinTokens.defaults()
+    return tokens.copy(
+        colors = tokens.colors.copy(
+            background = g.bgBase,
+            textPrimary = g.ink,
+            textMuted = g.dim,
+            surface = g.cardEmpty,
+            surfaceRaised = g.cardEmpty,
+        )
+    )
+}
+
+/** The Glass theme's app colours for the look in effect (day, night, or the crossfade between). */
+private fun glassThemePalette(g: GlassPalette): ThemePalette = ThemePalette(
+    background = g.bgBase,
+    card = g.sheet,
+    elevated = g.sheetRaised,
+    textPrimary = g.ink,
+    textSecondary = g.dim,
+    textTertiary = g.faint,
+    accent = g.accent,
+    borderLight = g.chip,
+)
 
 private fun xadarrColorsFromPalette(p: ThemePalette): XadarrColors = XadarrColors(
     arcticWhite = p.textPrimary,
@@ -206,9 +237,12 @@ fun XadarrTvTheme(
     content: @Composable () -> Unit
 ) {
     val glass = if (themeName == "Glass") rememberGlassPalette(glassMode) else null
-    val palette = paletteForTheme(themeName, oledBlackBackground)
+    val palette = glass?.let { glassThemePalette(it) } ?: paletteForTheme(themeName, oledBlackBackground)
     val focusBorderColor = focusBorderColorName?.let { focusBorderColorFromName(it) } ?: palette.accent
-    val colorScheme = darkColorScheme(
+    // Glass: every screen follows day/night through the colour scheme (phase 2, 2026-10-25).
+    val colorScheme = if (glass != null) {
+        glassColorScheme(glass).copy(surface = palette.card, surfaceVariant = palette.elevated)
+    } else darkColorScheme(
         primary = palette.accent,
         onPrimary = palette.background,
         primaryContainer = palette.elevated,
@@ -240,7 +274,7 @@ fun XadarrTvTheme(
         LocalFocusBorderColorOverride provides focusBorderColor,
         LocalGlass provides glass
     ) {
-        ProvideXadarrSkin {
+        ProvideXadarrSkin(tokens = glass?.let { glassSkinTokens(it) } ?: XadarrSkinTokens.defaults()) {
             MaterialTheme(
                 colorScheme = colorScheme,
                 content = content

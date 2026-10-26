@@ -1,5 +1,8 @@
 package com.arflix.tv.ui.components
 
+import androidx.compose.runtime.Composable
+import com.arflix.tv.ui.glass.glassOr
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -26,7 +29,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arflix.tv.ui.theme.appBackgroundDark
-import com.arflix.tv.ui.theme.BackgroundElevated
+import com.arflix.tv.ui.theme.BackgroundElevated as ThemeBackgroundElevated
 import com.arflix.tv.ui.theme.BackgroundGlass
 import com.arflix.tv.ui.theme.BackgroundOverlay
 import com.arflix.tv.ui.theme.Cyan
@@ -34,13 +37,21 @@ import com.arflix.tv.ui.theme.ParticleCyan
 import com.arflix.tv.ui.theme.ParticlePurple
 import com.arflix.tv.ui.theme.ParticlePurpleDark
 import com.arflix.tv.ui.theme.ParticlePurpleLight
-import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.ui.theme.Pink as ThemePink
 import com.arflix.tv.ui.theme.Purple
 import com.arflix.tv.ui.theme.PurpleDark
 import com.arflix.tv.ui.theme.PurpleLight
 import com.arflix.tv.ui.theme.PurplePrimary
-import com.arflix.tv.ui.theme.TextPrimary
-import com.arflix.tv.ui.theme.TextSecondary
+import com.arflix.tv.ui.theme.TextPrimary as ThemeTextPrimary
+import com.arflix.tv.ui.theme.TextSecondary as ThemeTextSecondary
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val TextPrimary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextPrimary) { ink }
+private val TextSecondary: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeTextSecondary) { dim }
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+private val BackgroundElevated: Color @Composable @ReadOnlyComposable get() = glassOr(ThemeBackgroundElevated) { glass }
+
 
 /**
  * Premium Player Loading Screen
@@ -298,7 +309,10 @@ fun BufferingIndicator(
             .background(appBackgroundDark().copy(alpha = 0.8f)),
         contentAlignment = Alignment.Center
     ) {
-        // Rotating gradient ring
+        // Rotating gradient ring (Glass: ink, so it shows on the light day page too)
+        val arcA = glassOr(Cyan) { ink.copy(alpha = 0.35f) }
+        val arcB = glassOr(Purple) { ink.copy(alpha = 0.7f) }
+        val arcC = Pink
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -310,9 +324,9 @@ fun BufferingIndicator(
                 drawArc(
                     brush = Brush.sweepGradient(
                         colors = listOf(
-                            Cyan,
-                            Purple,
-                            Pink,
+                            arcA,
+                            arcB,
+                            arcC,
                             Color.Transparent
                         )
                     ),

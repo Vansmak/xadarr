@@ -2,6 +2,10 @@
 
 package com.arflix.tv.ui.screens.discover
 
+import com.arflix.tv.ui.glass.glassOr
+import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassSky
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -52,9 +56,16 @@ import com.arflix.tv.data.model.Profile
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.ui.components.MediaCard
 import com.arflix.tv.ui.theme.XadarrTheme
-import com.arflix.tv.ui.theme.Pink
+import com.arflix.tv.ui.theme.Pink as ThemePink
 import com.arflix.tv.util.LocalDeviceType
 import com.arflix.tv.util.LocalNeolinkConfigured
+
+// Glass (phase 2, 2026-10-25): stand-ins for the fixed dark-theme colours -- the same values on
+// other themes, the glass look's day/night tokens on Glass.
+private val Pink: Color @Composable @ReadOnlyComposable get() = glassOr(ThemePink) { ink }
+/** White foreground drawn on the dark page. */
+private val Ink: Color @Composable @ReadOnlyComposable get() = glassOr(Color.White) { ink }
+
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -124,7 +135,7 @@ fun DiscoverScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(XadarrTheme.colors.backgroundDark)
+            .then(LocalGlass.current?.let { Modifier.glassSky(it) } ?: Modifier.background(XadarrTheme.colors.backgroundDark))
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -181,7 +192,7 @@ fun DiscoverScreen(
                 ) {
                     Text(
                         uiState.error!!,
-                        color = Color.White.copy(0.5f),
+                        color = Ink.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         modifier = Modifier.padding(horizontal = 48.dp)
                     )
@@ -210,7 +221,7 @@ fun DiscoverScreen(
                         ) {
                             Text(
                                 text = category.title,
-                                color = Color.White.copy(0.9f),
+                                color = Ink.copy(alpha = 0.9f),
                                 fontSize = 14.sp,
                                 modifier = Modifier.padding(start = 48.dp, bottom = 10.dp, top = 16.dp)
                             )

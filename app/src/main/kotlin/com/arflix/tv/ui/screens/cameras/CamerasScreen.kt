@@ -100,6 +100,9 @@ import com.arflix.tv.network.OkHttpProvider
 import com.arflix.tv.ui.components.AppTopBarContentTopInset
 import com.arflix.tv.util.LocalNeolinkConfigured
 import com.arflix.tv.ui.screens.tv.live.LiveColors
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.draw.shadow
+import com.arflix.tv.ui.screens.tv.live.liveBackground
 import com.arflix.tv.ui.screens.tv.live.LiveDims
 import com.arflix.tv.ui.screens.tv.live.LiveType
 import com.arflix.tv.util.LocalDeviceType
@@ -341,7 +344,7 @@ fun CamerasScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LiveColors.Bg)
+            .liveBackground()
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -711,8 +714,7 @@ private fun CameraGridCard(
     Column(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(LiveDims.CardRadius))
-            .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, RoundedCornerShape(LiveDims.CardRadius))
+            .cameraCardFrame(isFocused, borderColor, RoundedCornerShape(LiveDims.CardRadius))
             .background(LiveColors.Panel),
     ) {
         Box(
@@ -816,15 +818,15 @@ private fun EmbeddedCameraPlayer(
                 .align(Alignment.TopStart)
                 .padding(20.dp)
                 .clip(RoundedCornerShape(LiveDims.CardRadius))
-                .background(LiveColors.PanelDeep.copy(alpha = 0.85f))
+                .background(LiveColors.VideoPanel)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Fg.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
-                Text(displayName, color = LiveColors.Fg, style = LiveType.ChannelName)
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.VideoInk, modifier = Modifier.size(18.dp))
+                Text(displayName, color = LiveColors.VideoInk, style = LiveType.ChannelName)
             }
         }
 
@@ -833,11 +835,11 @@ private fun EmbeddedCameraPlayer(
                 .align(Alignment.TopEnd)
                 .padding(20.dp)
                 .clip(CircleShape)
-                .background(LiveColors.PanelDeep.copy(alpha = 0.85f))
+                .background(LiveColors.VideoPanel)
                 .clickable { onBack() }
                 .padding(10.dp),
         ) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.Fg, modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.VideoInk, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -948,8 +950,7 @@ private fun CameraEventCard(
         modifier = Modifier
             .scale(scale)
             .width(175.dp)
-            .clip(RoundedCornerShape(LiveDims.CellRadius))
-            .border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, RoundedCornerShape(LiveDims.CellRadius))
+            .cameraCardFrame(isFocused, borderColor, RoundedCornerShape(LiveDims.CellRadius))
             .background(LiveColors.Panel),
     ) {
         Box(
@@ -1099,21 +1100,30 @@ fun CameraPlayerScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart).padding(20.dp)
-                .clip(RoundedCornerShape(LiveDims.CardRadius)).background(LiveColors.PanelDeep.copy(alpha = 0.85f))
+                .clip(RoundedCornerShape(LiveDims.CardRadius)).background(LiveColors.VideoPanel)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.Fg.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
-                Text(cameraName, color = LiveColors.Fg, style = LiveType.ChannelName)
+                Icon(Icons.Outlined.Videocam, null, tint = LiveColors.VideoInk, modifier = Modifier.size(18.dp))
+                Text(cameraName, color = LiveColors.VideoInk, style = LiveType.ChannelName)
             }
         }
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd).padding(20.dp)
-                .clip(CircleShape).background(LiveColors.PanelDeep.copy(alpha = 0.85f))
+                .clip(CircleShape).background(LiveColors.VideoPanel)
                 .clickable { onBack() }.padding(10.dp),
         ) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.Fg, modifier = Modifier.size(20.dp))
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", tint = LiveColors.VideoInk, modifier = Modifier.size(20.dp))
         }
     }
 }
+
+/** Card frame: the ring, or on Glass the launcher's lift (shadow, no ring; the card already scales). */
+@Composable
+private fun Modifier.cameraCardFrame(isFocused: Boolean, borderColor: Color, shape: Shape): Modifier =
+    if (LiveColors.IsGlass) {
+        shadow(if (isFocused) 18.dp else 6.dp, shape, ambientColor = LiveColors.ShadowFocus, spotColor = LiveColors.ShadowFocus).clip(shape)
+    } else {
+        clip(shape).border(if (isFocused) LiveDims.FocusBorder else 1.dp, borderColor, shape)
+    }

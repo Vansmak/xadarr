@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.arflix.tv.ui.glass.glassOr
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -50,6 +51,9 @@ fun MinimalTopChrome(
     isProfileFocused: Boolean = false,
 ) {
     val currentTime = rememberTopBarTime(clockFormat)
+    // Glass: the band fades from the page colour instead of black; text is ink / dim.
+    val band = glassOr(Color.Black) { bgTop }
+    val ink = glassOr(Color.White) { ink }
 
     Box(
         modifier = modifier
@@ -58,8 +62,8 @@ fun MinimalTopChrome(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.72f),
-                        Color.Black.copy(alpha = 0.36f),
+                        band.copy(alpha = 0.72f),
+                        band.copy(alpha = 0.36f),
                         Color.Transparent
                     )
                 )
@@ -76,13 +80,13 @@ fun MinimalTopChrome(
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White.copy(alpha = 0.45f),
+                    tint = ink.copy(alpha = 0.45f),
                     modifier = Modifier.padding(end = 6.dp)
                 )
                 Text(
                     text = "Back",
                     fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.45f),
+                    color = ink.copy(alpha = 0.45f),
                 )
             }
 
@@ -102,7 +106,7 @@ fun MinimalTopChrome(
                     Text(
                         text = currentTime,
                         fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = glassOr(Color.White.copy(alpha = 0.55f)) { dim }
                     )
                 }
             }

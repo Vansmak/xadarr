@@ -2448,6 +2448,7 @@ fun LiveTvScreen(
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(600)),
             modifier = Modifier.fillMaxSize().zIndex(400f),
         ) {
+            val splashWash = com.arflix.tv.ui.glass.LocalGlass.current?.bgBottom ?: Color.Black
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2465,10 +2466,11 @@ fun LiveTvScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
+                            // Glass: the art washes into the page (whitened by day) like Details, not a black scrim.
                             Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.15f),
-                                0.55f to Color.Black.copy(alpha = 0.45f),
-                                1f to Color.Black.copy(alpha = 0.92f),
+                                0f to splashWash.copy(alpha = 0.15f),
+                                0.55f to splashWash.copy(alpha = 0.45f),
+                                1f to splashWash.copy(alpha = 0.92f),
                             )
                         ),
                 )

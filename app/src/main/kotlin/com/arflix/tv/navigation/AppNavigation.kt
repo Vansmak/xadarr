@@ -306,10 +306,9 @@ fun AppNavigation(
             }
             if (tvHandoffChecked) {
                 // Glass: the guide body (mini player, groups, grid) follows day/night inside
-                // LiveTvScreen; its overlays over video (HUD, splash, search, popups) stay night.
-                com.arflix.tv.ui.screens.tv.live.ProvideLivePalette(
-                    glass = com.arflix.tv.ui.glass.LocalGlass.current?.let { com.arflix.tv.ui.glass.GlassNight },
-                ) {
+                // LiveTvScreen; its overlays over video (HUD, splash, search, popups) follow it
+                // too, on opaque panels (livePaletteOverVideo).
+                com.arflix.tv.ui.screens.tv.live.ProvideLivePalette(overVideo = true) {
                 LiveTvScreen(
                     playerViewModel = liveTvPlayerViewModel,
                     currentProfile = currentProfile,
@@ -395,30 +394,33 @@ fun AppNavigation(
         ) { backStackEntry ->
             val mediaTypeStr = backStackEntry.arguments?.getString("mediaType") ?: "movie"
             val mediaType = if (mediaTypeStr == "tv") MediaType.TV else MediaType.MOVIE
-            PlexLibraryScreen(
-                mediaType = mediaType,
-                currentProfile = currentProfile,
-                liveTvPlayerViewModel = liveTvPlayerViewModel,
-                onNavigateToHome = { navigateHome() },
-                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
-                onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
-                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onNavigateToAllApps = navigateToAllApps,
-                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
-                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
-                onNavigateToDetails = { type, id ->
-                    navController.navigate(Screen.Details.createRoute(type, id))
-                },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onBack = goBack,
-            )
+            // Glass: the library grid follows day/night through the guide palette.
+            com.arflix.tv.ui.screens.tv.live.ProvideLivePalette(liveFocus = false) {
+                PlexLibraryScreen(
+                    mediaType = mediaType,
+                    currentProfile = currentProfile,
+                    liveTvPlayerViewModel = liveTvPlayerViewModel,
+                    onNavigateToHome = { navigateHome() },
+                    onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                    onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                    onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
+                    onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
+                    onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                    onNavigateToAllApps = navigateToAllApps,
+                    onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                    onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
+                    onNavigateToDetails = { type, id ->
+                        navController.navigate(Screen.Details.createRoute(type, id))
+                    },
+                    onSwitchProfile = {
+                        onSwitchProfile()
+                        navController.navigate(Screen.ProfileSelection.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    },
+                    onBack = goBack,
+                )
+            }
         }
 
         // Settings screen
@@ -676,24 +678,27 @@ fun AppNavigation(
 
         // Cameras screen
         composable(Screen.Cameras.route) {
-            CamerasScreen(
-                currentProfile = currentProfile,
-                onNavigateToHome = { navigateHome() },
-                onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
-                onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
-                onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
-                onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
-                onNavigateToAllApps = navigateToAllApps,
-                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
-                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
-                onSwitchProfile = {
-                    onSwitchProfile()
-                    navController.navigate(Screen.ProfileSelection.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onBack = goBack,
-            )
+            // Glass: the camera grid follows day/night through the guide palette.
+            com.arflix.tv.ui.screens.tv.live.ProvideLivePalette(liveFocus = false) {
+                CamerasScreen(
+                    currentProfile = currentProfile,
+                    onNavigateToHome = { navigateHome() },
+                    onNavigateToSearch = { navigateTopLevel(Screen.Search.route) },
+                    onNavigateToDiscover = { navigateTopLevel(Screen.Discover.route) },
+                    onNavigateToTv = { navigateTopLevel(Screen.Home.createRoute()) },
+                    onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                    onNavigateToAllApps = navigateToAllApps,
+                    onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                    onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
+                    onSwitchProfile = {
+                        onSwitchProfile()
+                        navController.navigate(Screen.ProfileSelection.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    },
+                    onBack = goBack,
+                )
+            }
         }
 
         // Smart Home status/control screen

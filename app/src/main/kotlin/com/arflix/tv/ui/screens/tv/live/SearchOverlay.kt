@@ -908,7 +908,7 @@ private fun TitleCard(
             ) {
                 Text(
                     if (inLibrary) "IN LIBRARY" else "+ ADD",
-                    style = LiveType.Badge.copy(color = if (inLibrary) LiveColors.PanelDeep else LiveColors.Fg, fontSize = 9.sp),
+                    style = LiveType.Badge.copy(color = if (inLibrary) LiveColors.PanelDeep else if (LiveColors.IsGlass) Color.White else LiveColors.Fg, fontSize = 9.sp),
                 )
             }
         }
