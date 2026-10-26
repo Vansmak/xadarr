@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.39] - 2026-10-25
+
+### Fixed
+- **Finishing something in Xadarr marks it watched in Plex, whatever the stream came from.** The automatic mark at the watched threshold only ran when the stream itself came from Plex, so anything played from a debrid/addon source never reached Plex (Project Hail Mary stayed unwatched there). Now, at the threshold, Xadarr finds the title in Plex by its TMDB/IMDb/TVDB id and marks it, for movies and episodes alike.
+- **A movie that's in more than one Plex library gets marked in all of them** (e.g. "Movies" and "Other Videos"), both on finishing playback and with Mark as Watched / Unwatched. Before, only one copy was marked.
+- Plex mark-watched failures are now logged instead of silently counted as done.
+
 ## [2.38] - 2026-10-25
 
 ### Fixed

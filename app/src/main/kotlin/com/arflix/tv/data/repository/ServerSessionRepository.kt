@@ -51,23 +51,47 @@ class ServerSessionRepository @Inject constructor(
     // Plex/Jellyfin only auto-mark from a timeline/stop report past their *own* threshold (~90%),
     // so with Xadarr's threshold set lower (or credits skipped) the server never flipped the
     // episode to watched — the "last episode never gets marked" gap.
-    suspend fun markWatched(serverItemId: String) = withContext(kotlinx.coroutines.Dispatchers.IO) {
+    //
+    // Plex is marked for every finished title, whatever the stream source: the title is looked
+    // up by TMDB/IMDb/TVDB id and every copy is scrobbled (HomeServerRepository.
+    // markPlexPlaybackWatched). Until 2.39 this only ran when the stream itself came from the
+    // home server (serverItemId set), so debrid/addon playback never reached Plex.
+    // Jellyfin/Emby still need the stream's own item id.
+    suspend fun markPlaybackWatched(
+        serverItemId: String?,
+        mediaType: MediaType,
+        tmdbId: Int,
+        imdbId: String?,
+        tvdbId: Int?,
+        title: String,
+        year: Int?,
+        season: Int?,
+        episode: Int?
+    ) = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching {
+            homeServerRepository.markPlexPlaybackWatched(
+                mediaType = mediaType, tmdbId = tmdbId.takeIf { it > 0 }, imdbId = imdbId, tvdbId = tvdbId,
+                title = title, year = year, season = season, episode = episode,
+                seedRatingKey = serverItemId
+            )
+        }.onFailure { Log.w(TAG, "Plex mark-watched failed for $title: ${it.message}") }
+
+        if (serverItemId.isNullOrBlank()) return@withContext
         val connection = runCatching { homeServerRepository.currentConnection() }.getOrNull()
             ?: return@withContext
         if (!connection.isUsable) return@withContext
+        if (connection.serverKind != HomeServerKind.JELLYFIN && connection.serverKind != HomeServerKind.EMBY) {
+            return@withContext
+        }
         runCatching {
-            when (connection.serverKind) {
-                HomeServerKind.PLEX -> homeServerRepository.scrobblePlex(connection, serverItemId, watched = true)
-                HomeServerKind.JELLYFIN, HomeServerKind.EMBY -> {
-                    if (connection.userId.isBlank()) return@runCatching
-                    val url = connection.serverUrl.trimEnd('/') +
-                        "/Users/${Uri.encode(connection.userId)}/PlayedItems/${Uri.encode(serverItemId)}" +
-                        "?api_key=" + Uri.encode(connection.accessToken)
-                    val request = Request.Builder().url(url)
-                        .post(ByteArray(0).toRequestBody(null)).build()
-                    okHttpClient.newCall(request).execute().close()
-                }
-                HomeServerKind.UNKNOWN -> Unit
+            if (connection.userId.isBlank()) return@runCatching
+            val url = connection.serverUrl.trimEnd('/') +
+                "/Users/${Uri.encode(connection.userId)}/PlayedItems/${Uri.encode(serverItemId)}" +
+                "?api_key=" + Uri.encode(connection.accessToken)
+            val request = Request.Builder().url(url)
+                .post(ByteArray(0).toRequestBody(null)).build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) Log.w(TAG, "markWatched $serverItemId: HTTP ${response.code}")
             }
         }.onFailure { Log.w(TAG, "markWatched failed for $serverItemId: ${it.message}") }
     }

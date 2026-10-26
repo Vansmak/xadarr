@@ -1,6 +1,7 @@
 package com.arflix.tv.data.repository
 
 import android.content.Context
+import android.util.Log
 import android.provider.Settings
 import androidx.datastore.preferences.core.edit
 import com.arflix.tv.BuildConfig
@@ -222,6 +223,7 @@ class HomeServerRepository @Inject constructor(
     private val invalidationBus: CloudSyncInvalidationBus
 ) {
     companion object {
+        private const val TAG = "HomeServerRepo"
         const val ADDON_ID = "home_server"
         const val ADDON_NAME = "Home Server"
         const val CONNECTION_KEY_NAME = "home_server_connection_v1"
@@ -804,11 +806,12 @@ class HomeServerRepository @Inject constructor(
         val connection = currentConnections()
             .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext false
         runCatching {
-            val series = findBestSeries(connection, imdbId, title, null, tmdbId, tvdbId) ?: return@runCatching false
-            val episodeItem = findEpisode(connection, series.id, season, episode) ?: return@runCatching false
-            scrobblePlex(connection, episodeItem.id, watched)
-            true
-        }.getOrDefault(false)
+            // Same id-first, every-copy matching as the player's mark-watched.
+            val keys = plexEpisodeKeysForPlayback(connection, tmdbId, imdbId, tvdbId, title, season, episode, null)
+            if (keys.isEmpty()) Log.w(TAG, "setPlexEpisodeWatched: no Plex item for $title S${season}E$episode")
+            keys.map { scrobblePlex(connection, it, watched) }.any { it }
+        }.onFailure { Log.w(TAG, "setPlexEpisodeWatched($title S${season}E$episode) failed: ${it.message}") }
+            .getOrDefault(false)
     }
 
     suspend fun setPlexMovieWatched(tmdbId: Int, title: String, year: Int?, watched: Boolean): Boolean =
@@ -816,15 +819,235 @@ class HomeServerRepository @Inject constructor(
             val connection = currentConnections()
                 .firstOrNull { it.isUsable && it.serverKind == HomeServerKind.PLEX } ?: return@withContext false
             runCatching {
-                val movie = findBestMovie(connection, null, title, year, tmdbId) ?: return@runCatching false
-                scrobblePlex(connection, movie.id, watched)
-                true
-            }.getOrDefault(false)
+                // Every copy (a movie can be in "Movies" and "Other Videos"), matched by id first.
+                val keys = plexMovieKeysForPlayback(connection, tmdbId, null, title, year, null)
+                if (keys.isEmpty()) Log.w(TAG, "setPlexMovieWatched: no Plex item for $title (tmdb $tmdbId)")
+                keys.map { scrobblePlex(connection, it, watched) }.any { it }
+            }.onFailure { Log.w(TAG, "setPlexMovieWatched($title, tmdb $tmdbId) failed: ${it.message}") }
+                .getOrDefault(false)
         }
+
+    /**
+     * Playback reached Xadarr's watched threshold: mark the title watched in Plex no matter
+     * where the stream came from (Plex, debrid/addon, IPTV VOD...). Before this, only streams
+     * that came from the home server carried a ratingKey (StreamSource.serverItemId), so a movie
+     * played from any other source never reached Plex at all, even when Plex has it.
+     *
+     * Matching is by TMDB/IMDb/TVDB id against the Guid list Plex returns (Plex's section
+     * `guid=` filter only matches its own plex:// guid, so it can't be used for external ids).
+     * Every copy is marked: the same movie can sit in several libraries ("Movies" and
+     * "Other Videos"), each with its own ratingKey and its own watched state. Copies are
+     * collected by the matched items' plex:// guid across all sections of that type. If no
+     * item matches by id, falls back to the title/year scorer (one item) and logs it.
+     * [seedRatingKey] is the ratingKey of the Plex stream that was playing, if any.
+     * Returns how many Plex items were marked.
+     */
+    suspend fun markPlexPlaybackWatched(
+        mediaType: MediaType,
+        tmdbId: Int?,
+        imdbId: String?,
+        tvdbId: Int?,
+        title: String,
+        year: Int?,
+        season: Int?,
+        episode: Int?,
+        seedRatingKey: String?
+    ): Int = withContext(Dispatchers.IO) {
+        val label = if (mediaType == MediaType.TV) "$title S${season}E$episode" else "$title ($year)"
+        val connections = currentConnections().filter { it.isUsable && it.serverKind == HomeServerKind.PLEX }
+        if (connections.isEmpty()) return@withContext 0
+        var marked = 0
+        connections.forEach { connection ->
+            var markedHere = 0
+            runCatching {
+                val keys = if (mediaType == MediaType.TV) {
+                    if (season == null || episode == null) emptySet()
+                    else plexEpisodeKeysForPlayback(connection, tmdbId, imdbId, tvdbId, title, season, episode, seedRatingKey)
+                } else {
+                    plexMovieKeysForPlayback(connection, tmdbId, imdbId, title, year, seedRatingKey)
+                }
+                if (keys.isEmpty()) {
+                    Log.w(TAG, "markPlexPlaybackWatched: no Plex item for $label (tmdb=$tmdbId imdb=$imdbId tvdb=$tvdbId)")
+                }
+                keys.forEach { key ->
+                    if (scrobblePlex(connection, key, true)) markedHere++
+                }
+                Log.i(TAG, "markPlexPlaybackWatched: $label -> marked $markedHere of ${keys.size} Plex item(s) $keys")
+            }.onFailure { Log.w(TAG, "markPlexPlaybackWatched failed for $label: ${it.message}", it) }
+            marked += markedHere
+        }
+        marked
+    }
+
+    /** One Plex metadata row, raw enough to keep the item's own plex:// guid. */
+    private data class PlexMatchRow(
+        val ratingKey: String,
+        val guid: String,
+        val type: String,
+        val externalIds: Set<String>,
+        val parentIndex: Int?,
+        val index: Int?,
+        val grandparentRatingKey: String,
+    )
+
+    private fun JsonObject.plexMatchRows(): List<PlexMatchRow> =
+        array("MediaContainer", "Metadata").mapNotNull { el ->
+            val o = el.asJsonObjectOrNull() ?: return@mapNotNull null
+            val key = o.string("ratingKey").ifBlank { return@mapNotNull null }
+            PlexMatchRow(
+                ratingKey = key,
+                guid = o.string("guid"),
+                type = o.string("type"),
+                externalIds = o.array("Guid").mapNotNull { g ->
+                    g.asJsonObjectOrNull()?.string("id")?.lowercase(Locale.US)?.takeIf { it.isNotBlank() }
+                }.toSet(),
+                parentIndex = o.int("parentIndex"),
+                index = o.int("index"),
+                grandparentRatingKey = o.string("grandparentRatingKey"),
+            )
+        }
+
+    private fun plexExternalIds(tmdbId: Int?, imdbId: String?, tvdbId: Int?): Set<String> = buildSet {
+        tmdbId?.takeIf { it > 0 }?.let { add("tmdb://$it") }
+        imdbId?.trim()?.takeIf { it.isNotBlank() }?.let { add("imdb://${it.lowercase(Locale.US)}") }
+        tvdbId?.takeIf { it > 0 }?.let { add("tvdb://$it") }
+    }
+
+    private fun plexSectionKeys(connection: HomeServerConnection, plexSectionType: String): List<String> =
+        getJson(buildUrl(connection.serverUrl, "/library/sections"), connection)
+            .array("MediaContainer", "Directory")
+            .mapNotNull { it.asJsonObjectOrNull() }
+            .filter { it.string("type") == plexSectionType }
+            .mapNotNull { it.string("key").takeIf { k -> k.isNotBlank() } }
+
+    private fun plexMetadataRow(connection: HomeServerConnection, ratingKey: String): PlexMatchRow? =
+        runCatching {
+            getJson(
+                buildUrl(connection.serverUrl, "/library/metadata/$ratingKey", mapOf("includeGuids" to "1")),
+                connection
+            ).plexMatchRows().firstOrNull()
+        }.onFailure { Log.w(TAG, "Plex metadata $ratingKey lookup failed: ${it.message}") }.getOrNull()
+
+    /**
+     * Items whose external ids match [ids], plus every copy of them (same plex:// guid) in all
+     * sections of [plexSectionType]. Candidates come from title search and the seed item.
+     */
+    private fun plexIdMatchedRows(
+        connection: HomeServerConnection,
+        plexType: String,
+        plexSectionType: String,
+        ids: Set<String>,
+        title: String,
+        seed: PlexMatchRow?,
+    ): List<PlexMatchRow> {
+        val sections = plexSectionKeys(connection, plexSectionType)
+        val candidates = linkedMapOf<String, PlexMatchRow>()
+        seed?.let { candidates[it.ratingKey] = it }
+        if (title.isNotBlank()) {
+            runCatching {
+                getJson(
+                    buildUrl(connection.serverUrl, "/search",
+                        mapOf("query" to title, "type" to plexType, "includeGuids" to "1", "limit" to "25")),
+                    connection
+                ).plexMatchRows().forEach { candidates.putIfAbsent(it.ratingKey, it) }
+            }.onFailure { Log.w(TAG, "Plex search '$title' failed: ${it.message}") }
+            sections.forEach { section ->
+                runCatching {
+                    getJson(
+                        buildUrl(connection.serverUrl, "/library/sections/$section/all",
+                            mapOf("type" to plexType, "title" to title, "includeGuids" to "1", "limit" to "25")),
+                        connection
+                    ).plexMatchRows().forEach { candidates.putIfAbsent(it.ratingKey, it) }
+                }.onFailure { Log.w(TAG, "Plex section $section title search failed: ${it.message}") }
+            }
+        }
+        val matched = candidates.values.filter { row -> row.externalIds.any { it in ids } }
+        return expandPlexCopies(connection, plexType, sections, matched)
+    }
+
+    /** Adds every item sharing a plex:// guid with [rows], across [sections]. */
+    private fun expandPlexCopies(
+        connection: HomeServerConnection,
+        plexType: String,
+        sections: List<String>,
+        rows: List<PlexMatchRow>,
+    ): List<PlexMatchRow> {
+        val all = linkedMapOf<String, PlexMatchRow>()
+        rows.forEach { all[it.ratingKey] = it }
+        rows.map { it.guid }.filter { it.startsWith("plex://") }.distinct().forEach { guid ->
+            sections.forEach { section ->
+                runCatching {
+                    getJson(
+                        buildUrl(connection.serverUrl, "/library/sections/$section/all",
+                            mapOf("type" to plexType, "guid" to guid, "includeGuids" to "1")),
+                        connection
+                    ).plexMatchRows().forEach { all.putIfAbsent(it.ratingKey, it) }
+                }.onFailure { Log.w(TAG, "Plex section $section guid lookup failed: ${it.message}") }
+            }
+        }
+        return all.values.toList()
+    }
+
+    private fun plexMovieKeysForPlayback(
+        connection: HomeServerConnection,
+        tmdbId: Int?,
+        imdbId: String?,
+        title: String,
+        year: Int?,
+        seedRatingKey: String?,
+    ): Set<String> {
+        val ids = plexExternalIds(tmdbId, imdbId, null)
+        val seed = seedRatingKey?.takeIf { it.all(Char::isDigit) && it.isNotBlank() }
+            ?.let { plexMetadataRow(connection, it) }?.takeIf { it.type == "movie" }
+        val byId = if (ids.isNotEmpty()) plexIdMatchedRows(connection, "1", "movie", ids, title, seed) else emptyList()
+        if (byId.isNotEmpty()) return byId.map { it.ratingKey }.toSet()
+        // No id match: the playing Plex item itself, else the title/year scorer, plus copies.
+        val fallback = seed ?: findBestMovie(connection, imdbId, title, year, tmdbId)
+            ?.let { plexMetadataRow(connection, it.id) }
+            ?: return emptySet()
+        Log.w(TAG, "Plex movie '$title' matched by ${if (seed != null) "playing item" else "title/year"}, not by id")
+        return expandPlexCopies(connection, "1", plexSectionKeys(connection, "movie"), listOf(fallback))
+            .map { it.ratingKey }.toSet()
+    }
+
+    private fun plexEpisodeKeysForPlayback(
+        connection: HomeServerConnection,
+        tmdbId: Int?,
+        imdbId: String?,
+        tvdbId: Int?,
+        title: String,
+        season: Int,
+        episode: Int,
+        seedRatingKey: String?,
+    ): Set<String> {
+        val ids = plexExternalIds(tmdbId, imdbId, tvdbId)
+        val seedEpisode = seedRatingKey?.takeIf { it.all(Char::isDigit) && it.isNotBlank() }
+            ?.let { plexMetadataRow(connection, it) }
+            ?.takeIf { it.type == "episode" && it.parentIndex == season && it.index == episode }
+        val seedShow = seedEpisode?.grandparentRatingKey?.takeIf { it.isNotBlank() }
+            ?.let { plexMetadataRow(connection, it) }
+        var shows = if (ids.isNotEmpty()) plexIdMatchedRows(connection, "2", "show", ids, title, seedShow) else emptyList()
+        if (shows.isEmpty()) {
+            val fallback = seedShow ?: findBestSeries(connection, imdbId, title, null, tmdbId, tvdbId)
+                ?.let { plexMetadataRow(connection, it.id) }
+            if (fallback != null) {
+                Log.w(TAG, "Plex show '$title' matched by ${if (seedShow != null) "playing item" else "title"}, not by id")
+                shows = expandPlexCopies(connection, "2", plexSectionKeys(connection, "show"), listOf(fallback))
+            }
+        }
+        val keys = linkedSetOf<String>()
+        seedEpisode?.let { keys += it.ratingKey }
+        shows.forEach { show ->
+            runCatching { findEpisode(connection, show.ratingKey, season, episode) }
+                .onFailure { Log.w(TAG, "Plex episode lookup in show ${show.ratingKey} failed: ${it.message}") }
+                .getOrNull()?.let { keys += it.id }
+        }
+        return keys
+    }
 
     // Plex's actual mark-watched/unwatched calls — same GET-with-query-params shape already
     // used by ServerSessionRepository's /:/timeline progress reporting.
-    fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean) {
+    fun scrobblePlex(connection: HomeServerConnection, ratingKey: String, watched: Boolean): Boolean {
         val path = if (watched) "/:/scrobble" else "/:/unscrobble"
         val url = buildUrl(
             connection.serverUrl,
@@ -836,7 +1059,14 @@ class HomeServerRepository @Inject constructor(
             )
         )
         val request = Request.Builder().url(url).get().build()
-        okHttpClient.newCall(request).execute().close()
+        // Returns false (and logs) on a non-2xx answer instead of pretending it worked.
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Plex ${if (watched) "scrobble" else "unscrobble"} $ratingKey failed: HTTP ${response.code}")
+                return false
+            }
+            return true
+        }
     }
 
     private suspend fun saveConnection(connection: HomeServerConnection) {

@@ -157,6 +157,7 @@ class PlayerViewModel @Inject constructor(
     private var currentItemTitle: String = ""
     private var currentTvdbId: Int? = null  // For anime Kitsu mapping
     private var currentImdbId: String? = null
+    private var currentYear: Int? = null
     private var currentStartPositionMs: Long? = null
     private var currentPreferredAddonId: String? = null
     private var currentPreferredSourceName: String? = null
@@ -894,6 +895,7 @@ class PlayerViewModel @Inject constructor(
 
             // Store info for watch history
             currentTitle = title
+            currentYear = releaseYear?.toIntOrNull()
             currentPoster = posterUrl
             currentBackdrop = backdropUrl
 
@@ -2284,6 +2286,9 @@ class PlayerViewModel @Inject constructor(
         val snapPoster = currentPoster
         val snapBackdrop = currentBackdrop
         val snapItemTitle = currentItemTitle
+        val snapImdbId = currentImdbId
+        val snapTvdbId = currentTvdbId
+        val snapYear = currentYear
         val snapSessionKey = "$snapMediaType:$snapMediaId:$snapSeason:$snapEpisode"
 
         progressSaveJob = progressReportScope.launch {
@@ -2528,7 +2533,16 @@ class PlayerViewModel @Inject constructor(
                             positionMs = position, durationMs = duration
                         )
                     }
-                    runCatching { serverSessionRepository.markWatched(serverItemId) }
+                }
+                // Mark watched in Plex (and Jellyfin/Emby for their own streams) whatever the
+                // stream source was — debrid/addon playback used to skip this entirely.
+                runCatching {
+                    serverSessionRepository.markPlaybackWatched(
+                        serverItemId = serverItemId, mediaType = snapMediaType,
+                        tmdbId = snapMediaId, imdbId = snapImdbId, tvdbId = snapTvdbId,
+                        title = snapTitle.ifBlank { snapItemTitle }, year = snapYear,
+                        season = snapSeason, episode = snapEpisode
+                    )
                 }
                 try {
                     val safeSeason = snapSeason
