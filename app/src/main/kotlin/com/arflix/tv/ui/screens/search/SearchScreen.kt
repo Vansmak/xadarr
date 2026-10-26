@@ -125,6 +125,10 @@ fun SearchScreen(
     onNavigateToTv: () -> Unit = {},
     onNavigateToCameras: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    // Rail entries Apps / Movies / Shows: never wired here, so they did nothing (Joe, 2026-10-25).
+    onNavigateToAllApps: () -> Unit = {},
+    onNavigateToMovies: () -> Unit = {},
+    onNavigateToShows: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
@@ -315,6 +319,9 @@ fun SearchScreen(
                         onNavigateToCameras = onNavigateToCameras,
                         onNavigateToSettings = onNavigateToSettings,
                         onNavigateToWatchlist = onNavigateToWatchlist,
+                        onNavigateToAllApps = onNavigateToAllApps,
+                        onNavigateToMovies = onNavigateToMovies,
+                        onNavigateToShows = onNavigateToShows,
                     ),
                 )
                 return@onPreviewKeyEvent true
@@ -524,6 +531,9 @@ fun SearchScreen(
                         onNavigateToCameras = onNavigateToCameras,
                         onNavigateToSettings = onNavigateToSettings,
                         onNavigateToWatchlist = onNavigateToWatchlist,
+                        onNavigateToAllApps = onNavigateToAllApps,
+                        onNavigateToMovies = onNavigateToMovies,
+                        onNavigateToShows = onNavigateToShows,
                     ),
                     focusedIndex = navRailFocusedIndex.value,
                 )

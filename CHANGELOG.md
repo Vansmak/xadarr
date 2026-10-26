@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.38] - 2026-10-25
+
+### Fixed
+- **Side menu: Apps, Movies and Shows open again from Discover and from a title's Details page.** Those two screens never passed those three menu entries on, so picking them did nothing (an old gap, noticed while testing 2.37). Every other entry and screen was already wired.
+
 ## [2.37] - 2026-10-25
 
 ### Changed

@@ -377,6 +377,9 @@ fun AppNavigation(
                 onNavigateToTv = { navigateHome() },
                 onNavigateToCameras = { navigateTopLevel(Screen.Cameras.route) },
                 onNavigateToSettings = { navigateTopLevel(Screen.Settings.route) },
+                onNavigateToAllApps = navigateToAllApps,
+                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
                 onBack = goBack,
             )
         }
@@ -577,6 +580,9 @@ fun AppNavigation(
                 onNavigateToSettings = {
                     navigateTopLevel(Screen.Settings.route)
                 },
+                onNavigateToAllApps = navigateToAllApps,
+                onNavigateToMovies = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.MOVIE)) },
+                onNavigateToShows = { navigateTopLevel(Screen.PlexLibrary.createRoute(MediaType.TV)) },
                 onSwitchProfile = {
                     onSwitchProfile()
                     navController.navigate(Screen.ProfileSelection.route) {
