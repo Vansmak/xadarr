@@ -389,8 +389,9 @@ class MusicViewModel @Inject constructor(
      * 1. [target] joins the playing room's group. "With TV": its TV wakes into Xadarr Music
      *    first, then the speaker joins and must stay joined ([joinWithTv]); "speaker only", or a
      *    room without a TV, just joins;
-     * 2. the starting room's TV goes off (always, when it has one); 3. the starting room leaves the group -- Music
-     * Assistant hands the queue to [target] at the current position (a second's gap at most).
+     * 2. the queue is handed to [target] (target out of the group, then player_queues/transfer;
+     *    a starting room that's only a member is just unsynced); 3. then the starting room's TV
+     *    goes off (always, when it has one).
      */
     fun moveTo(target: MaPlayer, withTv: Boolean) {
         val from = _ui.value.selectedPlayer ?: return showMessage("Pick a room first")
@@ -414,11 +415,32 @@ class MusicViewModel @Inject constructor(
                         return@launch
                     }
                 }
-                // 2. The starting room's TV off.
+                // 2. Hand the music to the target. Ungrouping a group LEADER just dissolves the
+                // group -- the leader plays on and the members drop out (Joe's 2.41 test: Gym fell
+                // back to its own old queue, Family Room kept playing). So: take the target out of
+                // the group, then transfer the queue to it (MA: same queue, keeps playing; the song
+                // may restart, which Joe is fine with). transfer while the target is still grouped
+                // fails on Sonos (groupCoordinatorChanged) -- tested on MA 2026-10-26.
+                val src = speaker(from.id) ?: from
+                if (src.syncedTo != null) {
+                    // The starting room is only a member of someone else's group: just unsync it.
+                    runCatching { repo.setGrouped(src.syncedTo, from.id, false) }
+                } else {
+                    runCatching { repo.setGrouped(from.id, target.id, false) }
+                    waitFor(8_000) { speaker(target.id)?.syncedTo == null }
+                    var moved = runCatching { repo.transferQueue(from.id, target.id, autoPlay = true) }.getOrDefault(false)
+                    if (!moved) { delay(2_000); moved = runCatching { repo.transferQueue(from.id, target.id, autoPlay = true) }.getOrDefault(false) }
+                    val playing = moved && waitFor(10_000) { speaker(target.id)?.isPlaying == true }
+                    if (!playing) {
+                        // Don't leave silence: put the target back with the starting room.
+                        if (speaker(from.id)?.isPlaying == true) runCatching { repo.setGrouped(from.id, target.id, true) }
+                        showMessage("Couldn't hand the music to ${target.name} · it stays on ${from.name}")
+                        return@launch
+                    }
+                }
+                // 3. The starting room's TV off -- after the handoff, not before.
                 if (_ui.value.hasTv(from)) tv.tvOff(from.name)
-                // 3. The starting room leaves; MA moves the queue to a remaining member.
-                repo.send("players/cmd/ungroup", JSONObject().put("player_id", from.id))
-                waitFor(12_000) { speaker(target.id)?.let { it.syncedTo != from.id } ?: false }
+                // This screen follows the target now (its own queue is the moved one).
                 val leader = speaker(target.id)?.let { it.syncedTo ?: it.id } ?: target.id
                 selectPlayer(leader, follow = target.id)
                 loadAll()

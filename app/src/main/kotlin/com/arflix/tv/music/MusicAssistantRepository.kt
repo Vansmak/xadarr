@@ -440,8 +440,9 @@ class MusicAssistantRepository @Inject constructor(
     }
 
     /** Moves a queue -- songs and position -- to another zone; the source zone stops. */
-    suspend fun transferQueue(sourceQueueId: String, targetQueueId: String): Boolean =
-        send("player_queues/transfer", JSONObject().put("source_queue_id", sourceQueueId).put("target_queue_id", targetQueueId))
+    suspend fun transferQueue(sourceQueueId: String, targetQueueId: String, autoPlay: Boolean? = null): Boolean =
+        send("player_queues/transfer", JSONObject().put("source_queue_id", sourceQueueId).put("target_queue_id", targetQueueId)
+            .apply { if (autoPlay != null) put("auto_play", autoPlay) })
 
     /** Every zone that's playing or paused, with its queue from the current song on. */
     suspend fun playingLineups(limit: Int = 40): List<MaLineup> {

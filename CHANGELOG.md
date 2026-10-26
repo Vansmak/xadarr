@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.42] - 2026-10-26
+
+### Fixed
+- **Move · with TV now actually moves the music when the starting room leads the group.** In the 2.41 test (Family Room → Gym), the Gym joined, but then the Family Room was ungrouped. Ungrouping a group's leader just dissolves the group: Family Room kept playing and Gym fell back to its own old queue. Now, once the target's join has held, Music:
+  1. Takes the target out of the group.
+  2. Hands it the queue (Music Assistant's transfer, retried once). The target keeps playing the same playlist/queue, though the song may restart. The starting room stops.
+  3. Only then turns the starting room's TV off.
+  - If the handoff fails, the target rejoins the starting room so nothing goes silent, and a short message says so.
+  - A starting room that's only a member of another room's group is simply taken out of it.
+- The target room's Xadarr Music follows the target room afterwards, since its own queue is now the moved one.
+- Xadarr Music 1.3.
+
 ## [2.41] - 2026-10-26
 
 ### Fixed
