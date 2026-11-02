@@ -2,6 +2,7 @@ package com.arflix.tv.ui.glass
 
 import java.util.Calendar
 import java.util.TimeZone
+import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
 import kotlin.math.cos
@@ -30,6 +31,52 @@ object SunClock {
             } else {
                 now < times.first || now >= times.second
             }
+        }
+    }
+
+    /**
+     * Night level for this setting, 0 (day) to 1 (night): fixed for "day"/"night"; for "auto" the
+     * launcher's twilight (free-my-tv HomeData.nightLevel) -- from 20 min before sunset to 40 min
+     * after it ramps up, from 40 min before sunrise to 20 min after it ramps down, smoothstepped.
+     */
+    fun nightLevel(mode: String, now: Long, zone: TimeZone = TimeZone.getDefault()): Float = when (mode) {
+        GlassMode.NIGHT -> 1f
+        GlassMode.DAY -> 0f
+        else -> {
+            val (rise, set) = riseSet(now, zone)
+            val min = 60_000f
+            val dusk = ((now - (set - 20 * min)) / (60 * min)).coerceIn(0f, 1f)
+            val dawn = (((rise + 20 * min) - now) / (60 * min)).coerceIn(0f, 1f)
+            val d = if (now >= (rise + set) / 2) dusk else dawn
+            d * d * (3 - 2 * d)
+        }
+    }
+
+    /** Where the sun is, for the sky: elevation 0..1 (sin of the day's progress), horizon glow 0..1. */
+    data class Sun(val up: Boolean, val elev: Float, val glow: Float)
+
+    fun sun(now: Long, zone: TimeZone = TimeZone.getDefault()): Sun {
+        val (rise, set) = riseSet(now, zone)
+        val up = now > rise && now < set
+        val day = if (up) (now - rise).toFloat() / (set - rise) else 0f
+        val elev = if (up) sin(day * Math.PI).toFloat() else 0f
+        val fromEdge = minOf(abs(now - set), abs(now - rise)) / 60_000f
+        val glow = if (up) maxOf(0f, 1f - elev * 2.2f) else maxOf(0f, 1f - fromEdge / 45f)
+        return Sun(up, elev, glow)
+    }
+
+    /** Today's sunrise and sunset (epoch ms); 6:00 and 18:00 when the sun doesn't cross the horizon. */
+    private fun riseSet(now: Long, zone: TimeZone): Pair<Long, Long> {
+        val (lat, lon) = placeFor(zone)
+        return sunTimes(now, lat, lon, zone) ?: run {
+            fun at(hour: Int) = Calendar.getInstance(zone).apply {
+                timeInMillis = now
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            at(6) to at(18)
         }
     }
 

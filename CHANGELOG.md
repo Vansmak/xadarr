@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.43] - 2026-11-01
+
+### Changed
+- **Glass follows the time of day continuously, like the Free My TV launcher.** Auto no longer flips at sunset with a 2-second crossfade.
+  - Night fades in over an hour, from 20 minutes before sunset to 40 minutes after it. Dawn runs the same way in reverse. The theme updates every minute.
+  - Text, and the menus, sheets and panels over video that text sits on, switch in the middle 20% of twilight, so they never go mid-grey on mid-grey.
+  - The background is now a sky that follows the sun:
+    - pale blue by day, deeper with the sun high;
+    - warm at the horizon around sunrise and sunset;
+    - indigo at night with 70 faint stars.
+  - Glass panels stay translucent over the sky. Day and Night modes stay fixed.
+- Xadarr Music 1.4 gets the same sky.
+
 ## [2.42] - 2026-10-26
 
 ### Fixed

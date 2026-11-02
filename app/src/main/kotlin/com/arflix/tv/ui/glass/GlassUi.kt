@@ -13,9 +13,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -31,51 +28,46 @@ import androidx.compose.ui.unit.dp
 fun glassOr(fallback: Color, pick: GlassPalette.() -> Color): Color = LocalGlass.current?.pick() ?: fallback
 
 /** Opaque surface for dialogs, menus and sheets: near-white by day, the launcher's smoke at night. */
-val GlassPalette.sheet: Color get() = lerp(Color(0xFFF7F7F9), Color(0xFF1C1C1E), night)
+val GlassPalette.sheet: Color get() = lerp(Color(0xFFF7F7F9), Color(0xFF1C1C1E), textNight)
 
 /** A raised opaque surface on a [sheet] (input fields, rows). */
-val GlassPalette.sheetRaised: Color get() = lerp(Color(0xFFFFFFFF), Color(0xFF2C2C2E), night)
+val GlassPalette.sheetRaised: Color get() = lerp(Color(0xFFFFFFFF), Color(0xFF2C2C2E), textNight)
 
 /**
  * Panels drawn over live video (HUD, channel badge, clock, player controls): far more opaque than
  * glass so bright video can't bleed through (Joe, 2026-10-25) -- ~92% white by day, ~88% smoke at night.
  */
-val GlassPalette.overVideo: Color get() = lerp(Color.White.copy(alpha = 0.92f), Color(0xFF1C1C1E).copy(alpha = 0.88f), night)
+val GlassPalette.overVideo: Color get() = lerp(Color.White.copy(alpha = 0.92f), Color(0xFF1C1C1E).copy(alpha = 0.88f), textNight)
 
 /** Secondary text over video: never lighter than #3A3A3C by day / darker than #D1D1D6 at night. */
-val GlassPalette.overVideoDim: Color get() = lerp(Color(0xFF3A3A3C), Color(0xFFD1D1D6), night)
+val GlassPalette.overVideoDim: Color get() = lerp(Color(0xFF3A3A3C), Color(0xFFD1D1D6), textNight)
 
 /**
  * Focus on an opaque [sheet]: the white pill at night; by day a white pill would vanish on the
  * near-white sheet, so it inverts to an ink pill with white text.
  */
-val GlassPalette.sheetFocus: Color get() = lerp(Color(0xFF1D1D1F), Color.White, night)
-val GlassPalette.sheetFocusInk: Color get() = lerp(Color.White, Color(0xFF1D1D1F), night)
+val GlassPalette.sheetFocus: Color get() = lerp(Color(0xFF1D1D1F), Color.White, textNight)
+val GlassPalette.sheetFocusInk: Color get() = lerp(Color.White, Color(0xFF1D1D1F), textNight)
 
 /** Dim behind a dialog. */
 val GlassPalette.scrim: Color get() = Color.Black.copy(alpha = 0.22f + 0.33f * night)
 
 /**
- * The launcher's page: the frosted vertical gradient and, at night, its night sky
- * (Shaders.NIGHT 0x070B1E / 0x16225A / 0x4B2F8F) as soft blobs.
+ * The launcher's page sky (free-my-tv HomeView.drawSunSky): a three-stop gradient that follows the
+ * sun ([withSky]), and at night 70 faint stars in fixed places in the top 60%.
  */
 fun Modifier.glassSky(g: GlassPalette): Modifier = drawBehind {
-    drawRect(Brush.verticalGradient(listOf(g.bgTop, g.bgBottom)))
-    val n = g.night
-    if (n > 0f) clipRect {
-        skyBlob(Color(0xFF4B2F8F).copy(alpha = 0.28f * n), 0.55f, 0.12f, 0.60f, 0.55f)
-        skyBlob(Color(0xFF16225A).copy(alpha = 0.45f * n), 0.92f, 0.95f, 0.45f, 0.50f)
-        skyBlob(Color(0xFF070B1E).copy(alpha = 0.60f * n), 0.04f, 0.70f, 0.50f, 0.60f)
+    drawRect(Brush.verticalGradient(0f to g.skyTop, 0.55f to g.skyMid, 1f to g.skyHorizon))
+    if (g.stars > 0.02f) {
+        val color = Color.White.copy(alpha = (0.6f * g.stars).coerceAtMost(1f))
+        val k = size.height / 1080f
+        for (s in SKY_STARS) drawCircle(color, s[2] * k * 1.5f, Offset(s[0] * size.width, s[1] * size.height))
     }
 }
 
-/** A CSS-style `radial-gradient(rx ry at cx cy, color, transparent 70%)`, fractions of the size. */
-private fun DrawScope.skyBlob(color: Color, cx: Float, cy: Float, rx: Float, ry: Float) {
-    val c = Offset(size.width * cx, size.height * cy)
-    val r = size.width * rx
-    scale(scaleX = 1f, scaleY = size.height * ry / r, pivot = c) {
-        drawCircle(Brush.radialGradient(0f to color, 0.7f to Color.Transparent, center = c, radius = r), radius = r, center = c)
-    }
+/** The launcher's stars: x, y (top 60%), radius 0.4-1.6, from java.util.Random(7) in its order. */
+private val SKY_STARS: List<FloatArray> = java.util.Random(7).let { rnd ->
+    List(70) { floatArrayOf(rnd.nextFloat(), rnd.nextFloat() * 0.6f, rnd.nextFloat() * 1.2f + 0.4f) }
 }
 
 /** A frosted glass panel: soft shadow, translucent fill, light rim. */

@@ -8,7 +8,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
@@ -46,8 +46,19 @@ data class GlassPalette(
     val up: Color,
     val down: Color,
     val track: Color,
-    /** 0 = day, 1 = night; in between during the crossfade (drives the night-sky blobs). */
+    /** 0 = day, 1 = night; in between through twilight (backgrounds and glass follow it). */
     val night: Float = if (isNight) 1f else 0f,
+    /**
+     * [night] squeezed into its middle 20% (0.4-0.6): text, and the opaque surfaces text sits on
+     * (sheets, panels over video), switch quickly in the middle of twilight instead of passing
+     * through mid-grey on mid-grey while the background takes the whole hour.
+     */
+    val textNight: Float = night,
+    /** The sky behind the glass (glassSky): top, middle (55%) and horizon, plus star strength. */
+    val skyTop: Color = bgTop,
+    val skyMid: Color = bgBase,
+    val skyHorizon: Color = bgBottom,
+    val stars: Float = 0f,
 )
 
 val GlassDay = GlassPalette(
@@ -102,15 +113,24 @@ val GlassNight = GlassPalette(
     track = Color.White.copy(alpha = 0.18f),
 )
 
-/** Day → night blend, t in 0..1 (the 2 s crossfade at sunrise/sunset). */
+/** Twilight level → text level: 0 below 0.4, 1 above 0.6, smooth in between. */
+fun glassTextLevel(t: Float): Float {
+    val x = ((t - 0.4f) / 0.2f).coerceIn(0f, 1f)
+    return x * x * (3 - 2 * x)
+}
+
+/**
+ * Day → night blend, t in 0..1 (twilight). Backgrounds and glass blend linearly; text colours use
+ * [glassTextLevel] so they never sit mid-grey. Sky colours are set by [withSky].
+ */
 fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float): GlassPalette = if (t <= 0f) a else if (t >= 1f) b else GlassPalette(
     isNight = t >= 0.5f,
     bgTop = lerp(a.bgTop, b.bgTop, t),
     bgBottom = lerp(a.bgBottom, b.bgBottom, t),
     bgBase = lerp(a.bgBase, b.bgBase, t),
-    ink = lerp(a.ink, b.ink, t),
-    dim = lerp(a.dim, b.dim, t),
-    faint = lerp(a.faint, b.faint, t),
+    ink = lerp(a.ink, b.ink, glassTextLevel(t)),
+    dim = lerp(a.dim, b.dim, glassTextLevel(t)),
+    faint = lerp(a.faint, b.faint, glassTextLevel(t)),
     glass = lerp(a.glass, b.glass, t),
     glassStrong = lerp(a.glassStrong, b.glassStrong, t),
     glassRim = lerp(a.glassRim, b.glassRim, t),
@@ -128,7 +148,29 @@ fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float): GlassPalette = if (t 
     down = lerp(a.down, b.down, t),
     track = lerp(a.track, b.track, t),
     night = a.night + (b.night - a.night) * t,
+    textNight = a.textNight + (b.textNight - a.textNight) * glassTextLevel(t),
 )
+
+/**
+ * The launcher's sky (free-my-tv HomeView.skyColors) for this palette's night level and the sun:
+ * pale blue by day (deeper with the sun high), warm at the horizon near sunrise and sunset,
+ * indigo with stars at night.
+ */
+fun GlassPalette.withSky(sun: SunClock.Sun): GlassPalette {
+    val n = night
+    val dTop = lerp(Color(0xFFCEDEF6), Color(0xFFBED6F8), sun.elev)
+    val dMid = Color(0xFFE8EDF7)
+    val dHor = lerp(Color(0xFFF5F0F2), Color(0xFFFFD2B0), sun.glow * 0.9f)
+    val nTop = Color(0xFF090C24)
+    val nMid = Color(0xFF1A205C)
+    val nHor = lerp(Color(0xFF482E8C), Color(0xFFD6785C), sun.glow * 0.7f)
+    return copy(
+        skyTop = lerp(dTop, nTop, n),
+        skyMid = lerp(dMid, nMid, n),
+        skyHorizon = lerp(dHor, nHor, n),
+        stars = n * (if (sun.up) maxOf(0f, 0.25f - sun.elev) * 4f else 1f),
+    )
+}
 
 /**
  * The glass look in effect right now (day or night), or null when another theme is selected.
@@ -157,22 +199,26 @@ object GlassMode {
 }
 
 /**
- * Day or night for [mode] ("auto" = night from local sunset to sunrise), re-checked every minute,
- * blended over 2 s when it flips, like the launcher's NIGHT_MS.
+ * The glass look for [mode] right now. "auto" follows the sun continuously like the launcher
+ * (Joe, 2026-11-01): an hour of twilight around sunset and sunrise instead of a switch, re-checked
+ * every minute and eased over a moment when it moves. Day and Night are fixed levels; the sky
+ * still follows the real sun.
  */
 @Composable
 fun rememberGlassPalette(mode: String): GlassPalette {
-    var night by remember(mode) { mutableStateOf(SunClock.isNight(mode, System.currentTimeMillis())) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(mode) {
         while (true) {
-            night = SunClock.isNight(mode, System.currentTimeMillis())
+            now = System.currentTimeMillis()
             delay(60_000)
         }
     }
+    val level = remember(mode, now) { SunClock.nightLevel(mode, now) }
+    val sun = remember(now) { SunClock.sun(now) }
     val t by animateFloatAsState(
-        targetValue = if (night) 1f else 0f,
-        animationSpec = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-        label = "glass-day-night",
+        targetValue = level,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "glass-twilight",
     )
-    return remember(t) { lerpGlass(GlassDay, GlassNight, t) }
+    return remember(t, sun) { lerpGlass(GlassDay, GlassNight, t).withSky(sun) }
 }
