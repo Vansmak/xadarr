@@ -135,6 +135,19 @@ private fun duskNight(n: GlassPalette, t: Float): GlassPalette {
 }
 
 /**
+ * Day side just before the switch, while the sky ([t]) is already darkening toward lavender: grey
+ * secondary text (#6E6E73 / #8E8E93) sitting straight on the sky loses contrast -- at level 0.3
+ * the sky is already ~#98A5BC, where #8E8E93 is ~1.4:1 (2.45 check on the Office TV). So from
+ * level 0.05 it deepens to #3A3A3C (~4.5:1 there) by 0.3 -- the mirror of [duskNight].
+ */
+private fun duskDay(d: GlassPalette, t: Float): GlassPalette {
+    val x = ((t - 0.05f) / 0.25f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+    if (x <= 0f) return d
+    val deep = Color(0xFF3A3A3C)
+    return d.copy(dim = lerp(d.dim, deep, x), faint = lerp(d.faint, deep, x))
+}
+
+/**
  * The palette for sky level [t] (0..1, the hour of twilight) and surface level [u] (0 = day,
  * 1 = night). Every surface and text colour blends by [u], which steps at t = 0.5 and only eases
  * for a moment, so a panel and the text on it always flip together; the sky ([skyNight]) follows
@@ -143,30 +156,31 @@ private fun duskNight(n: GlassPalette, t: Float): GlassPalette {
  */
 fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float, u: Float): GlassPalette {
     val nb = duskNight(b, t)
-    val base = if (u <= 0f) a else if (u >= 1f) nb else GlassPalette(
+    val da = duskDay(a, t)
+    val base = if (u <= 0f) da else if (u >= 1f) nb else GlassPalette(
         isNight = u >= 0.5f,
-        bgTop = lerp(a.bgTop, nb.bgTop, u),
-        bgBottom = lerp(a.bgBottom, nb.bgBottom, u),
-        bgBase = lerp(a.bgBase, nb.bgBase, u),
-        ink = lerp(a.ink, nb.ink, u),
-        dim = lerp(a.dim, nb.dim, u),
-        faint = lerp(a.faint, nb.faint, u),
-        glass = lerp(a.glass, nb.glass, u),
-        glassStrong = lerp(a.glassStrong, nb.glassStrong, u),
-        glassRim = lerp(a.glassRim, nb.glassRim, u),
-        glassEdge = lerp(a.glassEdge, nb.glassEdge, u),
-        chip = lerp(a.chip, nb.chip, u),
-        cardEmpty = lerp(a.cardEmpty, nb.cardEmpty, u),
-        shadow = lerp(a.shadow, nb.shadow, u),
-        shadowFocus = lerp(a.shadowFocus, nb.shadowFocus, u),
-        focusBg = lerp(a.focusBg, nb.focusBg, u),
-        focusInk = lerp(a.focusInk, nb.focusInk, u),
-        focusInkDim = lerp(a.focusInkDim, nb.focusInkDim, u),
-        accent = lerp(a.accent, nb.accent, u),
-        live = lerp(a.live, nb.live, u),
-        up = lerp(a.up, nb.up, u),
-        down = lerp(a.down, nb.down, u),
-        track = lerp(a.track, nb.track, u),
+        bgTop = lerp(da.bgTop, nb.bgTop, u),
+        bgBottom = lerp(da.bgBottom, nb.bgBottom, u),
+        bgBase = lerp(da.bgBase, nb.bgBase, u),
+        ink = lerp(da.ink, nb.ink, u),
+        dim = lerp(da.dim, nb.dim, u),
+        faint = lerp(da.faint, nb.faint, u),
+        glass = lerp(da.glass, nb.glass, u),
+        glassStrong = lerp(da.glassStrong, nb.glassStrong, u),
+        glassRim = lerp(da.glassRim, nb.glassRim, u),
+        glassEdge = lerp(da.glassEdge, nb.glassEdge, u),
+        chip = lerp(da.chip, nb.chip, u),
+        cardEmpty = lerp(da.cardEmpty, nb.cardEmpty, u),
+        shadow = lerp(da.shadow, nb.shadow, u),
+        shadowFocus = lerp(da.shadowFocus, nb.shadowFocus, u),
+        focusBg = lerp(da.focusBg, nb.focusBg, u),
+        focusInk = lerp(da.focusInk, nb.focusInk, u),
+        focusInkDim = lerp(da.focusInkDim, nb.focusInkDim, u),
+        accent = lerp(da.accent, nb.accent, u),
+        live = lerp(da.live, nb.live, u),
+        up = lerp(da.up, nb.up, u),
+        down = lerp(da.down, nb.down, u),
+        track = lerp(da.track, nb.track, u),
         night = u,
     )
     return base.copy(skyNight = t.coerceIn(0f, 1f))

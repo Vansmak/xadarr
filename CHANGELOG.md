@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.45] - 2026-11-01
+
+### Changed
+- **The live TV guide sits on the sun-following sky**, like Settings and Music already do. It used to have a plain light/dark gradient. The sidebar, channel list and grid are glass panels over the sky. Anything over live video (HUD, mini player, popups) is unchanged, and so are focus, D-pad behaviour, sizes and layout.
+- The Movies/Shows library and Cameras pages get the same sky.
+- **Before the evening switch,** Glass's grey secondary text deepens to dark grey as the sky darkens, so it doesn't fade into it. Mornings get the same, mirrored.
+- Xadarr Music 1.6 gets the same change.
+
 ## [2.44] - 2026-11-01
 
 ### Fixed

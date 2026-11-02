@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arflix.tv.ui.glass.GlassPalette
 import com.arflix.tv.ui.glass.LocalGlass
+import com.arflix.tv.ui.glass.glassSky
 import com.arflix.tv.ui.glass.overVideo
 import com.arflix.tv.ui.glass.overVideoDim
 import com.arflix.tv.ui.glass.sheetRaised
@@ -188,12 +189,16 @@ object LiveColors {
 }
 
 /**
- * Background for a guide surface: the glass look's frosted gradient, else the solid guide black.
+ * Background for a guide-style page (library, cameras): the glass look's sun-following sky
+ * (glassSky, like Settings and Music), else the solid guide black.
  */
 @Composable
 fun Modifier.liveBackground(): Modifier {
     val p = LocalLivePalette.current
-    return if (p.isGlass) background(Brush.verticalGradient(listOf(p.bgTop, p.bgBottom))) else background(p.bg)
+    val g = LocalGlass.current
+    return if (p.isGlass && g != null) glassSky(g)
+    else if (p.isGlass) background(Brush.verticalGradient(listOf(p.bgTop, p.bgBottom)))
+    else background(p.bg)
 }
 
 /** Inside a focused glass pill the text tokens become the pill's dark ink. No-op otherwise. */
@@ -211,13 +216,14 @@ fun FocusInk(focused: Boolean, content: @Composable () -> Unit) {
 }
 
 /**
- * The guide screen's own backdrop. With glass on it follows day/night even though the screen's
- * overlays (HUD over video, splash, search) run on the night palette.
+ * The guide screen's own backdrop. With glass on it is the sun-following sky (glassSky), the same
+ * page Settings and Music sit on (Joe, 2026-11-01: the guide was the odd one out); the guide's
+ * glass panels sit on it, and overlays over video keep their opaque panels.
  */
 @Composable
 fun Modifier.liveRootBackground(): Modifier {
     val g = LocalGlass.current ?: return background(LocalLivePalette.current.bg)
-    return background(Brush.verticalGradient(listOf(g.bgTop, g.bgBottom)))
+    return glassSky(g)
 }
 
 /**
