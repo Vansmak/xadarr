@@ -196,9 +196,11 @@ fun GlassPalette.withSky(sun: SunClock.Sun): GlassPalette {
     val dTop = lerp(Color(0xFFCEDEF6), Color(0xFFBED6F8), sun.elev)
     val dMid = Color(0xFFE8EDF7)
     val dHor = lerp(Color(0xFFF5F0F2), Color(0xFFFFD2B0), sun.glow * 0.9f)
-    val nTop = Color(0xFF090C24)
-    val nMid = Color(0xFF1A205C)
-    val nHor = lerp(Color(0xFF482E8C), Color(0xFFD6785C), sun.glow * 0.7f)
+    // Midnight blue most of the night; the violet/orange horizon only near sunset and sunrise
+    // (launcher, 2026-11-01: Joe found the night "too purple").
+    val nTop = Color(0xFF070B1E)
+    val nMid = lerp(Color(0xFF0F1C45), Color(0xFF1A205C), sun.glow)
+    val nHor = lerp(Color(0xFF1D3466), lerp(Color(0xFF482E8C), Color(0xFFD6785C), sun.glow * 0.7f), sun.glow)
     return copy(
         skyTop = lerp(dTop, nTop, n),
         skyMid = lerp(dMid, nMid, n),

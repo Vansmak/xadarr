@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.46] - 2026-11-01
+
+### Changed
+- **Glass's night sky is midnight blue,** not purple, matching the launcher. The violet-to-orange horizon now shows only within about 45 minutes of sunset and sunrise. Day colours, stars and the twilight timing are unchanged.
+- Xadarr Music 1.7 gets the same change.
+
 ## [2.45] - 2026-11-01
 
 ### Changed
