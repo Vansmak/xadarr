@@ -28,26 +28,26 @@ import androidx.compose.ui.unit.dp
 fun glassOr(fallback: Color, pick: GlassPalette.() -> Color): Color = LocalGlass.current?.pick() ?: fallback
 
 /** Opaque surface for dialogs, menus and sheets: near-white by day, the launcher's smoke at night. */
-val GlassPalette.sheet: Color get() = lerp(Color(0xFFF7F7F9), Color(0xFF1C1C1E), textNight)
+val GlassPalette.sheet: Color get() = lerp(Color(0xFFF7F7F9), Color(0xFF1C1C1E), night)
 
 /** A raised opaque surface on a [sheet] (input fields, rows). */
-val GlassPalette.sheetRaised: Color get() = lerp(Color(0xFFFFFFFF), Color(0xFF2C2C2E), textNight)
+val GlassPalette.sheetRaised: Color get() = lerp(Color(0xFFFFFFFF), Color(0xFF2C2C2E), night)
 
 /**
  * Panels drawn over live video (HUD, channel badge, clock, player controls): far more opaque than
  * glass so bright video can't bleed through (Joe, 2026-10-25) -- ~92% white by day, ~88% smoke at night.
  */
-val GlassPalette.overVideo: Color get() = lerp(Color.White.copy(alpha = 0.92f), Color(0xFF1C1C1E).copy(alpha = 0.88f), textNight)
+val GlassPalette.overVideo: Color get() = lerp(Color.White.copy(alpha = 0.92f), Color(0xFF1C1C1E).copy(alpha = 0.88f), night)
 
 /** Secondary text over video: never lighter than #3A3A3C by day / darker than #D1D1D6 at night. */
-val GlassPalette.overVideoDim: Color get() = lerp(Color(0xFF3A3A3C), Color(0xFFD1D1D6), textNight)
+val GlassPalette.overVideoDim: Color get() = lerp(Color(0xFF3A3A3C), Color(0xFFD1D1D6), night)
 
 /**
  * Focus on an opaque [sheet]: the white pill at night; by day a white pill would vanish on the
  * near-white sheet, so it inverts to an ink pill with white text.
  */
-val GlassPalette.sheetFocus: Color get() = lerp(Color(0xFF1D1D1F), Color.White, textNight)
-val GlassPalette.sheetFocusInk: Color get() = lerp(Color.White, Color(0xFF1D1D1F), textNight)
+val GlassPalette.sheetFocus: Color get() = lerp(Color(0xFF1D1D1F), Color.White, night)
+val GlassPalette.sheetFocusInk: Color get() = lerp(Color.White, Color(0xFF1D1D1F), night)
 
 /** Dim behind a dialog. */
 val GlassPalette.scrim: Color get() = Color.Black.copy(alpha = 0.22f + 0.33f * night)

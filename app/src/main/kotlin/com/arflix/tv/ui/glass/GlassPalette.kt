@@ -46,14 +46,15 @@ data class GlassPalette(
     val up: Color,
     val down: Color,
     val track: Color,
-    /** 0 = day, 1 = night; in between through twilight (backgrounds and glass follow it). */
-    val night: Float = if (isNight) 1f else 0f,
     /**
-     * [night] squeezed into its middle 20% (0.4-0.6): text, and the opaque surfaces text sits on
-     * (sheets, panels over video), switch quickly in the middle of twilight instead of passing
-     * through mid-grey on mid-grey while the background takes the whole hour.
+     * 0 = day, 1 = night for every surface and text colour. During twilight it switches as the
+     * sun's level crosses 0.5 (eased over a moment), so a panel and the text on it always flip
+     * together -- a linear glass blend under switched text was unreadable at dusk (Joe,
+     * 2026-11-01). Only the sky ([skyNight]) takes the whole hour.
      */
-    val textNight: Float = night,
+    val night: Float = if (isNight) 1f else 0f,
+    /** The sun's twilight level, 0..1 over the hour around sunset/sunrise: the sky and stars only. */
+    val skyNight: Float = night,
     /** The sky behind the glass (glassSky): top, middle (55%) and horizon, plus star strength. */
     val skyTop: Color = bgTop,
     val skyMid: Color = bgBase,
@@ -113,43 +114,63 @@ val GlassNight = GlassPalette(
     track = Color.White.copy(alpha = 0.18f),
 )
 
-/** Twilight level → text level: 0 below 0.4, 1 above 0.6, smooth in between. */
-fun glassTextLevel(t: Float): Float {
-    val x = ((t - 0.4f) / 0.2f).coerceIn(0f, 1f)
-    return x * x * (3 - 2 * x)
+/**
+ * Night side just after the switch, while the sky ([t] = its level) is still light lavender:
+ * plain night glass (white 7%) and grey secondary text (#98989D) vanish on it -- Joe's "unreadable"
+ * photos at dusk, 2026-11-01. So until the sky is nearly dark (0.75) the night glass carries a
+ * smoke tint and dim/faint sit near white; both settle to normal night by 1.0. Measured worst-case
+ * unfocused-text contrast over the dusk sky: 3.6 (full night: 4.0), 6+ for the first 20 minutes.
+ */
+private fun duskNight(n: GlassPalette, t: Float): GlassPalette {
+    val x = ((t - 0.75f) / 0.25f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+    if (x >= 1f) return n
+    val near = Color(0xFFE5E5EA)
+    val smoke = Color(0xFF1C1C1E).copy(alpha = 0.45f)
+    return n.copy(
+        dim = lerp(near, n.dim, x),
+        faint = lerp(near, n.faint, x),
+        glass = lerp(smoke, n.glass, x),
+        glassStrong = lerp(smoke, n.glassStrong, x),
+    )
 }
 
 /**
- * Day → night blend, t in 0..1 (twilight). Backgrounds and glass blend linearly; text colours use
- * [glassTextLevel] so they never sit mid-grey. Sky colours are set by [withSky].
+ * The palette for sky level [t] (0..1, the hour of twilight) and surface level [u] (0 = day,
+ * 1 = night). Every surface and text colour blends by [u], which steps at t = 0.5 and only eases
+ * for a moment, so a panel and the text on it always flip together; the sky ([skyNight]) follows
+ * [t]. A level inside a narrow window (0.49-0.51) could hold half-switched for a minute between
+ * clock updates, hence a step.
  */
-fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float): GlassPalette = if (t <= 0f) a else if (t >= 1f) b else GlassPalette(
-    isNight = t >= 0.5f,
-    bgTop = lerp(a.bgTop, b.bgTop, t),
-    bgBottom = lerp(a.bgBottom, b.bgBottom, t),
-    bgBase = lerp(a.bgBase, b.bgBase, t),
-    ink = lerp(a.ink, b.ink, glassTextLevel(t)),
-    dim = lerp(a.dim, b.dim, glassTextLevel(t)),
-    faint = lerp(a.faint, b.faint, glassTextLevel(t)),
-    glass = lerp(a.glass, b.glass, t),
-    glassStrong = lerp(a.glassStrong, b.glassStrong, t),
-    glassRim = lerp(a.glassRim, b.glassRim, t),
-    glassEdge = lerp(a.glassEdge, b.glassEdge, t),
-    chip = lerp(a.chip, b.chip, t),
-    cardEmpty = lerp(a.cardEmpty, b.cardEmpty, t),
-    shadow = lerp(a.shadow, b.shadow, t),
-    shadowFocus = lerp(a.shadowFocus, b.shadowFocus, t),
-    focusBg = lerp(a.focusBg, b.focusBg, t),
-    focusInk = lerp(a.focusInk, b.focusInk, t),
-    focusInkDim = lerp(a.focusInkDim, b.focusInkDim, t),
-    accent = lerp(a.accent, b.accent, t),
-    live = lerp(a.live, b.live, t),
-    up = lerp(a.up, b.up, t),
-    down = lerp(a.down, b.down, t),
-    track = lerp(a.track, b.track, t),
-    night = a.night + (b.night - a.night) * t,
-    textNight = a.textNight + (b.textNight - a.textNight) * glassTextLevel(t),
-)
+fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float, u: Float): GlassPalette {
+    val nb = duskNight(b, t)
+    val base = if (u <= 0f) a else if (u >= 1f) nb else GlassPalette(
+        isNight = u >= 0.5f,
+        bgTop = lerp(a.bgTop, nb.bgTop, u),
+        bgBottom = lerp(a.bgBottom, nb.bgBottom, u),
+        bgBase = lerp(a.bgBase, nb.bgBase, u),
+        ink = lerp(a.ink, nb.ink, u),
+        dim = lerp(a.dim, nb.dim, u),
+        faint = lerp(a.faint, nb.faint, u),
+        glass = lerp(a.glass, nb.glass, u),
+        glassStrong = lerp(a.glassStrong, nb.glassStrong, u),
+        glassRim = lerp(a.glassRim, nb.glassRim, u),
+        glassEdge = lerp(a.glassEdge, nb.glassEdge, u),
+        chip = lerp(a.chip, nb.chip, u),
+        cardEmpty = lerp(a.cardEmpty, nb.cardEmpty, u),
+        shadow = lerp(a.shadow, nb.shadow, u),
+        shadowFocus = lerp(a.shadowFocus, nb.shadowFocus, u),
+        focusBg = lerp(a.focusBg, nb.focusBg, u),
+        focusInk = lerp(a.focusInk, nb.focusInk, u),
+        focusInkDim = lerp(a.focusInkDim, nb.focusInkDim, u),
+        accent = lerp(a.accent, nb.accent, u),
+        live = lerp(a.live, nb.live, u),
+        up = lerp(a.up, nb.up, u),
+        down = lerp(a.down, nb.down, u),
+        track = lerp(a.track, nb.track, u),
+        night = u,
+    )
+    return base.copy(skyNight = t.coerceIn(0f, 1f))
+}
 
 /**
  * The launcher's sky (free-my-tv HomeView.skyColors) for this palette's night level and the sun:
@@ -157,7 +178,7 @@ fun lerpGlass(a: GlassPalette, b: GlassPalette, t: Float): GlassPalette = if (t 
  * indigo with stars at night.
  */
 fun GlassPalette.withSky(sun: SunClock.Sun): GlassPalette {
-    val n = night
+    val n = skyNight
     val dTop = lerp(Color(0xFFCEDEF6), Color(0xFFBED6F8), sun.elev)
     val dMid = Color(0xFFE8EDF7)
     val dHor = lerp(Color(0xFFF5F0F2), Color(0xFFFFD2B0), sun.glow * 0.9f)
@@ -213,12 +234,28 @@ fun rememberGlassPalette(mode: String): GlassPalette {
             delay(60_000)
         }
     }
-    val level = remember(mode, now) { SunClock.nightLevel(mode, now) }
+    val level = remember(mode, now) { debugGlassLevel() ?: SunClock.nightLevel(mode, now) }
     val sun = remember(now) { SunClock.sun(now) }
     val t by animateFloatAsState(
         targetValue = level,
         animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
         label = "glass-twilight",
     )
-    return remember(t, sun) { lerpGlass(GlassDay, GlassNight, t).withSky(sun) }
+    val u by animateFloatAsState(
+        targetValue = if (level >= 0.5f) 1f else 0f,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "glass-day-night",
+    )
+    return remember(t, u, sun) { lerpGlass(GlassDay, GlassNight, t, u).withSky(sun) }
 }
+
+/**
+ * `adb shell setprop debug.xadarr.glass_level 0.5` forces the twilight level (picked up within a
+ * minute) to check readability without waiting for dusk; `setprop debug.xadarr.glass_level ""`
+ * goes back to the sun. Only adb can set debug.* properties, so nothing else reaches it.
+ */
+private fun debugGlassLevel(): Float? = runCatching {
+    val v = Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
+        .invoke(null, "debug.xadarr.glass_level") as String
+    v.toFloatOrNull()?.coerceIn(0f, 1f)
+}.getOrNull()

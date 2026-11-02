@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.44] - 2026-11-01
+
+### Fixed
+- **Glass is readable at dusk.** In 2.43 the glass panels faded with the sky over the full hour while the text switched partway through. Around 15 minutes after sunset you got white text on pale grey panels in the guide and Settings, and the unfocused items all but disappeared.
+  - **One switch:** only the sky (its colours and stars) takes the full hour. Every panel, sheet, chip, shadow and text colour switches together, in a single short fade about 10 minutes after sunset.
+  - **Dusk tint:** while the sky is still lavender after the switch, the night glass carries a smoke tint and grey secondary text sits near white. Both settle to normal night over the last stretch of twilight, about 25–40 minutes after sunset. Text contrast never drops below roughly what full night already has.
+- For testing: `adb shell setprop debug.xadarr.glass_level 0.5` forces a twilight level (0–1), picked up within a minute. An empty value goes back to the sun.
+
 ## [2.43] - 2026-11-01
 
 ### Changed
