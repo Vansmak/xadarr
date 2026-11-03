@@ -305,9 +305,10 @@ val LocalLiveType   = staticCompositionLocalOf { LiveType }
 val LocalLiveDims   = staticCompositionLocalOf { LiveDims }
 
 /**
- * The guide grid (channel rows and programme grid) with glass on: always the night glass on the
- * old dark gradient, whatever the hour, while the menu and the rest of the page follow the sky
- * (Joe, 2026-11-02: "I miss the old light made dark mode on xadarr guide"). Other themes: no-op.
+ * The guide grid (channel rows and programme grid) and its group sidebar with glass on: always the
+ * night glass on the old dark gradient, whatever the hour, while the side menu and the rest of the
+ * page follow the sky (Joe, 2026-11-02: "I miss the old light made dark mode on xadarr guide";
+ * then "that left too" for the group sidebar). Other themes: no-op.
  */
 @Composable
 fun ProvideGuideGridPalette(content: @Composable () -> Unit) {

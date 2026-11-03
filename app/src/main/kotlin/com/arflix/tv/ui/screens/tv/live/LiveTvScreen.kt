@@ -1702,7 +1702,7 @@ fun LiveTvScreen(
                         .fillMaxHeight()
                         .padding(top = miniPlayerOffsetDp),
                 ) {
-                    ProvideLivePalette {
+                    ProvideGuideGridPalette {
                         CategorySidebar(
                             tree = enrichedState.value.tree,
                             selectedId = selectedCategoryId,
@@ -1764,6 +1764,7 @@ fun LiveTvScreen(
                             focusActiveCategorySignal = focusActiveCategorySignal,
                             modifier = Modifier
                                 .fillMaxHeight()
+                                .guideGridBackground()
                                 .focusRequester(sidebarFocus),
                         )
                     }

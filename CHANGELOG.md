@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.48] - 2026-11-02
+
+### Changed
+- **The guide's group sidebar is dark too** (Search, Go to channel, Favorites, groups), matching the grid next to it. The side menu (Discover, Movies, Shows, Settings...) and the top of the guide still follow the day/night sky.
+
 ## [2.47] - 2026-11-02
 
 ### Changed
