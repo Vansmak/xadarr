@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arflix.tv.ui.glass.GlassNight
 import com.arflix.tv.ui.glass.GlassPalette
 import com.arflix.tv.ui.glass.LocalGlass
 import com.arflix.tv.ui.glass.glassSky
@@ -302,3 +303,21 @@ object LiveDims {
 
 val LocalLiveType   = staticCompositionLocalOf { LiveType }
 val LocalLiveDims   = staticCompositionLocalOf { LiveDims }
+
+/**
+ * The guide grid (channel rows and programme grid) with glass on: always the night glass on the
+ * old dark gradient, whatever the hour, while the menu and the rest of the page follow the sky
+ * (Joe, 2026-11-02: "I miss the old light made dark mode on xadarr guide"). Other themes: no-op.
+ */
+@Composable
+fun ProvideGuideGridPalette(content: @Composable () -> Unit) {
+    if (LocalGlass.current == null) content()
+    else CompositionLocalProvider(LocalGlass provides GlassNight) { ProvideLivePalette(GlassNight, content = content) }
+}
+
+/** The grid's own backdrop: the pre-2.45 night gradient when glass is on, nothing otherwise. */
+@Composable
+fun Modifier.guideGridBackground(): Modifier =
+    if (LocalGlass.current == null) this
+    else background(Brush.verticalGradient(listOf(GlassNight.bgTop, GlassNight.bgBottom)))
+

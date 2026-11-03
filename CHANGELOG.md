@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.47] - 2026-11-02
+
+### Changed
+- **The guide grid is dark again, at any hour.** The channel list and programme grid use Glass's night look on the dark gradient they had before 2.45. The menu, the now-playing area above the grid and the rest of the app still follow the day/night sky. The library and Cameras are unchanged.
+
 ## [2.46] - 2026-11-01
 
 ### Changed

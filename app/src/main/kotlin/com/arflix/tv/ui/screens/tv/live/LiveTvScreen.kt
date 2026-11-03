@@ -1555,7 +1555,7 @@ fun LiveTvScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    ProvideLivePalette {
+                    ProvideGuideGridPalette {
                         EpgGrid(
                             zoom = musicGridZoom(filteredChannels),
                             focusSuspended = searchOpen,
@@ -1596,7 +1596,7 @@ fun LiveTvScreen(
                             onMoveLeftFromChannels = { focusPlaylistSearch() },
                             onEnterEpg = { channel -> focusEpg(channel.id) },
                             onExitEpg = { channel -> focusChannelList(channel?.id ?: focusedChannelId ?: playingChannelId) },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().guideGridBackground(),
                         )
                     }
                 }
@@ -1635,7 +1635,7 @@ fun LiveTvScreen(
                             },
                         )
                     }
-                    ProvideLivePalette {
+                    ProvideGuideGridPalette {
                         EpgGrid(
                             zoom = musicGridZoom(filteredChannels),
                             focusSuspended = searchOpen,
@@ -1677,6 +1677,7 @@ fun LiveTvScreen(
                                 modifier = Modifier
                                     .padding(start = epgStartOffset)
                                     .fillMaxSize()
+                                    .guideGridBackground()
                                     .onFocusChanged {
                                         if (it.hasFocus && focusZone == LiveTvFocusZone.CATEGORY_LIST) {
                                             focusZone = LiveTvFocusZone.CHANNEL_LIST
