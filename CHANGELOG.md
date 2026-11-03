@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.49] - 2026-11-03
+
+### Changed
+- **The guide grid and its group sidebar are light by day and dark at night again,** the way they were before 2.45. 2.47–2.48 kept them dark all day. They use the plain day/night background, not the sky. The side menu and the top of the guide still sit on the sky.
+
 ## [2.48] - 2026-11-02
 
 ### Changed

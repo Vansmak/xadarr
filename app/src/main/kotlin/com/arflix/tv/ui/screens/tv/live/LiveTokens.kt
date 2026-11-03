@@ -14,7 +14,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arflix.tv.ui.glass.GlassNight
 import com.arflix.tv.ui.glass.GlassPalette
 import com.arflix.tv.ui.glass.LocalGlass
 import com.arflix.tv.ui.glass.glassSky
@@ -305,20 +304,18 @@ val LocalLiveType   = staticCompositionLocalOf { LiveType }
 val LocalLiveDims   = staticCompositionLocalOf { LiveDims }
 
 /**
- * The guide grid (channel rows and programme grid) and its group sidebar with glass on: always the
- * night glass on the old dark gradient, whatever the hour, while the side menu and the rest of the
- * page follow the sky (Joe, 2026-11-02: "I miss the old light made dark mode on xadarr guide";
- * then "that left too" for the group sidebar). Other themes: no-op.
+ * The guide grid (channel rows and programme grid) and its group sidebar with glass on: the
+ * pre-2.45 look -- light glass by day, dark by night, on the plain day/night gradient instead of
+ * the sky -- while the side menu and the top of the page sit on the sky (Joe, 2026-11-02: "I miss
+ * the old light made dark mode on xadarr guide"; 2026-11-03, on 2.47's always-dark grid at 11 am:
+ * he meant light by day). Other themes: no-op.
  */
 @Composable
-fun ProvideGuideGridPalette(content: @Composable () -> Unit) {
-    if (LocalGlass.current == null) content()
-    else CompositionLocalProvider(LocalGlass provides GlassNight) { ProvideLivePalette(GlassNight, content = content) }
-}
+fun ProvideGuideGridPalette(content: @Composable () -> Unit) = ProvideLivePalette(content = content)
 
-/** The grid's own backdrop: the pre-2.45 night gradient when glass is on, nothing otherwise. */
+/** The grid's own backdrop: the pre-2.45 day/night gradient when glass is on, nothing otherwise. */
 @Composable
-fun Modifier.guideGridBackground(): Modifier =
-    if (LocalGlass.current == null) this
-    else background(Brush.verticalGradient(listOf(GlassNight.bgTop, GlassNight.bgBottom)))
-
+fun Modifier.guideGridBackground(): Modifier {
+    val g = LocalGlass.current ?: return this
+    return background(Brush.verticalGradient(listOf(g.bgTop, g.bgBottom)))
+}
