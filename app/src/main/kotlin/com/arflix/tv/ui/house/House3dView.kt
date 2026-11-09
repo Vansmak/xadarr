@@ -27,7 +27,8 @@ import java.util.Date
 private const val TAG = "House3D"
 private const val PANEL_PATH = "/neonplan3d"
 private const val RENDER_WAIT_MS = 8_000L
-private const val VIEW_EVERY_MS = 25_000L
+// 25s felt slow (Joe, 2026-11-08: "needs to move through views quicker and sensibly").
+private const val VIEW_EVERY_MS = 12_000L
 
 /**
  * House 3D (Joe, 2026-11-08): Home Assistant's NeonPlan 3D panel full screen, for looking at --
@@ -179,11 +180,13 @@ class House3dView(
     private companion object {
         /**
          * Walks the page including shadow roots (HA is all web components). xadarrTidy clicks
-         * "Don't show again" and hides the menu button; xadarrStep(i) clicks the i-th view
-         * chip -- by name, from the full list seen with All floors up (a room's chips only list its
-         * floor); when that chip isn't showing it clicks All floors and returns 'retry'. The panel's own
-         * header, chip row, floor thumbnails, buttons and room cards are hidden so only the house and its live
-         * labels show (NeonPlan 3D v3.0.2 class names).
+         * "Don't show again" and hides the menu button. xadarrStep(i) clicks the i-th view chip in
+         * house order -- All floors, Downstairs and its rooms, Upstairs and its rooms; stairs, halls,
+         * closets and the like skipped as they frame badly -- by name, from the chip row as seen
+         * with All floors up (a room's chips only list its floor); when that chip isn't showing it
+         * clicks All floors and returns 'retry'. The panel's own header, chip row, floor thumbnails,
+         * buttons and room cards are hidden so only the house and its live labels show (NeonPlan 3D
+         * v3.0.2 class names).
          */
         val JS_HELPERS = """
             function xadarrAll(){var out=[];(function walk(r){var els=r.querySelectorAll('*');for(var i=0;i<els.length;i++){out.push(els[i]);if(els[i].shadowRoot)walk(els[i].shadowRoot);}})(document);return out;}
@@ -199,10 +202,16 @@ class House3dView(
               if(done.indexOf('styled')>=0)window.dispatchEvent(new Event('resize'));
               return done.join(',');}
             function xadarrChips(){var app=xadarrApp();if(!app)return [];return Array.prototype.slice.call(app.querySelectorAll('.fp3d-nav button.fp3d-chip')).filter(function(e){return !e.classList.contains('fp3d-nav-toggle')&&xadarrText(e);});}
+            function xadarrSeqBuild(){var app=xadarrApp();var nav=app&&app.querySelector('.fp3d-nav');if(!nav)return null;
+              var skip=/stair|hall|closet|pantry|nook|side of/i;var floors=[],rooms={},cur=null;
+              Array.prototype.forEach.call(nav.querySelectorAll('.fp3d-nav-floor, button.fp3d-room-chip'),function(e){var t=xadarrText(e);
+                if(e.classList.contains('fp3d-nav-floor')){cur=t;floors.push(t);rooms[t]=[];}else if(cur&&!skip.test(t))rooms[cur].push(t);});
+              var seq=['All floors'];floors.slice().sort(function(a,b){return /down/i.test(a)?-1:/down/i.test(b)?1:0;}).forEach(function(f){seq.push(f);seq=seq.concat(rooms[f]);});
+              return seq.length>1?seq:null;}
             function xadarrStep(i){var l=xadarrChips();if(!l.length)return 'no chips';
-              if(!window.xadarrSeq||window.xadarrSeq.length<l.length)window.xadarrSeq=l.map(xadarrText);
-              var want=window.xadarrSeq[i%window.xadarrSeq.length];
-              for(var k=0;k<l.length;k++){if(xadarrText(l[k])===want){l[k].click();return want+' ('+(i%window.xadarrSeq.length+1)+'/'+window.xadarrSeq.length+')';}}
+              if(!window.xadarrSeq){window.xadarrSeq=xadarrSeqBuild()||l.map(xadarrText);}
+              var seq=window.xadarrSeq,want=seq[i%seq.length];
+              for(var k=0;k<l.length;k++){if(xadarrText(l[k])===want){l[k].click();return want+' ('+(i%seq.length+1)+'/'+seq.length+')';}}
               l[0].click();return 'retry';}
         """.trimIndent()
     }

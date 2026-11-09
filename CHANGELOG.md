@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.51] - 2026-11-08
+
+### Changed
+- **House 3D moves faster and in house order.** A new view every 12 seconds instead of 25. It goes All floors → Downstairs → its rooms → Upstairs → its rooms, then repeats. Stairs, halls, closets, the pantry, the nook and the side of the house are skipped, because they zoom in too close to make out.
+
 ## [2.50] - 2026-11-08
 
 ### Added
