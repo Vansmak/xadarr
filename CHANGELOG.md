@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.52] - 2026-11-08
+
+### Changed
+- **House 3D shows just what's happening.**
+  - It only goes to floors where something is on, a new view every 12 seconds: the whole house, then Downstairs and/or Upstairs. A floor with nothing on is skipped. With nothing on anywhere it stays on the whole house.
+  - The round device badges are gone. Lights that are on glow in the model itself. TVs and fans show as NeonPlan furniture once placed in its Editor, and a TV model glows while it's on.
+  - Room names and room close-ups are gone. The floor summaries stay ("12 rooms · 5 lights on").
+
 ## [2.51] - 2026-11-08
 
 ### Changed
