@@ -464,6 +464,60 @@ class HomeAssistantRepository @Inject constructor(
         }.getOrNull()
     }
 
+    /** HA's URL and token for a web view of HA itself (House 3D screensaver); null when not set up. */
+    suspend fun webLogin(): Pair<String, String>? {
+        val cfg = config()
+        return if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) null else cfg.baseUrl to cfg.token
+    }
+
+    /**
+     * A few at-a-glance states for the House 3D screensaver: unlocked locks, open garage doors and
+     * doors, inside temperature (first thermostat) and outside (first weather entity). Short
+     * labels, worst news first; empty when HA isn't reachable.
+     */
+    suspend fun houseStatus(): List<String> = withContext(Dispatchers.IO) {
+        val cfg = config()
+        if (cfg.baseUrl.isBlank() || cfg.token.isBlank()) return@withContext emptyList()
+        runCatching {
+            val req = Request.Builder()
+                .url("${cfg.baseUrl}/api/states")
+                .header("Authorization", "Bearer ${cfg.token}")
+                .header("Cache-Control", "no-cache")
+                .build()
+            val arr = OkHttpProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching emptyList<String>()
+                JSONArray(resp.body?.string().orEmpty())
+            }
+            val alerts = mutableListOf<String>()
+            var locked = 0
+            var inside: String? = null
+            var outside: String? = null
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("entity_id")
+                val state = o.optString("state")
+                val attrs = o.optJSONObject("attributes") ?: JSONObject()
+                val name = attrs.optString("friendly_name").ifBlank { id.substringAfter('.') }
+                val dc = attrs.optString("device_class")
+                when (id.substringBefore('.')) {
+                    "lock" -> if (state == "unlocked" || state == "open") alerts += "$name unlocked" else if (state == "locked") locked++
+                    "cover" -> if (dc == "garage" && state == "open") alerts += "$name open"
+                    // Unnamed "doors" are helpers, not doors (binary_sensor.alexasilk flags a tablet dashboard).
+                    "binary_sensor" -> if ((dc == "door" || dc == "garage_door") && state == "on" &&
+                        attrs.optString("friendly_name") != id.substringAfter('.')) alerts += "$name open"
+                    "climate" -> if (inside == null) attrs.optDouble("current_temperature").takeIf { !it.isNaN() }?.let { inside = "${it.toInt()}° inside" }
+                    "weather" -> if (outside == null) attrs.optDouble("temperature").takeIf { !it.isNaN() }?.let { outside = "${it.toInt()}° outside" }
+                }
+            }
+            buildList {
+                addAll(alerts.take(3))
+                if (alerts.none { it.endsWith("unlocked") } && locked > 0) add("Locked")
+                inside?.let(::add)
+                outside?.let(::add)
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /** Power toggle that respects real state rather than guessing — the thing IR remotes never could. */
     suspend fun mediaTogglePower(entityId: String): Boolean {
         val on = entityState(entityId)?.let { it != "off" && it != "unavailable" && it != "standby" } ?: false

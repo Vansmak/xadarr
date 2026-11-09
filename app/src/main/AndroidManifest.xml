@@ -242,6 +242,21 @@
             android:name="com.arflix.tv.music.PhoneSpeakerService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- House 3D (ui/house): HA's NeonPlan 3D panel as the TV's screen saver, plus a preview screen. -->
+        <service
+            android:name="com.arflix.tv.ui.house.House3dDream"
+            android:exported="true"
+            android:label="Xadarr House 3D"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name="com.arflix.tv.ui.house.House3dActivity"
+            android:exported="true"
+            android:label="House 3D" />
     </application>
 
 </manifest>

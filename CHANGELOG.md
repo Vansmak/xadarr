@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.50] - 2026-11-08
+
+### Added
+- **House 3D screen saver.** Shows Home Assistant's NeonPlan 3D view of the house full screen, with live lights and labels, as the TV's screen saver. Pick **Xadarr House 3D** under the TV's Screen saver setting.
+  - Every 25 seconds it moves to the next view, behind a short fade: All floors, Upstairs, Downstairs, then each room.
+  - NeonPlan's menus, buttons and room control cards are hidden, and the "Don't show again" popup is dismissed automatically.
+  - A corner shows the clock and a few states: unlocked locks, open garage doors and doors, and inside and outside temperatures.
+  - Any key exits.
+  - It signs in to HA with the token Xadarr already has.
+
 ## [2.49] - 2026-11-03
 
 ### Changed
