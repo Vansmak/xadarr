@@ -4,6 +4,8 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -26,7 +28,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
@@ -188,7 +189,7 @@ fun MusicAmbient(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // Always dark, whatever the theme: the glass day look's near-white wash under white text
         // was unreadable on the Patio TV in daylight (Joe, 2026-11-20). Darker than Now Playing.
-        BlurredCoverBackground(imageUrl, scrim = 0.82f, base = Color.Black)
+        BlurredCoverBackground(imageUrl, scrim = 0.74f, base = Color.Black)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }
@@ -257,6 +258,15 @@ fun MusicAmbient(
                             }
                         }
                     }
+                    next?.let {
+                        Spacer(Modifier.height(if (narrow) 16.dp else 28.dp))
+                        Text("UP NEXT", color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 12.sp else 15.sp,
+                            fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, textAlign = align)
+                        Spacer(Modifier.height(2.dp))
+                        Text(listOfNotNull(it.name, it.artist).joinToString(" · "),
+                            color = Color.White.copy(alpha = 0.85f), fontSize = if (narrow) 16.sp else 22.sp,
+                            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
+                    }
                 }
             }
 
@@ -264,18 +274,10 @@ fun MusicAmbient(
                 Modifier.fillMaxSize().offset(dx, dy)
                     .padding(horizontal = if (narrow) 20.dp else 56.dp, vertical = if (narrow) 20.dp else 32.dp),
             ) {
-                // Top line: clock · room, and a Stoic quote across from it -- up top, away from the
-                // cover and the song (Joe, 2026-11-20). On a phone it sits under the clock instead.
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
-                        color = Color.White.copy(alpha = 0.9f), fontSize = if (narrow) 17.sp else 28.sp,
-                        fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    if (!narrow) {
-                        Spacer(Modifier.weight(1f).widthIn(min = 48.dp))
-                        AmbientQuote(Modifier.fillMaxWidth(0.42f), fontSize = 22)
-                    }
-                }
-                if (narrow) AmbientQuote(Modifier.fillMaxWidth().padding(top = 10.dp), align = TextAlign.Center, fontSize = 16)
+                // Top line: clock · room
+                Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
+                    color = Color.White.copy(alpha = 0.9f), fontSize = if (narrow) 17.sp else 28.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1)
                 if (narrow) {
                     visual(Modifier.fillMaxWidth().weight(1f))
                     words(TextAlign.Center)
@@ -286,15 +288,16 @@ fun MusicAmbient(
                         Box(Modifier.weight(1f)) { words(TextAlign.Start) }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                next?.let {
-                    // The wash is always dark now (2026-11-20), so white on every theme.
-                    Text("Up next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
-                        color = Color.White.copy(alpha = 0.82f),
-                        fontSize = if (narrow) 16.sp else 22.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
+                // The Stoic quote: its own line along the bottom, centred under a short rule and in
+                // a serif, so it reads as a quote and not song info -- up by the clock, "Let it be. --
+                // The Beatles" looked like the next song (Joe, 2026-11-20).
+                Spacer(Modifier.height(if (narrow) 12.dp else 20.dp))
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(if (narrow) 1f else 0.7f)) {
+                        Box(Modifier.width(56.dp).height(1.dp).background(Color.White.copy(alpha = 0.35f)))
+                        Spacer(Modifier.height(if (narrow) 10.dp else 14.dp))
+                        AmbientQuote(Modifier.fillMaxWidth(), align = TextAlign.Center, fontSize = if (narrow) 17 else 26)
+                    }
                 }
                 if (sleepingSoon) {
                     Spacer(Modifier.height(8.dp))
@@ -366,7 +369,9 @@ private fun CoverFlow(previousUrl: String?, currentUrl: String?, nextUrl: String
 private fun ReflectedCover(url: String?, size: Dp) {
     val colors = MaterialTheme.colorScheme
     val cover: @Composable (Modifier) -> Unit = { mod ->
-        Box(mod.size(size).clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant), contentAlignment = Alignment.Center) {
+        // A faint edge and shadow so a dark cover doesn't melt into the dark wash (Joe, 2026-11-20).
+        Box(mod.size(size).shadow(28.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant)
+            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             if (url != null) {
                 AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {

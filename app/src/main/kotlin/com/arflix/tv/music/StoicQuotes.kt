@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -86,7 +87,7 @@ fun AmbientQuote(modifier: Modifier = Modifier, align: TextAlign = TextAlign.End
         if (q != null) {
             Column(horizontalAlignment = horizontal) {
                 Text("“${q.text}”", color = Color.White.copy(alpha = 0.85f), fontSize = fontSize.sp,
-                    fontStyle = FontStyle.Italic, textAlign = align, lineHeight = (fontSize + 6).sp)
+                    fontStyle = FontStyle.Italic, fontFamily = FontFamily.Serif, textAlign = align, lineHeight = (fontSize + 6).sp)
                 if (q.by.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text("— ${q.by}", color = Color.White.copy(alpha = 0.7f), fontSize = (fontSize - 3).sp, textAlign = align)
