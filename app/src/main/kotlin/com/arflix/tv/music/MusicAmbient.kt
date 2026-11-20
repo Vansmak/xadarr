@@ -158,7 +158,6 @@ fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
         room = ui.selectedPlayer?.name,
         imageUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl,
         elapsedSec = remember(tick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
-        lyrics = ui.lyrics,
         sleepingSoon = sleepingSoon,
     )
 }
@@ -167,10 +166,9 @@ fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
  * Music screensaver (Joe, 2026-10-12; look after a r/homeassistant now-playing display):
  * a coverflow -- this song's cover flat and large, the previous and next covers angled behind it
  * with a faint reflection -- over a blurred, darkened wash of the cover, with clock and room on
- * top, the song in big type, a thin progress bar, and "Up next". Songs with synced lyrics
- * show just the line being sung and the next one under the progress bar -- full lyrics are the
- * Lyrics tab's job (Joe, 2026-10-12: "I like the cover flow look and just couple lines"). The whole layout drifts a few dp every 30s so nothing sits still long enough to burn
- * into an OLED. The Music screen wakes it on any key or tap.
+ * top, the song in big type, a thin progress bar, "Up next", and a Stoic quote along the bottom.
+ * No lyrics (Joe, 2026-11-20: "too crowded and busy"); they're on the Lyrics tab. The whole
+ * layout drifts a few dp every 30s so nothing sits still long enough to burn into an OLED. The Music screen wakes it on any key or tap.
  */
 @Composable
 fun MusicAmbient(
@@ -182,7 +180,6 @@ fun MusicAmbient(
     room: String?,
     imageUrl: String?,
     elapsedSec: Double,
-    lyrics: MusicLyrics?,
     sleepingSoon: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -210,7 +207,6 @@ fun MusicAmbient(
                 }
             }
             val coverSize = if (narrow) minOf(maxWidth * 0.62f, 260.dp) else minOf(maxHeight * 0.5f, 380.dp)
-            val positionMs = (elapsedSec * 1000).toLong()
 
             val visual: @Composable (Modifier) -> Unit = { mod ->
                 Box(mod, contentAlignment = Alignment.Center) {
@@ -238,25 +234,6 @@ fun MusicAmbient(
                     if (duration > 0) {
                         Spacer(Modifier.height(if (narrow) 16.dp else 24.dp))
                         AmbientProgress(elapsedSec, duration)
-                    }
-                    lyrics?.takeIf { it.synced }?.let { synced ->
-                        val i = synced.currentIndex(positionMs)
-                        val now = synced.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() }
-                        val following = synced.lines.getOrNull(i + 1)?.text?.takeIf { it.isNotBlank() }
-                        if (now != null || following != null) {
-                            Spacer(Modifier.height(if (narrow) 14.dp else 22.dp))
-                            Crossfade(targetState = now to following, animationSpec = tween(400), label = "ambient-lyric") { (line, upcoming) ->
-                                Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
-                                    Text(line ?: "♪", color = Color.White, fontSize = if (narrow) 20.sp else 30.sp,
-                                        fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align)
-                                    upcoming?.let {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(it, color = Color.White.copy(alpha = 0.65f), fontSize = if (narrow) 16.sp else 23.sp,
-                                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
-                                    }
-                                }
-                            }
-                        }
                     }
                     next?.let {
                         Spacer(Modifier.height(if (narrow) 16.dp else 28.dp))
