@@ -85,11 +85,11 @@ fun AmbientQuote(modifier: Modifier = Modifier, align: TextAlign = TextAlign.End
     Crossfade(targetState = quote, animationSpec = tween(2_500), label = "quote", modifier = modifier) { q ->
         if (q != null) {
             Column(horizontalAlignment = horizontal) {
-                Text("“${q.text}”", color = Color.White.copy(alpha = 0.62f), fontSize = fontSize.sp,
+                Text("“${q.text}”", color = Color.White.copy(alpha = 0.85f), fontSize = fontSize.sp,
                     fontStyle = FontStyle.Italic, textAlign = align, lineHeight = (fontSize + 6).sp)
                 if (q.by.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
-                    Text("— ${q.by}", color = Color.White.copy(alpha = 0.45f), fontSize = (fontSize - 3).sp, textAlign = align)
+                    Text("— ${q.by}", color = Color.White.copy(alpha = 0.7f), fontSize = (fontSize - 3).sp, textAlign = align)
                 }
             }
         }

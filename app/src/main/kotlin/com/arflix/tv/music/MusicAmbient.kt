@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.lerp
 import com.arflix.tv.ui.glass.GlassPalette
-import com.arflix.tv.ui.glass.LocalGlass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -89,9 +88,9 @@ fun KeepScreenOn(enabled: Boolean) {
  * dark the overlay is (0..1). Fades to the next cover when the song changes.
  */
 @Composable
-fun BlurredCoverBackground(url: String?, scrim: Float) {
+fun BlurredCoverBackground(url: String?, scrim: Float, base: Color? = null) {
     val context = LocalContext.current
-    val bg = MaterialTheme.colorScheme.background
+    val bg = base ?: MaterialTheme.colorScheme.background
     Crossfade(targetState = url, animationSpec = tween(900), label = "cover-bg") { u ->
         if (u != null) {
             AsyncImage(
@@ -187,7 +186,9 @@ fun MusicAmbient(
 ) {
     val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        BlurredCoverBackground(imageUrl, scrim = 0.82f) // darker than Now Playing: a dark room at night (Joe, 2026-10-12)
+        // Always dark, whatever the theme: the glass day look's near-white wash under white text
+        // was unreadable on the Patio TV in daylight (Joe, 2026-11-20). Darker than Now Playing.
+        BlurredCoverBackground(imageUrl, scrim = 0.82f, base = Color.Black)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }
@@ -218,18 +219,18 @@ fun MusicAmbient(
             val words: @Composable (TextAlign) -> Unit = { align ->
                 val horizontal = if (align == TextAlign.Center) Alignment.CenterHorizontally else Alignment.Start
                 Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
-                    Text(title ?: "Music", color = Color.White, fontSize = if (narrow) 28.sp else 44.sp,
-                        fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align,
-                        lineHeight = if (narrow) 32.sp else 50.sp)
+                    Text(title ?: "Music", color = Color.White, fontSize = if (narrow) 32.sp else 58.sp,
+                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align,
+                        lineHeight = if (narrow) 36.sp else 64.sp)
                     artist?.let {
                         Spacer(Modifier.height(6.dp))
-                        Text(it, color = Color.White.copy(alpha = 0.82f), fontSize = if (narrow) 18.sp else 26.sp,
+                        Text(it, color = Color.White.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 34.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                     }
                     val albumLine = listOfNotNull(current?.album, current?.year?.toString()).joinToString(" · ")
                     if (albumLine.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
-                        Text(albumLine, color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 15.sp else 19.sp,
+                        Text(albumLine, color = Color.White.copy(alpha = 0.78f), fontSize = if (narrow) 16.sp else 23.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                     }
                     val duration = current?.durationSec ?: 0
@@ -245,11 +246,11 @@ fun MusicAmbient(
                             Spacer(Modifier.height(if (narrow) 14.dp else 22.dp))
                             Crossfade(targetState = now to following, animationSpec = tween(400), label = "ambient-lyric") { (line, upcoming) ->
                                 Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
-                                    Text(line ?: "♪", color = Color.White, fontSize = if (narrow) 18.sp else 24.sp,
+                                    Text(line ?: "♪", color = Color.White, fontSize = if (narrow) 20.sp else 30.sp,
                                         fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align)
                                     upcoming?.let {
                                         Spacer(Modifier.height(4.dp))
-                                        Text(it, color = Color.White.copy(alpha = 0.5f), fontSize = if (narrow) 15.sp else 19.sp,
+                                        Text(it, color = Color.White.copy(alpha = 0.65f), fontSize = if (narrow) 16.sp else 23.sp,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
                                     }
                                 }
@@ -267,13 +268,14 @@ fun MusicAmbient(
                 // cover and the song (Joe, 2026-11-20). On a phone it sits under the clock instead.
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
-                        color = Color.White.copy(alpha = 0.7f), fontSize = if (narrow) 15.sp else 20.sp, maxLines = 1)
+                        color = Color.White.copy(alpha = 0.9f), fontSize = if (narrow) 17.sp else 28.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1)
                     if (!narrow) {
                         Spacer(Modifier.weight(1f).widthIn(min = 48.dp))
-                        AmbientQuote(Modifier.fillMaxWidth(0.42f))
+                        AmbientQuote(Modifier.fillMaxWidth(0.42f), fontSize = 22)
                     }
                 }
-                if (narrow) AmbientQuote(Modifier.fillMaxWidth().padding(top = 10.dp), align = TextAlign.Center, fontSize = 14)
+                if (narrow) AmbientQuote(Modifier.fillMaxWidth().padding(top = 10.dp), align = TextAlign.Center, fontSize = 16)
                 if (narrow) {
                     visual(Modifier.fillMaxWidth().weight(1f))
                     words(TextAlign.Center)
@@ -286,20 +288,18 @@ fun MusicAmbient(
                 }
                 Spacer(Modifier.height(12.dp))
                 next?.let {
-                    // Glass: ink, not light gray -- unreadable over the day look's near-white
-                    // cover wash (Joe, 2026-10-26). Other themes unchanged.
-                    val g = LocalGlass.current
+                    // The wash is always dark now (2026-11-20), so white on every theme.
                     Text("Up next: " + listOfNotNull(it.name, it.artist).joinToString(" · "),
-                        color = g?.ink?.copy(alpha = 0.8f) ?: Color.White.copy(alpha = 0.6f),
-                        fontSize = if (g != null) (if (narrow) 15.sp else 19.sp) else if (narrow) 14.sp else 18.sp,
-                        fontWeight = if (g != null) FontWeight.Medium else null,
+                        color = Color.White.copy(alpha = 0.82f),
+                        fontSize = if (narrow) 16.sp else 22.sp,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
                 }
                 if (sleepingSoon) {
                     Spacer(Modifier.height(8.dp))
                     Text("Screen turns off soon · press any button to keep it on",
-                        color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp,
                         textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
                 }
             }
@@ -313,14 +313,14 @@ private fun AmbientProgress(elapsedSec: Double, durationSec: Int) {
     // Glass: a slightly thicker bar in solid ink over a ~28% ink track, and ink times, so they
     // hold up on the day look's near-white cover wash (Joe, 2026-10-26). At night ink is the
     // light glass ink, so it looks as before. Other themes unchanged.
-    val g = LocalGlass.current
-    val bar = if (g != null) 5.dp else 4.dp
+    // The wash is always dark now (2026-11-20), so white on every theme, sized for across a room.
+    val bar = 6.dp
     val shape = RoundedCornerShape(bar / 2)
-    val fill = g?.ink ?: Color.White.copy(alpha = 0.85f)
-    val rest = g?.ink?.copy(alpha = 0.28f) ?: Color.White.copy(alpha = 0.2f)
-    val timeColor = g?.ink?.copy(alpha = 0.8f) ?: Color.White.copy(alpha = 0.6f)
-    val timeSize = if (g != null) 15.sp else 14.sp
-    val timeWeight = if (g != null) FontWeight.Medium else null
+    val fill = Color.White.copy(alpha = 0.92f)
+    val rest = Color.White.copy(alpha = 0.25f)
+    val timeColor = Color.White.copy(alpha = 0.82f)
+    val timeSize = 18.sp
+    val timeWeight = FontWeight.Medium
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(bar).clip(shape).background(rest)) {
             Box(Modifier.fillMaxWidth(frac).height(bar).clip(shape).background(fill))

@@ -59,8 +59,8 @@ class House3dView(
     private val status = label(15f)
     private val message = label(20f).apply { gravity = Gravity.CENTER }
     // A Stoic quote opposite the clock (Joe, 2026-11-20), the same deck as the music screensaver.
-    private val quoteText = label(17f).apply { gravity = Gravity.END; setTypeface(typeface, android.graphics.Typeface.ITALIC); alpha = 0f }
-    private val quoteBy = label(14f).apply { gravity = Gravity.END; alpha = 0f }
+    private val quoteText = label(21f).apply { gravity = Gravity.END; setTypeface(typeface, android.graphics.Typeface.ITALIC); alpha = 0f }
+    private val quoteBy = label(17f).apply { gravity = Gravity.END; alpha = 0f }
     private var jobs = mutableListOf<Job>()
 
     init {
@@ -154,8 +154,8 @@ class House3dView(
                 delay(1_600)
                 quoteText.text = "\u201C${q.text}\u201D"
                 quoteBy.text = if (q.by.isEmpty()) "" else "\u2014 ${q.by}"
-                quoteText.animate().alpha(0.7f).setDuration(2_500).start()
-                quoteBy.animate().alpha(0.55f).setDuration(2_500).start()
+                quoteText.animate().alpha(0.9f).setDuration(2_500).start()
+                quoteBy.animate().alpha(0.75f).setDuration(2_500).start()
                 delay(QUOTE_EVERY_MS)
             }
         }
