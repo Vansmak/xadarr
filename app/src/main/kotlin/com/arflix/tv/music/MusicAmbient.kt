@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
@@ -262,9 +263,17 @@ fun MusicAmbient(
                 Modifier.fillMaxSize().offset(dx, dy)
                     .padding(horizontal = if (narrow) 20.dp else 56.dp, vertical = if (narrow) 20.dp else 32.dp),
             ) {
-                // Top line: clock · room
-                Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
-                    color = Color.White.copy(alpha = 0.7f), fontSize = if (narrow) 15.sp else 20.sp, maxLines = 1)
+                // Top line: clock · room, and a Stoic quote across from it -- up top, away from the
+                // cover and the song (Joe, 2026-11-20). On a phone it sits under the clock instead.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
+                        color = Color.White.copy(alpha = 0.7f), fontSize = if (narrow) 15.sp else 20.sp, maxLines = 1)
+                    if (!narrow) {
+                        Spacer(Modifier.weight(1f).widthIn(min = 48.dp))
+                        AmbientQuote(Modifier.fillMaxWidth(0.42f))
+                    }
+                }
+                if (narrow) AmbientQuote(Modifier.fillMaxWidth().padding(top = 10.dp), align = TextAlign.Center, fontSize = 14)
                 if (narrow) {
                     visual(Modifier.fillMaxWidth().weight(1f))
                     words(TextAlign.Center)

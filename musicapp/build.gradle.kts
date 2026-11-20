@@ -56,6 +56,7 @@ android {
         "../app/src/main/kotlin/com/arflix/tv/music",
         "../app/src/main/kotlin/com/arflix/tv/ui/glass",
     )
+    sourceSets["main"].assets.srcDirs("../app/src/main/quotes")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

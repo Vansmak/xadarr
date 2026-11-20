@@ -15,6 +15,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.arflix.tv.data.repository.HomeAssistantRepository
+import com.arflix.tv.music.QUOTE_EVERY_MS
+import com.arflix.tv.music.StoicQuotes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +58,9 @@ class House3dView(
     private val clock = label(34f)
     private val status = label(15f)
     private val message = label(20f).apply { gravity = Gravity.CENTER }
+    // A Stoic quote opposite the clock (Joe, 2026-11-20), the same deck as the music screensaver.
+    private val quoteText = label(17f).apply { gravity = Gravity.END; setTypeface(typeface, android.graphics.Typeface.ITALIC); alpha = 0f }
+    private val quoteBy = label(14f).apply { gravity = Gravity.END; alpha = 0f }
     private var jobs = mutableListOf<Job>()
 
     init {
@@ -84,6 +89,15 @@ class House3dView(
             setPadding(dp(32), 0, 0, dp(26))
         }
         addView(corner, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
+        val quote = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+            addView(quoteText)
+            addView(quoteBy)
+            setPadding(0, 0, dp(32), dp(26))
+        }
+        val quoteWidth = (resources.displayMetrics.widthPixels * 0.4f).toInt()
+        addView(quote, LayoutParams(quoteWidth, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         addView(cover, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(message, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
@@ -130,6 +144,19 @@ class House3dView(
             while (isActive) {
                 clock.text = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
                 delay(15_000)
+            }
+        }
+        jobs += scope.launch {
+            while (isActive) {
+                val q = StoicQuotes.next(context) ?: break
+                quoteText.animate().alpha(0f).setDuration(1_500).start()
+                quoteBy.animate().alpha(0f).setDuration(1_500).start()
+                delay(1_600)
+                quoteText.text = "\u201C${q.text}\u201D"
+                quoteBy.text = if (q.by.isEmpty()) "" else "\u2014 ${q.by}"
+                quoteText.animate().alpha(0.7f).setDuration(2_500).start()
+                quoteBy.animate().alpha(0.55f).setDuration(2_500).start()
+                delay(QUOTE_EVERY_MS)
             }
         }
         jobs += scope.launch {
