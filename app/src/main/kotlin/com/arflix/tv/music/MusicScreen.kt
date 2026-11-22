@@ -221,6 +221,7 @@ private fun MusicScreenBody(
         }
     }
     KeepScreenOn(ui.isPlaying && awakeIdleMs < MUSIC_AWAKE_CHECK_MS + MUSIC_AWAKE_GRACE_MS)
+    SpeakerVolumeSession(viewModel)
     fun wake() {
         lastInputAt = android.os.SystemClock.uptimeMillis()
         idleMs = 0L
