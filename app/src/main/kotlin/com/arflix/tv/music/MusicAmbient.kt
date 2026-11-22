@@ -61,6 +61,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.imageLoader
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 import androidx.compose.ui.text.font.FontStyle
@@ -196,7 +197,7 @@ fun MusicAmbient(
 ) {
     val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AmbientBackdrop(imageUrl)
+        AmbientBackdrop()
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }
@@ -331,23 +332,94 @@ fun MusicAmbient(
 }
 
 /**
- * The screensaver's background: the cover's colours as a slow wash, following the time of day like
- * the Glass theme -- a touch brighter by day, dimmer with a faint amber cast at night -- under a
- * scrim that keeps every line readable in daylight.
+ * The screensaver's background: Google Earth View landscapes (Joe, 2026-11-22: not the album, not
+ * the artist), one at a time, each slowly zooming and drifting for a minute before fading to the
+ * next, with the place named small in the corner. It follows the time of day like the Glass theme:
+ * a touch brighter by day, dimmer with a faint amber cast at night, always dark enough under the
+ * text to read in daylight. With no network the screen just stays dark.
  */
 @Composable
-private fun AmbientBackdrop(coverUrl: String?) {
+private fun AmbientBackdrop() {
+    val context = LocalContext.current
     val night by produceState(SunClock.nightLevel(GlassMode.AUTO, System.currentTimeMillis())) {
         while (true) {
             delay(60_000)
             value = SunClock.nightLevel(GlassMode.AUTO, System.currentTimeMillis())
         }
     }
-    CoverColourWash(coverUrl)
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.66f + 0.14f * night)))
+    var shot by remember { mutableStateOf(EarthView.next(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val upcoming = EarthView.next(context)
+            // Fetch the next one ahead, so the fade never goes to a half-loaded picture.
+            upcoming?.let { context.imageLoader.enqueue(ImageRequest.Builder(context).data(it.url).size(1280, 720).build()) }
+            delay(EARTH_EVERY_MS.toLong())
+            shot = upcoming
+        }
+    }
+    Crossfade(targetState = shot, animationSpec = tween(3_000), label = "earth") { v ->
+        if (v != null) Box(Modifier.fillMaxSize()) {
+            KenBurnsPhoto(v.url)
+            Text(v.place, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 10.dp))
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.50f + 0.18f * night)))
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-        0f to Color.Black.copy(alpha = 0.25f), 0.3f to Color.Transparent, 0.7f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
+        0f to Color.Black.copy(alpha = 0.30f), 0.3f to Color.Transparent, 0.7f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
     if (night > 0f) Box(Modifier.fillMaxSize().background(Color(0xFF3A1E00).copy(alpha = 0.22f * night)))
+}
+
+/** How long each landscape stays up, slowly panning, before fading to the next. */
+private const val EARTH_EVERY_MS = 60_000
+
+/** One photo filling the screen, slowly zooming in and drifting one way over its turn. */
+@Composable
+private fun KenBurnsPhoto(url: String) {
+    val context = LocalContext.current
+    val t = remember(url) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(url) {
+        t.animateTo(1f, tween(EARTH_EVERY_MS + 4_000, easing = androidx.compose.animation.core.LinearEasing))
+    }
+    val dir = remember(url) { if (Random.nextBoolean()) 1f else -1f }
+    AsyncImage(
+        model = ImageRequest.Builder(context).data(url).size(1280, 720).build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize().graphicsLayer {
+            val s = 1.04f + 0.08f * t.value
+            scaleX = s; scaleY = s
+            translationX = dir * size.width * 0.025f * (t.value - 0.5f) * 2f
+        },
+    )
+}
+
+/**
+ * Google Earth View: ~1,500 curated aerial landscapes (Google's public set on gstatic), listed in
+ * assets/earthview.json as [id, place]. Dealt as a shuffled deck like the quotes, so nothing
+ * repeats until the whole set has shown.
+ */
+private object EarthView {
+    data class Shot(val url: String, val place: String)
+
+    private var all: List<Shot>? = null
+    private val deck = ArrayDeque<Shot>()
+
+    @Synchronized
+    fun next(context: android.content.Context): Shot? {
+        val list = all ?: load(context).also { all = it }
+        if (list.isEmpty()) return null
+        if (deck.isEmpty()) deck.addAll(list.shuffled())
+        return deck.removeFirst()
+    }
+
+    private fun load(context: android.content.Context): List<Shot> = runCatching {
+        val arr = org.json.JSONArray(context.assets.open("earthview.json").bufferedReader().use { it.readText() })
+        (0 until arr.length()).map { i ->
+            val e = arr.getJSONArray(i)
+            Shot("https://www.gstatic.com/prettyearth/assets/full/${e.getString(0)}.jpg", e.optString(1))
+        }
+    }.getOrElse { emptyList() }
 }
 
 /** Current weather for the screensaver, from Open-Meteo (free, no key) at the time zone's city. */
@@ -388,36 +460,6 @@ private data class AmbientWeather(val now: Int, val high: Int, val low: Int, val
                     },
                 )
             }.getOrNull()
-        }
-    }
-}
-
-/**
- * The cover's colours as a soft, slowly moving wash: the cover decoded tiny (8px), stretched far
- * past the screen and drifted/turned over a minute and a half, so the colours shift without any
- * shape showing. Works on Android 11 (no Modifier.blur needed at this size).
- */
-@Composable
-private fun CoverColourWash(url: String?) {
-    val context = LocalContext.current
-    val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "wash")
-    val a by drift.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(
-        tween(90_000, easing = androidx.compose.animation.core.LinearEasing),
-        androidx.compose.animation.core.RepeatMode.Reverse), label = "wash-a")
-    Crossfade(targetState = url, animationSpec = tween(1_500), label = "wash-cover") { u ->
-        if (u != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(context).data(u).size(8).build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.9f) }),
-                modifier = Modifier.fillMaxSize().blur(24.dp).graphicsLayer {
-                    scaleX = 2.2f; scaleY = 2.2f
-                    rotationZ = -8f + 16f * a
-                    translationX = size.width * 0.12f * (a - 0.5f)
-                    translationY = size.height * 0.10f * (0.5f - a)
-                },
-            )
         }
     }
 }
