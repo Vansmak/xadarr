@@ -232,21 +232,21 @@ fun MusicAmbient(
             val soft = white.copy(alpha = 0.78f)
             Column(
                 Modifier.fillMaxSize().offset(dx, dy)
-                    .padding(horizontal = if (narrow) 20.dp else 64.dp, vertical = if (narrow) 20.dp else 36.dp),
+                    .padding(horizontal = if (narrow) 20.dp else 64.dp, vertical = if (narrow) 20.dp else 28.dp),
             ) {
                 // ── Top: clock + date | weather + room
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Text(clock.first, color = white, fontSize = if (narrow) 48.sp else 92.sp,
-                                fontWeight = FontWeight.Light, lineHeight = if (narrow) 50.sp else 92.sp)
+                            Text(clock.first, color = white, fontSize = if (narrow) 48.sp else 80.sp,
+                                fontWeight = FontWeight.Light, lineHeight = if (narrow) 50.sp else 80.sp)
                             if (clock.second.isNotBlank()) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(clock.second, color = soft, fontSize = if (narrow) 18.sp else 28.sp,
-                                    fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = if (narrow) 6.dp else 14.dp))
+                                    fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = if (narrow) 6.dp else 12.dp))
                             }
                         }
-                        Text(date, color = soft, fontSize = if (narrow) 17.sp else 26.sp, fontWeight = FontWeight.Medium)
+                        Text(date, color = soft, fontSize = if (narrow) 17.sp else 24.sp, fontWeight = FontWeight.Medium)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         weather?.let { w ->
@@ -266,16 +266,17 @@ fun MusicAmbient(
                 }
 
                 // ── Middle: the song
+                Spacer(Modifier.height(if (narrow) 8.dp else 12.dp))
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.CenterStart) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!narrow) {
-                            SmallCover(imageUrl, 190.dp)
+                            SmallCover(imageUrl, 160.dp)
                             Spacer(Modifier.width(40.dp))
                         }
                         Column(Modifier.weight(1f)) {
-                            FitTitle(title ?: "Music", TextAlign.Start, if (narrow) 30 else 54, if (narrow) 22 else 34)
+                            FitTitle(title ?: "Music", TextAlign.Start, if (narrow) 30 else 48, if (narrow) 22 else 32)
                             artist?.let {
-                                Text(it, color = white.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 32.sp,
+                                Text(it, color = white.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 30.sp,
                                     fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             val about = listOfNotNull(current?.album, current?.year?.toString(),
@@ -292,7 +293,7 @@ fun MusicAmbient(
                             }
                             val duration = current?.durationSec ?: 0
                             if (duration > 0) {
-                                Spacer(Modifier.height(if (narrow) 12.dp else 16.dp))
+                                Spacer(Modifier.height(if (narrow) 12.dp else 14.dp))
                                 AmbientProgress(elapsedSec, duration)
                             }
                             next?.takeIf { it.name.isNotBlank() }?.let {
@@ -312,10 +313,10 @@ fun MusicAmbient(
 
                 // ── Bottom: the Stoic quote, centred under a short rule, in a serif
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(if (narrow) 1f else 0.72f)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(if (narrow) 1f else 0.8f)) {
                         Box(Modifier.width(56.dp).height(1.dp).background(white.copy(alpha = 0.35f)))
-                        Spacer(Modifier.height(if (narrow) 10.dp else 12.dp))
-                        AmbientQuote(Modifier.fillMaxWidth(), align = TextAlign.Center, fontSize = if (narrow) 17 else 24)
+                        Spacer(Modifier.height(if (narrow) 10.dp else 10.dp))
+                        AmbientQuote(Modifier.fillMaxWidth(), align = TextAlign.Center, fontSize = if (narrow) 17 else 22)
                     }
                 }
                 if (sleepingSoon) {
@@ -343,7 +344,7 @@ private fun AmbientBackdrop(coverUrl: String?) {
         }
     }
     CoverColourWash(coverUrl)
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.56f + 0.14f * night)))
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.66f + 0.14f * night)))
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
         0f to Color.Black.copy(alpha = 0.25f), 0.3f to Color.Transparent, 0.7f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
     if (night > 0f) Box(Modifier.fillMaxSize().background(Color(0xFF3A1E00).copy(alpha = 0.22f * night)))
@@ -392,7 +393,7 @@ private data class AmbientWeather(val now: Int, val high: Int, val low: Int, val
 }
 
 /**
- * The cover's colours as a soft, slowly moving wash: the cover decoded tiny (24px), stretched far
+ * The cover's colours as a soft, slowly moving wash: the cover decoded tiny (8px), stretched far
  * past the screen and drifted/turned over a minute and a half, so the colours shift without any
  * shape showing. Works on Android 11 (no Modifier.blur needed at this size).
  */
@@ -406,13 +407,13 @@ private fun CoverColourWash(url: String?) {
     Crossfade(targetState = url, animationSpec = tween(1_500), label = "wash-cover") { u ->
         if (u != null) {
             AsyncImage(
-                model = ImageRequest.Builder(context).data(u).size(24).build(),
+                model = ImageRequest.Builder(context).data(u).size(8).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.35f) }),
+                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.9f) }),
                 modifier = Modifier.fillMaxSize().blur(24.dp).graphicsLayer {
-                    scaleX = 1.8f; scaleY = 1.8f
-                    rotationZ = -12f + 24f * a
+                    scaleX = 2.2f; scaleY = 2.2f
+                    rotationZ = -8f + 16f * a
                     translationX = size.width * 0.12f * (a - 0.5f)
                     translationY = size.height * 0.10f * (0.5f - a)
                 },
