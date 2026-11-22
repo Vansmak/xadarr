@@ -64,6 +64,8 @@ data class MaQueueItem(
     /** Lyrics Music Assistant already has (its lyrics metadata providers), .lrc and plain. */
     val lrcLyrics: String? = null,
     val plainLyrics: String? = null,
+    /** The first artist's MA uri, for its fanart on the screensaver. */
+    val artistUri: String? = null,
 )
 
 data class MaQueue(
@@ -188,6 +190,7 @@ internal object MaParse {
             year = media?.let(::year),
             lrcLyrics = media?.optJSONObject("metadata")?.optStringOrNull("lrc_lyrics"),
             plainLyrics = media?.optJSONObject("metadata")?.optStringOrNull("lyrics"),
+            artistUri = media?.optJSONArray("artists")?.optJSONObject(0)?.optString("uri")?.takeIf { it.isNotBlank() },
         )
     }
 

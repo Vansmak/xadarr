@@ -720,6 +720,9 @@ class MusicViewModel @Inject constructor(
         }
     }
 
+    /** The artist's fanart photos for the screensaver backdrop (cached in the repository). */
+    suspend fun artistFanart(uri: String): List<String> = repo.artistFanart(uri)
+
     /** MA's "play radio of": an endless mix seeded from the playing track, replacing the queue. */
     fun startRadioFromCurrent() {
         val track = _ui.value.queue?.current ?: return showMessage("Nothing playing")

@@ -49,6 +49,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.lerp
 import com.arflix.tv.ui.glass.GlassPalette
+import com.arflix.tv.ui.glass.GlassMode
+import com.arflix.tv.ui.glass.SunClock
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +63,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlin.random.Random
+import androidx.compose.animation.core.animateFloat
 
 /** Idle time on the Music screen, while music plays, before the screensaver takes over. */
 const val MUSIC_AMBIENT_AFTER_MS = 60_000L
@@ -149,7 +152,12 @@ fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
     val curIdx = ui.queue?.current?.let { cur ->
         ui.queueItems.indexOfFirst { it.id == cur.id }.takeIf { it >= 0 }
     } ?: ui.queue?.currentIndex
+    val artistUri = ui.queue?.current?.artistUri
+    val artistImages by produceState(emptyList<String>(), artistUri) {
+        value = artistUri?.let { runCatching { viewModel.artistFanart(it) }.getOrNull() }.orEmpty()
+    }
     MusicAmbient(
+        artistImages = artistImages,
         current = ui.queue?.current,
         previous = curIdx?.let { ui.queueItems.getOrNull(it - 1) },
         next = curIdx?.let { ui.queueItems.getOrNull(it + 1) },
@@ -172,6 +180,7 @@ fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
  */
 @Composable
 fun MusicAmbient(
+    artistImages: List<String> = emptyList(),
     current: MaQueueItem?,
     previous: MaQueueItem?,
     next: MaQueueItem?,
@@ -186,7 +195,7 @@ fun MusicAmbient(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // Always dark, whatever the theme: the glass day look's near-white wash under white text
         // was unreadable on the Patio TV in daylight (Joe, 2026-11-20). Darker than Now Playing.
-        BlurredCoverBackground(imageUrl, scrim = 0.74f, base = Color.Black)
+        AmbientBackdrop(artistImages, imageUrl)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }
@@ -281,6 +290,97 @@ fun MusicAmbient(
                         textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
                 }
             }
+        }
+    }
+}
+
+/** How long each artist photo stays up, slowly panning, before fading to the next. */
+private const val PHOTO_EVERY_MS = 24_000
+
+/**
+ * The screensaver's background (Joe, 2026-11-22). The artist's fanart photos, one at a time, each
+ * slowly zooming and panning; underneath (and alone when MA has no fanart, or a photo doesn't
+ * load) the cover's own colours as a soft wash that slowly drifts. It follows the time of day like
+ * the Glass theme: brighter by day, dimmer and warmer at night. The right side, where the words
+ * are, and the bottom, the quote, stay dark enough to read in daylight (Patio TV).
+ */
+@Composable
+private fun AmbientBackdrop(artistImages: List<String>, coverUrl: String?) {
+    val night by produceState(SunClock.nightLevel(GlassMode.AUTO, System.currentTimeMillis())) {
+        while (true) {
+            delay(60_000)
+            value = SunClock.nightLevel(GlassMode.AUTO, System.currentTimeMillis())
+        }
+    }
+    CoverColourWash(coverUrl)
+    if (artistImages.isNotEmpty()) {
+        var index by remember(artistImages) { mutableStateOf(0) }
+        LaunchedEffect(artistImages) {
+            while (artistImages.size > 1) {
+                delay(PHOTO_EVERY_MS.toLong())
+                index = (index + 1) % artistImages.size
+            }
+        }
+        Crossfade(targetState = artistImages[index % artistImages.size], animationSpec = tween(2_500), label = "artist-photo") { url ->
+            KenBurnsPhoto(url)
+        }
+    }
+    val dim = 0.10f * night
+    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(
+        Color.Black.copy(alpha = 0.42f + dim), Color.Black.copy(alpha = 0.60f + dim), Color.Black.copy(alpha = 0.80f + dim)))))
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.70f))))
+    // Night: a faint amber cast, so the room isn't lit blue-white after dark.
+    if (night > 0f) Box(Modifier.fillMaxSize().background(Color(0xFF3A1E00).copy(alpha = 0.22f * night)))
+}
+
+/** One fanart photo filling the screen, slowly zooming in and drifting one way over its turn. */
+@Composable
+private fun KenBurnsPhoto(url: String) {
+    val context = LocalContext.current
+    val t = remember(url) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(url) {
+        t.animateTo(1f, tween(PHOTO_EVERY_MS + 3_000, easing = androidx.compose.animation.core.LinearEasing))
+    }
+    val dir = remember(url) { if (Random.nextBoolean()) 1f else -1f }
+    AsyncImage(
+        model = ImageRequest.Builder(context).data(url).size(1280, 720).build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize().graphicsLayer {
+            val s = 1.06f + 0.10f * t.value
+            scaleX = s; scaleY = s
+            translationX = dir * size.width * 0.03f * (t.value - 0.5f) * 2f
+        },
+    )
+}
+
+/**
+ * The cover's colours as a soft, slowly moving wash: the cover decoded tiny (24px), stretched far
+ * past the screen and drifted/turned over a minute and a half, so the colours shift without any
+ * shape showing. Works on Android 11 (no Modifier.blur needed at this size).
+ */
+@Composable
+private fun CoverColourWash(url: String?) {
+    val context = LocalContext.current
+    val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "wash")
+    val a by drift.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(
+        tween(90_000, easing = androidx.compose.animation.core.LinearEasing),
+        androidx.compose.animation.core.RepeatMode.Reverse), label = "wash-a")
+    Crossfade(targetState = url, animationSpec = tween(1_500), label = "wash-cover") { u ->
+        if (u != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(u).size(24).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.35f) }),
+                modifier = Modifier.fillMaxSize().blur(24.dp).graphicsLayer {
+                    scaleX = 1.8f; scaleY = 1.8f
+                    rotationZ = -12f + 24f * a
+                    translationX = size.width * 0.12f * (a - 0.5f)
+                    translationY = size.height * 0.10f * (0.5f - a)
+                },
+            )
         }
     }
 }

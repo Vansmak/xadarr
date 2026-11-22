@@ -530,6 +530,28 @@ class MusicAssistantRepository @Inject constructor(
 
     // ── Images ───────────────────────────────────────────────────────────────
 
+    private val fanartCache = HashMap<String, List<String>>()
+
+    /**
+     * An artist's wide fanart photos (fanart.tv / TheAudioDB, from MA's metadata), for the music
+     * screensaver's backdrop. Duplicates across providers dropped, http fanart.tv links made https.
+     * Cached per artist; empty when MA has none or the lookup fails.
+     */
+    suspend fun artistFanart(uri: String): List<String> {
+        synchronized(fanartCache) { fanartCache[uri] }?.let { return it }
+        val artist = runCatching { command("music/item_by_uri", JSONObject().put("uri", uri)) as? JSONObject }.getOrNull()
+            ?: return emptyList()
+        val images = artist.optJSONObject("metadata")?.optJSONArray("images")
+        val seen = HashSet<String>()
+        val urls = (0 until (images?.length() ?: 0)).mapNotNull { i ->
+            val img = images?.optJSONObject(i)?.takeIf { it.optString("type") == "fanart" } ?: return@mapNotNull null
+            val url = imageUrl(img, 1920)?.replace("http://assets.fanart.tv/", "https://assets.fanart.tv/") ?: return@mapNotNull null
+            url.takeIf { seen.add(it.substringAfterLast('/').substringBefore('.')) }
+        }.take(8)
+        synchronized(fanartCache) { fanartCache[uri] = urls }
+        return urls
+    }
+
     /**
      * Turns an MA image reference into a URL Coil can load. Remotely-accessible images
      * (Spotify's CDN, etc.) are used directly; everything else goes through MA's imageproxy.
