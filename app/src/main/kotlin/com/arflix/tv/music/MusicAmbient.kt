@@ -216,9 +216,7 @@ fun MusicAmbient(
             val words: @Composable (TextAlign) -> Unit = { align ->
                 val horizontal = if (align == TextAlign.Center) Alignment.CenterHorizontally else Alignment.Start
                 Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
-                    Text(title ?: "Music", color = Color.White, fontSize = if (narrow) 32.sp else 58.sp,
-                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = align,
-                        lineHeight = if (narrow) 36.sp else 64.sp)
+                    FitTitle(title ?: "Music", align, if (narrow) 32 else 56, if (narrow) 22 else 34)
                     artist?.let {
                         Spacer(Modifier.height(6.dp))
                         Text(it, color = Color.White.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 34.sp, fontWeight = FontWeight.SemiBold,
@@ -235,8 +233,8 @@ fun MusicAmbient(
                         Spacer(Modifier.height(if (narrow) 16.dp else 24.dp))
                         AmbientProgress(elapsedSec, duration)
                     }
-                    next?.let {
-                        Spacer(Modifier.height(if (narrow) 16.dp else 28.dp))
+                    next?.takeIf { it.name.isNotBlank() }?.let {
+                        Spacer(Modifier.height(if (narrow) 16.dp else 22.dp))
                         Text("UP NEXT", color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 12.sp else 15.sp,
                             fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, textAlign = align)
                         Spacer(Modifier.height(2.dp))
@@ -285,6 +283,25 @@ fun MusicAmbient(
             }
         }
     }
+}
+
+/**
+ * The song title on one line, shrinking from [maxSp] towards [minSp] until it fits; only a title
+ * still too long at [minSp] takes a second line. A two-line 58sp title pushed "Up next" off the
+ * bottom of the words column on the 1080p TVs (Master Bedroom, Joe, 2026-11-22).
+ */
+@Composable
+private fun FitTitle(text: String, align: TextAlign, maxSp: Int, minSp: Int) {
+    var size by remember(text) { mutableStateOf(maxSp) }
+    var settled by remember(text) { mutableStateOf(false) }
+    val atMin = size <= minSp
+    Text(text, color = Color.White, fontSize = size.sp, fontWeight = FontWeight.ExtraBold,
+        maxLines = if (atMin) 2 else 1, softWrap = atMin, overflow = TextOverflow.Ellipsis, textAlign = align,
+        lineHeight = (size + 6).sp,
+        onTextLayout = { r ->
+            if (!atMin && r.hasVisualOverflow) size = maxOf(minSp, size - 4) else settled = true
+        },
+        modifier = Modifier.drawWithContent { if (settled) drawContent() })
 }
 
 @Composable
