@@ -87,7 +87,8 @@ private val Muted: Color @Composable @ReadOnlyComposable get() = glassOr(Color(0
 data class SmartHomeUiState(
     val allEntities: List<HomeAssistantRepository.HaEntity> = emptyList(),
     val exposedIds: Set<String> = emptySet(), // empty = show all (default, backward-compatible)
-    val collapsedDomains: Set<String> = emptySet(),
+    // Groups start collapsed except Family Room (pinned on top, what Joe uses most).
+    val expandedGroups: Set<String> = setOf(FAMILY_GROUP),
     val isLoading: Boolean = true,
     val error: String? = null,
     val pendingEntityId: String? = null,
@@ -207,9 +208,9 @@ class SmartHomeViewModel @Inject constructor(
     }
 
     fun toggleDomainCollapsed(domain: String) {
-        val current = _uiState.value.collapsedDomains
+        val current = _uiState.value.expandedGroups
         _uiState.value = _uiState.value.copy(
-            collapsedDomains = if (domain in current) current - domain else current + domain
+            expandedGroups = if (domain in current) current - domain else current + domain
         )
     }
 
@@ -231,7 +232,14 @@ class SmartHomeViewModel @Inject constructor(
 
 // ── Domain grouping ──────────────────────────────────────────────────────────
 
+// Pseudo-group pinned above the type groups: every device in the family room.
+internal const val FAMILY_GROUP = "family_room"
+
+private fun isFamilyRoom(e: HomeAssistantRepository.HaEntity): Boolean =
+    e.name.contains("family", ignoreCase = true) || e.entityId.contains("family", ignoreCase = true)
+
 private fun domainGroupLabel(domain: String): String = when (domain) {
+    FAMILY_GROUP -> "Family Room"
     "light" -> "Lights"
     "fan" -> "Fans"
     "climate" -> "AC"
@@ -268,11 +276,17 @@ private fun domainSortOrder(domain: String): Int = when (domain) {
 
 private fun buildRows(
     entities: List<HomeAssistantRepository.HaEntity>,
-    collapsedDomains: Set<String>,
+    expandedGroups: Set<String>,
 ): List<SmartHomeRow> {
     val rows = mutableListOf<SmartHomeRow>()
-    entities.groupBy { it.domain }.toSortedMap(compareBy { domainSortOrder(it) }).forEach { (domain, items) ->
-        val collapsed = domain in collapsedDomains
+    val (family, rest) = entities.partition { isFamilyRoom(it) }
+    if (family.isNotEmpty()) {
+        val collapsed = FAMILY_GROUP !in expandedGroups
+        rows.add(SmartHomeRow.DomainHeader(FAMILY_GROUP, family.size, collapsed))
+        if (!collapsed) family.sortedBy { domainSortOrder(it.domain) }.forEach { rows.add(SmartHomeRow.Entity(it)) }
+    }
+    rest.groupBy { it.domain }.toSortedMap(compareBy { domainSortOrder(it) }).forEach { (domain, items) ->
+        val collapsed = domain !in expandedGroups
         rows.add(SmartHomeRow.DomainHeader(domain, items.size, collapsed))
         if (!collapsed) items.forEach { rows.add(SmartHomeRow.Entity(it)) }
     }
@@ -290,7 +304,7 @@ fun SmartHomeScreen(
 
     val uiState by viewModel.uiState.collectAsState()
     val visibleEntities = uiState.visibleEntities
-    val rows = remember(visibleEntities, uiState.collapsedDomains) { buildRows(visibleEntities, uiState.collapsedDomains) }
+    val rows = remember(visibleEntities, uiState.expandedGroups) { buildRows(visibleEntities, uiState.expandedGroups) }
     val navigableIndices = remember(rows) {
         rows.indices.filter { rows[it] is SmartHomeRow.DomainHeader || rows[it] is SmartHomeRow.Entity }
     }
