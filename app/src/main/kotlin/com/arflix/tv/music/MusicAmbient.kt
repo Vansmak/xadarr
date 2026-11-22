@@ -63,6 +63,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlin.random.Random
+import androidx.compose.ui.text.font.FontStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import androidx.compose.animation.core.animateFloat
 
 /** Idle time on the Music screen, while music plays, before the screensaver takes over. */
@@ -153,49 +157,46 @@ fun MusicAmbientNow(viewModel: MusicViewModel, sleepingSoon: Boolean = false) {
         ui.queueItems.indexOfFirst { it.id == cur.id }.takeIf { it >= 0 }
     } ?: ui.queue?.currentIndex
     val artistUri = ui.queue?.current?.artistUri
-    val artistImages by produceState(emptyList<String>(), artistUri) {
-        value = artistUri?.let { runCatching { viewModel.artistFanart(it) }.getOrNull() }.orEmpty()
+    val artistInfo by produceState<MusicAssistantRepository.ArtistInfo?>(null, artistUri) {
+        value = artistUri?.let { runCatching { viewModel.artistInfo(it) }.getOrNull() }
     }
     MusicAmbient(
-        artistImages = artistImages,
         current = ui.queue?.current,
-        previous = curIdx?.let { ui.queueItems.getOrNull(it - 1) },
         next = curIdx?.let { ui.queueItems.getOrNull(it + 1) },
         title = ui.queue?.current?.name ?: ui.selectedPlayer?.nowTitle,
         artist = ui.queue?.current?.artist ?: ui.selectedPlayer?.nowArtist,
         room = ui.selectedPlayer?.name,
         imageUrl = ui.queue?.current?.imageUrl ?: ui.selectedPlayer?.nowImageUrl,
         elapsedSec = remember(tick, ui.elapsedSec, ui.elapsedAtMs, ui.isPlaying) { viewModel.currentElapsed() },
+        artistInfo = artistInfo,
         sleepingSoon = sleepingSoon,
     )
 }
 
 /**
- * Music screensaver (Joe, 2026-10-12; look after a r/homeassistant now-playing display):
- * a coverflow -- this song's cover flat and large, the previous and next covers angled behind it
- * with a faint reflection -- over a blurred, darkened wash of the cover, with clock and room on
- * top, the song in big type, a thin progress bar, "Up next", and a Stoic quote along the bottom.
- * No lyrics (Joe, 2026-11-20: "too crowded and busy"); they're on the Lyrics tab. The whole
- * layout drifts a few dp every 30s so nothing sits still long enough to burn into an OLED. The Music screen wakes it on any key or tap.
+ * Music screensaver, an information clock (Joe, 2026-11-22: "a weather clock, quotes, what's
+ * playing and coming, maybe some info about the song, artist or genre"; not artist photos, not
+ * big album art). Top: a large clock and the date, the weather and room opposite. Middle: a small
+ * cover, the song in big type, album · year · genres, a one-line who-the-artist-is, progress and
+ * up next. Bottom: the Stoic quote. Behind it the cover's colours as a slow wash, dimmer and warmer
+ * at night. Always dark and high-contrast (Patio TV in daylight, 2026-11-20). No lyrics (too busy).
+ * The layout drifts a few dp every 30s against OLED burn-in. Any key or tap wakes the Music screen.
  */
 @Composable
 fun MusicAmbient(
-    artistImages: List<String> = emptyList(),
     current: MaQueueItem?,
-    previous: MaQueueItem?,
     next: MaQueueItem?,
     title: String?,
     artist: String?,
     room: String?,
     imageUrl: String?,
     elapsedSec: Double,
+    artistInfo: MusicAssistantRepository.ArtistInfo? = null,
     sleepingSoon: Boolean = false,
 ) {
     val context = LocalContext.current
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        // Always dark, whatever the theme: the glass day look's near-white wash under white text
-        // was unreadable on the Patio TV in daylight (Joe, 2026-11-20). Darker than Now Playing.
-        AmbientBackdrop(artistImages, imageUrl)
+        AmbientBackdrop(imageUrl)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val narrow = maxWidth < 600.dp
             var drift by remember { mutableStateOf(0f to 0f) }
@@ -208,104 +209,133 @@ fun MusicAmbient(
             val dx by animateDpAsState(20.dp * drift.first, tween(8_000), label = "drift-x")
             val dy by animateDpAsState(14.dp * drift.second, tween(8_000), label = "drift-y")
 
-            val clock by produceState(initialValue = "") {
-                val fmt = android.text.format.DateFormat.getTimeFormat(context)
+            val now by produceState(System.currentTimeMillis()) {
                 while (true) {
-                    value = fmt.format(java.util.Date())
+                    value = System.currentTimeMillis()
                     delay(15_000)
                 }
             }
-            val coverSize = if (narrow) minOf(maxWidth * 0.62f, 260.dp) else minOf(maxHeight * 0.5f, 380.dp)
-
-            val visual: @Composable (Modifier) -> Unit = { mod ->
-                Box(mod, contentAlignment = Alignment.Center) {
-                    CoverFlow(previous?.imageUrl, imageUrl, next?.imageUrl, coverSize)
-                }
+            val clock = remember(now) {
+                // The clock alone, big; AM/PM rides along small beside it.
+                val f = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(now))
+                f.substringBefore(' ') to f.substringAfter(' ', "")
             }
-            val words: @Composable (TextAlign) -> Unit = { align ->
-                val horizontal = if (align == TextAlign.Center) Alignment.CenterHorizontally else Alignment.Start
-                Column(horizontalAlignment = horizontal, modifier = Modifier.fillMaxWidth()) {
-                    FitTitle(title ?: "Music", align, if (narrow) 32 else 56, if (narrow) 22 else 34)
-                    artist?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(it, color = Color.White.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 34.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
-                    }
-                    val albumLine = listOfNotNull(current?.album, current?.year?.toString()).joinToString(" · ")
-                    if (albumLine.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(albumLine, color = Color.White.copy(alpha = 0.78f), fontSize = if (narrow) 16.sp else 23.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
-                    }
-                    val duration = current?.durationSec ?: 0
-                    if (duration > 0) {
-                        Spacer(Modifier.height(if (narrow) 16.dp else 24.dp))
-                        AmbientProgress(elapsedSec, duration)
-                    }
-                    next?.takeIf { it.name.isNotBlank() }?.let {
-                        Spacer(Modifier.height(if (narrow) 16.dp else 22.dp))
-                        Text("UP NEXT", color = Color.White.copy(alpha = 0.6f), fontSize = if (narrow) 12.sp else 15.sp,
-                            fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp, textAlign = align)
-                        Spacer(Modifier.height(2.dp))
-                        Text(listOfNotNull(it.name, it.artist).joinToString(" · "),
-                            color = Color.White.copy(alpha = 0.85f), fontSize = if (narrow) 16.sp else 22.sp,
-                            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
-                    }
+            val date = remember(now) { java.text.SimpleDateFormat("EEEE, MMMM d", java.util.Locale.getDefault()).format(java.util.Date(now)) }
+            val weather by produceState<AmbientWeather?>(null) {
+                while (true) {
+                    AmbientWeather.fetch()?.let { value = it }
+                    delay(if (value == null) 2 * 60_000L else 15 * 60_000L)
                 }
             }
 
+            val white = Color.White
+            val soft = white.copy(alpha = 0.78f)
             Column(
                 Modifier.fillMaxSize().offset(dx, dy)
-                    .padding(horizontal = if (narrow) 20.dp else 56.dp, vertical = if (narrow) 20.dp else 32.dp),
+                    .padding(horizontal = if (narrow) 20.dp else 64.dp, vertical = if (narrow) 20.dp else 36.dp),
             ) {
-                // Top line: clock · room
-                Text(listOfNotNull(clock.ifBlank { null }, room).joinToString("  ·  "),
-                    color = Color.White.copy(alpha = 0.9f), fontSize = if (narrow) 17.sp else 28.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1)
-                if (narrow) {
-                    visual(Modifier.fillMaxWidth().weight(1f))
-                    words(TextAlign.Center)
-                } else {
-                    Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                        visual(Modifier.weight(1.1f).fillMaxHeight())
-                        Spacer(Modifier.width(48.dp))
-                        Box(Modifier.weight(1f)) { words(TextAlign.Start) }
+                // ── Top: clock + date | weather + room
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(clock.first, color = white, fontSize = if (narrow) 48.sp else 92.sp,
+                                fontWeight = FontWeight.Light, lineHeight = if (narrow) 50.sp else 92.sp)
+                            if (clock.second.isNotBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(clock.second, color = soft, fontSize = if (narrow) 18.sp else 28.sp,
+                                    fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = if (narrow) 6.dp else 14.dp))
+                            }
+                        }
+                        Text(date, color = soft, fontSize = if (narrow) 17.sp else 26.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        weather?.let { w ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(w.icon, fontSize = if (narrow) 30.sp else 52.sp)
+                                Spacer(Modifier.width(12.dp))
+                                Text("${w.now}°", color = white, fontSize = if (narrow) 40.sp else 68.sp, fontWeight = FontWeight.Light)
+                            }
+                            Text(listOfNotNull(w.summary, "H ${w.high}° · L ${w.low}°", w.rain?.let { "$it% rain" }).joinToString("  ·  "),
+                                color = soft, fontSize = if (narrow) 15.sp else 22.sp, fontWeight = FontWeight.Medium)
+                        }
+                        room?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text(it, color = white.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 20.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
-                // The Stoic quote: its own line along the bottom, centred under a short rule and in
-                // a serif, so it reads as a quote and not song info -- up by the clock, "Let it be. --
-                // The Beatles" looked like the next song (Joe, 2026-11-20).
-                Spacer(Modifier.height(if (narrow) 12.dp else 20.dp))
+
+                // ── Middle: the song
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.CenterStart) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!narrow) {
+                            SmallCover(imageUrl, 190.dp)
+                            Spacer(Modifier.width(40.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            FitTitle(title ?: "Music", TextAlign.Start, if (narrow) 30 else 54, if (narrow) 22 else 34)
+                            artist?.let {
+                                Text(it, color = white.copy(alpha = 0.92f), fontSize = if (narrow) 20.sp else 32.sp,
+                                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            val about = listOfNotNull(current?.album, current?.year?.toString(),
+                                artistInfo?.genres?.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString("  ·  ")
+                            if (about.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(about, color = soft, fontSize = if (narrow) 15.sp else 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            val who = listOfNotNull(artistInfo?.blurb, artistInfo?.mood?.let { "$it mood" }).joinToString("  ·  ")
+                            if (who.isNotBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(who, color = white.copy(alpha = 0.6f), fontSize = if (narrow) 14.sp else 20.sp,
+                                    fontStyle = FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            val duration = current?.durationSec ?: 0
+                            if (duration > 0) {
+                                Spacer(Modifier.height(if (narrow) 12.dp else 16.dp))
+                                AmbientProgress(elapsedSec, duration)
+                            }
+                            next?.takeIf { it.name.isNotBlank() }?.let {
+                                Spacer(Modifier.height(if (narrow) 8.dp else 10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("UP NEXT", color = white.copy(alpha = 0.55f), fontSize = if (narrow) 12.sp else 15.sp,
+                                        fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
+                                    Spacer(Modifier.width(14.dp))
+                                    Text(listOfNotNull(it.name, it.artist).joinToString(" · "), color = white.copy(alpha = 0.85f),
+                                        fontSize = if (narrow) 16.sp else 22.sp, fontWeight = FontWeight.Medium,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Bottom: the Stoic quote, centred under a short rule, in a serif
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(if (narrow) 1f else 0.7f)) {
-                        Box(Modifier.width(56.dp).height(1.dp).background(Color.White.copy(alpha = 0.35f)))
-                        Spacer(Modifier.height(if (narrow) 10.dp else 14.dp))
-                        AmbientQuote(Modifier.fillMaxWidth(), align = TextAlign.Center, fontSize = if (narrow) 17 else 26)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(if (narrow) 1f else 0.72f)) {
+                        Box(Modifier.width(56.dp).height(1.dp).background(white.copy(alpha = 0.35f)))
+                        Spacer(Modifier.height(if (narrow) 10.dp else 12.dp))
+                        AmbientQuote(Modifier.fillMaxWidth(), align = TextAlign.Center, fontSize = if (narrow) 17 else 24)
                     }
                 }
                 if (sleepingSoon) {
                     Spacer(Modifier.height(8.dp))
                     Text("Screen turns off soon · press any button to keep it on",
-                        color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp,
-                        textAlign = if (narrow) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
+                        color = white.copy(alpha = 0.85f), fontSize = 18.sp,
+                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
     }
 }
 
-/** How long each artist photo stays up, slowly panning, before fading to the next. */
-private const val PHOTO_EVERY_MS = 24_000
-
 /**
- * The screensaver's background (Joe, 2026-11-22). The artist's fanart photos, one at a time, each
- * slowly zooming and panning; underneath (and alone when MA has no fanart, or a photo doesn't
- * load) the cover's own colours as a soft wash that slowly drifts. It follows the time of day like
- * the Glass theme: brighter by day, dimmer and warmer at night. The right side, where the words
- * are, and the bottom, the quote, stay dark enough to read in daylight (Patio TV).
+ * The screensaver's background: the cover's colours as a slow wash, following the time of day like
+ * the Glass theme -- a touch brighter by day, dimmer with a faint amber cast at night -- under a
+ * scrim that keeps every line readable in daylight.
  */
 @Composable
-private fun AmbientBackdrop(artistImages: List<String>, coverUrl: String?) {
+private fun AmbientBackdrop(coverUrl: String?) {
     val night by produceState(SunClock.nightLevel(GlassMode.AUTO, System.currentTimeMillis())) {
         while (true) {
             delay(60_000)
@@ -313,46 +343,52 @@ private fun AmbientBackdrop(artistImages: List<String>, coverUrl: String?) {
         }
     }
     CoverColourWash(coverUrl)
-    if (artistImages.isNotEmpty()) {
-        var index by remember(artistImages) { mutableStateOf(0) }
-        LaunchedEffect(artistImages) {
-            while (artistImages.size > 1) {
-                delay(PHOTO_EVERY_MS.toLong())
-                index = (index + 1) % artistImages.size
-            }
-        }
-        Crossfade(targetState = artistImages[index % artistImages.size], animationSpec = tween(2_500), label = "artist-photo") { url ->
-            KenBurnsPhoto(url)
-        }
-    }
-    val dim = 0.10f * night
-    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(
-        Color.Black.copy(alpha = 0.42f + dim), Color.Black.copy(alpha = 0.60f + dim), Color.Black.copy(alpha = 0.80f + dim)))))
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.56f + 0.14f * night)))
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-        0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.70f))))
-    // Night: a faint amber cast, so the room isn't lit blue-white after dark.
+        0f to Color.Black.copy(alpha = 0.25f), 0.3f to Color.Transparent, 0.7f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))))
     if (night > 0f) Box(Modifier.fillMaxSize().background(Color(0xFF3A1E00).copy(alpha = 0.22f * night)))
 }
 
-/** One fanart photo filling the screen, slowly zooming in and drifting one way over its turn. */
-@Composable
-private fun KenBurnsPhoto(url: String) {
-    val context = LocalContext.current
-    val t = remember(url) { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(url) {
-        t.animateTo(1f, tween(PHOTO_EVERY_MS + 3_000, easing = androidx.compose.animation.core.LinearEasing))
+/** Current weather for the screensaver, from Open-Meteo (free, no key) at the time zone's city. */
+private data class AmbientWeather(val now: Int, val high: Int, val low: Int, val rain: Int?, val icon: String, val summary: String?) {
+    companion object {
+        suspend fun fetch(): AmbientWeather? = withContext(Dispatchers.IO) {
+            runCatching {
+                val (lat, lon) = SunClock.placeFor(java.util.TimeZone.getDefault())
+                val f = java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
+                val url = java.net.URL("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
+                    "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+                    "&forecast_days=1&timezone=auto" + if (f) "&temperature_unit=fahrenheit" else "")
+                val conn = (url.openConnection() as java.net.HttpURLConnection).apply { connectTimeout = 8_000; readTimeout = 8_000 }
+                val o = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                val cur = o.getJSONObject("current")
+                val daily = o.getJSONObject("daily")
+                val code = cur.optInt("weather_code")
+                val day = cur.optInt("is_day", 1) == 1
+                AmbientWeather(
+                    now = Math.round(cur.getDouble("temperature_2m")).toInt(),
+                    high = Math.round(daily.getJSONArray("temperature_2m_max").getDouble(0)).toInt(),
+                    low = Math.round(daily.getJSONArray("temperature_2m_min").getDouble(0)).toInt(),
+                    rain = daily.optJSONArray("precipitation_probability_max")?.optInt(0)?.takeIf { it >= 30 },
+                    icon = when (code) {
+                        0 -> if (day) "☀️" else "🌙"
+                        1, 2 -> if (day) "🌤️" else "☁️"
+                        3 -> "☁️"
+                        45, 48 -> "🌫️"
+                        in 51..67, in 80..82 -> "🌧️"
+                        in 71..77, 85, 86 -> "🌨️"
+                        in 95..99 -> "⛈️"
+                        else -> "🌡️"
+                    },
+                    summary = when (code) {
+                        0 -> "Clear"; 1 -> "Mostly clear"; 2 -> "Partly cloudy"; 3 -> "Cloudy"
+                        45, 48 -> "Fog"; in 51..57 -> "Drizzle"; in 61..67, in 80..82 -> "Rain"
+                        in 71..77, 85, 86 -> "Snow"; in 95..99 -> "Storms"; else -> null
+                    },
+                )
+            }.getOrNull()
+        }
     }
-    val dir = remember(url) { if (Random.nextBoolean()) 1f else -1f }
-    AsyncImage(
-        model = ImageRequest.Builder(context).data(url).size(1280, 720).build(),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier.fillMaxSize().graphicsLayer {
-            val s = 1.06f + 0.10f * t.value
-            scaleX = s; scaleY = s
-            translationX = dir * size.width * 0.03f * (t.value - 0.5f) * 2f
-        },
-    )
 }
 
 /**
@@ -436,59 +472,16 @@ private fun clockTime(seconds: Double): String {
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
 }
 
-/** Previous and next covers angled behind the current one, each with a faint reflection. */
+/** The cover, small, with a faint edge and shadow so a dark cover doesn't melt into the wash. */
 @Composable
-private fun CoverFlow(previousUrl: String?, currentUrl: String?, nextUrl: String?, size: Dp) {
-    Box(contentAlignment = Alignment.TopCenter) {
-        listOf(-1 to previousUrl, 1 to nextUrl).forEach { (side, url) ->
-            if (url != null) {
-                Box(
-                    Modifier.graphicsLayer {
-                        translationX = side * size.toPx() * 0.62f
-                        translationY = size.toPx() * 0.08f
-                        rotationY = -side * 48f
-                        scaleX = 0.78f
-                        scaleY = 0.78f
-                        alpha = 0.55f
-                        cameraDistance = 14f * density
-                    }
-                ) { ReflectedCover(url, size) }
-            }
-        }
-        ReflectedCover(currentUrl, size)
-    }
-}
-
-@Composable
-private fun ReflectedCover(url: String?, size: Dp) {
+private fun SmallCover(url: String?, size: Dp) {
     val colors = MaterialTheme.colorScheme
-    val cover: @Composable (Modifier) -> Unit = { mod ->
-        // A faint edge and shadow so a dark cover doesn't melt into the dark wash (Joe, 2026-11-20).
-        Box(mod.size(size).shadow(28.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant)
-            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            if (url != null) {
-                AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(size / 3))
-            }
-        }
-    }
-    Column {
-        cover(Modifier)
-        Spacer(Modifier.height(4.dp))
-        // Reflection: the bottom of the cover, flipped, fading out.
-        Box(
-            Modifier.size(size, size * 0.28f).clipToBounds()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    drawRect(
-                        Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.32f), Color.Transparent)),
-                        blendMode = BlendMode.DstIn,
-                    )
-                }
-        ) {
-            cover(Modifier.wrapContentHeight(Alignment.Top, unbounded = true).graphicsLayer { scaleY = -1f })
+    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant)
+        .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+        if (url != null) {
+            AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(Icons.Default.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(size / 3))
         }
     }
 }

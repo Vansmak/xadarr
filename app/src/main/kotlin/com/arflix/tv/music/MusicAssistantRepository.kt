@@ -530,26 +530,40 @@ class MusicAssistantRepository @Inject constructor(
 
     // ── Images ───────────────────────────────────────────────────────────────
 
-    private val fanartCache = HashMap<String, List<String>>()
+    /** What the music screensaver says about an artist: genres, mood, and a one-line who-they-are. */
+    data class ArtistInfo(val genres: List<String>, val mood: String?, val blurb: String?)
+
+    private val artistInfoCache = HashMap<String, ArtistInfo>()
 
     /**
-     * An artist's wide fanart photos (fanart.tv / TheAudioDB, from MA's metadata), for the music
-     * screensaver's backdrop. Duplicates across providers dropped, http fanart.tv links made https.
-     * Cached per artist; empty when MA has none or the lookup fails.
+     * An artist's genres, mood and a short blurb (the first clause of MA's bio, from TheAudioDB /
+     * MusicBrainz metadata), for the music screensaver. Cached per artist; null when the lookup fails.
      */
-    suspend fun artistFanart(uri: String): List<String> {
-        synchronized(fanartCache) { fanartCache[uri] }?.let { return it }
+    suspend fun artistInfo(uri: String): ArtistInfo? {
+        synchronized(artistInfoCache) { artistInfoCache[uri] }?.let { return it }
         val artist = runCatching { command("music/item_by_uri", JSONObject().put("uri", uri)) as? JSONObject }.getOrNull()
-            ?: return emptyList()
-        val images = artist.optJSONObject("metadata")?.optJSONArray("images")
-        val seen = HashSet<String>()
-        val urls = (0 until (images?.length() ?: 0)).mapNotNull { i ->
-            val img = images?.optJSONObject(i)?.takeIf { it.optString("type") == "fanart" } ?: return@mapNotNull null
-            val url = imageUrl(img, 1920)?.replace("http://assets.fanart.tv/", "https://assets.fanart.tv/") ?: return@mapNotNull null
-            url.takeIf { seen.add(it.substringAfterLast('/').substringBefore('.')) }
-        }.take(8)
-        synchronized(fanartCache) { fanartCache[uri] = urls }
-        return urls
+            ?: return null
+        val meta = artist.optJSONObject("metadata")
+        val genresArr = meta?.optJSONArray("genres")
+        val genres = (0 until (genresArr?.length() ?: 0)).mapNotNull { genresArr?.optString(it)?.trim()?.takeIf { g -> g.isNotBlank() } }
+            .map { g -> g.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } } }
+            .distinctBy { it.lowercase() }.take(3)
+        val mood = meta?.optString("mood")?.takeIf { it.isNotBlank() && it != "null" }
+        val info = ArtistInfo(genres, mood, blurb(artist.optString("name"), meta?.optString("description")))
+        synchronized(artistInfoCache) { artistInfoCache[uri] = info }
+        return info
+    }
+
+    /** "The Verve were an English rock band formed in 1989 in Wigan by ..." -> "English rock band formed in 1989 in Wigan". */
+    private fun blurb(name: String, description: String?): String? {
+        val first = description?.takeIf { it.isNotBlank() && it != "null" }
+            ?.substringBefore(". ")?.substringBefore("\n")?.trim() ?: return null
+        var text = first.replace(Regex("^" + Regex.escape(name) + "\\s+(is|was|are|were)\\s+(an?|the)\\s+", RegexOption.IGNORE_CASE), "")
+        if (text == first) return null // not a "<name> is a ..." sentence; usually reads badly cut down
+        text = text.substringBefore(" by ").substringBefore(" consisting of ").substringBefore(" featuring ")
+            .substringBefore(" (").trimEnd(',', ';', '.', ' ')
+        if (text.length > 80) text = text.take(80).substringBeforeLast(' ') + "…"
+        return text.replaceFirstChar { it.uppercase() }.takeIf { it.length >= 8 }
     }
 
     /**

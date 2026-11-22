@@ -720,8 +720,8 @@ class MusicViewModel @Inject constructor(
         }
     }
 
-    /** The artist's fanart photos for the screensaver backdrop (cached in the repository). */
-    suspend fun artistFanart(uri: String): List<String> = repo.artistFanart(uri)
+    /** The artist's genres, mood and blurb for the screensaver (cached in the repository). */
+    suspend fun artistInfo(uri: String): MusicAssistantRepository.ArtistInfo? = repo.artistInfo(uri)
 
     /** MA's "play radio of": an endless mix seeded from the playing track, replacing the queue. */
     fun startRadioFromCurrent() {
