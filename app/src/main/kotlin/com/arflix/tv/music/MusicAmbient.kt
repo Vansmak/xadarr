@@ -79,6 +79,7 @@ const val MUSIC_AMBIENT_AFTER_MS = 60_000L
 // "a keep awake every so often ... but not too naggy").
 const val MUSIC_AWAKE_CHECK_MS = 60 * 60_000L
 const val MUSIC_AWAKE_GRACE_MS = 60_000L
+const val MUSIC_KEEP_AWAKE_AFTER_STOP_MS = 3 * 60_000L
 
 /** Holds the screen on while [enabled]; released when it flips off or the screen leaves. */
 @Composable

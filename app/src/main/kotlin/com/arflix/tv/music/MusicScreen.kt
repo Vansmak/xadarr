@@ -211,17 +211,25 @@ private fun MusicScreenBody(
     // Volume keys count as "someone's here" for keep-awake, without waking the screensaver.
     var lastVolumeAt by remember { mutableLongStateOf(0L) }
     var awakeIdleMs by remember { mutableLongStateOf(0L) }
+    // Last moment music was playing. MA reports a brief not-playing between tracks (and while
+    // radio mode refills the queue); dropping keep-screen-on for that blip let the system
+    // screensaver (Free My TV) take over instantly, since the TV's own idle timer had long
+    // expired. Hold the screen for a few minutes after playback actually stops.
+    var lastPlayingAt by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
+    var recentlyPlaying by remember { mutableStateOf(ui.isPlaying) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(5_000)
             val now = android.os.SystemClock.uptimeMillis()
+            if (ui.isPlaying) lastPlayingAt = now
+            recentlyPlaying = ui.isPlaying || now - lastPlayingAt < MUSIC_KEEP_AWAKE_AFTER_STOP_MS
             idleMs = now - lastInputAt
             awakeIdleMs = now - maxOf(lastInputAt, lastVolumeAt)
-            ambient = ui.isPlaying && !showSearch && !showSpeakers && !showRoomPicker && !ui.askHomeRoom && ui.busyPrompt == null && idleMs > MUSIC_AMBIENT_AFTER_MS
+            ambient = recentlyPlaying && !showSearch && !showSpeakers && !showRoomPicker && !ui.askHomeRoom && ui.busyPrompt == null && idleMs > MUSIC_AMBIENT_AFTER_MS
         }
     }
-    KeepScreenOn(ui.isPlaying && awakeIdleMs < MUSIC_AWAKE_CHECK_MS + MUSIC_AWAKE_GRACE_MS)
-    SpeakerVolumeSession(viewModel)
+    KeepScreenOn((ui.isPlaying || recentlyPlaying) && awakeIdleMs < MUSIC_AWAKE_CHECK_MS + MUSIC_AWAKE_GRACE_MS)
+    ClaimSpeakerVolumeKeys(viewModel)
     fun wake() {
         lastInputAt = android.os.SystemClock.uptimeMillis()
         idleMs = 0L

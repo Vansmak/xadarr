@@ -46,5 +46,19 @@
             android:name="com.arflix.tv.music.PhoneSpeakerService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- Remote volume keys for the room's speaker while Music is on screen (music/SpeakerVolumeKeys.kt):
+             CEC TV boxes send volume to the soundbar over HDMI, never to the app. -->
+        <service
+            android:name="com.arflix.tv.music.SpeakerVolumeKeyService"
+            android:label="@string/speaker_volume_keys_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/speaker_volume_keys" />
+        </service>
     </application>
 </manifest>

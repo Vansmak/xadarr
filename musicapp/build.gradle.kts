@@ -20,8 +20,8 @@ android {
         applicationId = "com.xadarr.music"
         minSdk = 23
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.16"
+        versionCode = 19
+        versionName = "1.18"
     }
 
     signingConfigs {

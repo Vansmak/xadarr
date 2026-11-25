@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="speaker_volume_keys_label">Xadarr Music volume keys</string>
+    <string name="speaker_volume_keys_description">While Xadarr Music is on screen, the remote\'s volume buttons turn the room\'s Music Assistant speaker up and down. Everywhere else they work as usual.</string>
+</resources>
