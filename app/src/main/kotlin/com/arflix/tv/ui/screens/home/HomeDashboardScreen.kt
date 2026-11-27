@@ -176,6 +176,8 @@ class HomeDashboardViewModel @Inject constructor(
         val prefs = context.settingsDataStore.data.first()
         val plexLauncherMode = (prefs[com.arflix.tv.data.repository.LAUNCHER_MODE_KEY] ?: false) &&
             (prefs[com.arflix.tv.data.repository.PLAY_VOD_VIA_PLEX_KEY] ?: false)
+        // Real Plex watchlist whenever Episeerr has it (not only in Plex Launcher Mode).
+        runCatching { watchlistRepository.plexWatchlistOrNull() }.getOrNull()?.let { return it.take(12) }
         return if (plexLauncherMode) {
             runCatching { watchlistRepository.loadFromPlex() }.getOrDefault(emptyList()).take(12)
         } else {

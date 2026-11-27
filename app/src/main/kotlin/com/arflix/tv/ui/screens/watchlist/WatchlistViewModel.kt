@@ -99,6 +99,7 @@ class WatchlistViewModel @Inject constructor(
 
     private fun loadWatchlistInstant() {
         viewModelScope.launch {
+            if (showPlexWatchlist()) return@launch
             if (watchlistRepository.getCachedItems().isEmpty()) {
                 runCatching { cloudSyncRepository.pullFromCloud() }
                     .onFailure { error ->
@@ -167,6 +168,7 @@ class WatchlistViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
+            if (showPlexWatchlist()) return@launch
             try {
                 val syncedFromTrakt = syncTraktWatchlistSuspend()
                 val traktConnected = runCatching { traktRepository.hasTrakt() }.getOrDefault(false)
@@ -191,6 +193,16 @@ class WatchlistViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    // Real Plex watchlist via Episeerr wins over the local (Trakt-era) list whenever it's
+    // available; Trakt is off. Joe, 2026-11-26: phone Watchlist showed titles he never added.
+    private suspend fun showPlexWatchlist(): Boolean {
+        val items = runCatching { watchlistRepository.plexWatchlistOrNull() }.getOrNull() ?: return false
+        val ordered = items.watchlistDisplayOrder()
+        _uiState.value = _uiState.value.copy(isLoading = false, items = ordered, error = null)
+        if (ordered.isNotEmpty()) fetchLogos(ordered)
+        return true
     }
 
     private suspend fun showLocalWatchlistOrError(message: String) {

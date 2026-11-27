@@ -249,6 +249,9 @@ class WatchlistRepository @Inject constructor(
             val base = syncServerUrl()
             if (base.isNotBlank()) {
                 notifySyncServer("DELETE", "$base/api/media/watchlist/$typeStr/$tmdbId")
+                // Episeerr serves this route under /xadarr/api (and also drops it from the real
+                // Plex watchlist); /api/media/... above is xadarr-server's and 404s on Episeerr.
+                notifySyncServer("DELETE", "${base.trimEnd('/')}/xadarr/api/media/watchlist/$typeStr/$tmdbId")
             }
         }
     }
@@ -266,6 +269,7 @@ class WatchlistRepository @Inject constructor(
     suspend fun syncFromSyncServer() = withContext(Dispatchers.IO) {
         val base = syncServerUrl()
         if (base.isBlank()) return@withContext
+        if (plexWatchlistOrNull() != null) return@withContext
         runCatching {
             val req = Request.Builder().url("$base/api/media/watchlist").get().build()
             val resp = okHttpClient.newCall(req).execute()
@@ -372,6 +376,7 @@ class WatchlistRepository @Inject constructor(
         if (itemsCache.isNotEmpty()) {
             return@withContext itemsCache.toList()
         }
+        plexWatchlistOrNull()?.let { return@withContext it }
 
         // Load and enrich items
         val rawItems = loadWatchlistRaw()
@@ -432,39 +437,54 @@ class WatchlistRepository @Inject constructor(
      * Returns the local cache unchanged (does not clear it) on any failure —
      * a transient Episeerr outage shouldn't blank the row.
      */
-    suspend fun loadFromPlex(): List<MediaItem> = withContext(Dispatchers.IO) {
-        val base = context.settingsDataStore.data.first()[SYNC_SERVER_URL_KEY].orEmpty().trim().trimEnd('/')
-        if (base.isBlank()) return@withContext itemsCache.toList()
-        try {
+    suspend fun loadFromPlex(): List<MediaItem> = plexWatchlistOrNull() ?: itemsCache.toList()
+
+    /**
+     * The real Plex watchlist via Episeerr, when Episeerr says it's authoritative
+     * (Plex configured and fetched OK, header X-Plex-Watchlist: ok). Adopts it as the
+     * local watchlist -- persisted, so the old Trakt-era local list (which carried
+     * titles Joe never added) is overwritten for good. Null when unavailable, so
+     * callers fall back to the local list and a transient outage never blanks it.
+     * Joe, 2026-11-26: phone still listed things he never watchlisted -- the Watchlist
+     * screen and mobile Home only read Plex in Plex Launcher Mode.
+     */
+    suspend fun plexWatchlistOrNull(): List<MediaItem>? = withContext(Dispatchers.IO) {
+        val base = syncServerUrl().trimEnd('/')
+        if (base.isBlank()) return@withContext null
+        val raw = try {
             val req = Request.Builder().url("$base/api/integration/xadarr/watchlist/plex").get().build()
-            val body = okHttpClient.newCall(req).execute().use { it.body?.string() ?: "[]" }
-            val arr = org.json.JSONArray(body)
-            val items = (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                val type = if (obj.optString("mediaType") == "show") MediaType.TV else MediaType.MOVIE
-                MediaItem(
-                    id = obj.optInt("tmdbId"),
-                    title = obj.optString("title"),
-                    subtitle = if (type == MediaType.TV) "TV Series" else "Movie",
-                    mediaType = type,
-                    image = obj.optString("posterPath"),
-                    backdrop = obj.optString("backdropPath").ifBlank { null },
-                    addedAt = obj.optLong("addedAt", System.currentTimeMillis()),
-                )
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful || resp.header("X-Plex-Watchlist") != "ok") return@withContext null
+                val arr = org.json.JSONArray(resp.body?.string() ?: return@withContext null)
+                (0 until arr.length()).mapNotNull { i ->
+                    val obj = arr.getJSONObject(i)
+                    val id = obj.optInt("tmdbId").takeIf { it > 0 } ?: return@mapNotNull null
+                    LocalWatchlistItem(
+                        tmdbId = id,
+                        mediaType = if (obj.optString("mediaType") == "show") "tv" else "movie",
+                        title = obj.optString("title"),
+                        posterPath = obj.optString("posterPath").ifBlank { null },
+                        backdropPath = obj.optString("backdropPath").ifBlank { null },
+                        addedAt = obj.optLong("addedAt", 0L).takeIf { it > 0 } ?: System.currentTimeMillis(),
+                        sourceOrder = i,
+                    )
+                }
             }
-            cacheMutex.withLock {
-                itemsCache.clear()
-                itemsCache.addAll(items)
-                keyCache.clear()
-                items.forEach { keyCache.add(cacheKey(it.mediaType, it.id)) }
-                _watchlistItems.value = items
-                cacheLoaded = true
-            }
-            items
         } catch (e: Exception) {
-            AppLogger.d("WatchlistRepository", "loadFromPlex failed: ${e.message}")
-            itemsCache.toList()
+            AppLogger.d("WatchlistRepository", "plex watchlist failed: ${e.message}")
+            return@withContext null
         }
+        saveWatchlist(raw)
+        val items = raw.map { it.toBasicMediaItem() }
+        cacheMutex.withLock {
+            itemsCache.clear()
+            itemsCache.addAll(items)
+            keyCache.clear()
+            items.forEach { keyCache.add(cacheKey(it.mediaType, it.id)) }
+            _watchlistItems.value = items
+            cacheLoaded = true
+        }
+        items
     }
 
     /**
